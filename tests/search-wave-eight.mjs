@@ -600,8 +600,12 @@ await test("CACHE_SCHEMA_VERSION is v43 with the wave nine entry in its chain", 
   // confidence line regeneration, the fact check stage
   // honesty fix, and the deep check's quota diverse tiers
   // with the synthesis time reserve).
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v51";'),
-    "the cache schema version was not bumped to v51");
+  // Updated 2026-10-15 (wave seventeen): bumped to v52 (the
+  // citation depth wave: real concepts judging, the subject
+  // serve rebuild, the static vocabulary bridges, and the
+  // citable aware readmission).
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v52";'),
+    "the cache schema version was not bumped to v52");
   assert.ok(/v44 \(2026-10-14, wave ten\)/.test(src),
     "the v44 chain entry is missing its dated reason");
   assert.ok(/v43 \(2026-10-14, wave nine\)/.test(src),

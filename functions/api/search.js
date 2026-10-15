@@ -2323,7 +2323,22 @@ export function isNonLiterature(p) {
 // uncapped gpt-oss-20b leg takes the standard 3,000 ms cap.
 // Search records also gain the subject serve diagnostic, and
 // the record page renders the fact check trace.
-const CACHE_SCHEMA_VERSION = "v51";
+// v52 (2026-10-15, wave seventeen): the citation depth wave.
+// The gate judges on real concepts only (filler closed class
+// words screened out of the judged set, the strict standard
+// degraded to a one real concept rule when a single grouped
+// or subject concept exists), so papers a warm entry demoted
+// as uncitable are citable now and its cited set understates
+// the shelf; the subject serve demotes and rebuilds over
+// subject engaging citable papers before refusing, so a warm
+// entry can hold the no evidence state for a question the
+// chain now answers thin; static everyday vocabulary bridges
+// (puff to swelling and edema, the sleep and cold groups, the
+// waste oil phrases) change what retrieval gathers for the
+// same words; and the citable aware readmission restocks thin
+// citable shelves from the floor's one hit misses, so a warm
+// entry's shelf is not the shelf the chain would build.
+const CACHE_SCHEMA_VERSION = "v52";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
@@ -3405,6 +3420,32 @@ const CONCEPT_GROUPS = [
   // common name variants, so BSFL papers score correctly.
   ["bsfl", "bsf", "black soldier fly", "black soldier fly larvae",
    "black soldier fly larva", "hermetia", "hermetia illucens"],
+  // 2026-10-15 (wave seventeen, citation depth diagnosis, stage
+  // 4): the everyday vocabulary bridges, seeded statically so
+  // they exist on EVERY draw. Before this, the only bridge from
+  // "puff" to the edema literature was one nondeterministic
+  // model expansion call — the parent run's draw lost it and
+  // retrieved petroleum "huff and puff" papers for a question
+  // about ankles, the diagnosis's draw won it and cited the
+  // edema trial; same code, coin flip. The sleep and cold
+  // bridges were the same coin (the diagnosis's sleep run's
+  // expansion produced one group, a sleep deprivation group and
+  // a common cold group reached only sometimes), and the waste
+  // oil bridge matters because the literature writes "waste
+  // cooking oil" and "used cooking oil" where people write
+  // "fryer oil". Groups, not SYNONYMS entries: SYNONYMS keys
+  // feed the scorer's neutral word machinery, which would
+  // reclassify a symptom word as an organism word; every
+  // consumer named by the diagnosis (the structured query
+  // builder, the gate's concept groups, the scorer, the
+  // deterministic fallback) reads the concept groups.
+  ["puff", "swelling", "edema", "swollen"],
+  ["sleep", "sleeping", "slept", "insomnia", "sleep deprivation",
+   "sleep duration", "sleep quality"],
+  ["cold", "common cold", "rhinovirus", "upper respiratory infection",
+   "upper respiratory tract infection", "respiratory infection"],
+  ["waste oil", "waste cooking oil", "used cooking oil", "cooking oil",
+   "used oil"],
   // 2026-10-13 (wave two): "germ"/"germs" appended at the tail. Plain
   // everyday wording for microbes had no group at all, so a question
   // asking about "the germs in a baby's belly" collapsed to the literal
@@ -3890,6 +3931,58 @@ export function inflectionVariants(term) {
 function sameInflection(a, b) {
   if (a === b) return true;
   return inflectionVariants(a).has(b) || inflectionVariants(b).has(a);
+}
+
+// KEYWORD PLAIN TERMS (2026-10-15, wave seventeen, citation
+// depth diagnosis, stage 4). The terms a rung sends to the
+// PLAIN keyword engines (the engines that receive a bare word
+// string with no boolean structure to constrain it). Two rules:
+//   . A term with a bridged concept group — the static table's
+//     group or the model's, or a synonyms entry — is replaced
+//     by the group's alternates (up to four, phrases and real
+//     alternates first class, morphological variants and
+//     closed class words dropped) INSTEAD of the bare term.
+//     The bare collision token is what the plain engines
+//     tokenize worst: "puff" alone pulled petroleum "huff and
+//     puff" papers on the diagnosis's parent run because
+//     nothing in the string told the engine which puff was
+//     meant, while the bridged words (swelling, edema) name
+//     the body's vocabulary directly.
+//   . Closed class words never appear as rung terms at all.
+// The bare term stays inside the boolean group, where the
+// other groups constrain it — a static bridge that is wrong in
+// another domain (puff pastry, an aerosol puff) costs the
+// boolean nothing and the plain rungs only their unconstrained
+// string. Terms with no bridge pass through untouched, and a
+// multi word term (a constraint phrase, a quoted organism)
+// passes through untouched.
+export function keywordPlainTerms(terms, dynLookup) {
+  const out = [];
+  for (const raw of Array.isArray(terms) ? terms : []) {
+    const t = String(raw || "");
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (t.includes('"') || /\s/.test(key)) { out.push(t); continue; }
+    if (isGateFunctionWord(key)) continue;
+    let set = null;
+    try { set = conceptSetFor(key, dynLookup); } catch { set = null; }
+    if (!set) {
+      const syns = SYNONYMS[key];
+      if (Array.isArray(syns) && syns.length > 0) {
+        set = new Set([key, ...syns.map((s) => String(s).toLowerCase())]);
+      }
+    }
+    if (set) {
+      const alts = [...set]
+        .map((m) => String(m).toLowerCase())
+        .filter((m) => m && m !== key)
+        .filter((m) => m.indexOf(" ") !== -1 || !isGateFunctionWord(m))
+        .filter((m) => m.indexOf(" ") !== -1 || !sameInflection(key, m));
+      if (alts.length > 0) { out.push(...alts.slice(0, 4)); continue; }
+    }
+    out.push(t);
+  }
+  return out;
 }
 
 // Plausible NOUN forms of a single word, for GENERATION (the
@@ -5025,7 +5118,14 @@ export function buildStructuredQuery(query, dynLookup) {
   if (bin) {
     // Extract the other topic words (not the binomial itself)
     const rest = query.toLowerCase().replace(new RegExp(bin.full, "gi"), "").replace(/\s+/g, " ").trim();
-    const restTerms = rest.split(/\s+/).filter((t) => t.length > 2 && !STOPWORDS.has(t));
+    // Wave seventeen (2026-10-15, citation depth diagnosis,
+    // stage 4): closed class words stay out of the topic
+    // alternates here too — the gate's own screen, the same one
+    // the natural language path's anchors already pass. A
+    // binomial question's leftover words are ORed as required
+    // alternates, and a closed class word among them ("not",
+    // "else") makes the group match nearly anything.
+    const restTerms = rest.split(/\s+/).filter((t) => t.length > 2 && !STOPWORDS.has(t) && !isGateFunctionWord(t));
     if (restTerms.length) {
       return '"' + bin.full + '" AND (' + restTerms.join(" OR ") + ')';
     }
@@ -5096,6 +5196,21 @@ export function buildStructuredQuery(query, dynLookup) {
         }
       }
     } catch { /* anchors fall back to every detected phrase */ }
+  }
+  if (hasOrganism) {
+    // Wave seventeen (2026-10-15, citation depth diagnosis,
+    // stage 4): closed class words never ride the topic side of
+    // the organism boolean. The diagnosis run's structured
+    // query was (...) AND (maggots OR fryer OR oil OR not OR
+    // else): "not" and "else" as alternates made the topic
+    // group nearly vacuous — any paper mentioning either word
+    // satisfied it. Single word topic entries pass the gate's
+    // own screen; phrases are kept whole (a phrase carries its
+    // own meaning, and the screen judges words).
+    anchorTopic = anchorTopic.filter((e) => {
+      const s = String(e || "").toLowerCase().trim();
+      return s.includes(" ") || !isGateFunctionWord(s);
+    });
   }
   if (hasOrganism && (anchorTopic.length || !orgPhrases.length)) {
     // Resolve common names to scientific names for the boolean query.
@@ -5463,7 +5578,16 @@ export function buildStructuredQuery(query, dynLookup) {
     if (!set) return t;
     // Cap expansion so the request URL stays reasonable, and keep the original
     // term first so it carries the most weight in relevance-ranked engines.
-    const others = [...set].filter((m) => m !== t);
+    // Wave seventeen (2026-10-15, citation depth diagnosis,
+    // stage 4): closed class single words never ride a group as
+    // alternates. A model proposed group can absorb the
+    // question's framing words as members ("not" and "else"
+    // rode the waste oil question's topic group on the
+    // diagnosis run), and an OR alternate that common makes the
+    // group match nearly anything. Phrases keep their words —
+    // the screen judges single words only, as everywhere else
+    // in this builder.
+    const others = [...set].filter((m) => m !== t && (m.indexOf(" ") !== -1 || !isGateFunctionWord(m)));
     // 2026-10-13: a PHRASE anchored rung renders its multi word members
     // first. The phrases are the concept's actual names in print
     // ("midgut homogenate", "gut extract"); the single word members are
@@ -7156,6 +7280,14 @@ const QUESTION_VERBS = new Set([
   // failed the standard on a verb. Same class as protect and
   // kill above.
   "fight", "fights", "fought", "fighting",
+  // "wear" (2026-10-15, wave seventeen, citation depth
+  // diagnosis): "my ankles puff up when i wear tight socks"
+  // made the circumstance verb a key phrase head and then a
+  // central concept — the diagnosis names it beside "else" as
+  // a bare token that must never become a concept. The wearing
+  // frames the question; the topic is the swelling. Same class
+  // as stop and fight above.
+  "wear", "wears", "wore", "worn", "wearing",
 ]);
 
 function extractKeyPhrases(query, organismPhrases) {
@@ -13918,6 +14050,19 @@ const CENTRAL_TERM_CLOSED_CLASS = new Set([
   // any grammar, and neither can be a question's central term or
   // grow a plural ("sinces", "evers").
   "since", "ever",
+  // Wave seventeen (2026-10-15, citation depth diagnosis): the
+  // measured filler of the everyday probes. "enough" (a quantity
+  // word) was a REQUIRED concept on the live sleep run — the
+  // gate judged papers on engaging it, and a paper about
+  // adolescent athletes cleared the citation standard on
+  // "sleeping" plus "enough" while the field's cold papers
+  // waited outside; "easier" (a comparative) and "else" (an
+  // indefinite pronoun) completed judged sets and boolean
+  // groups the same way ("what else can you feed them" shipped
+  // "else" as a required group alternate to the engines). All
+  // three are closed class by any grammar: a paper sharing only
+  // "enough" with the question shares nothing.
+  "enough", "easier", "else",
 ]);
 
 export function centralContentTerms(query) {
@@ -14632,7 +14777,17 @@ export function gateJudgedConcepts(std) {
     const have = new Set(concepts.map((c) => c.term));
     const extra = std.centralTerms
       .map((t) => String(t || "").toLowerCase())
-      .filter((t) => t && !have.has(t))
+      // Wave seventeen (2026-10-15, citation depth diagnosis,
+      // stage 2): a bare central term stands in as a judged
+      // concept only if it is not closed class by the gate's
+      // own screens. centralTerms is built through those
+      // screens today, but a standard reconstructed by hand
+      // (a test, a future caller) must not be able to seat
+      // filler at the judging table the screens exist to keep
+      // it from: "enough" completed the sleep question's
+      // judged set on the live run and let an athlete sleep
+      // survey clear on it.
+      .filter((t) => t && !have.has(t) && !isGateFunctionWord(t))
       .map((t) => ({ term: t, group: null, subject: false }));
     if (extra.length > 0) judged = [...concepts, ...extra];
   }
@@ -14683,8 +14838,31 @@ export function paperClearsCitationGate(paper, standard) {
     if (allHits.subjectInTitle && allHits.inTitle >= 2) {
       verdict = true;
     } else {
-      const strong = strongCentralConcepts(judged);
-      const useSet = strong.length >= 2 ? strong : judged;
+      // WAVE SEVENTEEN (2026-10-15, citation depth diagnosis,
+      // stage 2): judge on real concepts only. The set judged
+      // on is the concepts that carry a group or the subject
+      // flag — the question's resolved concepts — never the
+      // union with bare central term stand ins. When EXACTLY
+      // ONE such concept exists, the standard degrades to the
+      // one real concept rule (that concept engaged, at least
+      // one engagement in the abstract): the two concept rule
+      // over the union demanded a second hit from stand ins
+      // that are filler or framing ("oil", "fryer", "else" on
+      // the waste oil question), and five of the six topical
+      // black soldier fly papers on the diagnosis run failed
+      // on subject only engagement no stand in could complete.
+      // With two or more real concepts the two concept rule
+      // stands untouched, and with none the whole judged set
+      // is judged exactly as before. This supersedes the
+      // mimosa era caution above about judging a lone strong
+      // concept alone: the diagnosis's measured cost of the
+      // union (topical papers demoted while filler completed
+      // junk citations elsewhere) is the worse failure, and
+      // the surviving guards stay — relevance still floors at
+      // 50 before citable, engagement must reach the abstract,
+      // and the subject serve still judges the shipped set.
+      const backed = judged.filter((c) => c && (c.subject || (c.group && c.group.size > 0)));
+      const useSet = backed.length > 0 ? backed : judged;
       const hits = centralConceptHits(paper, useSet);
       if (useSet.length === 1) verdict = hits.total >= 1 && hits.inAbstract >= 1;
       else verdict = hits.total >= 2 && hits.inAbstract >= 1;
@@ -15015,6 +15193,58 @@ export function citedSetEngagesSubject(evidencePapers, citedIdx, query, dynLooku
     }
   }
   return { judged: true, engaged: false, subjectTerm };
+}
+
+// SUBJECT ENGAGING EVIDENCE (2026-10-15, wave seventeen,
+// citation depth diagnosis, stage 3). The subject serve's
+// rebuild pool: the papers in a pool that engage the question's
+// subject under the gate's own computation — the same per paper
+// test citedSetEngagesSubject applies to the cited set (the
+// founding paper index exemption, a binomial or identifier
+// anchor in title or abstract, a subject concept hit on the
+// central path, one touch of the subject group on the legacy
+// path). Returns judged false exactly when the serve test
+// itself does not judge (no subject resolves), so a caller can
+// rebuild only over a pool the gate itself vouches for. The
+// pool passed in is the citable pool: engagement here never
+// admits a paper the citation gate refused.
+export function subjectEngagingEvidence(papers, query, dynLookup) {
+  const list = (Array.isArray(papers) ? papers : []).filter(Boolean);
+  if (list.length === 0) return { judged: false, subjectTerm: null, papers: [] };
+  let ctx = null;
+  try { ctx = conceptGateContext(list, query, dynLookup); } catch { ctx = null; }
+  if (!ctx) return { judged: false, subjectTerm: null, papers: [] };
+  const anchorNeedles = Array.isArray(ctx.anchorNeedles) ? ctx.anchorNeedles : [];
+  const engages = (p, idx, centralTest) => {
+    if (ctx.existenceIdx && idx === ctx.existenceIdx) return true;
+    if (anchorNeedles.length > 0) {
+      const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
+      if (anchorNeedles.some((n) => n && hay.includes(n))) return true;
+    }
+    try { return centralTest(p); } catch { return false; }
+  };
+  const hasCentral = Array.isArray(ctx.centralConcepts) && ctx.centralConcepts.length > 0;
+  if (hasCentral) {
+    const std = {
+      groups: ctx.groups || [],
+      centralTerms: ctx.centralTerms || [],
+      subjectGroup: ctx.subjectGroup || null,
+      centralConcepts: ctx.centralConcepts,
+      mechanismShape: !!ctx.mechanismShape,
+    };
+    const judged = gateJudgedConcepts(std);
+    const subj = judged.find((c) => c && c.subject);
+    if (!subj) return { judged: false, subjectTerm: null, papers: [] };
+    const engaging = list.filter((p, i) =>
+      engages(p, i + 1, (pp) => centralConceptHits(pp, judged).subjectHit));
+    return { judged: true, subjectTerm: subj.term || null, papers: engaging };
+  }
+  if (!ctx.subjectGroup) return { judged: false, subjectTerm: null, papers: [] };
+  let subjectTerm = null;
+  try { subjectTerm = subjectTermInQuestion(query, ctx.subjectGroup); } catch { subjectTerm = null; }
+  const engaging = list.filter((p, i) =>
+    engages(p, i + 1, (pp) => paperConceptGroupHits(pp, [ctx.subjectGroup]) >= 1));
+  return { judged: true, subjectTerm, papers: engaging };
 }
 
 export function conceptGateKeeps(paper, idx, gateCtx) {
@@ -16586,11 +16816,12 @@ export function buildSearchRecord(input) {
 
     // Wave sixteen (brief item 1): the subject serve — present
     // only when the final cited set failed the subject
-    // engagement test and the run fell to the honest no
-    // evidence state: how many papers the answer cited and the
-    // subject term none of them engaged, so the record can
-    // answer "why did a large pool ship no answer" in named
-    // terms instead of silence.
+    // engagement test: how many papers the answer cited and the
+    // subject term none of them engaged, and (wave seventeen)
+    // whether the serve rebuilt over subject engaging citable
+    // papers or the run fell to the honest no evidence state,
+    // so the record can answer "why did a large pool ship no
+    // answer" in named terms instead of silence.
     let recordSubjectServe = null;
     try {
       const ss = input.subjectServe;
@@ -16599,6 +16830,13 @@ export function buildSearchRecord(input) {
           fired: true,
           cited: typeof ss.cited === "number" ? ss.cited : null,
           subject: typeof ss.subject === "string" ? ss.subject.slice(0, 80) : null,
+          // Wave seventeen (2026-10-15): the serve demotes and
+          // rebuilds before it refuses now, and the record must
+          // say which of the two it did — a rebuilt thin answer
+          // and the honest no evidence state are opposite
+          // outcomes of the same test.
+          ...(ss.rebuilt ? { rebuilt: true } : {}),
+          ...(typeof ss.rebuiltOver === "number" ? { rebuiltOver: ss.rebuiltOver } : {}),
         };
       }
     } catch { recordSubjectServe = null; }
@@ -19977,12 +20215,27 @@ async function gatherPapersBody(rawQuery, opts) {
       }
     } catch { /* keep topicTerms-based topicStr */ }
 
+    // Keyword plain forms (2026-10-15, wave seventeen,
+    // citation depth diagnosis, stage 4): the plain keyword
+    // engines receive bridged terms, never a bare collision
+    // token (keywordPlainTerms). plainTopicStr is the bridged
+    // topic string when the topic is the rung's own terms; a
+    // constraint phrase override wins unchanged, because the
+    // phrase was chosen to stop dilution and bridging its words
+    // would undo that. plainTermsStr is the bridged form of the
+    // rung's full term list, for the slots that historically
+    // sent the terms themselves.
+    const plainTopicStr = topicStr === topicTerms.join(" ")
+      ? keywordPlainTerms(topicTerms, dynLookup).join(" ")
+      : topicStr;
+    const plainTermsStr = keywordPlainTerms(terms, dynLookup).join(" ");
+
     // Boolean engines (EPMC, PubMed): organism AND topic using boolean syntax
     const boolQ = useBoolean
       ? (orgQuoted ? orgQuoted + " AND (" + (topicStr || surfaceQuery) + ")" : booleanQuery)
-      : (orgQuoted ? orgQuoted + " " + topicStr : terms.join(" "));
+      : (orgQuoted ? orgQuoted + " " + plainTopicStr : plainTermsStr);
     // Plain-keyword engines: combined string (organism + topic together)
-    const bare = orgQuoted ? orgQuoted.replace(/"/g, "") + " " + topicStr : terms.join(" ");
+    const bare = orgQuoted ? orgQuoted.replace(/"/g, "") + " " + plainTopicStr : plainTermsStr;
     // 2026-10-10: common-name variant for OpenAlex. The scientific name
     // ("Hermetia illucens") misses papers that only use the common name
     // ("black soldier fly"/"BSFL") in title+abstract, and OpenAlex does not
@@ -20043,8 +20296,8 @@ async function gatherPapersBody(rawQuery, opts) {
     // plain text well; the ladder's loosening still applies,
     // because each rung's terms are what it receives.
     const pubmedQ = orgQuoted
-      ? (orgQuoted.replace(/"/g, "") + " " + (topicStr || "")).trim()
-      : (topicStr || terms.join(" "));
+      ? (orgQuoted.replace(/"/g, "") + " " + (plainTopicStr || "")).trim()
+      : (plainTopicStr || plainTermsStr);
 
     // One paired structure (2026-10-14, wave eight round three,
     // Job 1): each slot carries its own name AND its fetcher as a
@@ -21809,6 +22062,75 @@ async function gatherPapersBody(rawQuery, opts) {
       diag.floorRelaxed = { admitted: admitted.length, minimum: SHELF_FLOOR_MINIMUM };
     }
   }
+  // CITABLE AWARE SHELF READMISSION (2026-10-15, wave
+  // seventeen, citation depth diagnosis, stage 1): both
+  // rescues above measure the raw shelf — the emergency
+  // relaxation below three papers, the floor readmission below
+  // six — but the diagnosis's shelves ran 15 to 25 papers
+  // while their citable sets starved at 0 to 5, so both stood
+  // down over the exact failure they exist to prevent. A shelf
+  // padded to six by relaxed or readmitted papers that never
+  // met the core hit requirement reads full to both of them
+  // and is still thin where it counts. This pass measures the
+  // citable shaped set instead, by the diagnosis's cheap
+  // proxy: shelf papers clearing the organism gate (when the
+  // question names an organism) whose core hits meet the
+  // floor's own requirement, recomputed with the floor's own
+  // accounting. When that count is below SHELF_FLOOR_MINIMUM,
+  // readmit the highest scored floor excluded papers that
+  // missed the core hit requirement by exactly one hit — the
+  // class the diagnosis's nearest miss tally measured, one
+  // sided papers one engagement short, not the floor's junk.
+  // Candidates carry a real abstract, pass the language
+  // screen, and are organismPresent when the question names an
+  // organism. At most three are readmitted: a relevance sorted
+  // shelf of 25 churns its weakest members under a large
+  // readmission, and three bounds the displacement while
+  // covering every measured case (the pool needed two to
+  // three). The binomial screen stands down here too, by the
+  // neighboring readmission's rule: a wrong species paper is
+  // worse than a thin shelf. Readmitted papers are flagged
+  // floorRelaxed and enter the shelf only — the relevance
+  // floor and the citation gate judge them downstream exactly
+  // like any shelf paper.
+  try {
+    delete diag.citableReadmission;
+    if (!binomial && gateTerms.length > 0 && scoredAllCapture.length > 0) {
+      const organismGateInPlayC = neutralWords && neutralWords.size > 0;
+      let requiredC;
+      if (gateTerms.length <= 2) requiredC = 1;
+      else if (gateTerms.length <= 6) requiredC = 2;
+      else requiredC = 3;
+      const coreHitsOf = (p) => (p.gateCoreHits || 0) + ((organismGateInPlayC && p.organismPresent) ? 1 : 0);
+      const gateClearing = finalScored.filter((p) => p && (!organismGateInPlayC || p.organismPresent) && coreHitsOf(p) >= requiredC).length;
+      if (gateClearing < SHELF_FLOOR_MINIMUM) {
+        const inShelfC = new Set(finalScored);
+        const inShelfKeysC = new Set(finalScored.map((p) => paperDedupeKey(p)));
+        const candidatesC = scoredAllCapture
+          .filter((p) => p && !inShelfC.has(p) && !inShelfKeysC.has(paperDedupeKey(p)))
+          .filter((p) => titlePassesLanguageScreen(p.title || ""))
+          .filter((p) => String(p.abstract || "").trim().length > 0)
+          .filter((p) => !organismGateInPlayC || p.organismPresent)
+          .filter((p) => {
+            if ((p.gateCoreTitleHits || 0) >= 2) return false;
+            return coreHitsOf(p) === requiredC - 1;
+          })
+          .sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score));
+        const admittedC = [];
+        for (const c of candidatesC) {
+          if (gateClearing + admittedC.length >= SHELF_FLOOR_MINIMUM) break;
+          if (admittedC.length >= 3) break;
+          admittedC.push({ ...c, floorRelaxed: true });
+        }
+        if (admittedC.length > 0) {
+          finalScored = [...finalScored, ...admittedC]
+            .sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score))
+            .slice(0, limit);
+          diag.citableReadmission = { admitted: admittedC.length, gateClearing, minimum: SHELF_FLOOR_MINIMUM };
+        }
+      }
+    }
+  } catch { /* the readmission must never break retrieval */ }
   // TITLE STRONG SHELF RESCUE (2026-10-14, wave ten, brief
   // item 3): the shelf cut is a score sort, and quality signals
   // (recency, citation rate, journal tier) can push a paper
@@ -24956,7 +25278,17 @@ async function runSearchPipeline(pctx) {
               reasons: r.reasons,
             })),
           };
-          const minAdmitted = citablePapers.length === 0 ? 1 : 2;
+          // Wave seventeen (2026-10-15, citation depth
+          // diagnosis, stage 3): the minimum is 1 in both
+          // cases. The 2 floor for the citable 1 case demanded
+          // TWO comparison papers beside the strict one before
+          // any could ship — a three source bar to reach a two
+          // source answer — and on the diagnosis's Cohen shaped
+          // draws it held the shelf's best paper out entirely.
+          // One admitted paper beside one citable paper is the
+          // two source thin answer the product asks for, and
+          // the standard it cleared to get here is unchanged.
+          const minAdmitted = 1;
           // Substantial, measured on DISTINCT papers: the raw
           // gathered count inflates with the fanout (the same
           // two papers returned by eight rungs count sixteen
@@ -29123,6 +29455,80 @@ async function runSearchPipeline(pctx) {
         if (citedIdxServe.size > 0) {
           const subjServe = citedSetEngagesSubject(evidencePapers, citedIdxServe, query, _dynForValidation);
           if (subjServe.judged && !subjServe.engaged) {
+            // WAVE SEVENTEEN (2026-10-15, citation depth
+            // diagnosis, stage 3): demote and rebuild before
+            // refusing. The wave sixteen serve replaced the
+            // whole run with the no evidence state whenever the
+            // final cited set missed the subject — but the
+            // citable pool can hold subject engaging papers the
+            // answer never cited (the citation selection orders
+            // by concept coverage, not by subject), and zeroing
+            // threw them away with the junk. Now: when the
+            // citable pool holds papers that engage the subject
+            // under the gate's own computation, the answer is
+            // rebuilt extractively over that restricted pool
+            // and ships with the thin labeling every thin
+            // citable set gets. Only when the restricted pool
+            // is empty does the refusal below stand — the
+            // grocery checkout shape, whose cited review does
+            // not engage the subject and whose pool holds no
+            // paper that does, still refuses, because the
+            // rebuild pool is citable papers engaging the
+            // subject, nothing else.
+            let rebuiltOverSubject = false;
+            try {
+              const pool = subjectEngagingEvidence(citablePapers, query, _dynForValidation);
+              if (pool.judged && pool.papers.length > 0) {
+                let gateDynServe = null;
+                try {
+                  const baseGroupsServe = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded)) ? gResult._diag.llmExpanded : [];
+                  gateDynServe = buildDynLookup([...baseGroupsServe, ...buildDeterministicFallbackGroups(query, centralContentTerms(query))]);
+                } catch { gateDynServe = null; }
+                const prunedServe = pruneExtractiveEvidence(pool.papers, query, gateDynServe);
+                const rebuildPool = pool.papers.filter((p) => p && (p._gateAuditAdmitted || prunedServe.papers.includes(p)));
+                if (rebuildPool.length > 0) {
+                  evidencePapers = rebuildPool;
+                  sourceList = evidencePapers.map(toSourceEntry);
+                  const extServe = buildExtractiveSynthesis(rebuildPool, rebuildPool, {
+                    query: searchQuery, queryAnalysis: analyzeQuery(searchQuery), answerLength,
+                    dynLookup: gateDynServe, isNameSearch, isFollowupMode,
+                    sourcesQueried: publicSourcesQueried(), relevanceGatedOut, ambiguity,
+                    aiGateReason: null,
+                  });
+                  if (extServe) {
+                    answer = extServe;
+                    answerTier = getLastExtractiveTier();
+                    extractiveOK = true;
+                    aiOK = false;
+                    factCheckResult = null;
+                    try {
+                      if (ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
+                        const alignServe = verifyExtractiveAlignment(answer, evidencePapers);
+                        if (alignServe && alignServe.checked) factCheckResult = alignServe;
+                      }
+                    } catch { /* the rebuild ships without the trace rather than not at all */ }
+                    unsupportedStripped = [];
+                    conceptDemoted = [];
+                    try {
+                      const synthEntry = stageHealth.find((s) => s && s.name === "synthesis");
+                      if (synthEntry) {
+                        synthEntry.ok = false;
+                        synthEntry.winner = null;
+                        synthEntry.skipReason = "the cited set did not engage the question's subject; the answer was rebuilt over the subject engaging citable papers";
+                      }
+                    } catch { /* diagnostics never break the serve */ }
+                    subjectServeDiag = {
+                      fired: true, rebuilt: true,
+                      cited: citedIdxServe.size,
+                      subject: subjServe.subjectTerm || null,
+                      rebuiltOver: rebuildPool.length,
+                    };
+                    rebuiltOverSubject = true;
+                  }
+                }
+              }
+            } catch { /* a failed rebuild falls through to the refusal below */ }
+            if (!rebuiltOverSubject) {
             subjectServeDiag = {
               fired: true,
               cited: citedIdxServe.size,
@@ -29144,6 +29550,7 @@ async function runSearchPipeline(pctx) {
             factCheckResult = null;
             aiOK = false;
             extractiveOK = false;
+            }
           }
         }
       } catch { /* the subject serve must never break the serve */ }

@@ -203,8 +203,19 @@ await test("creatine funnel: the comparison admits the supplementation review, n
     "This systematic review examines creatine supplementation and kidney outcomes. Across trials, creatine monohydrate at recommended doses did not impair renal function in healthy adults. Serum creatinine rose slightly during creatine loading without changes in measured glomerular filtration. The review concludes creatine supplementation is not harmful to the kidneys of healthy users.");
   const editorial = paper("Editorial: the athlete's brain and the substances of sport",
     "This editorial comments on neuroscience and sport, discussing how athletes think about supplements, training, and the culture of performance in modern athletics.");
-  assert.equal(paperClearsCitationGate(review, std), false,
-    "fixture drift: the creatine review now clears the strict standard");
+  // PIN UPDATED (2026-10-15, wave seventeen): the review now
+  // clears the strict standard, and that is the corrected
+  // contract, not drift. The question's judged set carries
+  // exactly one real concept — the creatine subject (the
+  // kidney side resolved as a gating group but never became
+  // a central concept on this question) — so the strict
+  // standard is the diagnosis's one real concept rule, and a
+  // review engaging the subject in its abstract clears it.
+  // The strict versus legacy divergence this funnel existed
+  // to exercise stands on the yogurt funnel above; the
+  // comparison assertions below are unchanged.
+  assert.equal(paperClearsCitationGate(review, std), true,
+    "the creatine review no longer clears the strict standard under the one real concept rule");
   assert.equal(paperClearsLegacyStandard(review, q, dyn), true,
     "the comparison standard does not admit the creatine review");
   assert.equal(paperClearsLegacyStandard(editorial, q, dyn), false,
@@ -625,26 +636,36 @@ await test("a legacy admitting pool ships sources with the gate audit labeled, n
   // the limited ship is the extractive tier over the
   // comparison admitted papers.
   scenFailSynthesis = true;
-  // The audit's creatine funnel shape: supplementation
-  // reviews and trials that engage the subject and the organ
-  // in the literature's own phrasing (renal function, serum
-  // creatinine), which the strict topicality standard admits
-  // none of, while the pre wave eight standard admits them.
-  // The off topic editorial clears neither standard and must
-  // stay excluded, with its reasons recorded.
+  // The audit's creatine funnel shape: papers that engage
+  // the subject and the organ, which the strict topicality
+  // standard admits none of, while the pre wave eight
+  // standard admits them. The off topic editorial clears
+  // neither standard and must stay excluded, with its
+  // reasons recorded.
+  // PIN UPDATED (2026-10-15, wave seventeen): the original
+  // abstracts named creatine throughout, and under the
+  // citation depth diagnosis's one real concept rule those
+  // papers now clear the strict standard directly (pinned
+  // at unit level above), so the pool no longer exercises
+  // the comparison. The abstracts below speak of "the
+  // supplement" after the titles name the subject — the
+  // common scientific shape the divergence actually lives
+  // on: the strict standard requires the subject engaged in
+  // the abstract, the legacy standard counts the title
+  // touch. The audit assertions below are unchanged.
   scenPapers = [
     epmc(1, "Creatine supplementation and renal function: a systematic review",
-      "This systematic review examines creatine supplementation and kidney outcomes. Across trials, creatine monohydrate at recommended doses did not impair renal function in healthy adults. Serum creatinine rose slightly during creatine loading without changes in measured glomerular filtration. The review concludes creatine supplementation is not harmful to the kidneys of healthy users.", 120),
-    epmc(2, "Long term creatine monohydrate supplementation and kidney health in athletes",
-      "Athletes taking creatine monohydrate for two years were monitored for kidney health. Renal function markers, including serum creatinine and estimated glomerular filtration, stayed within reference ranges throughout creatine supplementation. No adverse kidney outcomes were recorded.", 60),
+      "This systematic review examines the supplement and kidney outcomes in healthy adults. Across trials, the supplement at recommended doses did not impair renal function. Serum creatinine rose slightly during loading without changes in measured glomerular filtration. The review concludes the supplement is not harmful to the kidneys of healthy users.", 120),
+    epmc(2, "Long term creatine use and kidney health in athletes",
+      "Athletes taking the supplement for two years were monitored for kidney health. Renal function markers, including serum creatinine and estimated glomerular filtration, stayed within reference ranges throughout the monitoring period. No adverse kidney outcomes were recorded.", 60),
     epmc(3, "Editorial: the athlete's brain and the substances of sport",
       "This editorial comments on neuroscience and sport, discussing how athletes think about supplements, training, and the culture of performance in modern athletics.", 30),
     epmc(4, "Creatine loading and serum creatinine in resistance trained men",
-      "Resistance trained men completed a creatine loading phase of twenty grams daily for five days. Serum creatinine rose during loading, while estimated glomerular filtration rate stayed within reference ranges. The authors note creatine loading raises creatinine readings without indicating kidney damage.", 45),
-    epmc(5, "Creatine supplementation and estimated glomerular filtration: a cohort analysis",
-      "This cohort analysis followed adults supplementing creatine monohydrate for three years. Estimated glomerular filtration rate, the standard kidney function measure, did not decline faster in the creatine group than in matched non users. No excess of kidney diagnoses was recorded.", 80),
+      "Resistance trained men completed a loading phase of twenty grams daily for five days. Serum creatinine rose during loading, while estimated glomerular filtration rate stayed within reference ranges. The authors note the loading protocol raises creatinine readings without indicating kidney damage.", 45),
+    epmc(5, "Creatine intake and estimated glomerular filtration: a cohort analysis",
+      "This cohort analysis followed adults taking the supplement for three years. Estimated glomerular filtration rate, the standard kidney function measure, did not decline faster in the supplement group than in matched non users. No excess of kidney diagnoses was recorded.", 80),
   ];
-  scenAnswer = "## Summary\n\nAcross trials, **creatine monohydrate** at recommended doses did not impair **renal function** in healthy adults [1]. Athletes taking creatine for two years kept renal markers within reference ranges [2].";
+  scenAnswer = "## Summary\n\nAcross trials, the **supplement** at recommended doses did not impair **renal function** in healthy adults [1]. Athletes taking the supplement for two years kept renal markers within reference ranges [2].";
   const { data } = await runScenario("is creatine bad for your kidneys");
   assert.notEqual(data.responseKind, "no-results",
     "the creatine pool landed in the no results state: " + JSON.stringify(data.noResults || {}));

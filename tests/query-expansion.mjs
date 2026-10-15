@@ -1369,9 +1369,21 @@ const SLEEP_GROUP = [{
 const TRACE_QUERY =
   "(\"easier catch cold\" OR \"increased susceptibility to colds\" OR \"elevated cold incidence\") AND sleep AND enough";
 
-await test("the trace's authored query is reproduced exactly from its pieces", () => {
+await test("the trace's pieces now author the hygienic query, not the trace string", () => {
+  // PIN UPDATED (2026-10-15, wave seventeen): the builder can
+  // no longer reproduce the trace string, by design. "enough"
+  // is closed class now and can never occupy an anchor slot
+  // again (citation depth diagnosis, stage 2 hygiene), and
+  // "sleep" renders its static concept group instead of a bare
+  // anchor (stage 4: the bridge lives in the tables, not in a
+  // lucky expansion draw). TRACE_QUERY stays above as the
+  // literal specimen the screen pins below exercise — it is
+  // the historical shipped string, not a buildable one.
   const authored = buildStructuredQuery(SLEEP_CLEANED, buildDynLookup(COLD_GROUP));
-  assert.equal(authored, TRACE_QUERY);
+  assert.equal(authored,
+    "(\"easier catch cold\" OR \"increased susceptibility to colds\" OR \"elevated cold incidence\") AND (sleep OR sleeping OR slept OR insomnia OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\")");
+  assert.ok(!authored.split(" AND ").includes("enough"),
+    "the authored query still requires enough: " + authored);
 });
 
 await test("the screen fails the trace query on exactly the filler rung", () => {
@@ -1388,8 +1400,15 @@ await test("the screen fails the trace query on exactly the filler rung", () => 
 await test("a failed authored query is rebuilt from the resolved concept groups", () => {
   const dyn = buildDynLookup(COLD_GROUP);
   const rebuilt = rebuildStructuredQueryFromGroups(SLEEP_CLEANED, dyn);
+  // PIN UPDATED (2026-10-15, wave seventeen): the rebuild
+  // used to carry only the draw's one phrase group, because
+  // no hand group resolved sleep or cold. The static bridges
+  // (diagnosis stage 4) resolve both concepts from the table
+  // now, so the rebuild carries the two real concepts — the
+  // contract (resolved concepts, screens clean, no filler) is
+  // unchanged, the resolution source is the table.
   assert.equal(rebuilt,
-    "(\"easier catch cold\" OR \"increased susceptibility to colds\" OR \"elevated cold incidence\")");
+    "(sleep OR sleeping OR slept OR insomnia OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\") AND (cold OR \"common cold\" OR rhinovirus OR \"upper respiratory infection\" OR \"upper respiratory tract infection\" OR \"respiratory infection\")");
   assert.equal(screenStructuredQuery(rebuilt).ok, true, "the rebuilt query must pass its own screen");
   // The shipped form (rebuild when possible) contains no filler rung.
   const shipped = rebuilt || dropFailedRungs(TRACE_QUERY, screenStructuredQuery(TRACE_QUERY).failedRungs);
@@ -1400,14 +1419,23 @@ await test("a failed authored query is rebuilt from the resolved concept groups"
 await test("with the sleep group resolved too, the rebuild carries both concepts and no filler", () => {
   const dyn = buildDynLookup([...SLEEP_GROUP, ...COLD_GROUP]);
   const authored = buildStructuredQuery(SLEEP_CLEANED, dyn);
-  assert.equal(screenStructuredQuery(authored).ok, false, "the sleep draw also ships the enough rung");
+  // PIN UPDATED (2026-10-15, wave seventeen): this asserted
+  // the authored query FAILED its screen on the enough rung.
+  // There is no enough rung anymore — the word is closed
+  // class and cannot be authored as a requirement — so the
+  // authored query screens clean, which is the outcome the
+  // hygiene wave existed to produce.
+  assert.equal(screenStructuredQuery(authored).ok, true, "the sleep draw still ships a failing rung: " + authored);
   const rebuilt = rebuildStructuredQueryFromGroups(SLEEP_CLEANED, dyn);
   assert.ok(rebuilt.includes("\"sleep deprivation\""), "the sleep group is missing from the rebuild: " + rebuilt);
-  assert.ok(rebuilt.includes("\"elevated cold incidence\""), "the cold group is missing from the rebuild: " + rebuilt);
+  // The rebuild resolves the cold side from the hand table's
+  // cold group (wave seventeen seeding), not the draw's
+  // phrase group, so its members are the table's.
+  assert.ok(rebuilt.includes("\"common cold\""), "the cold group is missing from the rebuild: " + rebuilt);
   assert.equal(screenStructuredQuery(rebuilt).ok, true);
 });
 
-await test("when no group resolves, the failed rungs drop and the survivors ship", () => {
+await test("with no expansion at all, the static groups resolve and the failed rung drops", () => {
   // No expansion at all: the deterministic build itself anchors the
   // light verb, the comparative, and the quantity word.
   // 2026-10-14 (wave eight, Job 3a): the authored order is now
@@ -1418,13 +1446,25 @@ await test("when no group resolves, the failed rungs drop and the survivors ship
   // slots at all, so the tail keeps race order (specificity, then
   // question order). The contract is unchanged: the three filler
   // rungs fail the screen and drop, the survivor ships.
+  // PIN UPDATED (2026-10-15, wave seventeen): the premise is
+  // gone. "enough" and "easier" are closed class and are never
+  // authored, and the hand table resolves the sleep and cold
+  // groups statically (diagnosis stage 4), so the no expansion
+  // build authors the sleep group plus the one light verb rung
+  // the screen still fails, and a rebuild from the resolved
+  // groups — previously impossible here — now exists and
+  // carries both concepts. The surviving contract: the failed
+  // rung drops and the survivors ship.
   const authored = buildStructuredQuery(SLEEP_CLEANED, null);
-  assert.equal(authored, "sleep AND catch AND enough AND easier");
+  assert.equal(authored,
+    "(sleep OR sleeping OR slept OR insomnia OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\") AND catch");
   const screen = screenStructuredQuery(authored);
-  assert.deepEqual(screen.failedRungs, ["catch", "enough", "easier"]);
-  assert.equal(rebuildStructuredQueryFromGroups(SLEEP_CLEANED, null), null,
-    "no hand group resolves sleep or cold, so there is nothing to rebuild from");
-  assert.equal(dropFailedRungs(authored, screen.failedRungs), "sleep");
+  assert.deepEqual(screen.failedRungs, ["catch"]);
+  assert.equal(rebuildStructuredQueryFromGroups(SLEEP_CLEANED, null),
+    "(sleep OR sleeping OR slept OR insomnia OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\") AND (cold OR \"common cold\" OR rhinovirus OR \"upper respiratory infection\" OR \"upper respiratory tract infection\" OR \"respiratory infection\")",
+    "the static groups resolve sleep and cold, so the rebuild exists");
+  assert.equal(dropFailedRungs(authored, screen.failedRungs),
+    "(sleep OR sleeping OR slept OR insomnia OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\")");
 });
 
 await test("the analysis key phrases are screened: filler out, genuine constraints untouched", () => {
@@ -1753,7 +1793,7 @@ await test("no subject group for the two concept sleep question: the founding st
     "the standard carries no subject for this question");
 });
 
-await test("one resolved group: a group touch or a shared central term cites, a collision does not", () => {
+await test("one resolved group: the group touch cites, word sharing no longer does", () => {
   const q = "why do some plants fold their leaves when you touch them";
   const standard = citationGateStandard(q, null);
   assert.equal(standard.groups.length, 1, "control: the mimosa question resolves one group");
@@ -1770,8 +1810,20 @@ await test("one resolved group: a group touch or a shared central term cites, a 
     abstract: "Stool microbiota of infants was profiled monthly. Intestinal bacteria composition predicted weight gain.",
   };
   assert.equal(paperClearsCitationGate(onPoint, standard), true, "the group touching paper clears");
-  assert.equal(paperClearsCitationGate(termSharer, standard), true,
-    "a paper sharing a central term (touch, leaves) clears the degraded standard");
+  // PIN UPDATED (2026-10-15, wave seventeen): the term sharer
+  // used to clear — judged on the union of the one real
+  // concept with the bare central terms, its two shared words
+  // (touch, leaves) completed the two hit rule. The citation
+  // depth diagnosis (stage 2) replaces that standard: with
+  // exactly one grouped concept in the judged set, the gate
+  // judges on that concept alone, and a mammalian skin review
+  // sharing the question's words but not its concept is a
+  // collision under the corrected standard. The guards the
+  // diagnosis names for the wider door (relevance at the
+  // floor, engagement in the abstract, the subject serve on
+  // the shipped set) are pinned in the wave seventeen suite.
+  assert.equal(paperClearsCitationGate(termSharer, standard), false,
+    "a paper sharing central terms but not the one real concept still clears");
   assert.equal(paperClearsCitationGate(collision, standard), false,
     "a paper sharing neither the group nor any central term is barred");
 });

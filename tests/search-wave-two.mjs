@@ -646,7 +646,9 @@ await test("the cache schema carries the wave two bump", () => {
   // check stage honesty fix, the deep check's Gemini tier
   // and the synthesis time reserve). The v50 entry stays as
   // history above.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v51"'), "CACHE_SCHEMA_VERSION must be v51");
+  // PIN UPDATED (2026-10-15, wave seventeen): v52, the
+  // citation depth wave.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v52"'), "CACHE_SCHEMA_VERSION must be v52");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");
@@ -1632,16 +1634,36 @@ await test("model groups on other terms do not count either: precedence is by so
     "the gut plus model group paper is demoted: its second group does not count");
 });
 
-await test("thin table case: the sleep and colds groups still come from expansion", () => {
+await test("the sleep and colds groups come from the hand table now; the thin table pass through stands", () => {
+  // PIN UPDATED (2026-10-15, wave seventeen): this pinned the
+  // sleep question as the thin table case — its groups came
+  // only from a landed expansion. The citation depth
+  // diagnosis (stage 4) seeded static sleep and cold groups
+  // precisely so this bridge exists on every draw, so the
+  // question's table is not thin anymore: the hand table
+  // resolves both groups, the dyn lookup is gated out of
+  // gating (two hand groups carry it), and the group hit
+  // accounting over the fixture is unchanged. The thin table
+  // pass through itself — the precedence this test exists to
+  // protect — is pinned below on a question whose table is
+  // still thin.
   const dyn = SLEEP_DYN();
-  assert.equal(questionConceptGroups(SLEEP_Q, null).length, 0,
-    "control: the hand table resolves nothing for the sleep question");
-  assert.equal(gateDynLookup(SLEEP_Q, dyn), dyn,
-    "with a thin hand table the dyn lookup passes through to gating");
+  assert.equal(questionConceptGroups(SLEEP_Q, null).length, 2,
+    "the hand table now resolves the sleep and cold groups statically");
+  assert.equal(gateDynLookup(SLEEP_Q, dyn), null,
+    "with two hand groups the dyn lookup no longer reaches gating");
   const gating = gateConceptGroups(SLEEP_Q, dyn);
-  assert.equal(gating.length, 2, "the expansion groups carry the standard here");
+  assert.equal(gating.length, 2, "the hand groups carry the standard here");
   assert.deepEqual(SLEEP_PAPERS().map((p) => paperConceptGroupHits(p, gating)), [2, 1, 1],
     "the two group paper passes, the single group papers demote, exactly as before");
+  const thinQ = "why do some plants fold their leaves when you touch them";
+  const thinDyn = buildDynLookup([{ term: "fold", alternates: ["leaf folding", "nyctinasty"] }]);
+  assert.equal(questionConceptGroups(thinQ, null).length, 1,
+    "control: the mimosa question's hand table is still thin (one group)");
+  assert.equal(gateDynLookup(thinQ, thinDyn), thinDyn,
+    "with a thin hand table the dyn lookup passes through to gating");
+  assert.equal(gateConceptGroups(thinQ, thinDyn).length, 2,
+    "the expansion group fills the thin table to two");
 });
 
 await test("all three gating consumers resolve through the shared helper", () => {

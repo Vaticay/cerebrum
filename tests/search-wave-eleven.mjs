@@ -232,7 +232,7 @@ await test("the widening does not swallow the standing negatives", () => {
 // ═══════════════════════════════════════════════════════════════
 group("Items 1 and addendum — the cache version pin");
 
-await test("CACHE_SCHEMA_VERSION is v51 with both wave eleven chain entries, v44 kept as history", () => {
+await test("CACHE_SCHEMA_VERSION is v52 with both wave eleven chain entries, v44 kept as history", () => {
   // PIN UPDATED (2026-10-14, wave twelve): v47 — the claim
   // check counts only checked claims, dedupe folds richer
   // duplicate fields, the foundational lane sorts by
@@ -255,8 +255,10 @@ await test("CACHE_SCHEMA_VERSION is v51 with both wave eleven chain entries, v44
   // foundational near miss section.
   // PIN UPDATED (2026-10-14, wave sixteen): v51, the serve
   // side honesty wave. The v50 entry stays as history below.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v51";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v51");
+  // PIN UPDATED (2026-10-15, wave seventeen): v52, the
+  // citation depth wave. The v51 entry stays as history below.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v52";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v52");
   assert.ok(/\/\/ v51 \(2026-10-14, wave sixteen\)/.test(src),
     "the v51 chain entry is missing its dated reason");
   assert.ok(/\/\/ v50 \(2026-10-14, wave fifteen\)/.test(src),

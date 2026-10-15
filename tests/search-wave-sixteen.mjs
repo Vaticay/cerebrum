@@ -963,7 +963,10 @@ await test("the trace summary and stage wiring name the new tier (source pins)",
   assert.ok(src.includes('note("gemini", "ok")'), "the Gemini tier does not record its outcome in the trace");
   assert.equal(factCheckTraceSummary([{ tier: "gemini", outcome: "ok" }]), "gemini ok");
   assert.ok(/\/\/ v51 \(2026-10-14, wave sixteen\)/.test(src), "the v51 chain entry is missing");
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v51";'), "CACHE_SCHEMA_VERSION is not v51");
+  // PIN UPDATED (2026-10-15, wave seventeen): the constant
+  // moved to v52, the citation depth wave; the v51 chain
+  // entry above stays as history.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v52";'), "CACHE_SCHEMA_VERSION is not v52");
 });
 
 console.log(`\nsearch-wave-sixteen: ${passed} passed, ${failures.length} failed`);
