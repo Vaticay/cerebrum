@@ -72,6 +72,16 @@ const js = transformSync(
     + "\n" + extract(speechSrc, [
       "SPEECH_SPEAK_MS_PER_CHAR", "SPEECH_BURST_MIN_MS", "SPEECH_BURST_MAX_MS",
       "SPEECH_PAUSE_CLAUSE_MS", "SPEECH_PAUSE_SENTENCE_MS", "SPEECH_PAUSE_BREATH_MS",
+      // The cadence set joined the extraction 2026-10-15:
+      // speechPlanFor reads the per line cadence through
+      // speechCadenceFor since the natural rhythm pass in
+      // NovaSpeech.jsx, and the plan cannot run in the VM
+      // without the whole closure it touches.
+      "SPEECH_TAIL_MS",
+      "SPEECH_CADENCE_MIN", "SPEECH_CADENCE_MAX",
+      "SPEECH_PAUSE_PUNCH_MS", "SPEECH_PUNCH_MAX_CHARS",
+      "SPEECH_EXCITED_MIN_CHARS", "SPEECH_EXCITED_FACTOR",
+      "speechCadenceFor",
       "speechPlanFor",
     ])
     + "\n;globalThis.__x = { TOUR_STEPS, tourVisibleChars, speechPlanFor };",

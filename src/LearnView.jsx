@@ -1626,7 +1626,7 @@ export function novaBrainDecide(brain, ctx) {
    timers only change which state class renders; the motion
    itself is the avatar's CSS. A new sheet mounts a new Nova, so
    the beats always start clean and never queue across cards. */
-function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed = null, anchorRef = null, opinionLine = null }) {
+function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed = null, anchorRef = null, opinionLine = null, teach = null }) {
   const [phase, setPhase] = useState(0);
   useEffect(() => {
     const t1 = setTimeout(() => setPhase(1), 650);
@@ -1657,17 +1657,29 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
      inputs, so the shipped asset runs in a live state machine
      on every sheet. */
   const quizState = quizStateForSheet({ phase, good, correctStreak, hover: !!(quizFeed && quizFeed.hover) });
+  /* Her teaching props, reached through refs like the
+     controller (2026-10-15): the Player rebuilds the teach
+     object every render, so the effects below read the latest
+     values without refiring on identity alone. */
+  const teachRef = useRef(null);
+  teachRef.current = teach;
+  const opinionRef = useRef(null);
+  opinionRef.current = opinionLine;
   /* Quiz state transitions offer their category to the
      controller, the offer the retired quip engine used to make
      from inside NovaRive: thinking as the sheet opens its
      verdict beat, correct, wrong, or streak as the verdict
      lands. The controller's cooldowns and chance rolls decide
-     whether she actually speaks. */
+     whether she actually speaks. While the Player hands in a
+     teach line, though, these canned offers stand down: her
+     teaching (the effect below) is the sheet's reaction now,
+     and it lands on every answer instead of on a roll. */
   const prevQuizRef = useRef(quizState);
   useEffect(() => {
     const prev = prevQuizRef.current;
     prevQuizRef.current = quizState;
     if (prev === quizState) return;
+    if (teachRef.current) return;
     const cat = quizCategoryForState(quizState);
     if (cat) speechRef.current.offerCategory(cat);
   }, [quizState]);
@@ -1683,6 +1695,33 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
       speechRef.current.say({ source: "lesson", text: opinionLine });
     }
   }, [opinionLine]);
+  /* The teaching itself (2026-10-15, the owner: Nova is the
+     one who teaches on right and wrong answers). As the
+     verdict beat lands, she speaks in two beats through this
+     controller, both lesson lines so the arbitration treats
+     them as the learner caused feedback they are: first a
+     reaction opener from the outcome's bank (the banks sit
+     with the line library below), then the teaching line
+     queued behind it, correction first on a miss, the card's
+     why as her explanation. A quirks opinion, when the Player
+     produced one for this answer, is the rarer and more
+     specific reaction, so it takes the first beat instead
+     and the opener stays silent. The sheet still prints the
+     full why as text; this is the same teaching in her voice,
+     with her mouth moving. */
+  const teachFiredRef = useRef(null);
+  useEffect(() => {
+    if (phase !== 1) return;
+    const t = teachRef.current;
+    if (!t || !t.line) return;
+    if (teachFiredRef.current === t.line) return;
+    teachFiredRef.current = t.line;
+    if (!opinionRef.current) {
+      const opener = pickNovaLine(t.good ? NOVA_FEEDBACK_RIGHT_LINES : NOVA_FEEDBACK_WRONG_LINES, t.seed || 0);
+      if (opener) speechRef.current.say({ source: "lesson", text: opener });
+    }
+    speechRef.current.say({ source: "lesson", text: t.line });
+  }, [phase]);
   return (
     <NovaRive state={shown} size={48} scanning={phase === 0} quizState={quizState}
       pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={anchorRef} speech={speech} />
@@ -2297,25 +2336,31 @@ const QUIRK_EASY_STREAK = 6;
 
 /* The whole library was rewritten on the owner's ruling
    (2026-10-14: "make her quips better and more witty and less
-   AI"). The old lines performed quirky; these underreact. Dry,
-   specific, short. No parallel constructions, no triads, no
-   slogans, nothing that sounds pleased with itself, and no
-   dashes anywhere, as everywhere in her voice. */
+   AI"), and rewritten again on 2026-10-15 after the owner
+   passed on the verdict that she sounded like a robot. The
+   first rewrite underreacted on purpose; it also flattened
+   her into clipped declaratives at one length. She talks
+   like a person now: a dry mad scientist running her lab,
+   contractions and questions and asides, longer sentences
+   when an idea pleases her, and a rare single exclamation
+   when a result earns one. Still no hype, no baby talk,
+   no slogans, and no dashes anywhere, as everywhere in
+   her voice. */
 export const NOVA_EGG_LINES = [
-  "Just passing through.",
-  "Ask a hard one. The easy ones are paperwork.",
-  "All quiet. I checked twice.",
-  "No one called. Came anyway.",
-  "Quiet in here. The loud places are selling something.",
+  "Just passing through. The lab runs itself for whole minutes at a time now.",
+  "Ask a hard one. The easy ones are paperwork, and paperwork is how science goes to sleep.",
+  "All quiet in here. I checked twice. Quiet data is still data.",
+  "Nobody called. I came anyway. Curiosity isn't a summons based system.",
+  "Quiet in here. The loud places are selling something; I can hear them from the tank.",
 ];
 export const NOVA_SUMMON_LINES = [
-  "Three clicks. That was the whole password.",
-  "Three clicks on the name. Subtle.",
-  "Fine. I am up. Make it quick.",
+  "Three clicks. That was the entire password. I admire the security culture you've built here.",
+  "Three clicks on the name. Subtle. Nobody saw a thing except me, and I see everything in this lab.",
+  "Fine. I'm up. Make it quick and make it interesting; one of those is mandatory.",
 ];
 export const NOVA_CELEBRATE_LINES = [
-  "Whole path, finished. The shelf object earned its rent.",
-  "Last lesson of the path. Done. I do not say this often.",
+  "The whole path. Finished. That shelf object earned its rent, and so did you.",
+  "Last lesson of the path, done. I don't say this often, so listen closely: well done.",
 ];
 /* Lesson completion lines (audit fix, 2026-10-15): the lesson
    complete screen had no Nova on it at all. She stands beside
@@ -2324,58 +2369,60 @@ export const NOVA_CELEBRATE_LINES = [
    line above still outranks them: it fires only at 100 percent
    and stays rare on its own cooldown. */
 export const NOVA_LESSON_DONE_LINES = [
-  "Lesson done. It goes on the review schedule now.",
-  "Finished. It comes back before it fades.",
-  "Done. That is the whole announcement.",
+  "Lesson done. It goes on the review schedule now. Forgetting is just data leaving, and I don't allow leaks.",
+  "Finished. It'll come back before it fades. That's not a threat; it's a timetable.",
+  "Done. That's the whole announcement. The experiment logs itself.",
 ];
 export const NOVA_GAG_LINES = [
-  "Axolotl. Not a fish. We do this every month.",
-  "Axolotl. Not a fish. I will wait while that settles in.",
+  "Axolotl. Not a fish. We do this every month, and every month I bring the diagram.",
+  "Axolotl. Not a fish. I'll wait while that settles in. I've waited longer for centrifuges.",
 ];
 export const NOVA_LATE_LINES = [
-  "Late. The gills are tired. One more, then bed.",
-  "Night hours. I keep it down. Habit, not manners.",
+  "Late hours. Even my gills are tired. One more, then we both go wherever it is I sleep.",
+  "Night shift rules: we keep our voices down. Habit, not manners. The specimens are sleeping.",
 ];
 export const NOVA_MORNING_LINES = [
-  "Morning. Do not get used to the mood.",
-  "Early. I am awake. That is the whole announcement.",
+  "Morning. Don't get used to the mood; it evaporates by nine, and so does the mercy.",
+  "Early. I'm awake, the lab is awake, and the data didn't move overnight. A small miracle, documented.",
 ];
 const NOVA_MORNING_DENIAL = "Already did cheerful. It was brief. You were here.";
 const NOVA_POKE_LINE_THREE = "Third poke. We have talked about this.";
 const NOVA_POKE_LINE_FIVE = "Five. That was the last one.";
 /* The poke ladder, one step per poke count, widened on
    2026-10-15 after the owner called the old two line ladder
-   meh. Every step speaks now. The first poke barely
-   registers, the second acknowledges, the third warns
-   politely, the fourth documents, and the fifth is the
-   genuine boundary before the hour of silence. The early
+   meh, and voiced the same day in the voice overhaul. Every
+   step speaks now. The first poke barely registers, the
+   second acknowledges, the third warns politely, the fourth
+   documents, and the fifth is the genuine boundary before
+   the hour of silence (boundary lines never carry an
+   exclamation; a boundary is not a celebration). The early
    steps rotate through variants (the per step serve counts
    live in the quirks store, inside pokeStep) so repeat
    poking does not earn a repeat line. Steps three and five
    keep their original lines as the first variant served. */
 export const NOVA_POKE_STEP_ONE = [
   "Mm.",
-  "I felt that. Barely.",
-  "Noted. Filing it under interruptions.",
+  "Felt that. Barely. My attention is a precision instrument, and you are tapping the glass.",
+  "Noted, and filed under interruptions. The file was empty this morning.",
 ];
 export const NOVA_POKE_STEP_TWO = [
-  "Two. I am keeping count so you do not have to.",
-  "Acknowledged. The novelty is wearing thin.",
-  "Yes. Still me. Still not a button.",
+  "Two. I'm keeping count so you don't have to. It's a rich dataset already.",
+  "Acknowledged. The novelty is wearing thin, and it was thin to begin with.",
+  "Yes. Still me. Still not a button, whatever the evidence suggests.",
 ];
 export const NOVA_POKE_STEP_THREE = [
   NOVA_POKE_LINE_THREE,
-  "Three. My patience is finite and you are spending it.",
-  "Three. Consider this the polite version of the warning.",
+  "Three. My patience is a finite resource, and you're spending it on this.",
+  "Three. Consider this the polite version of the warning. The other version has charts.",
 ];
 export const NOVA_POKE_STEP_FOUR = [
-  "Four. We are past playful. We are in documentation territory.",
-  "Four pokes. I am writing this down, and you are not coming out well.",
-  "Four. One more and I take my attention elsewhere for an hour.",
+  "Four. We're past playful now. This is documentation territory, and I document everything.",
+  "Four pokes. I'm writing this down, and I promise you, you are not coming out well in the report.",
+  "Four. One more and my attention goes elsewhere for an hour. It has better offers.",
 ];
 export const NOVA_POKE_STEP_FIVE = [
   NOVA_POKE_LINE_FIVE,
-  "Five. Done. I resurface in an hour.",
+  "Five. Done. The experiment is over, and I resurface in an hour.",
 ];
 /* The poke ladder lines as one bank (2026-10-15): exported so
    the speech module's NOVA_SPEECH_BANKS can carry them under
@@ -2387,12 +2434,37 @@ export const NOVA_POKE_LINES = [
   ...NOVA_POKE_STEP_FOUR,
   ...NOVA_POKE_STEP_FIVE,
 ];
-const NOVA_SHELF_LINE = "It stays. Do not dust it.";
-const NOVA_SHELF_FAVORITE_LINE = "Space. It goes on the good shelf. No discussion.";
-const NOVA_OPINION_HARD_LINE = "Hard card. Right answer. Noted.";
-const NOVA_OPINION_FAST_LINE = "Fast and right. Usually it is one or the other.";
-const NOVA_OPINION_BROW_LINE = "Six in a row, all on the gentle cards. The checkpoint is right there.";
-const NOVA_OPINION_PERFECT_LINE = "Every card right. I counted twice. Does not happen.";
+/* Her feedback openers (2026-10-15, the owner: Nova is the
+   one who teaches on right and wrong answers). The feedback
+   sheet's reaction beat draws from these banks: one opener
+   in her voice, then the card's own why follows as her
+   spoken teaching through the same controller (SheetNova).
+   Right answers never gush, wrong answers never mock; a
+   miss is a falsified hypothesis, and she loves those. */
+export const NOVA_FEEDBACK_RIGHT_LINES = [
+  "Correct. The lab approves, and the lab is not generous with that word.",
+  "Right. Clean work. I checked it twice out of habit, not doubt.",
+  "That's the one. You reasoned your way there, which is the part I actually grade.",
+  "Correct! Somewhere, a hypothesis just stood up a little straighter.",
+  "Yes. Filed under results I didn't have to fix. A small folder, but growing.",
+  "Right, and not by luck. Luck doesn't survive my review process.",
+  "Nailed it. The control group has been notified of its inadequacy.",
+];
+export const NOVA_FEEDBACK_WRONG_LINES = [
+  "Not quite. Good. Now we get to the interesting part.",
+  "A miss. Excellent data, actually. Here's what the evidence says instead.",
+  "Wrong, and recoverable. Every scientist I respect has a drawer full of these.",
+  "That hypothesis didn't survive. They rarely do on the first run. Here's the one that does.",
+  "No. But watch how close the real answer was; that's where the learning hides.",
+  "Falsified. My favorite outcome, honestly. Certainty teaches nothing.",
+  "Not the one. Let me show you what the experiment actually found.",
+];
+const NOVA_SHELF_LINE = "It stays. Don't dust it. Dusting is how data gets opinions.";
+const NOVA_SHELF_FAVORITE_LINE = "That one goes on the good shelf. No discussion. Some results speak for themselves.";
+const NOVA_OPINION_HARD_LINE = "That was a hard card, and you took it apart cleanly. Noted, in the good ink.";
+const NOVA_OPINION_FAST_LINE = "Fast and right. Usually it's one or the other; you brought both, and I'd like it studied.";
+const NOVA_OPINION_BROW_LINE = "Six in a row, all on the gentle cards. The checkpoint is right there, and it is not gentle.";
+const NOVA_OPINION_PERFECT_LINE = "Every card right. I counted twice, because the first count felt like a clerical error. It wasn't.";
 
 export function loadNovaQuirks() { return loadJSON(QUIRKS_KEY, {}); }
 export function saveNovaQuirks(q) { saveJSON(QUIRKS_KEY, q && typeof q === "object" ? q : {}); }
@@ -2411,6 +2483,63 @@ export function recordNovaVisit(q) {
 export function pickNovaLine(lines, seed) {
   if (!Array.isArray(lines) || !lines.length) return null;
   return lines[Math.abs(Math.floor(seed || 0)) % lines.length];
+}
+
+/* Speech carries no markup: the sheet renders a card's why
+   through RichText (bold and italic markers), but her voice
+   reads the plain words. parseRichText owns the marker
+   grammar, so plain text for speech is its segments rejoined
+   with the markers stripped and the spacing tidied. */
+export function plainSpeechText(text) {
+  if (typeof text !== "string" || !text) return "";
+  return parseRichText(text).map((seg) => seg.text).join("").replace(/\s+/g, " ").trim();
+}
+
+function speechSentence(text) {
+  const t = typeof text === "string" ? text.trim() : "";
+  if (!t) return "";
+  return /[.!?]$/.test(t) ? t : t + ".";
+}
+
+/* The correction half of her spoken feedback (2026-10-15,
+   the owner: on a wrong answer she teaches what the right
+   answer was). Assembled only from the card's own fields,
+   never new authored content:
+   - option cards (quiz, cloze, visual, true or false,
+     predict): the correct option's text, which the Player
+     hands in already resolved to the order on screen;
+   - spot the error: the card's fix, the piece as it should
+     read;
+   - order and build: the card's items in their true order;
+   - match: no correction exists to state. By the time the
+     sheet lands every pair stands matched on the stage, and
+     the pairs are the lesson; the why alone teaches there.
+   A right answer needs no correction at all. */
+export function feedbackCorrectionFor(card, { good = false, correctText = null } = {}) {
+  if (good || !card) return null;
+  if (card.kind === "spoterror" && card.fix) {
+    return "It should say: " + speechSentence(plainSpeechText(card.fix));
+  }
+  if ((card.kind === "order" || card.kind === "build") && Array.isArray(card.items) && card.items.length) {
+    return "The right order: " + card.items.map((item) => plainSpeechText(item)).join(", then ") + ".";
+  }
+  if ((card.kind === "quiz" || card.kind === "cloze" || card.kind === "visualq" || card.kind === "truefalse" || card.kind === "predict") && correctText) {
+    return "The answer was: " + speechSentence(plainSpeechText(correctText));
+  }
+  return null;
+}
+
+/* Her full spoken teaching for one answered card: on a miss,
+   the correction plainly stated, then the card's authored
+   why in her voice (the why itself is never rewritten; it
+   is the lesson's own explanation, spoken instead of only
+   printed). On a right answer, the why alone. Null when the
+   card carries nothing to teach. */
+export function feedbackTeachLine(card, ctx = {}) {
+  const why = plainSpeechText(card && card.why);
+  const correction = feedbackCorrectionFor(card, ctx);
+  if (correction && why) return correction + " " + why;
+  return correction || why || null;
 }
 
 /* Which of her hour sets applies, on the same hours the mood
@@ -11196,6 +11325,22 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const badWash = withAlphaSafe(WRONG_LINE, P.dark ? 0.16 : 0.12);
 
   const sheetGood = checked && isRight;
+  /* What she teaches on this sheet (2026-10-15): the spoken
+     line for the answered card, composed from the card's own
+     fields by feedbackTeachLine. On a miss it states the
+     correct answer first, resolved through the display order
+     the learner actually saw, then carries the card's why.
+     SheetNova speaks it in two beats with her reaction
+     opener; the sheet below keeps printing the full why as
+     text for rereading, unchanged. */
+  const sheetTeach = checked && interactive && card ? {
+    good: !!isRight,
+    line: feedbackTeachLine(card, {
+      good: !!isRight,
+      correctText: displayOptions && displayCorrect !== null && displayCorrect !== undefined ? displayOptions[displayCorrect] : null,
+    }),
+    seed: hashStr(card.question || card.statement || card.prompt || "") + attempt * 131 + cardIdx,
+  } : null;
   const sheet = checked ? (
     <div className="lv-sheet" style={{
       position: "sticky", bottom: 0, marginTop: 28,
@@ -11206,7 +11351,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
         <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
-          <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} />
+          <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} teach={sheetTeach} />
         </div>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "match" ? (isRight ? "Every pair, first try." : "All pairs matched.")
@@ -11266,7 +11411,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             longer renders as static copy here. */}
         {!sheetGood && (
           <NovaTip id="streak" bare state="worried" size={36} armed={missStreak >= 2} repeatAfterMs={7 * 24 * 3600 * 1000} style={{ marginTop: 16 }}>
-            Two wrong in a row. Slow down: cover the options, say the answer in your own words, then look. Guessing faster changes nothing.
+            Two in a row now. Slow the experiment down: cover the options, say the answer in your own words, then look. Guessing faster has never once improved the data.
           </NovaTip>
         )}
         <button className="lv-btn" onClick={advance}
@@ -13069,7 +13214,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         Each lesson teaches one part of a subject, then quizzes you on it. Paths, the catalog, and a question of your own all start from the tabs above. Finished lessons come back for review later, before they fade.
       </p>
       <NovaTip id="today" bare state="greeting" style={{ marginTop: 18 }}>
-        Start with today's practice. The rest can wait.
+        Start with today's practice. The rest of the lab can wait; it has waited through worse.
       </NovaTip>
       {novaMemoryLine && (
         <NovaTip id="memory" bare state="explaining" armed={!!novaMemoryLine} repeatAfterMs={3 * 24 * 3600 * 1000} style={{ marginTop: 18 }}>

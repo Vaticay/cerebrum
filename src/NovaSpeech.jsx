@@ -232,11 +232,11 @@ export function speechDurationFor(text) {
    semicolon, or colon earns a short pause, a sentence end a
    longer one, and a clause too long for one breath splits
    with a breath pause. Each clause speaks as one burst of
-   mouth cycles at 38ms per character (faster than the reading
-   pace, because the mouth is stylized), clamped so a burst is
-   never shorter than a visible 240ms nor longer than 2.4
-   seconds unbroken. The plan is deterministic: the same line
-   always gets the same rhythm. */
+   mouth cycles at a base 38ms per character (faster than the
+   reading pace, because the mouth is stylized), clamped so a
+   burst is never shorter than a visible 240ms nor longer than
+   2.4 seconds unbroken. The plan is deterministic: the same
+   line always gets the same rhythm. */
 export const SPEECH_SPEAK_MS_PER_CHAR = 38;
 export const SPEECH_BURST_MIN_MS = 240;
 export const SPEECH_BURST_MAX_MS = 2400;
@@ -248,10 +248,43 @@ export const SPEECH_PAUSE_BREATH_MS = 120;
    still finishes its last phrase instead of freezing shut. */
 export const SPEECH_TAIL_MS = 150;
 
+/* Cadence variation (2026-10-15, the voice overhaul): the
+   flat rate above was half of why she sounded like a robot.
+   Every line now carries a cadence profile, hashed from its
+   own text so the same line always earns the same rhythm
+   and the tests stay stable:
+   - a per line rate inside a narrow band around the base,
+     so no two lines tick at quite the same speed;
+   - a longer beat before a short final clause, the setup
+     and punch rhythm of a person landing a point;
+   - quicker runs inside long lines, where she gets a
+     little excited about the material and stops enunciating
+     like an announcement. */
+export const SPEECH_CADENCE_MIN = 0.96;
+export const SPEECH_CADENCE_MAX = 1.08;
+export const SPEECH_PAUSE_PUNCH_MS = 560;
+export const SPEECH_PUNCH_MAX_CHARS = 28;
+export const SPEECH_EXCITED_MIN_CHARS = 160;
+export const SPEECH_EXCITED_FACTOR = 0.85;
+
+export function speechCadenceFor(text) {
+  const clean = typeof text === "string" ? text.trim() : "";
+  let h = 2166136261;
+  for (let i = 0; i < clean.length; i++) {
+    h ^= clean.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const t = ((h >>> 0) % 1000) / 1000;
+  let factor = SPEECH_CADENCE_MIN + t * (SPEECH_CADENCE_MAX - SPEECH_CADENCE_MIN);
+  if (clean.length >= SPEECH_EXCITED_MIN_CHARS) factor *= SPEECH_EXCITED_FACTOR;
+  return factor;
+}
+
 export function speechPlanFor(text) {
   const clean = typeof text === "string" ? text.trim() : "";
   const bursts = [];
   if (!clean) return { bursts, speechEndMs: 0 };
+  const rate = SPEECH_SPEAK_MS_PER_CHAR * speechCadenceFor(clean);
   /* Split into segments, each ending at a punctuation mark
      that stays attached to its own segment. */
   const segments = [];
@@ -266,17 +299,23 @@ export function speechPlanFor(text) {
   let cursor = 0;
   segments.forEach((segment, i) => {
     let remaining = segment.text.trim().length;
-    const charsPerBurst = Math.max(1, Math.floor(SPEECH_BURST_MAX_MS / SPEECH_SPEAK_MS_PER_CHAR));
+    const charsPerBurst = Math.max(1, Math.floor(SPEECH_BURST_MAX_MS / rate));
     while (remaining > 0) {
       const burstChars = Math.min(remaining, charsPerBurst);
-      const burstMs = Math.max(SPEECH_BURST_MIN_MS, Math.min(SPEECH_BURST_MAX_MS, burstChars * SPEECH_SPEAK_MS_PER_CHAR));
+      const burstMs = Math.max(SPEECH_BURST_MIN_MS, Math.min(SPEECH_BURST_MAX_MS, Math.round(burstChars * rate)));
       bursts.push({ startMs: cursor, endMs: cursor + burstMs });
       cursor += burstMs;
       remaining -= burstChars;
       if (remaining > 0) cursor += SPEECH_PAUSE_BREATH_MS;
     }
     if (i < segments.length - 1) {
-      cursor += segment.end === "sentence" ? SPEECH_PAUSE_SENTENCE_MS : SPEECH_PAUSE_CLAUSE_MS;
+      let pause = segment.end === "sentence" ? SPEECH_PAUSE_SENTENCE_MS : SPEECH_PAUSE_CLAUSE_MS;
+      /* The punch beat: a short final clause lands after a
+         longer held pause, not the standard one. */
+      if (i === segments.length - 2 && segments[i + 1].text.trim().length <= SPEECH_PUNCH_MAX_CHARS) {
+        pause = Math.max(pause, SPEECH_PAUSE_PUNCH_MS);
+      }
+      cursor += pause;
     }
   });
   return { bursts, speechEndMs: bursts.length ? bursts[bursts.length - 1].endMs : 0 };

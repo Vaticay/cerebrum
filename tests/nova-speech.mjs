@@ -59,6 +59,8 @@ const WANTED = [
   "SPEECH_DISPLAY_BASE_MS", "SPEECH_READ_MS_PER_CHAR", "SPEECH_DISPLAY_MIN_MS", "SPEECH_DISPLAY_MAX_MS",
   "SPEECH_SPEAK_MS_PER_CHAR", "SPEECH_BURST_MIN_MS", "SPEECH_BURST_MAX_MS",
   "SPEECH_PAUSE_CLAUSE_MS", "SPEECH_PAUSE_SENTENCE_MS", "SPEECH_PAUSE_BREATH_MS", "SPEECH_TAIL_MS",
+  "SPEECH_CADENCE_MIN", "SPEECH_CADENCE_MAX", "SPEECH_PAUSE_PUNCH_MS", "SPEECH_PUNCH_MAX_CHARS",
+  "SPEECH_EXCITED_MIN_CHARS", "SPEECH_EXCITED_FACTOR", "speechCadenceFor",
   "speechSourceForCategory", "speechDurationFor", "speechPlanFor", "speechTalkingAt", "pickSpeechLine",
   "createSpeechState", "speechIsCaused", "speechShow", "speechOffer", "speechAdvance", "speechDismiss",
 ];
@@ -87,6 +89,8 @@ const {
   SPEECH_PRIORITY, SPEECH_MIN_GAP_MS, SPEECH_QUEUE_MAX,
   SPEECH_DISPLAY_MIN_MS, SPEECH_DISPLAY_MAX_MS,
   SPEECH_PAUSE_CLAUSE_MS, SPEECH_PAUSE_SENTENCE_MS, SPEECH_TAIL_MS,
+  SPEECH_SPEAK_MS_PER_CHAR, SPEECH_BURST_MAX_MS, SPEECH_PAUSE_PUNCH_MS, SPEECH_PUNCH_MAX_CHARS,
+  SPEECH_EXCITED_MIN_CHARS, speechCadenceFor,
   speechSourceForCategory, speechDurationFor, speechPlanFor, speechTalkingAt, pickSpeechLine,
   createSpeechState, speechOffer, speechAdvance, speechDismiss,
 } = context.__x;
@@ -188,6 +192,41 @@ await test("a plan that outlasts its bubble finishes inside the tail, then stops
   assert.equal(speechTalkingAt(plan, 2600 + SPEECH_TAIL_MS + 10, 2600), false, "past the tail she is done");
   const short = speechPlanFor("Short.");
   assert.equal(speechTalkingAt(short, 500, 400), false, "a finished short line does not restart for the tail");
+});
+
+// ══════════════════════════════════════════════════════════════
+group("The cadence: no two lines tick at the same speed");
+
+await test("the cadence is deterministic per line and stays inside its band", () => {
+  const line = "Somewhere in this lab there's a beaker I labeled do not drink.";
+  assert.equal(speechCadenceFor(line), speechCadenceFor(line), "the same line earned two rhythms");
+  assert.deepEqual(speechPlanFor(line), speechPlanFor(line), "the same line planned two ways");
+  const f = speechCadenceFor(line);
+  assert.ok(f >= 0.96 && f <= 1.08, `the cadence left its band at ${f}`);
+});
+
+await test("a short final clause lands after the punch pause, not the standard one", () => {
+  const plan = speechPlanFor("The lab is quiet tonight, and the data is in. Listen.");
+  assert.ok(plan.bursts.length >= 2, "the fixture should speak in bursts");
+  const last = plan.bursts[plan.bursts.length - 1];
+  const before = plan.bursts[plan.bursts.length - 2];
+  assert.equal(last.startMs - before.endMs, SPEECH_PAUSE_PUNCH_MS,
+    "the setup and punch beat is missing before the short final clause");
+  assert.ok(SPEECH_PAUSE_PUNCH_MS > SPEECH_PAUSE_SENTENCE_MS, "the punch pause is not longer than a sentence pause");
+  /* A long final clause earns no punch: the pause there
+     stays the standard sentence pause. */
+  const plain = speechPlanFor("Correct. The chance that was a guess is under one in a thousand.");
+  assert.equal(plain.bursts[1].startMs - plain.bursts[0].endMs, SPEECH_PAUSE_SENTENCE_MS,
+    "a long final clause borrowed the punch pause");
+});
+
+await test("a long line runs quicker than the metronome, and its bursts still respect the cap", () => {
+  const long = "x".repeat(200);
+  assert.ok(long.length >= SPEECH_EXCITED_MIN_CHARS, "the fixture is not in excited territory");
+  const plan = speechPlanFor(long);
+  assert.ok(plan.speechEndMs < long.length * SPEECH_SPEAK_MS_PER_CHAR,
+    `a long excited line still ticked at the flat rate: ${plan.speechEndMs}ms for ${long.length} chars`);
+  for (const b of plan.bursts) assert.ok(b.endMs - b.startMs <= SPEECH_BURST_MAX_MS, "a burst outlasted the cap");
 });
 
 // ══════════════════════════════════════════════════════════════

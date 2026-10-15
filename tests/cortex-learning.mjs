@@ -106,6 +106,12 @@ const WANTED = [
   "NOVA_POKE_LINE_THREE", "NOVA_POKE_LINE_FIVE", "NOVA_SHELF_LINE", "NOVA_SHELF_FAVORITE_LINE",
   "NOVA_POKE_STEP_ONE", "NOVA_POKE_STEP_TWO", "NOVA_POKE_STEP_THREE", "NOVA_POKE_STEP_FOUR", "NOVA_POKE_STEP_FIVE",
   "NOVA_POKE_LINES",
+  /* Feedback teaching extraction (2026-10-15, the voice
+     overhaul's second half): her reaction opener banks and
+     the pure helpers that compose her spoken teaching from a
+     card's own fields, pinned by the feedback tests below. */
+  "NOVA_FEEDBACK_RIGHT_LINES", "NOVA_FEEDBACK_WRONG_LINES",
+  "plainSpeechText", "speechSentence", "feedbackCorrectionFor", "feedbackTeachLine",
   "NOVA_OPINION_HARD_LINE", "NOVA_OPINION_FAST_LINE", "NOVA_OPINION_BROW_LINE", "NOVA_OPINION_PERFECT_LINE",
   "loadNovaQuirks", "saveNovaQuirks", "pickNovaLine", "hourLineSet",
   "computeNovaMemory", "memoryLineFor", "loadNovaMemoryFacts",
@@ -190,6 +196,8 @@ const {
   NOVA_POKE_LINE_THREE, NOVA_POKE_LINE_FIVE, NOVA_SHELF_LINE, NOVA_SHELF_FAVORITE_LINE,
   NOVA_POKE_STEP_ONE, NOVA_POKE_STEP_TWO, NOVA_POKE_STEP_THREE, NOVA_POKE_STEP_FOUR, NOVA_POKE_STEP_FIVE,
   NOVA_POKE_LINES,
+  NOVA_FEEDBACK_RIGHT_LINES, NOVA_FEEDBACK_WRONG_LINES,
+  plainSpeechText, speechSentence, feedbackCorrectionFor, feedbackTeachLine,
   NOVA_OPINION_HARD_LINE, NOVA_OPINION_FAST_LINE, NOVA_OPINION_BROW_LINE, NOVA_OPINION_PERFECT_LINE,
   loadNovaQuirks, saveNovaQuirks, pickNovaLine, hourLineSet,
   computeNovaMemory, memoryLineFor, loadNovaMemoryFacts,
@@ -3732,8 +3740,18 @@ await test("pickEggLine routes hours, memory, and the gag, and the morning denia
   assert.equal(plain.quirks.lastEggLine, plain.line);
 });
 
-await test("the lines library obeys her voice rules: no dashes, no AI talk, no mascot talk", () => {
-  const lists = { NOVA_EGG_LINES, NOVA_SUMMON_LINES, NOVA_CELEBRATE_LINES, NOVA_GAG_LINES, NOVA_LATE_LINES, NOVA_MORNING_LINES, NOVA_POKE_LINES };
+await test("the lines library obeys her voice rules: no dashes, no AI talk, no mascot talk, exclamations on a budget", () => {
+  /* Voice gate update (2026-10-15, the overhaul): the dash
+     ban stays absolute, and the self naming bans stand. Two
+     rules join them from the new contract. Exclamation is a
+     budget, not a ban: at most one in any line, never two,
+     and none at all in the poke boundary lines, because a
+     boundary is not a celebration. And length is a band, not
+     a flat cap: lines may run longer when she is pleased
+     with an idea, up to a 175 character ceiling that keeps
+     the bubbles readable. The feedback opener banks join
+     the library here so they answer to the same rules. */
+  const lists = { NOVA_EGG_LINES, NOVA_SUMMON_LINES, NOVA_CELEBRATE_LINES, NOVA_GAG_LINES, NOVA_LATE_LINES, NOVA_MORNING_LINES, NOVA_POKE_LINES, NOVA_FEEDBACK_RIGHT_LINES, NOVA_FEEDBACK_WRONG_LINES };
   const singles = [
     NOVA_MORNING_DENIAL, NOVA_POKE_LINE_THREE, NOVA_POKE_LINE_FIVE, NOVA_SHELF_LINE,
     NOVA_SHELF_FAVORITE_LINE, NOVA_OPINION_HARD_LINE, NOVA_OPINION_FAST_LINE,
@@ -3747,12 +3765,68 @@ await test("the lines library obeys her voice rules: no dashes, no AI talk, no m
     assert.ok(!/[-–—]/.test(line), `a dash sits in her line: ${line}`);
     assert.ok(!/\bAI\b/.test(line), `she names herself an AI: ${line}`);
     assert.ok(!/mascot/i.test(line), `she names herself a mascot: ${line}`);
+    assert.ok((line.match(/!/g) || []).length <= 1, `more than one exclamation in her line: ${line}`);
+    assert.ok(line.length <= 175, `a line outgrew the bubble band at ${line.length} chars: ${line}`);
   }
+  for (const line of [...NOVA_POKE_STEP_FIVE, NOVA_POKE_LINE_FIVE]) {
+    assert.ok(!line.includes("!"), `an exclamation in a poke boundary line: ${line}`);
+  }
+  assert.ok(NOVA_FEEDBACK_RIGHT_LINES.length >= 6, "the right answer opener bank is thin");
+  assert.ok(NOVA_FEEDBACK_WRONG_LINES.length >= 6, "the wrong answer opener bank is thin");
   assert.equal(QUIRKS_KEY, "cerebrum-learn2-quirks", "the quirks store is its own key");
   saveNovaQuirks({ gagAt: 4242 });
   assert.equal(loadNovaQuirks().gagAt, 4242, "the quirks store should round trip");
   assert.ok(!JSON.stringify(buildCortexExport(cortexFixtureState, new Date())).includes("quirks"),
     "the export carries the quirks store");
+});
+
+await test("her feedback teaching: the why is spoken on both outcomes, and a miss is corrected from the card's own fields", () => {
+  const { mkQuiz, mkSpotError, mkOrder, mkMatch } = context.__x;
+  /* Speech carries no markup: the sheet prints the why
+     through RichText, her mouth reads the plain words. */
+  assert.equal(plainSpeechText("The **mantle** is _hot_ rock."), "The mantle is hot rock.");
+  /* Right answer: the why alone teaches. No correction
+     exists to state, and none is invented. */
+  const quiz = mkQuiz("What does the mantle do?", ["It stores heat", "It makes light"], 0, "The mantle stores heat and moves it slowly upward.");
+  assert.equal(feedbackCorrectionFor(quiz, { good: true, correctText: "It stores heat" }), null);
+  assert.equal(feedbackTeachLine(quiz, { good: true, correctText: "It stores heat" }),
+    "The mantle stores heat and moves it slowly upward.");
+  /* Wrong answer on an option card: the correction names
+     the right answer the learner actually saw, then the
+     authored why follows as her explanation. */
+  const miss = feedbackTeachLine(quiz, { good: false, correctText: "It stores heat" });
+  assert.ok(miss.startsWith("The answer was: It stores heat."), `the correction is missing: ${miss}`);
+  assert.ok(miss.includes("The mantle stores heat and moves it slowly upward."), "the why did not follow the correction");
+  /* Rich text markers in a why never reach her mouth. */
+  const marked = mkQuiz("Q?", ["A", "B"], 1, "Heat moves by **conduction** here.");
+  assert.equal(feedbackTeachLine(marked, { good: true }), "Heat moves by conduction here.");
+  /* Spot the error: the card's fix is the correction. */
+  const spot = mkSpotError("Tap the wrong piece.", ["Water", "boils", "at", "fifty", "degrees"], 3, "Water boils at one hundred degrees", "Fifty degrees warms water; it does not boil it.");
+  assert.ok(feedbackTeachLine(spot, { good: false }).startsWith("It should say: Water boils at one hundred degrees."),
+    "the spot error correction is missing");
+  /* Order: the card's items in their true order correct. */
+  const order = mkOrder("Put the cycle in order.", ["Rain falls", "Water gathers", "Sun heats the sea"], "Heat drives evaporation first; the rest follows.");
+  assert.ok(feedbackTeachLine(order, { good: false }).startsWith("The right order: Rain falls, then Water gathers, then Sun heats the sea."),
+    "the order correction is missing");
+  /* Match: no single correction exists to state. The sheet
+     lands only once every pair stands matched, and the
+     pairs are the lesson, so the why alone teaches there.
+     Documented fallback (2026-10-15), not an oversight. */
+  const match = mkMatch("Match each term.", [["Evaporation", "Water becomes vapor"]], "Pairs stick when the process makes sense.");
+  assert.equal(feedbackCorrectionFor(match, { good: false }), null);
+  assert.equal(feedbackTeachLine(match, { good: false }), "Pairs stick when the process makes sense.");
+  /* A card with nothing to teach earns silence, not invention. */
+  assert.equal(feedbackTeachLine({ kind: "quiz", why: "" }, { good: false, correctText: null }), null);
+});
+
+await test("the feedback sheet routes her teaching through SheetNova, and the canned sheet quips stand down while she teaches", () => {
+  assert.ok(learnSrc.includes("teach={sheetTeach}"), "the Player does not hand SheetNova its teaching");
+  assert.ok(learnSrc.includes("feedbackTeachLine(card, {"), "the Player does not compose the teaching from the answered card");
+  assert.ok(learnSrc.includes("displayOptions[displayCorrect]"), "the correction is not resolved through the order the learner saw");
+  assert.ok(learnSrc.includes("NOVA_FEEDBACK_RIGHT_LINES") && learnSrc.includes("NOVA_FEEDBACK_WRONG_LINES"),
+    "SheetNova does not draw her reaction openers from the banks");
+  assert.ok(learnSrc.includes("if (teachRef.current) return;"), "the sheet's category quips do not stand down while she teaches");
+  assert.ok(learnSrc.includes(">WHY</p>"), "the sheet stopped printing the why as text for rereading");
 });
 
 await test("the quirks are wired where she lives: opinions in the sheet, memory and shelf on Today, the gag in the Library", () => {
@@ -4260,18 +4334,32 @@ await test("her stage: full body framing on Today, a DPR synced canvas, the shel
   assert.ok(!riveSrc.includes('framing === "full" ? "panel" : framing'), "the retired fallback framing mapping is back");
 });
 
-await test("the quip bank holds all nine categories, voiced dry and free of dashes", () => {
+await test("the quip bank holds all nine categories, dash free, exclamations on a budget", () => {
+  /* Gate change (2026-10-15, the voice overhaul, owner's
+     order after the robot verdict): the old pins helped
+     cause the problem. The flat 130 character cap and the
+     outright exclamation ban forced every line into the same
+     clipped shape. The new contract: the dash ban stays
+     absolute; exclamation becomes a budget (at most one per
+     line, never doubled, and rare across the whole bank,
+     eight lines at most); and length becomes a band with a
+     175 character ceiling, room for a longer sentence when
+     an idea pleases her while the bubbles stay readable. */
   const cats = ["idle", "fourthWall", "searching", "preprintWarning", "highConfidence",
     "quizThinking", "quizCorrect", "quizStreak", "quizWrong"];
   assert.deepEqual(Object.keys(NOVA_QUIP_BANK).sort(), cats.slice().sort());
+  let bangLines = 0;
   for (const c of cats) {
     assert.ok(Array.isArray(NOVA_QUIP_BANK[c]) && NOVA_QUIP_BANK[c].length >= 1, c + " is empty");
     for (const line of NOVA_QUIP_BANK[c]) {
       assert.ok(!/[-–—]/.test(line), `${c} line carries a dash: ${line}`);
-      assert.ok(!line.includes("!"), `${c} line carries exclamation energy: ${line}`);
-      assert.ok(line.length <= 130, `${c} line runs long at ${line.length} chars: ${line}`);
+      const bangs = (line.match(/!/g) || []).length;
+      assert.ok(bangs <= 1, `${c} line carries more than one exclamation: ${line}`);
+      if (bangs) bangLines++;
+      assert.ok(line.length <= 175, `${c} line runs past the band at ${line.length} chars: ${line}`);
     }
   }
+  assert.ok(bangLines <= 8, `exclamations stopped being rare across the bank: ${bangLines} lines carry one`);
 });
 
 await test("state to category mapping: quiz states and app states", () => {
