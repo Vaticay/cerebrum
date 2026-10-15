@@ -32,6 +32,7 @@ import { Icon, STATUS, FONT_SIZES, RADIUS, withAlpha, accentText } from "./desig
 import { accentInk } from "./appUtils.js";
 import { NovaRive, appStateForActivity, quizStateForSheet, quizPointerFor, quizCategoryForState, searchCategoryForState } from "./NovaRive.jsx";
 import { useNovaSpeech, NovaBubble } from "./NovaSpeech.jsx";
+import { NovaTour } from "./NovaTour.jsx";
 
 /* ── storage ─────────────────────────────────────────────────────── */
 const COURSES_KEY = "cerebrum-learn2-courses";
@@ -12508,85 +12509,12 @@ async function searchForCourse(query) {
 }
 
 /* ── Learn home ──────────────────────────────────────────────────── */
-/* ── the tour ────────────────────────────────────────────────────────
-   Thirty seconds, four steps, shown once on a first visit and
-   replayable from the header. It teaches the loop, not the buttons:
-   follow a path, guess first, check, review on schedule. */
-const TOUR_STEPS = [
-  {
-    title: "Start with a path",
-    body: "Your teacher is Nova, an axolotl. Calm, dry, and hard to impress. The learning paths she keeps teach whole subjects in order: sleep, evolution, quantum machines, and more. Short lessons, with checks along the way.",
-  },
-  {
-    title: "Lessons teach first, then check",
-    body: "Every lesson explains an idea in plain words, and only then quizzes you on it. Nothing is asked that was not taught. The feedback says why.",
-  },
-  {
-    title: "The catalog has twenty four topics",
-    body: "Catalog courses are written for Nova from standard textbook material, and taught the same way as the paths. A course built from a search works the same way. It quizzes the ideas, not the reading.",
-  },
-  {
-    title: "Review brings it back",
-    body: "Finishing earns XP. Your answered questions go on a review schedule, and daily practice brings them back before they fade.",
-  },
-];
-function CortexTour({ P, accent, at, onClose }) {
-  const [step, setStep] = useState(0);
-  const ink = accentInk(P, accent);
-  const s = TOUR_STEPS[step];
-  const last = step === TOUR_STEPS.length - 1;
-  return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 260, background: "rgba(5,6,8,0.72)",
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 18,
-    }} onClick={onClose}>
-      <div className="lv-rise" onClick={(e) => e.stopPropagation()} style={{
-        background: P.raised, border: "1px solid " + P.line, borderRadius: 24,
-        maxWidth: 470, width: "100%", padding: "30px 28px 24px", color: P.ink,
-        fontFamily: "var(--cb-font)", boxShadow: "0 30px 80px rgba(0,0,0,0.5)",
-        maxHeight: "88vh", overflowY: "auto",
-      }}>
-        <div style={{
-          width: 56, height: 56, borderRadius: "50%", marginBottom: 18,
-          background: "rgba(255,255,255,0.06)", color: ink,
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <Icon name={s.icon} size={26} />
-        </div>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>
-          HOW NOVA WORKS · {step + 1} OF {TOUR_STEPS.length}
-        </div>
-        <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{s.title}</h2>
-        <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.65, color: P.ink2, margin: "0 0 24px" }}>{s.body}</p>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
-          {TOUR_STEPS.map((_, i) => (
-            <span key={i} style={{
-              width: i === step ? 22 : 8, height: 8, borderRadius: RADIUS.pill,
-              background: i === step ? accent : P.line, transition: "all .25s",
-            }} />
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          {step > 0 && (
-            <button className="lv-btn" onClick={() => setStep(step - 1)}
-              style={{ background: "transparent", border: "1px solid " + P.line, color: P.ink, borderRadius: RADIUS.lg, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
-              Back
-            </button>
-          )}
-          <button className="lv-btn lv-btn-primary" onClick={() => (last ? onClose() : setStep(step + 1))}
-            style={{ flex: 1, background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50 }}>
-            {last ? "Start learning" : "Next"}
-          </button>
-        </div>
-        {!last && (
-          <button onClick={onClose} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", padding: "12px 0 0", display: "block", margin: "0 auto" }}>
-            Skip the tour
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
+/* ── the tour ────────────────────────────────────────────────────
+   The tour moved into NovaTour.jsx (2026-10-15, the cutscene
+   redo): Nova speaks the script herself on stage while the
+   lines type out. TOUR_STEPS lives there now. LearnHome still
+   owns when it opens (the `cerebrum-cortex-tour` key below),
+   the spotlight behind it, and the header replay button. */
 
 /* ── first run onboarding (redesign, 2026-10-14) ───────────────────
    Three short questions, then straight into a first lesson. What
@@ -12755,6 +12683,29 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const closeTour = () => {
     try { localStorage.setItem("cerebrum-cortex-tour", "done"); } catch { /* private mode */ }
     setTourOpen(false);
+  };
+  /* The cutscene's stage directions (2026-10-15): a stop can
+     name the home tab to show behind its band and an anchor
+     to scroll into view, and leaving the tour hands the
+     learner back the tab they came from (the replay button
+     records it; a first visit starts on Today anyway). */
+  const tourReturnRef = useRef("today");
+  const finishTour = () => {
+    setHomeTab(tourReturnRef.current || "today");
+    closeTour();
+  };
+  const spotlightTour = (tab, anchor) => {
+    if (tab) setHomeTab(tab);
+    if (!anchor) return;
+    window.setTimeout(() => {
+      try {
+        const el = document.querySelector('[data-tour-anchor="' + anchor + '"]');
+        if (!el) return;
+        let smooth = true;
+        try { smooth = !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch { /* keep smooth */ }
+        el.scrollIntoView({ block: "start", behavior: smooth ? "smooth" : "auto" });
+      } catch { /* the tour reads fine without the scroll */ }
+    }, 90);
   };
   const [access, setAccess] = useState({ signedIn: false, isFounder: false, isCreator: false, email: "" });
   const [published, setPublished] = useState([]);
@@ -13528,7 +13479,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   return (
     <div className="lv-home" style={{ maxWidth: 1120, margin: "0 auto", padding: "26px 24px 48px", fontFamily: "var(--cb-font)", color: P.ink, "--lv-accent": accent }}>
       <style>{CSS}</style>
-      {tourOpen && <CortexTour P={P} accent={accent} at={at} onClose={closeTour} />}
+      {tourOpen && <NovaTour P={P} accent={accent} at={at} onClose={finishTour} onSpotlight={spotlightTour} />}
 
       {/* Zone 1, the header strip (wave 3, 2026-10-14): Nova's
           mark beside the serif wordmark, the tagline in gold sans
@@ -13557,7 +13508,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-          <button onClick={() => setTourOpen(true)}
+          <button onClick={() => { tourReturnRef.current = homeTab; setTourOpen(true); }}
             style={{ background: "none", border: "none", color: ink, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}>
             How Nova works <Icon name="arrowRight" size={13} />
           </button>
@@ -13613,7 +13564,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           wiring is the same NovaLive, so her mood, stage, and
           doing still read on the container, and a tap on her
           still pokes her. */}
-      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 24, margin: "20px 0 20px" }}>
+      <div data-tour-anchor="stage" style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 24, margin: "20px 0 20px" }}>
         <div style={{ display: "flex", gap: 28, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", maxWidth: "100%" }}>
             <NovaLive state={novaMood} size={288} framing="full" />
@@ -13633,7 +13584,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             </div>
           </div>
         </div>
-        <div style={{ borderTop: "1px solid " + P.line, marginTop: 22, paddingTop: 18 }}>
+        <div data-tour-anchor="shelf" style={{ borderTop: "1px solid " + P.line, marginTop: 22, paddingTop: 18 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 12 }}>NOVA'S SHELF</div>
           {shelf.length === 0 ? (
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: 0 }}>
@@ -14005,7 +13956,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           as stops. Filled ground is knowledge the learner owns;
           a dashed, dimmed stop is finished ground whose review
           has come due, so review due shows on the map itself. */}
-      <div style={{ marginBottom: 30 }}>
+      <div data-tour-anchor="paths" style={{ marginBottom: 30 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEARNING PATHS</div>
         <h2 style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Your journey</h2>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 10px" }}>

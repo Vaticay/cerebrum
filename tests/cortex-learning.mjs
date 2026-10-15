@@ -107,23 +107,32 @@ const WANTED = [
   "computeNovaMemory", "memoryLineFor", "loadNovaMemoryFacts",
   "opinionForEvent", "pokeStep", "gagDue", "recordGag", "recordNovaVisit", "shelfCommentFor", "pickEggLine",
 ];
+/* Tour script extraction (2026-10-15, the cutscene redo): the
+   tour's script moved with the tour into src/NovaTour.jsx, so
+   declFor falls back to that file's AST and source. In
+   practice only TOUR_STEPS resolves there; everything else
+   still comes from LearnView.jsx. */
+const tourSrc = readFileSync(join(root, "src/NovaTour.jsx"), "utf8");
+const tourAst = parse(tourSrc, { sourceType: "module", plugins: ["jsx"] });
 function declFor(name) {
-  for (const node of ast.program.body) {
-    const decl = node.type === "ExportNamedDeclaration" ? node.declaration : node;
-    if (!decl) continue;
-    if (decl.type === "FunctionDeclaration" && decl.id && decl.id.name === name) return decl;
-    if (decl.type === "VariableDeclaration") {
-      const d = decl.declarations.find((x) => x.id && x.id.name === name);
-      if (d) return decl;
+  for (const [tree, src] of [[ast, learnSrc], [tourAst, tourSrc]]) {
+    for (const node of tree.program.body) {
+      const decl = node.type === "ExportNamedDeclaration" ? node.declaration : node;
+      if (!decl) continue;
+      if (decl.type === "FunctionDeclaration" && decl.id && decl.id.name === name) return { decl, src };
+      if (decl.type === "VariableDeclaration") {
+        const d = decl.declarations.find((x) => x.id && x.id.name === name);
+        if (d) return { decl, src };
+      }
     }
   }
   return null;
 }
 const chunks = [];
 for (const name of WANTED) {
-  const decl = declFor(name);
-  assert.ok(decl, `${name} must be declared in src/LearnView.jsx`);
-  chunks.push(learnSrc.slice(decl.start, decl.end));
+  const found = declFor(name);
+  assert.ok(found, `${name} must be declared in src/LearnView.jsx or src/NovaTour.jsx`);
+  chunks.push(found.src.slice(found.decl.start, found.decl.end));
 }
 const epilogue = `\n;globalThis.__x = { ${WANTED.join(", ")} };`;
 const js = transformSync(chunks.join("\n") + epilogue, { loader: "jsx" }).code;
@@ -1465,7 +1474,11 @@ await test("the tour describes taught lessons and real quizzes, with no paper ta
 });
 
 await test("builtin lessons carry an honest source note, with no paper talk on the surface", () => {
-  const hits = learnSrc.match(/for Nova from standard textbook material/g) || [];
+  // The tour's copy lives in NovaTour.jsx since the cutscene
+  // redo (2026-10-15), so the note is counted across both
+  // sources; the three homes are unchanged: the tour, the
+  // path view, and the lesson intro.
+  const hits = (learnSrc + "\n" + tourSrc).match(/for Nova from standard textbook material/g) || [];
   assert.ok(hits.length >= 3, `the textbook source note should appear in the tour, the path view, and the lesson intro; found ${hits.length}`);
   // Permanent ruling (2026-10-15): papers are out of lessons for
   // good, and lesson surfaces no longer talk about papers at all,
@@ -3908,7 +3921,9 @@ await test("no visible Wick survives: the first run eyebrows read Nova and Wick 
   // Panel 8 fold in (2026-10-14): the rename missed the two highest
   // visibility first run surfaces. User visible strings are zero
   // tolerance; dated history comments may keep the old name.
-  assert.ok(learnSrc.includes("HOW NOVA WORKS"), "the tour eyebrow does not read Nova");
+  // The tour eyebrow lives in NovaTour.jsx since the cutscene
+  // redo (2026-10-15); the onboarding eyebrow stays in LearnView.
+  assert.ok(tourSrc.includes("HOW NOVA WORKS"), "the tour eyebrow does not read Nova");
   assert.ok(learnSrc.includes("WELCOME TO NOVA"), "the onboarding eyebrow does not read Nova");
   assert.ok(!learnSrc.includes("HOW WICK WORKS"), "the tour eyebrow still reads Wick");
   assert.ok(!learnSrc.includes("WELCOME TO WICK"), "the onboarding eyebrow still reads Wick");
@@ -3923,7 +3938,11 @@ await test("the home's accent text runs through the shell's accentInk correction
   // section labels, and action labels now take ink, the corrected
   // value; fills and borders keep the raw accent.
   assert.ok(learnSrc.includes('import { accentInk } from "./appUtils.js";'), "LearnView does not import the shell correction");
-  assert.equal((learnSrc.match(/const ink = accentInk\(P, accent\);/g) || []).length, 3, "the home, the tour, and onboarding should each derive ink");
+  // Two derivations remain in LearnView (2026-10-15): the tour
+  // moved into NovaTour.jsx with the cutscene redo and derives
+  // its own ink there, from the same shell correction.
+  assert.equal((learnSrc.match(/const ink = accentInk\(P, accent\);/g) || []).length, 2, "the home and onboarding should each derive ink");
+  assert.ok(tourSrc.includes("const ink = accentInk(P, accent);"), "the tour does not derive ink from the shell correction");
   const homeRegion = learnSrc.slice(learnSrc.indexOf("export default function LearnView"));
   assert.ok(!homeRegion.includes("color: accent"), "the home still colours text with the raw accent");
   assert.ok(learnSrc.includes('color: ink, margin: "8px 0 0"'), "the header tagline does not take the corrected ink");
