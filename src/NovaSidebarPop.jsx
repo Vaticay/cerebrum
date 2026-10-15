@@ -305,7 +305,13 @@ export default function NovaSidebarPop({ searchRunning = false, inCall = false, 
         style={figStyle}
         onClick={onFigureClick}
       >
-        <NovaRive state="greeting" size={size} waveN={pop.waveN} quips={false} />
+        {/* The canvas surface has no wave trigger, so the wave
+            counter also feeds the celebrate counter NovaRive
+            binds: the bump at the second wave beat fires the
+            celebrate trigger once, in the same rising counter
+            mechanism NovaLive uses. The fallback ignores the
+            extra prop and waves as it always has. */}
+        <NovaRive state="greeting" size={size} waveN={pop.waveN} celebrateN={pop.waveN} quips={false} />
         {showBubble && pop.line && (
           <div className={"nsp-bubble" + (isMobile ? " nsp-bubble-m" : " nsp-bubble-d")} role="status">
             <span className="nsp-bubble-tail" />

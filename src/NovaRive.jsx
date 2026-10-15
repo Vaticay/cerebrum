@@ -56,7 +56,7 @@ import { FONT_SIZES } from "./designSystem.jsx";
    so the editor artboard should be authored wide. */
 export const NOVA_RIVE_STATE_MACHINE = "Nova_Controller";
 export const NOVA_RIVE_SRC = "/nova/nova.riv";
-export const NOVA_RIVE_ASSET = null;
+export const NOVA_RIVE_ASSET = "/nova/nova.riv";
 export const NOVA_RIVE_INPUTS = {
   numbers: ["quizState", "appState", "mouseX", "mouseY"],
   booleans: ["isTalking", "reducedMotion"],

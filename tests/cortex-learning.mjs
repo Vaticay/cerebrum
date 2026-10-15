@@ -4169,8 +4169,13 @@ await test("the state machine contract is the one the editor build is authored a
   assert.equal(NOVA_RIVE_SRC, "/nova/nova.riv");
 });
 
-await test("no asset yet: the one switch keeps the fallback on screen", () => {
-  assert.equal(NOVA_RIVE_ASSET, null, "the asset switch must stay null until the editor asset lands");
+/* Pin updated 2026-10-15: the asset landed at public/nova/nova.riv,
+   so this test now holds the shipped contract instead of the
+   pre asset one. The switch carries the asset path, the canvas
+   surface is live, and the fallback branch stays in the code
+   for any caller that ever needs it again. */
+await test("the asset has landed: the one switch points at the shipped .riv", () => {
+  assert.equal(NOVA_RIVE_ASSET, "/nova/nova.riv", "the asset switch must carry the shipped asset path");
   assert.ok(riveSrc.includes("if (!NOVA_RIVE_ASSET) return <NovaFallback"), "the wrapper must branch on the asset switch in one place");
   assert.ok(riveSrc.includes("<NovaAvatar"), "the fallback must render the current rig");
   assert.ok(riveSrc.includes("stateMachines: NOVA_RIVE_STATE_MACHINE"), "the canvas must run the contract state machine");
