@@ -481,7 +481,7 @@ function IntroModal({ label, title, onClose, accent, P = null, children, width =
 function HowItWorksDialog({ onClose, accent, P = null }) {
   const steps = [
     { n: "1", h: "Ask in plain language",
-      b: "A question the way you would ask a colleague. No boolean operators, no field codes, no learning a query syntax first." },
+      b: "Ask the way you would ask a colleague. There is no query syntax to learn." },
     { n: "2", h: "Cerebrum searches the literature",
       b: "The question is run against " + SCHOLARLY_SOURCES.length + " scholarly sources: Europe PMC, PubMed, OpenAlex, Crossref, arXiv and the rest. The results are deduplicated across them." },
     { n: "3", h: "Every claim carries its source",

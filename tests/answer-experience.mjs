@@ -172,8 +172,10 @@ await test("toolbar is Copy answer, Share, Sources, More — no chips", () => {
   assert.match(appSrc, /<ToolbarOverflow P=\{P\} accent=\{accent\} items=\{overflowItems\} \/>/, "More menu missing from toolbar");
   // Visual overhaul: three control actions + the More menu, as instrument
   // buttons (cb-ctlbtn). No ToolChips on the bar.
-  assert.match(appSrc, /title=\{copiedAnswer \? "Copied!" : "Copy answer"\}/, "Copy answer action missing from toolbar");
-  assert.match(appSrc, /title=\{linkCopied \? "Link copied!" : "Share"\}/, "Share action missing from toolbar");
+  // 2026-10-15 copy pass: the tooltips dropped their exclamation marks
+  // ("Copied!", "Link copied!") for the plain register; pins follow.
+  assert.match(appSrc, /title=\{copiedAnswer \? "Copied" : "Copy answer"\}/, "Copy answer action missing from toolbar");
+  assert.match(appSrc, /title=\{linkCopied \? "Link copied" : "Share"\}/, "Share action missing from toolbar");
   assert.match(appSrc, />\s*Sources\s*</, "Sources action missing from toolbar");
   const barStart = appSrc.indexOf('aria-label="Answer actions"');
   const barBlock = appSrc.slice(barStart, appSrc.indexOf("</div>", barStart));

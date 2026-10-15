@@ -42,7 +42,7 @@ export const MARKETING_PAGES = {
     blocks: [
       {
         h: "The promise",
-        p: SLOGAN + " You ask in plain language; Cerebrum queries Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, CORE, BASE, PMC full text, OpenAIRE and more in parallel, scores the results for genuine relevance, and writes a summary constrained by what those papers actually say.",
+        p: SLOGAN + " You ask in plain language; Cerebrum queries Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, CORE, BASE, PMC full text, OpenAIRE and more in parallel, scores the results for relevance, and writes a summary constrained by what those papers actually say.",
       },
       {
         h: "What you get",
@@ -168,8 +168,8 @@ export const MARKETING_PAGES = {
         list: [
           "$20 per month or $144 per year, renewing automatically until you cancel.",
           "Unlimited AI answers, document reads, and flowcharts.",
-          "The Pro badge, four exclusive Pro themes, and deeper Pro search.",
-          "Investigation templates exclusive to Pro, priority search queue, and API access with personal keys.",
+          "The Pro badge, four Pro themes, and deeper Pro search.",
+          "Investigation templates for Pro members, priority search queue, and API access with personal keys.",
           "Cancel anytime from the billing portal. A 7 day money back guarantee covers the first charge of a new subscription. Email dusty@askcerebrum.org within 7 days for a full refund, no questions asked.",
         ],
       },
@@ -179,7 +179,7 @@ export const MARKETING_PAGES = {
         list: [
           "500 AI answers, 30 document reads, and 10 flowcharts every 5 days.",
           "Ten times the free allowances, with a fixed allowance rather than unlimited use.",
-          "The Pro badge and the exclusive Pro themes stay with Cerebrum Pro.",
+          "The Pro badge and the Pro themes stay with Cerebrum Pro.",
         ],
       },
       {
@@ -192,7 +192,7 @@ export const MARKETING_PAGES = {
       },
       {
         h: "Why Pro exists",
-        p: "Cerebrum is an independent project, not an advertising business. Pro subscriptions pay for the search infrastructure directly, so the product never needs to monetize your attention.",
+        p: "Cerebrum is an independent project, not an advertising business. Pro subscriptions pay for the search infrastructure directly, so Cerebrum never has to sell your attention.",
       },
       {
         h: "Will free cover you?",
@@ -236,7 +236,7 @@ export const MARKETING_PAGES = {
     ...SOFTWARE_APP_BASE,
     eyebrow: "Document Mode",
     title: "Document Mode: understand long papers and PDFs",
-    lede: "Paste or upload a long paper and Cerebrum reads it section by section, then synthesizes a structured summary, with a live progress bar throughout.",
+    lede: "Paste or upload a long paper and Cerebrum reads it section by section, then builds a structured summary, with a live progress bar throughout.",
     updated: "Updated September 2026.",
     blocks: [
       {
@@ -305,7 +305,7 @@ export const MARKETING_PAGES = {
     ...SOFTWARE_APP_BASE,
     eyebrow: "Investigations",
     title: "Investigations: save and revisit research threads",
-    lede: "Investigations keep a research thread alive across sessions: save papers, questions, and notes in one place you can reopen, extend, and build on over time.",
+    lede: "Investigations keep a research thread alive across sessions: save papers, questions, and notes in one place you can reopen and keep adding to over time.",
     updated: "Updated September 2026.",
     blocks: [
       {

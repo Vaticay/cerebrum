@@ -986,7 +986,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                   background: P.bg, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 6,
                   boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
                 }}>
-                  {[["SVG", "Vector: scales forever", doExportSVG], ["PNG", "Image: 2\u00d7 resolution", doExportPNG], ["Markdown", "Text outline", doExportMD]].map(([fmt, desc, fn]) => (
+                  {[["SVG", "Vector, any size", doExportSVG], ["PNG", "Image at 2\u00d7 resolution", doExportPNG], ["Markdown", "Text outline", doExportMD]].map(([fmt, desc, fn]) => (
                     <button key={fmt} type="button" onClick={() => { setExportOpen(false); fn(); }}
                       style={{ minHeight: 44, display: "flex", alignItems: "baseline", gap: 10, width: "100%", textAlign: "left", padding: "9px 11px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--cb-font)" }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); }}
@@ -1184,7 +1184,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                   </svg>
                   <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>A blank bench</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, marginBottom: answerText ? 16 : 0 }}>
-                    Add nodes from the rail, or lift this answer's reasoning into a starting chart.
+                    {answerText ? "Add nodes from the rail, or draft a starting chart from this answer." : "Add nodes from the rail to start building."}
                   </div>
                   {answerText && (
                     <button type="button" onClick={doDraft} style={{ minHeight: 44, pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: RADIUS.sm, border: `1px solid ${accent}`, background: accent, color: at, fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
@@ -2192,7 +2192,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                       <StudioMark size={28} accent={accent} />
                     </div>
                     <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", marginBottom: 14 }}>
-                      Describe a structure to see it
+                      Nothing here yet. Start from a template.
                     </div>
                     <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
                       {[["flowchart", "Flowchart"], ["sequence", "Sequence"], ["mindmap", "Mindmap"]].map(([tkey, tlabel]) => {
@@ -2205,7 +2205,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                       })}
                     </div>
                     <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                      or paste .mmd with Import
+                      or import a .mmd file
                     </div>
                   </div>
                 </div>

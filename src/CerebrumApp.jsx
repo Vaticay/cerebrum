@@ -89,7 +89,8 @@ import { InboxView, ReportConductModal } from "./inbox.jsx";
 import { SettingsView } from "./settings.jsx";
 import LearnView from "./LearnView.jsx";
 import NovaEgg from "./NovaEgg.jsx";
-import { createCourseFromResults, saveLearnCourse } from "./LearnView.jsx";
+import { createCourseFromResults, saveLearnCourse, emitNovaActivity } from "./LearnView.jsx";
+import { NovaRive } from "./NovaRive.jsx";
 
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
@@ -685,9 +686,9 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     const coverageLine = coverageSentence(t._coverage);
     if (coverageLine) mrows.push(["Coverage", coverageLine]);
     if (t.synthesisMode === "extractive") {
-      mrows.push(["Synthesis", "Assembled deterministically from the retrieved papers; no AI synthesis ran for this answer."]);
+      mrows.push(["Synthesis", "Assembled from the papers the search found. No AI synthesis ran for this answer."]);
     } else {
-      mrows.push(["Synthesis", "Answer text synthesized from the cited papers, with claim-level citations."]);
+      mrows.push(["Synthesis", "Written from the cited papers, with each claim tied to its source."]);
     }
     if (typeof t.answerSeconds === "number" && t.answerSeconds > 0) {
       const s = t.answerSeconds;
@@ -1900,7 +1901,7 @@ const ASK_MODES = [
     blurb: "How something works, according to published research",
     /* Not "Ask anything...". That placeholder is the single most
        recognisable chatbot string on the internet, and this is not a
-       chatbot — it is a query line against fifteen scholarly databases.
+       chatbot — it is a query line against fourteen scholarly databases.
        Asking what someone is trying to find out invites a real question
        instead of a prompt. */
     placeholder: "Type a question, or paste a DOI",
@@ -2830,13 +2831,13 @@ function searchErrorInfo(kind, { status = 0, message = "", requestId = "", elaps
     case "network":
       return { headline: "Couldn't reach the research service.", body: "The connection dropped before the search finished. Check your connection and try again.", detail: ("network · " + detail).replace(/^network · $/, "network") };
     case "http429":
-      return { headline: "Too many searches at once.", body: "The service asked for a breather. Wait a few seconds, then try again.", detail };
+      return { headline: "Too many searches at once.", body: "Wait a few seconds, then try again.", detail };
     case "http5xx":
       return { headline: "The research service hit a problem.", body: clean || "Something went wrong on our end. Nothing about your question caused this.", detail };
     case "badbody":
       return { headline: "The answer came back unreadable.", body: "The service responded, but the answer couldn't be read. Trying again usually works.", detail: ("unreadable response · " + detail).replace(/^unreadable response · $/, "unreadable response") };
     default:
-      return { headline: "The search didn't come back.", body: clean || "Something went sideways.", detail };
+      return { headline: "The search didn't come back.", body: clean || "Something went wrong. Try again.", detail };
   }
 }
 
@@ -2920,10 +2921,18 @@ function looksLikeMechanismQuestion(q) {
    Screening sources, Synthesizing findings, Checking citations.
 
    Honesty rules, enforced by construction:
-   - No elapsed clock. The only number is the real per-database count off
+   - Numbers are measured, never guessed. The per-database count rides
      the finding_papers stream frames ("9 of 15 databases answered"), or
      the real total ("Searching 15 databases in parallel") before the
-     first progress frame lands. Never a guess, never a percentage.
+     first progress frame lands. Since 2026-10-15 the active stage also
+     carries its elapsed time, stamped client side when the stage frame
+     arrived (stream.stageSince): a long synthesis used to sit on one
+     static line for minutes and read as a hang. Elapsed time is a
+     measurement, not a guess. Still never a percentage, never an
+     estimate of time remaining, never a substage the stream did not
+     send (synthesis emits exactly one frame, then silence until the
+     citation check, so the clock and the stage name are all the client
+     honestly has during it).
    - No fake progress. Waypoints light only when their stage frame
      arrives. The traveler dot parks on the active stage; pending stages
      stay hollow.
@@ -2972,6 +2981,36 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
     }
     return arr;
   }, []);
+
+  /* Elapsed time in the current stage (2026-10-15, on the owner's order).
+     The stream sends one frame when synthesis starts and nothing further
+     until the citation check begins (functions/api/search.js emits the
+     synthesizing stage once, with the source count), so during a long
+     synthesis the only honest signals the client owns are the stage
+     name, its detail line, and the clock. The clock now shows: seconds
+     in the current stage, in plain words, from five seconds in. This
+     supersedes the older "no elapsed clock" line in the doctrine above
+     for this one measured quantity. Still banned: percentages,
+     estimates, and substages the stream never sent. stageSince rides
+     the stream state from pushStage. On the single fetch fallback,
+     where no stream exists, the room's own mount time is the start and
+     the wait line under the count carries the elapsed time instead. */
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const mountedAtRef = useRef(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const waitWords = (secs) => {
+    if (secs < 60) return `${secs} second${secs === 1 ? "" : "s"}`;
+    const m = Math.floor(secs / 60);
+    const r = secs % 60;
+    return `${m} minute${m === 1 ? "" : "s"}${r > 0 ? ` ${r} second${r === 1 ? "" : "s"}` : ""}`;
+  };
+  const stageSecs = stream && stream.stageSince ? Math.max(0, Math.floor((nowMs - stream.stageSince) / 1000)) : null;
+  const stageWait = stageSecs != null && stageSecs >= 5 ? `${waitWords(stageSecs)} so far` : null;
+  const roomSecs = Math.max(0, Math.floor((nowMs - mountedAtRef.current) / 1000));
+  const roomWait = !stream && roomSecs >= 10 ? `Still working. ${waitWords(roomSecs)} so far.` : null;
 
   const stages = SEARCH_STREAM_STAGES;
   const activeIndex = stream && stream.index != null ? stream.index : -1;
@@ -3040,7 +3079,9 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
           {stages.map((s, i) => {
             const state = activeIndex < 0 ? "pending" : i < activeIndex ? "done" : i === activeIndex ? "active" : "pending";
             const h = histFor(i);
-            const detail = state === "active" ? (stream.detail || "") : (h && h.detail ? h.detail : "");
+            const detail = state === "active"
+              ? [stream.detail || "", stageWait || ""].filter(Boolean).join(" · ")
+              : (h && h.detail ? h.detail : "");
             return (
               <li key={s.key} className={`cb-dive-stratum is-${state}`}>
                 <span className="cb-dive-depth">{DIVE_DEPTHS[i]}</span>
@@ -3059,7 +3100,7 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
       </div>
 
       <div className="cb-dive-count">{countLine}</div>
-      <div className="cb-dive-line">{waitingLine}</div>
+      <div className="cb-dive-line">{roomWait || waitingLine}</div>
 
       {/* First-run honesty caption: one line, plain words, shown once. */}
       {!honestySeen && (
@@ -4817,12 +4858,44 @@ function FactCheck({ fc, P, accent }) {
    data the evidence map uses, so the readout can never disagree with the
    calibration stamps on the paragraphs below. No card, no fill, no
    gradient: rules and type do the work. */
+/* ── One stance count, every surface (2026-10-15) ──────────────────────
+   The header line, the stance ledger, the evidence band and the lean
+   meter all read the paper set through this one classification, so the
+   product cannot disagree with itself about the same answer. The four
+   buckets carry the stance ledger's names everywhere: support the
+   direction, qualify it, contest it, no clear signal. The old header
+   line lumped qualify and no clear signal into one "mention it" bucket,
+   which is how "2 support, 0 dispute, 10 mention" and the ledger's
+   "Supports 2, Qualifies 2, No clear signal 8" could both be true of
+   the same answer while reading as a contradiction. */
+function stanceCountsFor(t) {
+  const sources = t && Array.isArray(t.sources) ? t.sources : [];
+  let venn = { agree: [], disagree: [], middle: [], unclear: [] };
+  try {
+    venn = classifyVennPapers({ answer: t && t.answer, sources, factCheck: t && t.factCheck, conflicts: t && t.literatureConflicts });
+  } catch {
+    /* An unclassifiable turn reads as all no clear signal, never as
+       invented support, and the buckets still sum to the paper total. */
+    venn = { agree: [], disagree: [], middle: [], unclear: sources.map((_, i) => i + 1) };
+  }
+  return {
+    total: sources.length,
+    support: (venn.agree || []).length,
+    qualify: (venn.middle || []).length,
+    contest: (venn.disagree || []).length,
+    unclear: (venn.unclear || []).length,
+  };
+}
+
 /* ── KeyFigures: quiet counts, not a verdict ─────────────────────────────
    Replaces the old VerdictReadout ("Supported"/"Contested"/"Unverified").
    Dusty's rule: the judgment is distributed per-paper, never global.
-   Renders: "10 papers · 6 support the direction · 1 disputes it · 3 mention it"
-   Plain counts, plain words. The disputing numeral renders in clay #B0472B
-   as a colored numeral only — never a red card, never an alarm. */
+   Renders the shared stance counts in the stance ledger's own words:
+   "12 papers · 2 support the direction · 2 qualify it · 8 no clear signal"
+   Buckets at zero are left out; the ledger leaves out empty groups too,
+   so the two surfaces stay word for word consistent. The contesting
+   numeral renders in clay #B0472B as a colored numeral only — never a
+   red card, never an alarm. */
 function KeyFigures({ t, P }) {
   const sources = Array.isArray(t.sources) ? t.sources : [];
   const total = sources.length;
@@ -4849,26 +4922,18 @@ function KeyFigures({ t, P }) {
       </div>
     );
   }
-  const venn = (() => {
-    try {
-      return classifyVennPapers({ answer: t.answer, sources: t.sources, factCheck: t.factCheck, conflicts: t.literatureConflicts });
-    } catch { return { agree: [], disagree: [], middle: [], unclear: [] }; }
-  })();
-  const nSupport = (venn.agree || []).length;
-  const nDispute = (venn.disagree || []).length;
-  // "mention it" = everything else: nuanced (middle) + uncited in body (unclear)
-  const nMention = Math.max(0, total - nSupport - nDispute);
+  const sc = stanceCountsFor(t);
   const clay = "#B0472B";
+  const parts = [];
+  if (sc.support > 0) parts.push(<span key="sup">{sc.support} support{sc.support === 1 ? "s" : ""} the direction</span>);
+  if (sc.qualify > 0) parts.push(<span key="qual">{sc.qualify} qualif{sc.qualify === 1 ? "ies" : "y"} it</span>);
+  if (sc.contest > 0) parts.push(<span key="con"><span style={{ color: clay, fontWeight: 600 }}>{sc.contest}</span> contest{sc.contest === 1 ? "s" : ""} it</span>);
+  if (sc.unclear > 0) parts.push(<span key="unc">{sc.unclear} no clear signal</span>);
   return (
     <div style={{ maxWidth: "none", margin: "0 0 16px", padding: 0 }}>
       <div style={{ fontSize: 13, color: P.ink2, fontVariantNumeric: "tabular-nums", lineHeight: 1.55 }}>
         <span>{total} paper{total === 1 ? "" : "s"}</span>
-        {sep}
-        <span>{nSupport} support the direction</span>
-        {sep}
-        <span><span style={{ color: nDispute > 0 ? clay : P.ink2, fontWeight: nDispute > 0 ? 600 : 400 }}>{nDispute}</span> dispute{nDispute === 1 ? "s" : ""} it</span>
-        {sep}
-        <span>{nMention} mention it</span>
+        {parts.map((p) => <span key={p.key}>{sep}{p}</span>)}
       </div>
     </div>
   );
@@ -4895,7 +4960,13 @@ function VerdictReadout({ t, P }) {
 
    Stance comes from the existing venn classification: agree → yes,
    disagree → no, middle + unclear → mixed. This is information, not a
-   verdict — no alarm colors, no badge, no "Contested" language. */
+   verdict — no alarm colors, no badge, no "Contested" language.
+
+   This meter is a DIFFERENT measure from the plain counts in the header
+   line above it: the bar is weighted by study type, so it can lean
+   further than the raw paper counts do. The caption under the legend
+   says so in plain words (2026-10-15) so the two surfaces never read
+   as the product disagreeing with itself. */
 function isYesNoQuestion(q) {
   const s = String(q || "").trim().toLowerCase();
   if (!s.endsWith("?")) return false;
@@ -4963,7 +5034,69 @@ function ConsensusMeter({ t, P }) {
         <span><span style={{ display: "inline-block", width: 7, height: 7, borderRadius: RADIUS.viewport, background: gray, opacity: 0.55, marginRight: 5 }} />{mixedN} mixed</span>
         <span><span style={{ display: "inline-block", width: 7, height: 7, borderRadius: RADIUS.viewport, background: clay, marginRight: 5 }} />{noN} no</span>
       </div>
+      <div style={{ ...label, marginTop: 6, lineHeight: 1.5 }}>
+        The bar is weighted by study type, so a systematic review counts more than a case report. The numbers are plain paper counts.
+      </div>
     </div>
+  );
+}
+
+/* ── Nova on the search surface (2026-10-15) ─────────────────────────────
+   She was missing from search entirely (owner audit). She now sits at
+   the head of the newest answer, in the progress room while a search
+   runs, and beside the error panel when one fails. She is driven by the
+   same nova-activity contract the learning side uses: the ask lifecycle
+   calls emitSearchNova, which dispatches the window event through
+   LearnView's emitNovaActivity (so any NovaLive on the page hears it)
+   and updates this module store, so a Nova who mounts a beat after the
+   event still lands on the right face. A landed face settles back to
+   her resting greeting after a few seconds. Decoration only: no panel,
+   no interruption, aria hidden. Her quips, when the engine offers one,
+   are the same gated engine the Nova tab runs, never a second voice. */
+const NOVA_SEARCH_FACES = {
+  idle: { state: "greeting", appState: 0 },
+  thinking: { state: "thinking", appState: 1 },
+  pleased: { state: "pleased", appState: 2 },
+  deadpan: { state: "deadpan", appState: 3 },
+};
+let novaSearchFace = { face: "idle", at: 0 };
+const novaSearchListeners = new Set();
+function currentNovaSearchFace() {
+  /* A landed face is only news for a few seconds; a Nova mounting later
+     (a restored session, a scrolled back answer) shows her resting
+     greeting, not a stale reaction. Thinking never expires on its own:
+     it ends when the lifecycle reports an outcome. */
+  if (novaSearchFace.face !== "thinking" && Date.now() - novaSearchFace.at > 5000) return { face: "idle", at: 0 };
+  return novaSearchFace;
+}
+function emitSearchNova(outcome) {
+  const face = outcome === "start" ? "thinking" : outcome === "success" ? "pleased" : "deadpan";
+  novaSearchFace = { face, at: Date.now() };
+  try { emitNovaActivity("search", outcome); } catch { /* the store above is this surface's own record */ }
+  novaSearchListeners.forEach((fn) => { try { fn(); } catch { /* one bad listener never breaks a search */ } });
+}
+function SearchNova({ size = 52, live = true }) {
+  const [snap, setSnap] = useState(() => currentNovaSearchFace());
+  useEffect(() => {
+    if (!live) return undefined;
+    const fn = () => setSnap(currentNovaSearchFace());
+    novaSearchListeners.add(fn);
+    fn();
+    return () => { novaSearchListeners.delete(fn); };
+  }, [live]);
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    setSettled(false);
+    if (snap.face !== "pleased" && snap.face !== "deadpan") return undefined;
+    const id = setTimeout(() => setSettled(true), snap.face === "pleased" ? 2400 : 3000);
+    return () => clearTimeout(id);
+  }, [snap]);
+  const faceName = !live || settled ? "idle" : snap.face;
+  const f = NOVA_SEARCH_FACES[faceName] || NOVA_SEARCH_FACES.idle;
+  return (
+    <span aria-hidden="true" style={{ display: "inline-flex", flexShrink: 0, lineHeight: 0 }}>
+      <NovaRive state={f.state} appState={f.appState} size={size} framing="bust" quips={live} />
+    </span>
   );
 }
 
@@ -4986,10 +5119,17 @@ function SearchErrorPanel({ P, accent, errorKind, errorTitle, error, errorDetail
   };
   return (
     <div role="alert" className="cb-fade" style={{ marginTop: 6, padding: "22px 4px 8px", borderTop: `1px solid ${P.line}` }}>
-      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>Search interrupted</div>
-      <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{errorTitle || "The search didn't come back."}</div>
-      <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, maxWidth: 600 }}>{error}</div>
-      {errorDetail && <div style={{ marginTop: 8, fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{errorDetail}</div>}
+      {/* Nova lands her deadpan face beside a failed search (2026-10-15):
+          the lifecycle's failed emit reaches her through SearchNova. */}
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+        <SearchNova size={46} />
+        <div>
+          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>Search interrupted</div>
+          <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{errorTitle || "The search didn't come back."}</div>
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, maxWidth: 600 }}>{error}</div>
+          {errorDetail && <div style={{ marginTop: 8, fontSize: FONT_SIZES.micro, color: P.faint, fontVariantNumeric: "tabular-nums" }}>{errorDetail}</div>}
+        </div>
+      </div>
       <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
         {actions.includes("retry") && (
           <UIButton P={P} variant="ghost" onClick={onRetry}
@@ -5830,6 +5970,29 @@ function InfoPage({ page }) {
    would double it. onRetry / onAdjustQuery wire the honest zero-sources
    empty state (the band always renders this component now; it used to be
    gated off entirely at zero sources — a silent gap). */
+/* Source kind filters (2026-10-15). Kinds derive only from fields the
+   records already carry: studyTypeKey for reviews and primary studies,
+   and the journal or URL for preprints (the same derivation the
+   backend's own contrast finder uses in functions/lib/knowledge.js).
+   A record whose type cannot be told matches no kind and groups under
+   All only. A record can be both a review and a preprint; the filters
+   are lenses over the one presented set, not partitions of it. */
+const BIB_REVIEW_KEYS = ["SYSTEMATIC_REVIEW", "NARRATIVE_REVIEW"];
+const BIB_PRIMARY_KEYS = ["RCT", "COHORT", "CASE_CONTROL", "CASE_REPORT", "PRECLINICAL"];
+function bibKindOf(s) {
+  const key = s && s.studyTypeKey ? String(s.studyTypeKey) : "";
+  const preprint = /\b(biorxiv|medrxiv|arxiv|preprint)\b/i.test(String((s && s.journal) || "") + " " + String((s && s.url) || ""));
+  return {
+    review: BIB_REVIEW_KEYS.includes(key),
+    primary: BIB_PRIMARY_KEYS.includes(key),
+    preprint,
+  };
+}
+function bibYearOf(s) {
+  const y = parseInt(s && s.year, 10);
+  return Number.isFinite(y) ? y : null;
+}
+
 function Bibliography({ sources, answer = "", query = "", P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null, gatedOut = 0, relOf = null, activeCite = 0, onActivateCite = () => {} }) {
   const bibTerms = useMemo(() => extractQueryTerms(query), [query]);
   const [copied, setCopied] = useState(false);
@@ -5845,6 +6008,14 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
   // with the rest one tap away, and let the whole ledger fold away.
   const [showAllBib, setShowAllBib] = useState(false);
   const [bibHidden, setBibHidden] = useState(false);
+  /* Kind filter and year sort (2026-10-15). The filter runs over the
+     full presented set and bypasses the cited only fold while active:
+     filtering to reviews and then hiding most of them behind the fold
+     would read as an empty result that is not true. Sort reorders the
+     rows only; each paper keeps its citation number, so a sorted row
+     still answers to the number the answer cites. */
+  const [bibFilter, setBibFilter] = useState("all");
+  const [bibSort, setBibSort] = useState("presented");
   const citedIdx = useMemo(() => {
     const set = new Set();
     const text = String(answer || "");
@@ -5912,6 +6083,33 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
   // site and printed code in the rendered bibliography.
   const tallyDois = useMemo(() => (sources || []).map(normalizeSourceDoi), [sources]);
   const tallies = useTallies(tallyDois);
+  const bibKinds = useMemo(() => (sources || []).map(bibKindOf), [sources]);
+  const bibCounts = useMemo(() => ({
+    all: (sources || []).length,
+    reviews: bibKinds.filter((k) => k.review).length,
+    primary: bibKinds.filter((k) => k.primary).length,
+    preprints: bibKinds.filter((k) => k.preprint).length,
+  }), [bibKinds, sources]);
+  const bibPassesFilter = (i) => bibFilter === "all"
+    || (bibFilter === "reviews" && !!(bibKinds[i] && bibKinds[i].review))
+    || (bibFilter === "primary" && !!(bibKinds[i] && bibKinds[i].primary))
+    || (bibFilter === "preprints" && !!(bibKinds[i] && bibKinds[i].preprint));
+  const bibFilterOptions = [
+    { key: "all", label: "All", count: bibCounts.all },
+    { key: "reviews", label: "Reviews", count: bibCounts.reviews },
+    { key: "primary", label: "Primary studies", count: bibCounts.primary },
+    { key: "preprints", label: "Preprints", count: bibCounts.preprints },
+  ];
+  const bibSortOptions = [
+    { key: "presented", label: "As listed" },
+    { key: "newest", label: "Newest first" },
+    { key: "oldest", label: "Oldest first" },
+  ];
+  const bibFilterEmpty = {
+    reviews: "No reviews in this set of sources.",
+    primary: "No primary studies in this set of sources.",
+    preprints: "No preprints in this set of sources.",
+  };
   /* Pass 6: a plain quiet text action — never a letterspaced caps button. */
   const quietBtn = { background: "none", border: "none", padding: "2px 4px", cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint };
   const hoverQuiet = (e, on) => { e.currentTarget.style.color = on ? accent : P.faint; };
@@ -5990,6 +6188,26 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
        content / action, hanging-indent typography inside the content
        column — like a printed references page, not a stack of cards. */
     <div style={{ minHeight: 44, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "2px 16px 6px" }}>
+      {/* Kind filter and year sort (2026-10-15): quiet text buttons with
+          the count each lens holds. Kinds come from bibKindOf; a paper
+          whose type cannot be told appears under All only. */}
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 8px", paddingTop: 6, paddingBottom: 2 }}>
+        <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Show</span>
+        {bibFilterOptions.map((o) => (
+          <button key={o.key} type="button" aria-pressed={bibFilter === o.key} onClick={() => setBibFilter(o.key)}
+            style={{ background: "none", border: "none", padding: "6px 4px", minHeight: 32, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: bibFilter === o.key ? 700 : 500, color: bibFilter === o.key ? accent : P.faint }}>
+            {o.label} · {o.count}
+          </button>
+        ))}
+        <span style={{ flex: "1 1 12px" }} />
+        <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Order</span>
+        {bibSortOptions.map((o) => (
+          <button key={o.key} type="button" aria-pressed={bibSort === o.key} onClick={() => setBibSort(o.key)}
+            style={{ background: "none", border: "none", padding: "6px 4px", minHeight: 32, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: bibSort === o.key ? 700 : 500, color: bibSort === o.key ? accent : P.faint }}>
+            {o.label}
+          </button>
+        ))}
+      </div>
       {jumpLetters && (
         <div role="group" style={{ display: "flex", flexWrap: "wrap", gap: 2, marginBottom: 6, paddingTop: 8 }} aria-label="Jump to author">
           {jumpLetters.map((L) => (
@@ -6005,19 +6223,42 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
       <ol className="cb-stagger" style={{ margin: 0, padding: 0, listStyle: "none", display: bibHidden ? "none" : "flex", flexDirection: "column" }}>
         {(() => {
           const seen = new Set();
-          return sources.map((s, i) => {
-            if (!showAllBib && !bibDefaultVisible(i + 1)) return null;
+          /* Row order (2026-10-15): the presented order, or by year when
+             a sort is picked. Papers with no readable year keep their
+             presented place at the end. The kind filter bypasses the
+             cited only fold while active (see the state note above). */
+          const order = sources.map((_, i) => i);
+          if (bibSort === "newest" || bibSort === "oldest") {
+            order.sort((a, b) => {
+              const ya = bibYearOf(sources[a]);
+              const yb = bibYearOf(sources[b]);
+              if (ya == null && yb == null) return a - b;
+              if (ya == null) return 1;
+              if (yb == null) return -1;
+              return (bibSort === "newest" ? yb - ya : ya - yb) || (a - b);
+            });
+          }
+          const rows = order.filter((i) => bibPassesFilter(i) && (bibFilter !== "all" || showAllBib || bibDefaultVisible(i + 1)));
+          if (rows.length === 0) {
+            return (
+              <li style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", padding: "14px 2px" }}>
+                {bibFilterEmpty[bibFilter] || "Nothing to show in this set of sources."}
+              </li>
+            );
+          }
+          return rows.map((i, pos) => {
+            const s = sources[i];
             const L = String(s.authors || s.title || "").trim().charAt(0).toUpperCase();
             const anchor = jumpLetters && L && /[A-Z]/.test(L) && !seen.has(L) ? (seen.add(L), L) : null;
             const doi = normalizeSourceDoi(s);
-            return <BibEntry key={i} source={s} index={i + 1} P={P} accent={accent} style={citationStyle} last={i === sources.length - 1}
+            return <BibEntry key={i} source={s} index={i + 1} P={P} accent={accent} style={citationStyle} last={pos === rows.length - 1}
               onOpen={() => onOpenPaper(i + 1)} alphaAnchor={anchor}
               rel={relOf ? relOf(i + 1) : "supports"} active={activeCite === i + 1} onActivate={onActivateCite}
               tally={doi && tallies[doi] ? tallies[doi] : null} terms={bibTerms} />;
           });
         })()}
       </ol>
-      {!bibHidden && bibHiddenCount > 0 && (
+      {!bibHidden && bibFilter === "all" && bibHiddenCount > 0 && (
         <button type="button" onClick={() => setShowAllBib((v) => !v)} aria-expanded={showAllBib}
           style={{ minHeight: 44, marginTop: 10, padding: "8px 4px", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 600, color: accent }}>
           {showAllBib ? "Show cited sources only" : `Show all ${sources.length} sources (${bibHiddenCount} more in further reading)`}
@@ -6138,10 +6379,17 @@ function useTallies(dois) {
 function receptionCounts(source) {
   return null;
 }
+/* A paper with no scite.ai tally renders no reception line at all. The
+   three "Unknown supporting / contrasting / mentioning" spans this row
+   used to print for every untallied paper were placeholders the reader
+   could not act on (owner audit, 2026-10-15): a number that exists only
+   when it is real, silence otherwise. */
 const STANCE_COLORS = { supporting: "#2E7D5B", contrasting: "#B0472B", mentioning: "#7A756A" };
 /* When a real scite.ai tally is passed in, the raw numbers render as-is —
-   never converted to verdicts or percentages. When absent, the counts
-   render as Unknown rather than as invented numbers. */
+   never converted to verdicts or percentages. When absent, the line
+   renders nothing (2026-10-15): the "Unknown supporting / contrasting /
+   mentioning" placeholder row this used to print under every untallied
+   paper read as data and was none. */
 function ReceptionLine({ source, P, tally = null }) {
   const c = tally || receptionCounts(source);
   const dot = (color) => (
@@ -6152,15 +6400,7 @@ function ReceptionLine({ source, P, tally = null }) {
     fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, display: "flex", gap: 10,
     alignItems: "center", fontFamily: "var(--cb-font)", flexWrap: "wrap", paddingLeft: "1.2em",
   };
-  if (!c) {
-    return (
-      <div style={line} aria-label="No reception data yet">
-        {dot(STANCE_COLORS.supporting)}<span><span style={num}>Unknown</span> supporting</span>
-        {dot(STANCE_COLORS.contrasting)}<span><span style={num}>Unknown</span> contrasting</span>
-        {dot(STANCE_COLORS.mentioning)}<span><span style={num}>Unknown</span> mentioning</span>
-      </div>
-    );
-  }
+  if (!c) return null;
   /* Real counts, shown raw with their labels plus attribution. The API calls
      the middle bucket "contradicting"; we display it as "contrasting" to
      match the UI's standing wording. */
@@ -7340,15 +7580,15 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, border: `1px solid ${withAlpha(accent, 0.4)}`, background: withAlpha(accent, 0.08), borderRadius: RADIUS.viewport, padding: "6px 16px", marginBottom: 10 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, fontFamily: "var(--cb-font)" }}>
-              {t.synthesisMode === "extractive" ? "DRAFTED FROM SOURCES" : t.synthesisMode === "none" ? "NO SYNTHESIS" : "AI-SYNTHESIZED"}
+              {t.synthesisMode === "extractive" ? "DRAFTED FROM SOURCES" : t.synthesisMode === "none" ? "NO SYNTHESIS" : "AI WRITTEN"}
             </span>
           </div>
           <div style={{ ...monoLine, color: P.faint }}>
             {t.synthesisMode === "extractive"
-              ? "Deterministic extraction: no model wrote this text. Every line traces to the numbered papers."
+              ? "No model wrote this text. It was assembled from the numbered papers."
               : t.synthesisMode === "none"
-                ? "No synthesis was produced for this answer."
-                : "A model composed this text from the evidence above. Every claim should trace to a numbered paper. Open them to verify."}
+                ? "No written answer was produced for this answer."
+                : "An AI wrote this text from the papers above. Every claim should trace to a numbered paper. Open them to check."}
           </div>
         </AutopsySection>
 
@@ -8609,7 +8849,7 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
       : `Cited ${cited} paper${cited === 1 ? "" : "s"}`,
   });
   if (t.synthesisMode === "extractive") {
-    rows.push({ k: "Synthesis", v: "Assembled deterministically from the retrieved papers. No AI synthesis ran for this answer." });
+    rows.push({ k: "Synthesis", v: "Assembled from the papers the search found. No AI synthesis ran for this answer." });
   }
   for (const s of failedStages) {
     const ms = typeof s.ms === "number" && s.ms > 0 ? ` after ${Math.round(s.ms)} ms` : "";
@@ -9434,6 +9674,8 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           metadata line. No film, no gradient, no rounded card — the
           instrument is still and precise. */}
       <div className="cb-query">
+        <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+        <div style={{ flex: "1 1 auto", minWidth: 0 }}>
         <h2 className="cb-query-text" style={{ color: P.ink }}>{t.hasImage && <Icon name="image" size={20} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
         <div className="cb-query-meta" style={{ color: P.faint }}>
           <span>{new Date(t.ts || Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
@@ -9452,6 +9694,14 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
               </button>
             )}</>
           )}
+        </div>
+        </div>
+        {/* Nova at the answer's head (2026-10-15): newest answer only.
+            She lands pleased or deadpan off the lifecycle emit, then
+            settles back to her resting greeting. Older answers keep
+            their heads clear. She is a resident of the current answer,
+            not a stamp on every one. */}
+        {last && done && !synthFailed && <SearchNova size={54} />}
         </div>
       </div>
       {/* The verdict instrument: the measurement lands here, before the
@@ -9502,7 +9752,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
               <>
               <div className="cb-controls" onClick={(e) => e.stopPropagation()} role="toolbar" aria-label="Answer actions">
                 <button type="button" className="cb-ctlbtn"
-                  title={copiedAnswer ? "Copied!" : "Copy answer"}
+                  title={copiedAnswer ? "Copied" : "Copy answer"}
                   onClick={() => {
                     copyToClipboard(t.answer, "Answer copied").then((ok) => {
                       if (ok) { setCopiedAnswer(true); setTimeout(() => setCopiedAnswer(false), 1500); }
@@ -9524,7 +9774,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   </button>
                 )}
                 <button type="button" className="cb-ctlbtn"
-                  title={linkCopied ? "Link copied!" : "Share"}
+                  title={linkCopied ? "Link copied" : "Share"}
                   onClick={async () => {
                     if (!t.q) { toast("Nothing to share yet", { tone: "error" }); return; }
                     const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
@@ -9619,7 +9869,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 title={answerText.trim() ? "No citable literature surfaced." : "Synthesis isn't available right now."}
                 body={answerText.trim()
                   ? "No paper cleared the relevance bar for this question, so there's no written synthesis. What follows is the honest record of the search instead."
-                  : "No paper cleared the relevance bar, and no extractive fallback was possible, so there's no answer text to show."}
+                  : "No paper cleared the relevance bar, and no fallback answer could be built from the papers, so there is no answer text to show."}
                 actions={[{ label: "Retry search", primary: true, onClick: retrySearch }]}
                 P={P} accent={accent}>
                 <QueryRetryForm P={P} accent={accent} onAsk={adjustQuery} id={`cb-retry-${t.answerId || "turn"}`} />
@@ -9639,7 +9889,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             <>
               <AnswerStateCard kicker="Synthesis unavailable" tone="warn"
                 title="No paper cleared the relevance bar, so this isn't a written synthesis."
-                body="What follows is the deterministic fallback: the retrieved papers with their summaries, in citation order. Not a synthesized argument."
+                body="The written answer could not be built. What follows: the papers the search found, with their summaries, in citation order."
                 P={P} accent={accent} />
               <div style={{ marginTop: 16 }}>
                 {renderAnswer(stripFallbackChrome(tierText || shown), t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap, extractQueryTerms(t.q || ""))}
@@ -11941,21 +12191,21 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       </div>
       <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 8, fontFamily: "var(--cb-font)" }}>
         {isPro
-          ? "No limits. Everything is unlimited."
+          ? "Your plan has no limits."
           : <>Everything below refills <strong style={{ color: P.ink }}>{refillDate}{refillTime ? ` at ${refillTime}` : ""}</strong> ({fmtRemaining(remainingMs)} left in this period).</>}
       </div>
 
       <div style={{ marginTop: 12 }}>
         <Gauge label="AI ANSWERS" used={q?.used || 0} cap={isPro ? null : q?.cap}
-          sub={isPro ? null : isLite ? "Pro has no limits: unlimited answers." : "Pro Lite gives you 500 answers per 5 days, 10 times your current limit."}
+          sub={isPro ? null : isLite ? "Pro removes this limit." : "Lite gives 500 answers per 5 days."}
           upgrade={isLite ? "Go Pro: unlimited answers" : "Get Lite: 500 answers per 5 days"}
           upgradePlan={isLite ? "annual" : "lite-monthly"} />
         <Gauge label="DOCUMENT READS" used={dq?.used || 0} cap={isPro ? null : dq?.cap}
-          sub={isPro ? null : isLite ? "Pro has no limits: unlimited reads." : "Pro Lite gives you 30 reads per 5 days, 10 times your current limit."}
+          sub={isPro ? null : isLite ? "Pro removes this limit." : "Lite gives 30 reads per 5 days."}
           upgrade={isLite ? "Go Pro: unlimited reads" : "Get Lite: 30 reads per 5 days"}
           upgradePlan={isLite ? "annual" : "lite-monthly"} />
         <Gauge label="FLOWCHARTS" used={fq?.used || 0} cap={isPro ? null : fq?.cap}
-          sub={isPro ? null : isLite ? "Pro has no limits: unlimited flowcharts." : "Pro Lite gives you 10 flowcharts per 5 days, 10 times your current limit."}
+          sub={isPro ? null : isLite ? "Pro removes this limit." : "Lite gives 10 flowcharts per 5 days."}
           upgrade={isLite ? "Go Pro: unlimited flowcharts" : "Get Lite: 10 flowcharts per 5 days"}
           upgradePlan={isLite ? "annual" : "lite-monthly"} />
       </div>
@@ -11993,7 +12243,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
 
       <h2 style={{ margin: "40px 0 4px", fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Compare plans</h2>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 12 }}>
-        Pro Lite raises your limits. Pro removes them completely.
+        Lite raises your limits. Pro removes them.
       </div>
       <div className="cb-usage-table-desktop" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "var(--cb-font)" }}>
@@ -15020,7 +15270,7 @@ function TemplateGallery({ P, accent, at, isMobile, isPro, onStart, onOpenPro })
                   onClick={() => begin(t)}
                   style={{ width: "100%", minHeight: 44 }}
                 >
-                  {isPro ? "Start investigation" : "Unlock with Pro"}
+                  {isPro ? "Start investigation" : "Start with Pro"}
                 </UIButton>
               )}
             </div>
@@ -15701,7 +15951,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             <div style={{ marginTop: 18 }}>
               <WorkspaceEmpty P={P} accent={accent} icon="search"
                 title="No investigations yet"
-                body="Every question you ask becomes an investigation: the thread, the papers it surfaced, and what you saved from it. Ask a question from the search tab and the trail starts here."
+                body="Questions you ask are saved here as investigations, with their answers and the papers behind them. Ask a question from the search tab to start one."
                 action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={onGoSearch}>Ask something</UIButton>}
                 isMobile={isMobile} />
             </div>
@@ -21105,10 +21355,16 @@ function App() {
            waypoint keeps its real backend count, not just the live stage.
            A null prev (fresh search, or cleared after the last one) starts
            a new trail. Repeated frames for the same stage refresh the live
-           detail without duplicating history. */
+           detail without duplicating history. stageSince stamps when the
+           current stage began (kept across repeat frames of the same
+           stage) so the Dive can show honest elapsed time in the stage —
+           the only live signal the client owns during a long synthesis,
+           which the stream leaves silent between its start frame and
+           the citation check frame. */
         const h = prev && Array.isArray(prev.history) ? prev.history.slice() : [];
         if (!h.length || h[h.length - 1].index !== s.index) h.push({ index: s.index, key: s.key, detail: s.detail });
-        return { ...s, history: h };
+        const stageSince = prev && prev.index === s.index && prev.stageSince ? prev.stageSince : Date.now();
+        return { ...s, history: h, stageSince };
       });
     }, 50);
   }, []);
@@ -22010,6 +22266,9 @@ function App() {
     setContextBusy(!imageToSend && !!ctxAction);
     if (!mutedRef.current) Sfx.click();
     setInput(""); setAttachedImage(null); setAttachedImageName(""); setBusy(true); setVideosLocated(false); setError(""); setErrorDetail(""); setErrorKind(""); setErrorTitle(""); setCmdOpen(false); if (isMobile) setMobilePanel(false);
+    /* Nova hears the search start (2026-10-15): her thinking face rides
+       the progress room until the outcome emit below lands her. */
+    emitSearchNova("start");
     const prior = [];
     turns.slice(-10).forEach((t) => { prior.push({ role: "user", content: t.q }); prior.push({ role: "assistant", content: t.answer, sources: t.sources || [] }); });
     /* The search has no client-side timeout today: on a stalled mobile
@@ -22027,6 +22286,10 @@ function App() {
        survives the failure and can be edited and retried. */
     const failSearch = (kind, { status = 0, message = "", requestId = "", elapsed = elapsedS(), when = stamp(), keepDetail = false } = {}) => {
       const info = searchErrorInfo(kind, { status, message, requestId, elapsed, when });
+      /* Every named failure funnels through here, so Nova's failed face
+         lands beside the error panel from this one emit (2026-10-15).
+         A user cancel never reaches failSearch and gets no face. */
+      emitSearchNova("failed");
       setErrorKind(kind);
       setErrorTitle(info.headline);
       setError(info.body);
@@ -22126,6 +22389,11 @@ function App() {
       if (data && data.responseKind === "no-results") {
         logZeroResult(question, { filtered: effEvidenceFilter !== "all", suggestions: ((data.noResults && data.noResults.reformulations) || []).length });
       }
+      /* Nova hears the outcome (2026-10-15): a degraded, weak tier, or
+         empty handed answer lands her deadpan face at the answer's head;
+         a full answer lands pleased. Either way she settles back to her
+         resting greeting on her own timer. */
+      emitSearchNova(data.degraded || data.answerTier === "weak" || data.responseKind === "no-results" ? "degraded" : "success");
       /* RERUN WITH DIFF (2026-10-13): a baseline record stashed by
          the Search record panel or the public record page (see
          RECORD_BASELINE_KEY) rides onto this turn when the question
@@ -23814,6 +24082,12 @@ function App() {
                       single-fetch fallback renders the room as before.
                       The room mounts 280ms after the search starts so
                       sub-280ms answers never flash a loader. */}
+                  {/* Nova rides the search (2026-10-15): her thinking face
+                      sits over the room while the lifecycle's outcome
+                      emit is still outstanding. */}
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
+                    <SearchNova size={46} />
+                  </div>
                   <Dive P={P} accent={accent} q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} contextual={contextBusy} videosLocated={videosLocated}
                     stream={streamActive ? streamStage : null}
                     onCancel={() => { try { askAbortRef.current?.abort("cancelled"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: askAbortRef.current?.abort('cancelled'); }:", cbErr); } }} />
@@ -24017,7 +24291,7 @@ function App() {
             {saved.length === 0 ? (
               <WorkspaceEmpty P={P} accent={accent} icon="bookmark"
                 title="Nothing saved yet"
-                body="Save a paper from any answer and it lands here, with its authors, journal and year intact so an export is citable straight away."
+                body="Save a paper from any answer and it lands here. Authors, journal and year come with it, so exports stay citable."
                 action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Start an investigation</UIButton>} />
             ) : (
               <>
@@ -24374,7 +24648,7 @@ function App() {
             {history.length === 0 ? (
               <WorkspaceEmpty P={P} accent={accent} icon="history"
                 title="No investigations yet"
-                body="Ask a research question and one starts itself. The thread, the papers it found, and anything you save from it are kept together."
+                body="Ask a research question and an investigation starts. Its answers and papers are kept together here."
                 action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Ask something</UIButton>} />
             ) : (
               <>

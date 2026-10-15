@@ -74,7 +74,7 @@ const READING_PROFILES = {
   },
   focus: {
     label: "Focus",
-    desc: "Gentle motion, clear focus rings, answers arrive steadily",
+    desc: "Typewriter answers, gentle motion, clear focus rings",
     icon: "zap",
     settings: { focusHighlight: true, typewriter: true, animationMode: "subtle", dataDensity: "comfortable", lineSpacing: "relaxed" },
   },
@@ -267,7 +267,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
   return (
     <Section title="Membership">
       {!user ? (
-        <Row label="Go further with Pro" desc="Unlimited AI answers, document reads and flowcharts, the PRO badge and an exclusive theme."
+        <Row label="Cerebrum Pro" desc="Unlimited AI answers, document reads and flowcharts, the Pro badge and the Pro themes."
           control={goldBtn("See plans", onOpenPro)} last />
       ) : (
         <>
@@ -297,7 +297,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
           {rank !== "pro" && (
             <Row
               label="Pro"
-              desc="The meter goes away: unlimited AI answers, document reads and flowcharts, deeper Pro search, investigation templates, API access, plus the badge and four exclusive themes. $20/month or $144/year."
+              desc="No meter. Unlimited AI answers, document reads and flowcharts, deeper Pro search, investigation templates, API access, the badge, and four Pro themes. $20/month or $144/year."
               control={rank === "free" ? goldBtn("Go Pro", onOpenPro) : quietBtn("Go Pro", onOpenPro)}
               last
             />
@@ -641,7 +641,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
       setChallengeOn(false);
       setPhraseMode(null);
       setPhrase(null);
-      toast("Recovery phrase confirmed. Back it up so you never lose access to encrypted conversations.");
+      toast("Recovery phrase confirmed. Keep a copy somewhere safe. It is the only way back into your encrypted conversations.");
       const info = await getBackupInfo().catch(() => null);
       setBackupInfo(info);
     } catch (e) {
@@ -2438,9 +2438,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   beyond their tier — API keys, investigation templates, and
                   the priority search queue. One row, honest, no dark pattern. */}
               {(proStatus?.tier === "lite" || !!proStatus?.isLite) && !(proStatus?.tier === "pro" || !!user?.isPro) && (
-                <Section title="Pro unlocks more" footer="You're on Pro Lite. Full Pro adds the power features below.">
+                <Section title="What full Pro adds" footer="You're on Pro Lite. This is what full Pro adds on top.">
                   <Row label="API access, templates & priority queue"
-                    desc="API keys with usage dashboards, 4 investigation templates, and skip-the-line search when it's busy."
+                    desc="API keys with usage dashboards, 4 investigation templates, and priority search when it is busy."
                     control={
                       <UIButton P={P} accent={accent} at={at} variant="primary" onClick={onOpenPro} style={{ minHeight: 44, flexShrink: 0 }}>
                         See Pro

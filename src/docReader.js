@@ -248,7 +248,7 @@ export async function streamDocumentApi(body, opts = {}) {
   settled();
   if (!donePayload) {
     const e = new Error(
-      "The response stopped before it was finished, so nothing is shown as final. Please try again."
+      "The response stopped before it finished. Nothing is shown as final. Please try again."
     );
     e.code = "incomplete_stream";
     throw e;

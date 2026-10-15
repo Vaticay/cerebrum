@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@dtelecom/vodozemac-wasm": "^0.3.0",
+    "@rive-app/react-canvas": "^4.36.0",
     "bip39": "^3.1.0",
     "exceljs": "^4.4.0",
     "gsap": "^3.15.0",

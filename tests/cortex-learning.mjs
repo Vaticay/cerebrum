@@ -59,7 +59,7 @@ const WANTED = [
   "lessonLastActivityMs", "isLessonFading", "fadingLessons", "buildReviewSessionCards",
   "OPENER_STYLES", "lessonOpenerStyle",
   "LEARNING_PATHS", "CATALOG", "TOPIC_COURSES", "topicPathFor", "INTERACTIVE_KINDS", "isInteractiveCard",
-  "flattenPathLessons", "isLessonUnlocked", "pathProgress",
+  "flattenPathLessons", "isLessonUnlocked", "pathProgress", "pathPaceFor",
   "applyLessonResult", "buildDailyPracticeCards", "validateCurriculum",
   "MASTERY_MIN_PCT", "isLessonMastered", "orderScore", "parseRichText",
   "XP_CORRECT", "XP_WRONG", "XP_BATTLE", "XP_LESSON_FINISH",
@@ -97,7 +97,7 @@ const WANTED = [
   "QUIRK_FAST_MS", "QUIRK_FAST_COOLDOWN_MS", "QUIRK_HARD_COOLDOWN_MS",
   "QUIRK_BROW_COOLDOWN_MS", "QUIRK_PERFECT_COOLDOWN_MS", "QUIRK_POKE_GAP_MS",
   "QUIRK_POKE_LOCK_MS", "QUIRK_EASY_STREAK",
-  "NOVA_EGG_LINES", "NOVA_SUMMON_LINES", "NOVA_CELEBRATE_LINES", "NOVA_GAG_LINES",
+  "NOVA_EGG_LINES", "NOVA_SUMMON_LINES", "NOVA_CELEBRATE_LINES", "NOVA_LESSON_DONE_LINES", "NOVA_GAG_LINES",
   "NOVA_LATE_LINES", "NOVA_MORNING_LINES", "NOVA_MORNING_DENIAL",
   "NOVA_POKE_LINE_THREE", "NOVA_POKE_LINE_FIVE", "NOVA_SHELF_LINE", "NOVA_SHELF_FAVORITE_LINE",
   "NOVA_OPINION_HARD_LINE", "NOVA_OPINION_FAST_LINE", "NOVA_OPINION_BROW_LINE", "NOVA_OPINION_PERFECT_LINE",
@@ -139,7 +139,7 @@ const context = vm.createContext({
 vm.runInContext(js, context);
 const {
   LEARNING_PATHS, CATALOG, TOPIC_COURSES, topicPathFor, isInteractiveCard, flattenPathLessons, isLessonUnlocked,
-  pathProgress, applyLessonResult, buildDailyPracticeCards, validateCurriculum,
+  pathProgress, pathPaceFor, applyLessonResult, buildDailyPracticeCards, validateCurriculum,
   MASTERY_MIN_PCT, isLessonMastered, orderScore, parseRichText, TOUR_STEPS,
   focusTrapStep, cleanText,
   decodeHtmlEntities, decodeStringsDeep, cardIsPaperBacked, courseIsPaperBacked,
@@ -171,7 +171,7 @@ const {
   QUIRK_FAST_MS, QUIRK_FAST_COOLDOWN_MS, QUIRK_HARD_COOLDOWN_MS,
   QUIRK_BROW_COOLDOWN_MS, QUIRK_PERFECT_COOLDOWN_MS, QUIRK_POKE_GAP_MS,
   QUIRK_POKE_LOCK_MS, QUIRK_EASY_STREAK,
-  NOVA_EGG_LINES, NOVA_SUMMON_LINES, NOVA_CELEBRATE_LINES, NOVA_GAG_LINES,
+  NOVA_EGG_LINES, NOVA_SUMMON_LINES, NOVA_CELEBRATE_LINES, NOVA_LESSON_DONE_LINES, NOVA_GAG_LINES,
   NOVA_LATE_LINES, NOVA_MORNING_LINES, NOVA_MORNING_DENIAL,
   NOVA_POKE_LINE_THREE, NOVA_POKE_LINE_FIVE, NOVA_SHELF_LINE, NOVA_SHELF_FAVORITE_LINE,
   NOVA_OPINION_HARD_LINE, NOVA_OPINION_FAST_LINE, NOVA_OPINION_BROW_LINE, NOVA_OPINION_PERFECT_LINE,
@@ -218,6 +218,48 @@ const {
   eggCooldownMs, eggBlocked, eggEligible, eggCelebrateEligible,
   countWordmarkClick, recordEggAppearance, recordEggDismissal,
 } = eggContext.__egg;
+
+/* The Rive contract lane (2026-10-15): src/NovaRive.jsx, the
+   code side of the Rive rebuild, is extracted the same way so
+   the state machine contract, the quip bank, and the mapping
+   helpers are pinned without mounting a canvas. Only the pure
+   declarations are extracted; the components and the quip hook
+   stay in the app, and their wiring is pinned by source below. */
+const riveSrc = readFileSync(join(root, "src/NovaRive.jsx"), "utf8");
+const riveAst = parse(riveSrc, { sourceType: "module", plugins: ["jsx"] });
+function riveDeclFor(name) {
+  for (const node of riveAst.program.body) {
+    const decl = node.type === "ExportNamedDeclaration" ? node.declaration : node;
+    if (!decl) continue;
+    const isVar = decl.type === "VariableDeclaration" && decl.declarations.some((d) => d.id.name === name);
+    const isFn = decl.type === "FunctionDeclaration" && decl.id && decl.id.name === name;
+    if (isVar || isFn) return { start: node.start, end: node.end };
+  }
+  return null;
+}
+const RIVE_WANTED = [
+  "NOVA_RIVE_STATE_MACHINE", "NOVA_RIVE_SRC", "NOVA_RIVE_ASSET", "NOVA_RIVE_INPUTS", "NOVA_RIVE_EVENTS",
+  "NOVA_QUIP_BANK", "QUIP_MIN_GAP_MS", "QUIP_SHOW_MS", "QUIP_LONG_IDLE_MS",
+  "QUIP_CATEGORY_COOLDOWN_MS", "QUIP_CATEGORY_CHANCE",
+  "quizCategoryForState", "searchCategoryForState", "quipCategoryForRiveEvent",
+  "quipGateAllows", "pickQuipLine", "quizPointerFor", "appStateForActivity", "quizStateForSheet",
+];
+const riveChunks = [];
+for (const name of RIVE_WANTED) {
+  const decl = riveDeclFor(name);
+  assert.ok(decl, `${name} must be declared in src/NovaRive.jsx`);
+  riveChunks.push(riveSrc.slice(decl.start, decl.end).replace(/^export\s+/, ""));
+}
+const riveJs = transformSync(riveChunks.join("\n") + `\n;globalThis.__rive = { ${RIVE_WANTED.join(", ")} };`, { loader: "jsx" }).code;
+const riveContext = vm.createContext({});
+vm.runInContext(riveJs, riveContext);
+const {
+  NOVA_RIVE_STATE_MACHINE, NOVA_RIVE_SRC, NOVA_RIVE_ASSET, NOVA_RIVE_INPUTS, NOVA_RIVE_EVENTS,
+  NOVA_QUIP_BANK, QUIP_MIN_GAP_MS, QUIP_SHOW_MS, QUIP_LONG_IDLE_MS,
+  QUIP_CATEGORY_COOLDOWN_MS, QUIP_CATEGORY_CHANCE,
+  quizCategoryForState, searchCategoryForState, quipCategoryForRiveEvent,
+  quipGateAllows, pickQuipLine, quizPointerFor, appStateForActivity, quizStateForSheet,
+} = riveContext.__rive;
 
 const allLessons = LEARNING_PATHS.flatMap((p) =>
   flattenPathLessons(p).map((l) => ({ path: p, lesson: l })));
@@ -2819,7 +2861,12 @@ await test("the home carries quests, the Sparks shop, reminders, leagues, share 
     "TODAY'S QUESTS", "SPARKS", "Buy a streak freeze · 50 Sparks", "Repair the missed day · 100 Sparks",
     // Pin moved 2026-10-14 (owner's copy ruling): the reminders
     // explanation was rewritten plainer; the surface is the same.
-    "REMINDERS", "Pick an hour. When you come back at that hour", "LEAGUES", "Leagues are not open yet",
+    "REMINDERS", "Pick an hour. When you come back at that hour", "LEAGUES",
+    // Pin moved 2026-10-15 (audit fix 11): the leagues closed state
+    // copy was rewritten to read intentional (the board stays shut
+    // until enough learners are active, with the meantime named);
+    // "Leagues are not open yet" no longer ships.
+    "so the board stays shut",
     "You are in for opening day. Your place is saved.",
     "function ShareCardButton", "Share card", "shareCardModel(",
     "When should Nova remind you?", "OF 3", "onDone({ curiosity, minutes, reminderHour })",
@@ -2869,13 +2916,17 @@ await test("the wave 3 home carries its zones, its settings surface, and Nova's 
   // Pin updated 2026-10-14 (avatar replacement wave): that
   // presence is the raster art now, and the 120px empty state
   // carries the full figure panel framing.
+  // Pin moved 2026-10-15 (owner's one Nova per screen ruling):
+  // the library empty state's 120px figure is gone; the empty
+  // state carries a book mark instead, pinned below in its
+  // place.
   for (const needle of [
     // Pin moved 2026-10-14 (owner's voice ruling): the return
     // greeting was rewritten drier; see the lines library note.
     "NOVA'S SHELF", "Nothing on the shelf yet", "Back, then. Your reviews waited.",
     "Due for review", "Nova settings", "lv-nova-live", "lv-band", "lv-status", "lv-cols",
     'const CREAM = "#F5F0E8"', "Progress stays in this browser. Export to keep a copy.",
-    'NovaLive state="asleep" size={120} framing="panel"', "Start daily practice", "LAST_VISIT_KEY",
+    '<Icon name="bookOpen" size={26} />', "Start daily practice", "LAST_VISIT_KEY",
   ]) {
     assert.ok(learnSrc.includes(needle), `the wave 3 home is missing: ${needle}`);
   }
@@ -3165,8 +3216,14 @@ await test("the raster Nova stands at the persistent spots and the raster art ke
   // Nova is gone; she stands on the page. The absence is the pin.
   assert.ok(!learnSrc.includes("width: 68, height: 68"), "the header circle came back");
   assert.ok(learnSrc.includes("<SheetNova good={sheetGood}"), "the feedback sheet lost its timed Nova reaction");
-  assert.ok(learnSrc.includes('state="fading" size={54}'), "the review bench greeter is not the bigger fading live Nova");
-  assert.ok(learnSrc.includes('state="asleep" size={120} framing="panel"'), "the library empty state does not show the full figure panel");
+  // Pins replaced 2026-10-15 (owner's one Nova per screen
+  // ruling, "There's too many Novas on this one page"): the
+  // review bench greeter (fading, 54px) and the library empty
+  // state's full figure panel (asleep, 120px) are gone. The
+  // header Nova is the home's only resident figure; the
+  // absences below are the pins now.
+  assert.ok(!learnSrc.includes('state="fading" size={54}'), "the review bench grew a second Nova again");
+  assert.ok(!learnSrc.includes('state="asleep" size={120} framing="panel"'), "the library empty state grew a second Nova again");
   assert.ok(learnSrc.includes('pose="greeting" size={128}'), "the lesson intro lost its raster artwork");
   assert.ok(learnSrc.includes("CHARACTER_POSES[model.pose]"), "the share card no longer reads the raster pose set");
 });
@@ -3473,7 +3530,10 @@ await test("the presence wave: Nova is live where she stands, and her tips obey 
   assert.ok(learnSrc.includes("function NovaTip("), "the tip component is missing");
   for (const id of ["today", "paths", "library", "library-empty", "create", "shop", "leagues", "bench", "streak", "memory", "shelf"])
     assert.ok(learnSrc.includes(`id="${id}"`), "the " + id + " tip is not placed");
-  assert.ok(learnSrc.includes('NovaSpeech state={reminder.kind === "atrisk" ? "worried" : "greeting"} size={52}'), "the reminder is not in bubble form");
+  // Pin moved 2026-10-15 (owner's one Nova per screen ruling):
+  // the reminder bubble renders bare on the home, text only;
+  // its companion figure is gone.
+  assert.ok(learnSrc.includes('NovaSpeech bare state={reminder.kind === "atrisk" ? "worried" : "greeting"} size={52}'), "the reminder is not in bubble form");
   assert.ok(learnSrc.includes("streak={missStreak}"), "the sheet Nova does not hear the miss streak");
   assert.ok(learnSrc.includes("armed={missStreak >= 2}"), "the strategy tip does not arm on the second straight miss");
   assert.ok(!JSON.stringify(buildCortexExport(cortexFixtureState, new Date())).includes("seentips"), "the export carries the seen tips store");
@@ -4084,6 +4144,307 @@ await test("LearnView's screen returns all sit below its last hook", () => {
   assert.ok(lastHookBeforeReturn > 0, "no hooks found before the player return");
   assert.ok(!/\buse(State|Effect|Memo|Ref|Callback|Context)\s*\(/.test(region.slice(playerReturn, region.indexOf('if (screen.name === "payoff")'))),
     "a hook still sits between the player return and the payoff return");
+});
+
+// ─═════════════════════════════════════════════════════════════════
+group("Nova in Rive: the input contract, the quip bank, the wiring");
+
+/* The Rive rebuild's code side (2026-10-15). The .riv art asset
+   is authored in the Rive editor later; these pins hold the
+   contract it will be authored against, the quip bank and its
+   voice rules, the state mappings the integrations use, and the
+   fallback that keeps the shipped rig on screen until the
+   asset exists at public/nova/nova.riv. */
+
+await test("the state machine contract is the one the editor build is authored against", () => {
+  assert.equal(NOVA_RIVE_STATE_MACHINE, "Nova_Controller");
+  assert.deepEqual([...NOVA_RIVE_INPUTS.numbers], ["quizState", "appState", "mouseX", "mouseY"]);
+  assert.deepEqual([...NOVA_RIVE_INPUTS.booleans], ["isTalking", "reducedMotion"]);
+  assert.deepEqual([...NOVA_RIVE_INPUTS.triggers], ["poke", "celebrate", "sleep", "wake"]);
+  for (const ev of ["EmitIdleQuip", "EmitQuizQuip", "EmitSearchQuip"]) {
+    assert.ok(NOVA_RIVE_EVENTS.includes(ev), ev + " missing from the event contract");
+  }
+  assert.equal(NOVA_RIVE_SRC, "/nova/nova.riv");
+});
+
+await test("no asset yet: the one switch keeps the fallback on screen", () => {
+  assert.equal(NOVA_RIVE_ASSET, null, "the asset switch must stay null until the editor asset lands");
+  assert.ok(riveSrc.includes("if (!NOVA_RIVE_ASSET) return <NovaFallback"), "the wrapper must branch on the asset switch in one place");
+  assert.ok(riveSrc.includes("<NovaAvatar"), "the fallback must render the current rig");
+  assert.ok(riveSrc.includes("stateMachines: NOVA_RIVE_STATE_MACHINE"), "the canvas must run the contract state machine");
+  assert.ok(riveSrc.includes("useStateMachineInput"), "the canvas must bind the contract inputs");
+  assert.ok(riveSrc.includes("EventType.RiveEvent"), "the canvas must listen for Rive quip events");
+});
+
+await test("the quip bank holds all nine categories, voiced dry and free of dashes", () => {
+  const cats = ["idle", "fourthWall", "searching", "preprintWarning", "highConfidence",
+    "quizThinking", "quizCorrect", "quizStreak", "quizWrong"];
+  assert.deepEqual(Object.keys(NOVA_QUIP_BANK).sort(), cats.slice().sort());
+  for (const c of cats) {
+    assert.ok(Array.isArray(NOVA_QUIP_BANK[c]) && NOVA_QUIP_BANK[c].length >= 1, c + " is empty");
+    for (const line of NOVA_QUIP_BANK[c]) {
+      assert.ok(!/[-–—]/.test(line), `${c} line carries a dash: ${line}`);
+      assert.ok(!line.includes("!"), `${c} line carries exclamation energy: ${line}`);
+      assert.ok(line.length <= 130, `${c} line runs long at ${line.length} chars: ${line}`);
+    }
+  }
+});
+
+await test("state to category mapping: quiz states and app states", () => {
+  assert.equal(quizCategoryForState(1), "quizThinking");
+  assert.equal(quizCategoryForState(3), "quizCorrect");
+  assert.equal(quizCategoryForState(4), "quizWrong");
+  assert.equal(quizCategoryForState(5), "quizStreak");
+  assert.equal(quizCategoryForState(0), null);
+  assert.equal(quizCategoryForState(2), null, "suspense itself stays silent; the lines ride transitions");
+  assert.equal(searchCategoryForState(1), "searching");
+  assert.equal(searchCategoryForState(2), "highConfidence");
+  assert.equal(searchCategoryForState(3), "preprintWarning");
+  assert.equal(searchCategoryForState(0), null);
+});
+
+await test("rive events draw from the matching category, with honest fallbacks", () => {
+  assert.equal(quipCategoryForRiveEvent("EmitQuizQuip", { quizState: 4 }), "quizWrong");
+  assert.equal(quipCategoryForRiveEvent("EmitQuizQuip", { quizState: 5 }), "quizStreak");
+  assert.equal(quipCategoryForRiveEvent("EmitQuizQuip", { quizState: 0 }), "quizThinking");
+  assert.equal(quipCategoryForRiveEvent("EmitSearchQuip", { appState: 3 }), "preprintWarning");
+  assert.equal(quipCategoryForRiveEvent("EmitSearchQuip", { appState: 0 }), "searching");
+  assert.equal(quipCategoryForRiveEvent("EmitIdleQuip", { idleMs: 5000 }), "idle");
+  assert.equal(quipCategoryForRiveEvent("EmitIdleQuip", { idleMs: QUIP_LONG_IDLE_MS }), "fourthWall");
+  assert.equal(quipCategoryForRiveEvent("EmitSomethingElse", {}), null);
+});
+
+await test("brain and sheet mapping: activity and phases land on the contract", () => {
+  assert.equal(appStateForActivity("thinking"), 1);
+  assert.equal(appStateForActivity("pleased"), 2);
+  assert.equal(appStateForActivity("deadpan"), 3);
+  assert.equal(appStateForActivity(null), 0);
+  assert.equal(appStateForActivity("greeting"), 0, "a plain mood is not an app state");
+  assert.equal(quizStateForSheet({ phase: 0 }), 1);
+  assert.equal(quizStateForSheet({ phase: 0, hover: true }), 2);
+  assert.equal(quizStateForSheet({ phase: 1, good: true, correctStreak: 2 }), 3);
+  assert.equal(quizStateForSheet({ phase: 1, good: true, correctStreak: 3 }), 5);
+  assert.equal(quizStateForSheet({ phase: 1, good: true, correctStreak: 7 }), 5);
+  assert.equal(quizStateForSheet({ phase: 1, good: false }), 4);
+  assert.equal(quizStateForSheet({ phase: 2, good: true }), 1);
+});
+
+await test("the joystick feed normalizes to minus 100 to 100 and clamps at the edges", () => {
+  const rect = { left: 100, top: 50, width: 200, height: 100 };
+  const at = (x, y, r) => { const p = quizPointerFor(x, y, r); return [p.x, p.y]; };
+  assert.deepEqual(at(200, 100, rect), [0, 0]);
+  assert.deepEqual(at(300, 150, rect), [50, 50]);
+  assert.deepEqual(at(-500, 900, rect), [-100, 100]);
+  assert.deepEqual(at(0, 0, null), [0, 0]);
+});
+
+await test("the quip gate keeps her mostly silent", () => {
+  const base = { now: 10000000, lastGlobalAt: 0, lastCategoryAt: 0, category: "idle", typing: false, busy: false, roll: 0 };
+  assert.equal(quipGateAllows(base), true, "a clean, cooled down offer may speak");
+  assert.equal(quipGateAllows({ ...base, typing: true }), false, "never while the learner is typing");
+  assert.equal(quipGateAllows({ ...base, busy: true }), false, "never over another line");
+  assert.equal(quipGateAllows({ ...base, now: QUIP_MIN_GAP_MS - 1 }), false, "the global gap binds");
+  assert.equal(quipGateAllows({ ...base, lastCategoryAt: base.now - 1000 }), false, "the category cooldown binds");
+  assert.equal(quipGateAllows({ ...base, roll: 0.99 }), false, "the chance roll can still say no");
+  assert.equal(quipGateAllows({ ...base, category: "nonsense" }), false, "an unknown category never speaks");
+  assert.equal(quipGateAllows({ ...base, category: null }), false);
+});
+
+await test("line picking stays inside the category and avoids an immediate repeat", () => {
+  for (const c of Object.keys(NOVA_QUIP_BANK)) {
+    assert.ok(NOVA_QUIP_BANK[c].includes(pickQuipLine(c, 12345)), c);
+  }
+  const first = pickQuipLine("searching", 0);
+  assert.notEqual(pickQuipLine("searching", 0, first), first);
+  assert.equal(pickQuipLine("nonsense", 0), null);
+});
+
+await test("her silence is priced in: praise is the rarest category, warnings the least rare", () => {
+  assert.ok(QUIP_CATEGORY_CHANCE.highConfidence < QUIP_CATEGORY_CHANCE.searching, "she is not a cheerleader");
+  assert.ok(QUIP_CATEGORY_CHANCE.preprintWarning > QUIP_CATEGORY_CHANCE.highConfidence, "a warning is useful; praise is not");
+  assert.ok(QUIP_MIN_GAP_MS >= 60000, "no two quips land within a minute");
+  assert.ok(QUIP_SHOW_MS > 0 && QUIP_SHOW_MS <= 5000, "a quip is a glance, not a paragraph");
+});
+
+await test("NovaLive and SheetNova render NovaRive behind their existing props", () => {
+  assert.ok(learnSrc.includes("<NovaRive state={shownState}"), "NovaLive must render NovaRive");
+  assert.ok(learnSrc.includes("appState={appStateForActivity(activityState)}"), "NovaLive must map activity onto appState");
+  assert.ok(learnSrc.includes("sleepStage={sleepStage}"), "NovaLive must feed the brain sleep stage");
+  assert.ok(learnSrc.includes("<NovaRive state={shown}"), "SheetNova must render NovaRive");
+  assert.ok(learnSrc.includes("quizStateForSheet({ phase, good, correctStreak"), "SheetNova must map its phases onto quizState");
+  assert.ok(learnSrc.includes("export function NovaAvatar"), "NovaAvatar must be exported for the NovaRive fallback");
+});
+
+await test("the Player wires option hover and focus into the quiz feed", () => {
+  const hovers = (learnSrc.match(/onMouseEnter=\{quizHoverStart\}/g) || []).length;
+  assert.ok(hovers >= 4, `expected the hover wiring on at least 4 option surfaces, found ${hovers}`);
+  const focuses = (learnSrc.match(/onFocus=\{quizHoverStart\}/g) || []).length;
+  assert.ok(focuses >= 4, `expected the focus wiring on at least 4 option surfaces, found ${focuses}`);
+  assert.ok(learnSrc.includes("correctStreak={rightStreak}"), "SheetNova must receive the correct streak");
+  assert.ok(learnSrc.includes("quizFeed={quizFeed}"), "SheetNova must receive the quiz feed");
+  // Pin corrected 2026-10-15 (audit fix 3): the pointer anchor is
+  // registered by the header Nova now, because she is mounted for
+  // the whole lesson; SheetNova no longer owns the anchor.
+  assert.ok(learnSrc.includes("anchorRef={novaAnchorRef}"), "a mounted Nova must register her box as the pointer anchor");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Audit fixes (2026-10-15): the live Nova audit, fixed in LearnView");
+
+await test("the lesson actions clear the mobile bottom bar at mobile widths only", () => {
+  const mobile = learnSrc.slice(learnSrc.indexOf("@media (max-width: 899px)"), learnSrc.indexOf("@media (max-width: 899px)") + 700);
+  assert.ok(mobile.includes(".lv-actionbar") && mobile.includes("72px + env(safe-area-inset-bottom"), "the action bar carries no tab bar clearance");
+  assert.ok(mobile.includes(".lv-sheet"), "the feedback sheet carries no tab bar clearance");
+  assert.ok(mobile.includes(".lv-screen"), "the Player full screens carry no tab bar clearance");
+  assert.ok(learnSrc.includes('className="lv-actionbar"'), "the action bar does not wear the clearance class");
+  assert.ok((learnSrc.match(/className="lv-screen"/g) || []).length >= 3, "the intro, done, and course complete screens must all wear the clearance class");
+});
+
+await test("answer options shift their border to the accent on a real pointer hover", () => {
+  assert.ok(learnSrc.includes("@media (hover: hover) and (pointer: fine)"), "the hover rule is not gated to pointer devices");
+  assert.ok(learnSrc.includes("border-color: var(--lv-accent, #C4A35A) !important"), "the hover rule does not move the border to the accent");
+  assert.ok((learnSrc.match(/"--lv-accent": accent/g) || []).length >= 5, "the surface roots must hand the accent to the stylesheet");
+});
+
+await test("Nova stands on the lesson complete screen, pleased, with a line from her library", () => {
+  const done = learnSrc.slice(learnSrc.indexOf("if (showLessonDone)"), learnSrc.indexOf("const cardKindLabel"));
+  assert.ok(done.includes("<NovaRive"), "the completion screen renders no NovaRive");
+  assert.ok(done.includes('state="pleased"'), "she is not pleased on the completion screen");
+  assert.ok(done.includes("celebrateN={1}"), "the celebrate trigger is not raised for the asset");
+  assert.ok(done.includes("doneLine"), "no completion line is drawn");
+  assert.ok(Array.isArray(NOVA_LESSON_DONE_LINES) && NOVA_LESSON_DONE_LINES.length >= 3, "the completion lines are missing from her library");
+  for (const line of NOVA_LESSON_DONE_LINES) {
+    assert.ok(!/[-–—]/.test(line), `a completion line carries a dash: ${line}`);
+    assert.ok(!line.includes("!"), `a completion line exclaims: ${line}`);
+  }
+  assert.ok(NOVA_LESSON_DONE_LINES.includes(pickNovaLine(NOVA_LESSON_DONE_LINES, 7)), "pickNovaLine does not serve the completion lines");
+});
+
+await test("Nova is mounted in the lesson header for the whole lesson, with the streak beside her", () => {
+  const play = learnSrc.slice(learnSrc.indexOf("top bar: close, segmented course progress"));
+  assert.ok(play.includes("<NovaRive"), "the play screen header mounts no Nova");
+  assert.ok(play.includes("anchorRef={novaAnchorRef}"), "the header Nova does not own the gaze anchor");
+  assert.ok(play.includes('rightStreak >= 2 ? " · " + rightStreak + " IN A ROW"'), "the streak does not show from two in a row");
+  // Pin moved 2026-10-15 (owner's one Nova per screen ruling):
+  // while the feedback sheet is open she is in the sheet, so
+  // the header mount now renders only when no verdict is up,
+  // in the unanswered phase; the verdict quizState belongs to
+  // the sheet's Nova alone.
+  assert.ok(play.includes("{!checked && ("), "the header Nova does not step aside while the sheet is open");
+  assert.ok(play.includes("quizStateForSheet({ phase: 0, good: false,"), "the header Nova does not take the unanswered phase mapping");
+});
+
+await test("a miss sheet states the answer before the why", () => {
+  const sheetStart = learnSrc.indexOf("const sheet = checked ? (");
+  const sheet = learnSrc.slice(sheetStart, learnSrc.indexOf("return shell(", sheetStart));
+  assert.ok((sheet.match(/WHAT ACTUALLY HAPPENS/g) || []).length >= 2, "the recap section exists only for predict cards");
+  assert.ok(sheet.includes("displayOptions[displayCorrect]"), "the miss recap is not drawn from the card's own options");
+  assert.ok(sheet.includes("!isRight && displayOptions"), "the miss recap is not gated to misses");
+});
+
+await test("the miss review re teaches before it re asks", () => {
+  assert.ok(learnSrc.includes("const [reviewRecap, setReviewRecap] = useState(null)"), "no recap state");
+  assert.ok(learnSrc.includes("setReviewRecap(cards)"), "starting the review does not arm the recap");
+  const recap = learnSrc.slice(learnSrc.indexOf("if (reviewRecap)"), learnSrc.indexOf("const cardKindLabel"));
+  assert.ok(recap.includes("The ideas first"), "the recap screen has no teaching heading");
+  assert.ok(recap.includes("Try it again"), "the recap screen has no way into the questions");
+  assert.ok(recap.includes('{"The idea: "}'), "the recap does not restate each missed idea");
+  assert.ok(recap.includes('c.items.join(", then ")'), "the recap omits the right order for order cards");
+});
+
+await test("path pace is computed from the real curriculum, never authored", () => {
+  for (const path of [...LEARNING_PATHS, ...TOPIC_COURSES]) {
+    const pace = pathPaceFor(path);
+    const flat = flattenPathLessons(path);
+    const cards = flat.reduce((n, l) => n + l.cards.length, 0);
+    const questions = flat.reduce((n, l) => n + l.cards.filter(isInteractiveCard).length, 0);
+    assert.equal(pace.lessons, flat.length, `${path.id}: lesson count is not the path's own`);
+    assert.equal(pace.questions, questions, `${path.id}: question count is not recounted from the cards`);
+    assert.equal(pace.minutes, Math.max(1, Math.round(cards * 0.4)), `${path.id}: minutes are not the stated per card rate`);
+    assert.ok(["Gentle", "Steady", "Demanding"].includes(pace.word), `${path.id}: unknown pace word ${pace.word}`);
+  }
+  const body = pathPaceFor(LEARNING_PATHS.find((p) => p.id === "the-human-body"));
+  const science = pathPaceFor(LEARNING_PATHS.find((p) => p.id === "how-science-works"));
+  assert.equal(body.word, "Demanding", "the 235 question path should read Demanding");
+  assert.equal(science.word, "Gentle", "the 24 question path should read Gentle");
+  assert.ok(body.minutes > science.minutes * 5, "the long path's estimate should dwarf the short one's");
+  assert.ok(learnSrc.includes('"About " + pace.minutes + " min in all'), "the paths tab does not show the pace");
+  assert.ok(learnSrc.includes("about {pace.minutes} min · {pace.word}"), "the path view header does not show the pace");
+});
+
+await test("finished paths read as finished, and locked lessons name their key on the paths tab", () => {
+  assert.ok(learnSrc.includes('"Finished · all " + pp.total + " lessons done'), "the path view still counts a finished path like an unfinished one");
+  assert.ok(learnSrc.includes('lesson.subtitle + " Opens when " + flat[myStop - 1].title + " is done."'), "a locked lesson on the paths tab does not say what unlocks it");
+});
+
+await test("the checkpoint intro states the real rules", () => {
+  const intro = learnSrc.slice(learnSrc.indexOf("if (showIntro)"), learnSrc.indexOf("if (showLessonDone)"));
+  assert.ok(intro.includes("CHECKPOINT RULES"), "checkpoint lessons open with no rules");
+  assert.ok(intro.includes("Finishing counts, whatever your score"), "the rules do not say finishing counts at any score");
+  assert.ok(intro.includes("lesson.cards.filter(isInteractiveCard).length"), "the question count is not counted from the lesson");
+  assert.ok(intro.includes("MASTERY_MIN_PCT"), "the rules do not name the real mastery bar");
+  assert.ok(intro.includes("You can play it again whenever you like"), "the rules do not say retries are allowed");
+});
+
+await test("the provenance note names the subject it covers", () => {
+  assert.ok(learnSrc.includes('"Written for Nova from standard textbook material covering " + path.title'), "the path view note is not specific");
+  assert.ok(learnSrc.includes('"Written for Nova from standard textbook material covering " + course.title'), "the lesson intro note is not specific");
+});
+
+await test("the tour introduces Nova herself in its opening step", () => {
+  assert.ok(TOUR_STEPS[0].body.includes("Nova"), "the opening step never names her");
+  assert.ok(TOUR_STEPS[0].body.includes("axolotl"), "the opening step never says what she is");
+  assert.ok(TOUR_STEPS[0].body.includes("hard to impress"), "the opening step never gives her temperament");
+});
+
+await test("the leagues closed state reads intentional, with the meantime named", () => {
+  const leagues = learnSrc.slice(learnSrc.indexOf('homeTab === "leagues"'), learnSrc.indexOf('homeTab === "paths"'));
+  assert.ok(leagues.includes("so the board stays shut"), "the closed state gives no reason");
+  assert.ok(leagues.includes("nobody to rank you against"), "the closed state does not say why it is shut");
+  assert.ok(leagues.includes("League points come from lessons and reviews"), "the closed state does not name the meantime work");
+  assert.ok(!leagues.includes("Leagues are not open yet"), "the dead tab wording is still there");
+});
+
+await test("one Nova per screen: the header is the home's only resident figure", () => {
+  // The owner's ruling (2026-10-15, with a photo of Today):
+  // "There's too many Novas on this one page." He counted four
+  // on Today alone: the header, the bench, the tip companion,
+  // and the shelf. Every figure but the header's is gone now.
+  const mounts = learnSrc.match(/<NovaLive/g) || [];
+  assert.equal(mounts.length, 2, "NovaLive mounts beyond NovaSpeech's internals and the header");
+  assert.ok(learnSrc.includes("<NovaLive state={novaMood} size={66} />"), "the header resident is gone");
+  for (const gone of [
+    'state="fading" size={54}',            // the review bench greeter
+    'state="asleep" size={72}',            // the shelf's standing figure
+    'state="asleep" size={120}',           // the library empty state figure
+    '<NovaAvatar state="pleased" size={44} />', // the quest cheer figure
+  ]) {
+    assert.ok(!learnSrc.includes(gone), `a removed figure is back: ${gone}`);
+  }
+  // Speech on the home is text only: every placed tip and both
+  // standing speeches render bare, so no companion figure rides
+  // beside the header Nova. The streak tip in the lesson sheet
+  // is bare too: the sheet's own Nova is that screen's one.
+  for (const bareSite of [
+    '<NovaTip id="today" bare', '<NovaTip id="memory" bare', '<NovaTip id="bench" bare',
+    '<NovaTip id="shelf" bare', '<NovaTip id="shop" bare', '<NovaTip id="leagues" bare',
+    '<NovaTip id="paths" bare', '<NovaTip id="library" bare', '<NovaTip id="create" bare',
+    '<NovaTip id="streak" bare',
+    '<NovaSpeech bare state="greeting" size={48}>',
+    '<NovaSpeech bare state={reminder.kind',
+  ]) {
+    assert.ok(learnSrc.includes(bareSite), `a speech surface kept its companion figure: ${bareSite}`);
+  }
+  // The shelf keeps its objects and its empty line, figure free.
+  const shelf = learnSrc.slice(learnSrc.indexOf("NOVA'S SHELF"), learnSrc.indexOf("NOVA'S SHELF") + 1600);
+  assert.ok(shelf.includes("ShelfObjectMark"), "the shelf lost its objects with her figure");
+  assert.ok(shelf.includes("Nothing on the shelf yet"), "the shelf's empty line went with her figure");
+  // In the Player the header Nova steps aside while the sheet
+  // is open, so exactly one Nova is visible there at a time.
+  const play = learnSrc.slice(learnSrc.indexOf("top bar: close, segmented course progress"));
+  const gate = play.indexOf("{!checked && (");
+  const headerNova = play.indexOf('<NovaRive state="thinking" size={40}');
+  assert.ok(gate !== -1 && headerNova !== -1 && gate < headerNova, "the lesson header Nova is not gated on the sheet being closed");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

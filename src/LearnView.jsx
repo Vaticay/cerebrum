@@ -30,6 +30,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Icon, STATUS, FONT_SIZES, RADIUS, withAlpha, accentText } from "./designSystem.jsx";
 import { accentInk } from "./appUtils.js";
+import { NovaRive, appStateForActivity, quizStateForSheet, quizPointerFor } from "./NovaRive.jsx";
 
 /* ── storage ─────────────────────────────────────────────────────── */
 const COURSES_KEY = "cerebrum-learn2-courses";
@@ -1240,6 +1241,30 @@ const CSS = `
 .lv-btn-primary:active { transform: translateY(4px); box-shadow: 0 0 0 rgba(0,0,0,0); }
 .lv-opt { transition: border-color .15s, background .15s, transform .15s; }
 .lv-opt:not(:disabled):hover { transform: translateY(-1px); }
+/* Option hover (audit fix, 2026-10-15): on a real pointer the
+   border moves to the accent, so a hover reads as a state and
+   not just a one pixel lift. The accent arrives as a custom
+   property set on the surface roots; the house gold is the
+   fallback. Important is required because every option sets
+   its border inline; the checked states are disabled buttons,
+   which this rule never matches, so verdict colours survive. */
+@media (hover: hover) and (pointer: fine) {
+  .lv-opt:not(:disabled):hover { border-color: var(--lv-accent, #C4A35A) !important; }
+}
+/* Lesson clearance (audit fix, 2026-10-15): the Player renders
+   inside the app shell's main stacking context, and on mobile
+   the shell's bottom tab bar (72px plus the safe area inset)
+   paints over the Player's bottom strip, which is where Check
+   and Continue live; the auditor had to submit by keyboard. At
+   mobile widths the action bar, the feedback sheet, and the
+   Player's full screens carry the bar's height as extra bottom
+   room, so the actions are always tappable. Desktop widths
+   are untouched. */
+@media (max-width: 899px) {
+  .lv-actionbar { padding-bottom: calc(22px + 72px + env(safe-area-inset-bottom, 0px)) !important; }
+  .lv-sheet { padding-bottom: calc(24px + 72px + env(safe-area-inset-bottom, 0px)) !important; }
+  .lv-screen { padding-bottom: calc(48px + 72px + env(safe-area-inset-bottom, 0px)) !important; }
+}
 .lv-shake { animation: lvShake .4s ease both; }
 @keyframes lvShake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
 .lv-pop { animation: lvPop .3s cubic-bezier(.2,1.4,.4,1) both; }
@@ -2122,7 +2147,7 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
    she stands free on the page at the exact size, the full
    figure. The signature is the one the raster avatar had, so
    every call site is unchanged. */
-function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0 }) {
+export function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0 }) {
   if (framing === "panel") {
     return (
       <span className="nv-rig-panel">
@@ -2143,7 +2168,7 @@ function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning 
    timers only change which state class renders; the motion
    itself is the avatar's CSS. A new sheet mounts a new Nova, so
    the beats always start clean and never queue across cards. */
-function SheetNova({ good, streak = 0, face = null }) {
+function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed = null, anchorRef = null }) {
   const [phase, setPhase] = useState(0);
   useEffect(() => {
     const t1 = setTimeout(() => setPhase(1), 650);
@@ -2157,7 +2182,19 @@ function SheetNova({ good, streak = 0, face = null }) {
   const shown = phase === 0 ? "thinking"
     : phase === 1 ? (face || (good ? "pleased" : streak >= 2 ? "worried" : "deadpan"))
     : "explaining";
-  return <NovaAvatar state={shown} size={48} scanning={phase === 0} />;
+  /* The Rive contract rides along (2026-10-15): the sheet's
+     phases map to quizState through quizStateForSheet (thinking
+     beat 1, or 2 while the learner's hover feed says suspense;
+     verdict 3, 4 on a miss, 5 when a correct streak reaches
+     three), and the Player's hover pointer feeds the joystick
+     inputs, so the asset the editor builds lands in a live
+     state machine. Until it exists NovaRive renders this same
+     rig as the fallback. */
+  const quizState = quizStateForSheet({ phase, good, correctStreak, hover: !!(quizFeed && quizFeed.hover) });
+  return (
+    <NovaRive state={shown} size={48} scanning={phase === 0} quizState={quizState}
+      pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={anchorRef} />
+  );
 }
 
 /* ── the reactive Nova (presence wave, 2026-10-14; avatar
@@ -2196,6 +2233,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const [activityState, setActivityState] = useState(null);
   const [sleepStage, setSleepStage] = useState(() => (state === "asleep" ? 2 : state === "fading" ? 1 : 0));
   const [pokeLine, setPokeLine] = useState(null);
+  const [pokeCount, setPokeCount] = useState(0);
   const wrapRef = useRef(null);
   const beatTimer = useRef(null);
   const lineTimer = useRef(null);
@@ -2521,6 +2559,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     if (step.ignore) return;
     if (beatTimer.current) clearTimeout(beatTimer.current);
     setBeat(step.face);
+    setPokeCount((n) => n + 1);
     /* The beat holds about a second and a quarter (2026-10-14:
        the owner's browser check clicked the header Nova and saw
        nothing; between the rig's stronger squash and the wrapper
@@ -2555,7 +2594,18 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
       transition: "transform 0.3s cubic-bezier(0.22, 0.9, 0.28, 1)",
     }}
       onClick={onTap}>
-      <NovaAvatar state={shownState} size={size} framing={framing} scanning={activityState === "thinking"} pushN={pushN} flutterN={flutterN} noticeN={noticeN} />
+      {/* NovaRive renders her now (2026-10-15): the brain above
+          stays the driver, and its outputs map onto the Rive
+          contract here. Activity becomes appState (thinking 1,
+          pleased 2, deadpan 3), the sleep stage fires the sleep
+          and wake triggers, each accepted tap raises the poke
+          counter, and her own line bubble, when one is up, keeps
+          the quip engine quiet through lineBusy. Until the
+          editor asset exists, NovaRive's fallback is this same
+          rig, so the swap is invisible. */}
+      <NovaRive state={shownState} size={size} framing={framing} scanning={activityState === "thinking"} pushN={pushN} flutterN={flutterN} noticeN={noticeN}
+        appState={appStateForActivity(activityState)} sleepStage={sleepStage} pokeN={pokeCount}
+        idleMs={Date.now() - lastActivity.current} lineBusy={!!bubbleLine} reducedMotion={reducedRef.current} />
       {bubbleLine && (
         <span role="status" style={{
           position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
@@ -2633,10 +2683,13 @@ export function useNovaTip(id, { armed = true, repeatAfterMs = 0 } = {}) {
 /* The speech bubble itself: Nova at the left, a solid cream
    bubble with a tail toward her, text in her voice, and a
    dismiss button when the speech is a tip. Bare mode is the
-   bubble alone with the tail up, for the centered empty states
-   where the big Nova already stands over it. The bubble is
-   plain text to a screen reader (role status announces it);
-   the avatar inside stays decorative. */
+   bubble alone, and since the one Nova per screen ruling
+   (2026-10-15) it is the mode every home speech uses: the
+   header Nova is the screen's resident, so the bubble keeps
+   its text and dismiss and drops the companion figure, and a
+   bare bubble grows no left tail toward a figure who is not
+   there. The bubble is plain text to a screen reader (role
+   status announces it); the avatar inside stays decorative. */
 function NovaSpeech({ state = "greeting", size = 44, bare = false, tail = "left", onDismiss, children }) {
   const tailStyle = tail === "up"
     ? { top: -7, left: "50%", marginLeft: -7, borderTop: "1px solid " + CREAM_LINE, borderLeft: "1px solid " + CREAM_LINE }
@@ -2653,10 +2706,12 @@ function NovaSpeech({ state = "greeting", size = 44, bare = false, tail = "left"
         border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl,
         padding: "12px 16px", maxWidth: 470,
       }}>
-        <span aria-hidden="true" style={{
-          position: "absolute", width: 13, height: 13, background: CREAM,
-          transform: "rotate(45deg)", ...tailStyle,
-        }} />
+        {(!bare || tail === "up") && (
+          <span aria-hidden="true" style={{
+            position: "absolute", width: 13, height: 13, background: CREAM,
+            transform: "rotate(45deg)", ...tailStyle,
+          }} />
+        )}
         <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, paddingRight: onDismiss ? 24 : 0 }}>{children}</div>
         {onDismiss && (
           <button type="button" aria-label="Dismiss tip" onClick={onDismiss}
@@ -2738,6 +2793,17 @@ export const NOVA_SUMMON_LINES = [
 export const NOVA_CELEBRATE_LINES = [
   "Whole path, finished. The shelf object earned its rent.",
   "Last lesson of the path. Done. I do not say this often.",
+];
+/* Lesson completion lines (audit fix, 2026-10-15): the lesson
+   complete screen had no Nova on it at all. She stands beside
+   the XP summary now and says one of these, picked by lesson
+   so the same lesson earns the same line. The perfect lesson
+   line above still outranks them: it fires only at 100 percent
+   and stays rare on its own cooldown. */
+export const NOVA_LESSON_DONE_LINES = [
+  "Lesson done. It goes on the review schedule now.",
+  "Finished. It comes back before it fades.",
+  "Done. That is the whole announcement.",
 ];
 const NOVA_GAG_LINES = [
   "Axolotl. Not a fish. We do this every month.",
@@ -9790,6 +9856,24 @@ export function pathProgress(path, progress) {
   };
 }
 
+/* A path's pace (audit fix, 2026-10-15): an honest time
+   estimate and a difficulty word, both computed from the path's
+   real shape, never authored numbers. Minutes use the same per
+   card rate the lesson intro already states (cards times 0.4).
+   The word bands on the question count, because the checks are
+   where the work is: under 40 questions is Gentle, 40 to 150 is
+   Steady, over 150 is Demanding. Measured on the shipped
+   curriculum, the short paths land at 24 to 25 questions, the
+   topic courses at 20, and the two long paths at 235. */
+export function pathPaceFor(path) {
+  const flat = flattenPathLessons(path);
+  const cards = flat.reduce((n, l) => n + (l.cards ? l.cards.length : 0), 0);
+  const questions = flat.reduce((n, l) => n + (l.cards ? l.cards.filter(isInteractiveCard).length : 0), 0);
+  const minutes = Math.max(1, Math.round(cards * 0.4));
+  const word = questions > 150 ? "Demanding" : questions >= 40 ? "Steady" : "Gentle";
+  return { lessons: flat.length, cards, questions, minutes, word };
+}
+
 /* Record a finished built in lesson: best score kept, mastery
    recomputed, the path's continue pointer moved to the next
    unfinished lesson. Pure: takes a progress object, returns the
@@ -10731,6 +10815,20 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
      point. Any right answer clears it; a new lesson starts it
      over. */
   const [missStreak, setMissStreak] = useState(0);
+  /* Consecutive correct answers, the mirror count: three or
+     more in a row is her streak state on the Rive contract
+     (quizState 5), read by SheetNova at the verdict. */
+  const [rightStreak, setRightStreak] = useState(0);
+  /* Nova's quiz feed (Rive wiring, 2026-10-15): while a question
+     is unanswered, hovering or focusing an answer option sets
+     hover here and aims the pointer at that option, measured
+     against her own box through novaAnchorRef, which the header
+     Nova registers for the whole lesson (audit fix, 2026-10-15:
+     she is mounted during questions now, not only on the sheet).
+     The feed rides to both of her NovaRive mounts as quizState
+     2 plus the joystick values. */
+  const [quizFeed, setQuizFeed] = useState({ hover: false, x: 0, y: 0 });
+  const novaAnchorRef = useRef(null);
   /* Nova's opinions (quirks wave, 2026-10-14): a card timer so
      answer speed is a fact, an easy streak so her raised brow
      has a count, and the opinion the quirks engine returned for
@@ -10744,6 +10842,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const [perfectLine, setPerfectLine] = useState(null);
   const [reviewCards, setReviewCards] = useState(null);
   const [reviewForId, setReviewForId] = useState(null);
+  /* The miss review's teaching recap (audit fix, 2026-10-15):
+     while this holds the missed cards, the Player shows their
+     ideas again before asking anything. The review used to re
+     ask immediately; now it re teaches first, and the questions
+     start only on the recap screen's button. */
+  const [reviewRecap, setReviewRecap] = useState(null);
   const [attempt, setAttempt] = useState(0);
   const [lastAward, setLastAward] = useState(0);
   const [orderResult, setOrderResult] = useState(null);
@@ -10888,6 +10992,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   const resetCardState = () => {
     setPicked(null); setChecked(false);
+    setQuizFeed({ hover: false, x: 0, y: 0 });
     setMatchSel(null); setMatchDone([]); setMatchMistakes(0); setMatchFlash(null);
     setOrderPlaced([]); setOrderCorrect(false); setOrderResult(null);
     setAttempt((n) => n + 1);
@@ -10918,6 +11023,38 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     playSound("tick", soundOn);
   };
 
+  /* The hover side of the quiz feed: a pointer over an option
+     reports its own coordinates; keyboard focus reports the
+     option's center, so both kinds of hovering aim her the same
+     way. Coordinates are normalized against her box through
+     quizPointerFor (minus 100 to 100, the joystick contract).
+     Leaving the option, or the answer landing, ends the
+     suspense and she goes back to thinking. */
+  const quizHoverStart = (e) => {
+    if (checked) return;
+    let cx = null;
+    let cy = null;
+    if (e && typeof e.clientX === "number" && typeof e.clientY === "number" && (e.clientX !== 0 || e.clientY !== 0)) {
+      cx = e.clientX;
+      cy = e.clientY;
+    } else if (e && e.currentTarget && typeof e.currentTarget.getBoundingClientRect === "function") {
+      const r = e.currentTarget.getBoundingClientRect();
+      cx = r.left + r.width / 2;
+      cy = r.top + r.height / 2;
+    }
+    const el = novaAnchorRef.current;
+    const rect = el && typeof el.getBoundingClientRect === "function" ? el.getBoundingClientRect() : null;
+    const p = cx !== null && rect ? quizPointerFor(cx, cy, rect) : { x: 0, y: 0 };
+    setQuizFeed({ hover: true, x: p.x, y: p.y });
+  };
+  const quizHoverEnd = () => {
+    if (checked) return;
+    setQuizFeed((f) => (f.hover ? { ...f, hover: false } : f));
+  };
+  useEffect(() => {
+    if (checked) setQuizFeed((f) => (f.hover ? { ...f, hover: false } : f));
+  }, [checked]);
+
   /* Match play: tap a left item, then the right item that belongs to
      it. A right pair locks in green; a wrong one flashes and counts
      as a mistake. Completing the card scores it like a quiz: full
@@ -10938,7 +11075,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         const clean = matchMistakes === 0;
         setChecked(true);
         setAnswered((n) => n + 1);
-        if (clean) { setRight((n) => n + 1); setMissStreak(0); } else { noteMiss(); setMissStreak((n) => n + 1); }
+        if (clean) { setRight((n) => n + 1); setMissStreak(0); setRightStreak((n) => n + 1); } else { noteMiss(); setMissStreak((n) => n + 1); setRightStreak(0); }
         const paid = pay(matchScore(matchMistakes));
         say(clean ? "All pairs matched, first try. Plus " + paid + " XP." : "All pairs matched. Plus " + paid + " XP.");
       } else {
@@ -10970,7 +11107,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     setOrderCorrect(res.perfect);
     setChecked(true);
     setAnswered((n) => n + 1);
-    if (res.perfect) { setRight((n) => n + 1); setMissStreak(0); } else { noteMiss(); setMissStreak((n) => n + 1); }
+    if (res.perfect) { setRight((n) => n + 1); setMissStreak(0); setRightStreak((n) => n + 1); } else { noteMiss(); setMissStreak((n) => n + 1); setRightStreak(0); }
     const paid = pay(res.xp);
     playSound(res.perfect ? "correct" : "wrong", soundOn);
     say(res.perfect
@@ -10993,6 +11130,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }
     const correct = card.kind === "spoterror" ? picked === card.wrong : picked === displayCorrect;
     setMissStreak((n) => (correct ? 0 : n + 1));
+    setRightStreak((n) => (correct ? n + 1 : 0));
     if (correct) setRight((n) => n + 1);
     if (!correct) {
       const origin = course.lessons[lessonIdx];
@@ -11058,8 +11196,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   const startMissReview = (cards) => {
     setMissStreak(0);
+    setRightStreak(0);
     setReviewForId(lesson ? lesson.id : null);
     setReviewCards(cards);
+    setReviewRecap(cards);
     setCardIdx(0);
     resetCardState();
     setShowLessonDone(false); setShowIntro(false);
@@ -11067,6 +11207,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   const nextLesson = () => {
     setMissStreak(0);
+    setRightStreak(0);
     setShowLessonDone(false);
     resetCardState();
     if (lessonIdx < course.lessons.length - 1) {
@@ -11091,7 +11232,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       style={{
       position: "fixed", inset: 0, zIndex: 210, background: P.bg, color: P.ink,
       overflowY: "auto", fontFamily: "var(--cb-font)", WebkitOverflowScrolling: "touch",
-      outline: "none",
+      outline: "none", "--lv-accent": accent,
     }}>
       <style>{CSS}</style>
       {/* One polite live region for the whole Player: right and wrong
@@ -11109,7 +11250,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   if (finished) {
     return shell(
-      <div style={{ maxWidth: 620, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
+      <div className="lv-screen" style={{ maxWidth: 620, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
         <div className="lv-rise">
           <svg width="64" height="64" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ margin: "0 auto 20px" }}>
             <circle cx="12" cy="12" r="11" stroke={accent} strokeWidth="1.6" />
@@ -11185,7 +11326,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   /* Lesson intro: one screen that names the idea before the cards. */
   if (showIntro) {
     return shell(
-      <div style={{ maxWidth: 620, margin: "0 auto", padding: "26px 24px 48px" }}>
+      <div className="lv-screen" style={{ maxWidth: 620, margin: "0 auto", padding: "26px 24px 48px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 40 }}>
           <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 6, minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>✕</button>
           <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, letterSpacing: "0.05em" }}>LESSON {lessonIdx + 1} OF {course.lessons.length}</span>
@@ -11241,7 +11382,23 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>ABOUT THESE LESSONS</div>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>
-                Written for Nova from standard textbook material. The checks explain the ideas in plain words and quote no single paper. Courses built from a search on the Nova home teach the same way: plain statements first, then quizzes on the ideas.
+                {"Written for Nova from standard textbook material covering " + course.title + ". The checks explain the ideas in plain words and quote no single paper. Courses built from a search on the Nova home teach the same way: plain statements first, then quizzes on the ideas."}
+              </p>
+            </div>
+          )}
+          {lesson.checkpoint && (
+            /* Checkpoint rules, stated where the checkpoint
+               starts (audit fix, 2026-10-15): the words match
+               the logic exactly. Finishing completes the lesson
+               at any score and unlocks the next stop; a best
+               score at MASTERY_MIN_PCT or better, or clearing
+               the review of your misses afterwards, is what
+               counts as mastered; replays are always allowed
+               and simply pay less XP. */
+            <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>CHECKPOINT RULES</div>
+              <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>
+                {"This checkpoint asks " + lesson.cards.filter(isInteractiveCard).length + " questions from the lessons before it. Nothing new. Finishing counts, whatever your score. A score of " + MASTERY_MIN_PCT + "% or better counts as mastered, and clearing the review of your misses afterwards counts too. You can play it again whenever you like."}
               </p>
             </div>
           )}
@@ -11257,8 +11414,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   /* Lesson complete interstitial. */
   if (showLessonDone) {
     const lessonXp = sessionXp - xpAtLessonStart.current;
+    /* Her completion line (audit fix, 2026-10-15): picked by
+       lesson, so the same lesson earns the same line. The
+       perfect lesson line outranks it and replaces it at 100
+       percent. */
+    const doneLine = perfectLine ? null : pickNovaLine(NOVA_LESSON_DONE_LINES, hashStr(lesson.id || lesson.title || ""));
     return shell(
-      <div style={{ maxWidth: 620, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
+      <div className="lv-screen" style={{ maxWidth: 620, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
         <div className="lv-rise">
           <svg width="60" height="60" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ margin: "0 auto 18px" }}>
             <circle cx="12" cy="12" r="11" stroke={accent} strokeWidth="1.6" />
@@ -11271,11 +11433,20 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               ? "+" + lessonXp + " XP. This lesson is marked on your path. The next one is open."
               : "+" + lessonXp + " XP. The questions from this lesson are on your review schedule now."}
           </p>
+          {/* Nova at the completion (audit fix, 2026-10-15):
+              she stands beside the XP summary, pleased, with the
+              celebrate trigger raised once for the Rive asset;
+              in the fallback the pleased rig is what shows. The
+              raster celebrate pose that stood here retires to
+              the course complete screen and the share card. */}
           <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 6px" }}>
-            <CharacterPose pose="celebrate" size={128} live />
+            <NovaRive state="pleased" size={104} framing="panel" celebrateN={1} quips={false} />
           </div>
           {perfectLine && (
             <p style={{ color: P.ink, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>{perfectLine}</p>
+          )}
+          {!perfectLine && doneLine && (
+            <p style={{ color: P.ink, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>{doneLine}</p>
           )}
           {rankSummary && (
             <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>
@@ -11346,6 +11517,62 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     );
   }
 
+  /* The miss review recap (audit fix, 2026-10-15): before the
+     missed questions are asked again, their ideas are taught
+     once more, one block per miss, in the same shape the course
+     complete screen uses for its own worth another look list,
+     plus the card kind's own answer key where it has one (the
+     outcome, the right order, the corrected piece). Nothing is
+     asked on this screen; the questions start on its button. */
+  if (reviewRecap) {
+    return shell(
+      <div className="lv-screen" style={{ maxWidth: 620, margin: "0 auto", padding: "48px 24px 48px" }}>
+        <div className="lv-rise">
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>REVIEW WHAT YOU MISSED</div>
+          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>The ideas first</h2>
+          <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 0 26px" }}>
+            Read the idea behind each miss. Then the questions come again.
+          </p>
+          <div style={{ marginBottom: 30 }}>
+            {reviewRecap.map((c, i) => (
+              <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 18px", marginBottom: 10 }}>
+                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.45, marginBottom: 6 }}>{c.question || c.statement || c.prompt}</div>
+                {c.kind === "predict" && c.outcome && (
+                  <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink2, marginBottom: 6 }}>
+                    {"What happens: "}<span style={{ color: P.ink }}><RichText text={c.outcome} /></span>
+                  </div>
+                )}
+                {(c.kind === "order" || c.kind === "build") && c.items && (
+                  <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink2, marginBottom: 6 }}>
+                    {"The right order: "}<span style={{ color: P.ink }}>{c.items.join(", then ")}</span>
+                  </div>
+                )}
+                {c.kind === "spoterror" && c.fix && (
+                  <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink2, marginBottom: 6 }}>
+                    {"It should say: "}<span style={{ color: P.ink }}><RichText text={c.fix} /></span>
+                  </div>
+                )}
+                <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink2 }}>
+                  {"The idea: "}<span style={{ color: P.ink }}><RichText text={c.why} /></span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <button className="lv-btn lv-btn-primary" style={{ ...btnPrimary, width: "100%", maxWidth: 340 }} onClick={() => setReviewRecap(null)}>
+              Try it again
+            </button>
+            <div style={{ marginTop: 16 }}>
+              <button onClick={() => { setReviewRecap(null); setReviewCards(null); setReviewForId(null); setShowLessonDone(true); }} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: 8 }}>
+                Back to the lesson summary
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const cardKindLabel = (c) => c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.kind === "match" ? "Match" : c.kind === "order" ? "Order" : c.kind === "build" ? "Build" : c.kind === "visualq" ? "Look" : c.kind === "spoterror" ? "Spot the error" : c.kind === "predict" ? "Predict" : c.kind === "truefalse" ? "True or false" : c.kind === "deepen" ? "Go deeper" : c.vocab ? "Vocab" : "Recall";
 
   /* Feedback tones (wave 3, 2026-10-14): the reconciled Nova
@@ -11379,7 +11606,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
         <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
-          <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} />
+          <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} />
         </div>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "battle" ? "Two readings, honestly held. That is the point."
@@ -11415,6 +11642,21 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 0 12px", color: P.ink }}><RichText text={card.outcome} /></p>
               </>
             )}
+            {/* Recap parity on a miss (audit fix, 2026-10-15):
+                a right answer's gold card in the stage is its own
+                recap, but a miss only named what the learner
+                picked and jumped to why. The miss sheet now states
+                the answer itself, from the card's own options,
+                before the why. Predict cards already carry this
+                section as their outcome; spot the error carries
+                it as the fix below. */}
+            {!isRight && displayOptions && displayCorrect !== null && displayCorrect !== undefined
+              && (card.kind === "quiz" || card.kind === "cloze" || card.kind === "visualq" || card.kind === "truefalse") && (
+              <>
+                <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHAT ACTUALLY HAPPENS</p>
+                <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 0 12px", color: P.ink }}><RichText text={displayOptions[displayCorrect]} /></p>
+              </>
+            )}
             <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHY</p>
             <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: 0, color: P.ink }}><RichText text={card.why} /></p>
             {card.kind === "spoterror" && (
@@ -11429,7 +11671,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "12px 0 0", color: P.ink }}>{sheetOpinion.line}</p>
         )}
         {!sheetGood && (
-          <NovaTip id="streak" state="worried" size={36} armed={missStreak >= 2} repeatAfterMs={7 * 24 * 3600 * 1000} style={{ marginTop: 16 }}>
+          <NovaTip id="streak" bare state="worried" size={36} armed={missStreak >= 2} repeatAfterMs={7 * 24 * 3600 * 1000} style={{ marginTop: 16 }}>
             Two wrong in a row. Slow down: cover the options, say the answer in your own words, then look. Guessing faster changes nothing.
           </NovaTip>
         )}
@@ -11464,8 +11706,29 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           </div>
           <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent, minWidth: 52, textAlign: "right" }}>{sessionXp > 0 ? "+" + sessionXp + " XP" : ""}</span>
         </div>
-        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, letterSpacing: "0.05em", marginTop: 12 }}>
-          {lesson.title.toUpperCase()} · CARD {cardIdx + 1} OF {lesson.cards.length}
+        {/* The study partner (audit fix, 2026-10-15): Nova is
+            mounted for the whole lesson now, not only on the
+            feedback sheet, so the hover gaze feed has someone
+            to land on while a question is unanswered. She takes
+            the same quizState mapping the sheet uses, the hover
+            pointer, and the gaze anchor the option handlers
+            measure against. The streak rides in her caption
+            line from two in a row; at three her quizState is
+            already the streak state. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+          {/* One Nova at a time in the Player too (2026-10-15):
+              while the feedback sheet is open she is in the
+              sheet, so the header mount steps aside; the caption
+              line, streak included, stays. */}
+          {!checked && (
+            <NovaRive state="thinking" size={40} scanning
+              quizState={quizStateForSheet({ phase: 0, good: false, correctStreak: rightStreak, hover: !!(quizFeed && quizFeed.hover) })}
+              pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={novaAnchorRef} />
+          )}
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, letterSpacing: "0.05em" }}>
+            {lesson.title.toUpperCase()} · CARD {cardIdx + 1} OF {lesson.cards.length}
+            {rightStreak >= 2 ? " · " + rightStreak + " IN A ROW" : ""}
+          </div>
         </div>
       </div>
 
@@ -11555,6 +11818,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   return (
                     <button key={i} className="lv-opt"
                       onClick={() => pick(i)} disabled={checked}
+                      onMouseEnter={quizHoverStart} onMouseLeave={quizHoverEnd} onFocus={quizHoverStart} onBlur={quizHoverEnd}
                       style={{
                         appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
                         background: bg, backgroundColor: bg, border: "2px solid " + border, borderRadius: RADIUS.xl,
@@ -11585,6 +11849,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 {[{ claim: card.claimA, src: card.sourceA, tag: "POSITION A" }, { claim: card.claimB, src: card.sourceB, tag: "POSITION B" }].flatMap((side, i) => {
                   const btn = (
                     <button key={"side" + i} onClick={() => pick(i)} disabled={checked}
+                      onMouseEnter={quizHoverStart} onMouseLeave={quizHoverEnd} onFocus={quizHoverStart} onBlur={quizHoverEnd}
                       className="lv-opt"
                       style={{
                         width: "100%", boxSizing: "border-box", textAlign: "left",
@@ -11625,6 +11890,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   return (
                     <button key={label} className="lv-opt"
                       onClick={() => pick(i)} disabled={checked}
+                      onMouseEnter={quizHoverStart} onMouseLeave={quizHoverEnd} onFocus={quizHoverStart} onBlur={quizHoverEnd}
                       style={{
                         appearance: "none", WebkitAppearance: "none", background: bg, backgroundColor: bg,
                         border: "2px solid " + border, borderRadius: RADIUS.xl, padding: "18px 12px",
@@ -11655,6 +11921,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   return (
                     <button key={i} className="lv-opt"
                       onClick={() => pick(i)} disabled={checked} aria-pressed={picked === i}
+                      onMouseEnter={quizHoverStart} onMouseLeave={quizHoverEnd} onFocus={quizHoverStart} onBlur={quizHoverEnd}
                       style={{
                         appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
                         background: bg, backgroundColor: bg, border: "2px solid " + border, borderRadius: RADIUS.xl,
@@ -11818,7 +12085,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           that content show through under the button. Same rule as
           the feedback sheet above. */}
       {checked ? sheet : (
-        <div style={{ position: "sticky", bottom: 0, padding: "14px 24px 22px", background: P.bg }}>
+        <div className="lv-actionbar" style={{ position: "sticky", bottom: 0, padding: "14px 24px 22px", background: P.bg }}>
           <div style={{ maxWidth: 640, margin: "0 auto" }}>
             {card.kind === "match" ? (
               <button className="lv-btn" disabled
@@ -11870,7 +12137,7 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
   const nextIdx = course.lessons.findIndex((l) => !done.has(l.id));
   const mem = memoryState(course, claims);
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)" }}>
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", "--lv-accent": accent }}>
       <style>{CSS}</style>
       <button onClick={onBack} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
         ← All courses
@@ -11954,10 +12221,11 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
    until the one before it is done. */
 function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
   const pp = pathProgress(path, progress);
+  const pace = pathPaceFor(path);
   const store = (progress && progress.lessons) || {};
   const offsets = [0, 38, 56, 38, 0];
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)" }}>
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", "--lv-accent": accent }}>
       <style>{CSS}</style>
       <button onClick={onBack} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
         ← Nova home
@@ -11967,14 +12235,14 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
         <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{path.title}</h2>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 6px" }}>{path.blurb}</p>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, margin: 0 }}>
-          {pp.total} lessons · {path.units.length} unit{path.units.length === 1 ? "" : "s"} · taught directly, no papers needed
+          {pp.total} lessons · {path.units.length} unit{path.units.length === 1 ? "" : "s"} · about {pace.minutes} min · {pace.word} · taught directly, no papers needed
         </p>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "6px 0 0" }}>
-          Written for Nova from standard textbook material. These lessons teach the ideas directly and quote no single paper. Courses built from your searches teach the same way: plain statements first, then quizzes on the ideas.
+          {"Written for Nova from standard textbook material covering " + path.title + ". These lessons teach the ideas directly and quote no single paper. Courses built from your searches teach the same way: plain statements first, then quizzes on the ideas."}
         </p>
         <div style={{ margin: "16px 0 6px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>
-            <span>Path progress</span><span>{pp.done} of {pp.total} done · {pp.mastered} mastered</span>
+            <span>Path progress</span><span>{pp.complete ? "Finished · all " + pp.total + " lessons done · " + pp.mastered + " mastered" : pp.done + " of " + pp.total + " done · " + pp.mastered + " mastered"}</span>
           </div>
           <div style={{ height: 8, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden" }}>
             <div className="lv-fill" style={{ width: pp.pct + "%", height: "100%", background: accent, borderRadius: RADIUS.pill }} />
@@ -12126,7 +12394,7 @@ async function searchForCourse(query) {
 const TOUR_STEPS = [
   {
     title: "Start with a path",
-    body: "The learning paths teach whole subjects in order: sleep, evolution, quantum machines, and more. Short lessons, with checks along the way.",
+    body: "Your teacher is Nova, an axolotl. Calm, dry, and hard to impress. The learning paths she keeps teach whole subjects in order: sleep, evolution, quantum machines, and more. Short lessons, with checks along the way.",
   },
   {
     title: "Lessons teach first, then check",
@@ -12235,7 +12503,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
     border: "1.5px solid " + (active ? accent : P.line), textAlign: "left",
   });
   return (
-    <div style={{ maxWidth: 620, margin: "0 auto", padding: "48px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink }}>
+    <div style={{ maxWidth: 620, margin: "0 auto", padding: "48px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink, "--lv-accent": accent }}>
       <style>{CSS}</style>
       <div className="lv-rise">
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
@@ -13056,7 +13324,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
      changes what the controls do, only where they sit. */
   if (screen.name === "settings") {
     return (
-      <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink }}>
+      <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink, "--lv-accent": accent }}>
         <style>{CSS}</style>
         <button onClick={() => setScreen({ name: "home" })} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
           ← Nova home
@@ -13129,7 +13397,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   }
 
   return (
-    <div className="lv-home" style={{ maxWidth: 1120, margin: "0 auto", padding: "26px 24px 48px", fontFamily: "var(--cb-font)", color: P.ink }}>
+    <div className="lv-home" style={{ maxWidth: 1120, margin: "0 auto", padding: "26px 24px 48px", fontFamily: "var(--cb-font)", color: P.ink, "--lv-accent": accent }}>
       <style>{CSS}</style>
       {tourOpen && <CortexTour P={P} accent={accent} at={at} onClose={closeTour} />}
 
@@ -13193,13 +13461,13 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {homeTab === "today" && (
         <>
       <p className="lv-sub" style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "14px 0 0", maxWidth: 620 }}>
-        Each lesson teaches one part of a subject, then quizzes you on it. Follow a path, pick a topic from the catalog, or build a course from a question. Finished lessons come back for review later, before they fade.
+        Each lesson teaches one part of a subject, then quizzes you on it. Paths, the catalog, and a question of your own all start from the tabs above. Finished lessons come back for review later, before they fade.
       </p>
-      <NovaTip id="today" state="greeting" style={{ marginTop: 18 }}>
+      <NovaTip id="today" bare state="greeting" style={{ marginTop: 18 }}>
         Start with today's practice. The rest can wait.
       </NovaTip>
       {novaMemoryLine && (
-        <NovaTip id="memory" state="explaining" armed={!!novaMemoryLine} repeatAfterMs={3 * 24 * 3600 * 1000} style={{ marginTop: 18 }}>
+        <NovaTip id="memory" bare state="explaining" armed={!!novaMemoryLine} repeatAfterMs={3 * 24 * 3600 * 1000} style={{ marginTop: 18 }}>
           {novaMemoryLine}
         </NovaTip>
       )}
@@ -13208,7 +13476,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           or more, once, in its own voice. */}
       {showReturnGreeting && (
         <div style={{ marginTop: 22 }}>
-          <NovaSpeech state="greeting" size={48}>
+          <NovaSpeech bare state="greeting" size={48}>
             {reviewDueCount > 0 ? "Back, then. Your reviews waited." : "Back, then. Nothing moved while you were gone."}
           </NovaSpeech>
         </div>
@@ -13222,7 +13490,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, margin: "20px 0 20px" }}>
         {reminder && (
           <div style={{ paddingBottom: 16, marginBottom: 16, borderBottom: "1px solid " + P.line }}>
-            <NovaSpeech state={reminder.kind === "atrisk" ? "worried" : "greeting"} size={52}>
+            <NovaSpeech bare state={reminder.kind === "atrisk" ? "worried" : "greeting"} size={52}>
               <span style={{ fontWeight: 600, display: "block" }}>{reminder.title}</span>
               <span style={{ fontSize: FONT_SIZES.label, color: CREAM_FAINT, display: "block", marginTop: 2, lineHeight: 1.5 }}>{reminder.body}</span>
             </NovaSpeech>
@@ -13334,7 +13602,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <div style={{ marginBottom: 26 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
               <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink }}>REVIEW BENCH</span>
-              <NovaLive state="fading" size={54} />
+              {/* One Nova per screen (owner's ruling, 2026-10-15):
+                  the bench's own figure stood here until today.
+                  The header Nova is the screen's only resident;
+                  the bench keeps its label, copy, and actions. */}
             </div>
             <h2 style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Due for review</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
@@ -13343,7 +13614,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 : "Nothing is due. Finished lessons land here when they start to fade. Scheduled questions arrive when their time comes."}
             </p>
             {reviewDueCount === 0 && (
-              <NovaTip id="bench" state="fading" style={{ margin: "2px 0 14px" }}>
+              <NovaTip id="bench" bare state="fading" style={{ margin: "2px 0 14px" }}>
                 Nothing on the bench. Reviews land here as lessons fade. The next lesson is up top.
               </NovaTip>
             )}
@@ -13394,7 +13665,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               const cheerQuest = todayQuests.find((q) => q.slot === slot);
               return (
                 <div key={slot} style={{ display: "flex", alignItems: "center", gap: 12, border: "1px solid " + accent, borderRadius: RADIUS.xl, padding: "12px 14px", marginBottom: 12 }}>
-                  <NovaAvatar state="pleased" size={44} />
+                  {/* No figure in the cheer row (one Nova per
+                      screen, 2026-10-15): the header Nova is the
+                      screen's resident; the row is text and the
+                      Sparks it announces. */}
                   <span style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
                     {"+5 Sparks · " + (cheerQuest ? cheerQuest.title : "Quest done")}
                   </span>
@@ -13428,9 +13702,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 12 }}>NOVA'S SHELF</div>
             {shelf.length === 0 ? (
               <div>
-                <div style={{ marginBottom: 10 }}>
-                  <NovaLive state="asleep" size={72} />
-                </div>
+                {/* No figure in the shelf (one Nova per screen,
+                    2026-10-15): she stood in the empty shelf until
+                    today. The shelf is its objects, or this line;
+                    the header Nova is the screen's resident. */}
                 <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: 0 }}>
                   Nothing on the shelf yet. Finish a path and its object lands here, and stays.
                 </p>
@@ -13448,7 +13723,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               </div>
             )}
             {shelfLine && (
-              <NovaTip id="shelf" state="pleased" armed={!!shelfLine} repeatAfterMs={14 * 24 * 3600 * 1000} style={{ marginTop: 14 }}>
+              <NovaTip id="shelf" bare state="pleased" armed={!!shelfLine} repeatAfterMs={14 * 24 * 3600 * 1000} style={{ marginTop: 14 }}>
                 {shelfLine}
               </NovaTip>
             )}
@@ -13468,7 +13743,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {homeTab === "shop" && (
         <div style={{ maxWidth: 720, marginTop: 24 }}>
-          <NovaTip id="shop" state="pleased" style={{ marginBottom: 16 }}>
+          <NovaTip id="shop" bare state="pleased" style={{ marginBottom: 16 }}>
             The whole shop is streak freezes. You earn the Sparks by finishing things.
           </NovaTip>
           {/* sparks: streak protection only, earned by the loop.
@@ -13536,7 +13811,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {homeTab === "leagues" && (
         <div style={{ maxWidth: 720, marginTop: 24 }}>
-          <NovaTip id="leagues" state="explaining" style={{ marginBottom: 16 }}>
+          <NovaTip id="leagues" bare state="explaining" style={{ marginBottom: 16 }}>
             Points from new lessons and reviews decide the ranks. Joining costs nothing. So does ignoring it.
           </NovaTip>
           {/* leagues: not open yet, joining is a saved choice only.
@@ -13545,10 +13820,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, background: P.raised }}>
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEAGUES</div>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
-              Leagues open when enough learners are active in a week. You are put in a group of 30 and ranked on points from first time lessons and review accuracy, with a daily cap. Replays earn nothing. Joining is your choice.
+              Leagues start when enough learners are active in the same week. Until then there is nobody to rank you against, so the board stays shut. When it opens, you are put in a group of 30 and ranked on points from first time lessons and review accuracy, with a daily cap. Replays earn nothing. Joining is your choice.
             </p>
             <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
-              Leagues are not open yet.
+              League points come from lessons and reviews. Meanwhile, your paths and daily practice are where those happen.
             </p>
             <button className="lv-btn" aria-pressed={!!(profile && profile.leaguesOptIn)} onClick={() => updateProfile({ leaguesOptIn: !(profile && profile.leaguesOptIn) })}
               style={{ background: profile && profile.leaguesOptIn ? accent : "transparent", color: profile && profile.leaguesOptIn ? (at || "#101408") : P.ink, border: "1px solid " + (profile && profile.leaguesOptIn ? accent : P.line), borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}>
@@ -13576,11 +13851,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
           How to read the map: a filled stop is a lesson you finished. The outlined stop is where you stopped. A dashed stop marked fading is due for review. It is still yours. The review bench brings it back.
         </p>
-        <NovaTip id="paths" state="explaining" style={{ margin: "0 0 18px" }}>
+        <NovaTip id="paths" bare state="explaining" style={{ margin: "0 0 18px" }}>
           Whole subjects, in order. Pick one and it keeps your place.
         </NovaTip>
         {LEARNING_PATHS.map((path) => {
           const pp = pathProgress(path, builtinProgress);
+          const pace = pathPaceFor(path);
           const flat = flattenPathLessons(path);
           let stopNo = -1;
           return (
@@ -13596,6 +13872,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 <span style={{ display: "block", fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, marginTop: 4 }}>{path.blurb}</span>
                 <span style={{ display: "block", height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", marginTop: 10 }}>
                   <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: pp.pct + "%" }} />
+                </span>
+                <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
+                  {"About " + pace.minutes + " min in all · " + pace.word + " · " + pace.lessons + " lessons"}
                 </span>
               </button>
               {path.units.map((unit, ui) => {
@@ -13654,7 +13933,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                               </span>
                             </span>
                             <span style={{ display: "block", color: P.ink2, fontSize: FONT_SIZES.label, lineHeight: 1.45, marginTop: 3 }}>
-                              {fading ? "Finished, and its review is due." : lesson.subtitle}
+                              {fading
+                                ? "Finished, and its review is due."
+                                : !unlocked && myStop > 0
+                                  ? lesson.subtitle + " Opens when " + flat[myStop - 1].title + " is done."
+                                  : lesson.subtitle}
                             </span>
                           </button>
                         </div>
@@ -13770,7 +14053,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       </div>
 
       {courses.length > 0 && (
-        <NovaTip id="library" state="greeting" style={{ margin: "0 0 18px" }}>
+        <NovaTip id="library" bare state="greeting" style={{ margin: "0 0 18px" }}>
           {libraryGagLine || "Your courses sit here and keep your place. Even the one from the first day."}
         </NovaTip>
       )}
@@ -13778,15 +14061,20 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {/* library */}
       {courses.length === 0 ? (
         <div style={{ border: "1px dashed " + P.line, borderRadius: RADIUS.xl, padding: "38px 28px", textAlign: "center" }}>
-          {/* The asleep Nova's empty state (wave 3's first asleep
-              surface, now the living avatar): an empty state is a
-              Nova moment, and nothing here needs Nova awake. */}
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
-            <NovaLive state="asleep" size={120} framing="panel" />
+          {/* Iconography, not a second Nova (one Nova per screen,
+              2026-10-15): the big asleep Nova stood here until
+              today. The empty state carries a book mark and its
+              copy; the header Nova is the screen's resident. */}
+          <div aria-hidden="true" style={{
+            width: 56, height: 56, borderRadius: "50%", margin: "0 auto 16px",
+            background: "rgba(255,255,255,0.06)", color: ink,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Icon name="bookOpen" size={26} />
           </div>
           <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
-            No courses yet. Build one on the Create screen, or open an answer in Search and choose Turn into course. The answer becomes lessons with quizzes.
+            Build one on the Create screen, or open an answer in Search and choose Turn into course. The answer becomes lessons with quizzes.
           </p>
           <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 18px" }}>
             <NovaTip id="library-empty" state="asleep" bare tail="up">
@@ -13851,7 +14139,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
           Name a topic. Cerebrum looks it up and builds lessons and quizzes from what it finds.
         </p>
-        <NovaTip id="create" state="thinking" style={{ margin: "0 0 14px" }}>
+        <NovaTip id="create" bare state="thinking" style={{ margin: "0 0 14px" }}>
           Name a subject in plain words and I will look it up and build the lessons. Specific beats vague.
         </NovaTip>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -13900,7 +14188,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               placeholder="Topic the course is built from, e.g. tardigrade desiccation" aria-label="Catalog course topic"
               style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
             <input value={studio.blurb} onChange={(e) => setStudio({ ...studio, blurb: e.target.value })}
-              placeholder="One line that sells it honestly" aria-label="Catalog course blurb"
+              placeholder="One line that says what the course covers" aria-label="Catalog course blurb"
               style={{ flex: "1 1 220px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 14, flexWrap: "wrap" }}>
