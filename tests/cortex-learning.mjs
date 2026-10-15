@@ -100,6 +100,8 @@ const WANTED = [
   "NOVA_EGG_LINES", "NOVA_SUMMON_LINES", "NOVA_CELEBRATE_LINES", "NOVA_LESSON_DONE_LINES", "NOVA_GAG_LINES",
   "NOVA_LATE_LINES", "NOVA_MORNING_LINES", "NOVA_MORNING_DENIAL",
   "NOVA_POKE_LINE_THREE", "NOVA_POKE_LINE_FIVE", "NOVA_SHELF_LINE", "NOVA_SHELF_FAVORITE_LINE",
+  "NOVA_POKE_STEP_ONE", "NOVA_POKE_STEP_TWO", "NOVA_POKE_STEP_THREE", "NOVA_POKE_STEP_FOUR", "NOVA_POKE_STEP_FIVE",
+  "NOVA_POKE_LINES",
   "NOVA_OPINION_HARD_LINE", "NOVA_OPINION_FAST_LINE", "NOVA_OPINION_BROW_LINE", "NOVA_OPINION_PERFECT_LINE",
   "loadNovaQuirks", "saveNovaQuirks", "pickNovaLine", "hourLineSet",
   "computeNovaMemory", "memoryLineFor", "loadNovaMemoryFacts",
@@ -174,6 +176,8 @@ const {
   NOVA_EGG_LINES, NOVA_SUMMON_LINES, NOVA_CELEBRATE_LINES, NOVA_LESSON_DONE_LINES, NOVA_GAG_LINES,
   NOVA_LATE_LINES, NOVA_MORNING_LINES, NOVA_MORNING_DENIAL,
   NOVA_POKE_LINE_THREE, NOVA_POKE_LINE_FIVE, NOVA_SHELF_LINE, NOVA_SHELF_FAVORITE_LINE,
+  NOVA_POKE_STEP_ONE, NOVA_POKE_STEP_TWO, NOVA_POKE_STEP_THREE, NOVA_POKE_STEP_FOUR, NOVA_POKE_STEP_FIVE,
+  NOVA_POKE_LINES,
   NOVA_OPINION_HARD_LINE, NOVA_OPINION_FAST_LINE, NOVA_OPINION_BROW_LINE, NOVA_OPINION_PERFECT_LINE,
   loadNovaQuirks, saveNovaQuirks, pickNovaLine, hourLineSet,
   computeNovaMemory, memoryLineFor, loadNovaMemoryFacts,
@@ -3659,26 +3663,38 @@ await test("opinionForEvent fires in priority order and each opinion rests on it
 
 await test("pokeStep escalates pleased, deadpan, turned away, then ignores her for an hour", () => {
   const t = 1000000;
+  // Contract widened 2026-10-15 (owner: the old ladder was
+  // meh): every step speaks now, from its own variant set, and
+  // the early steps rotate. The faces, the gap reset, and the
+  // hour lock below are unchanged from the original ladder.
   let s = pokeStep({}, t);
   assert.equal(s.face, "pleased");
-  assert.ok(!s.line, "the first pokes are silent amusement");
+  assert.equal(s.line, NOVA_POKE_STEP_ONE[0], "the first poke barely registers, first variant first");
   s = pokeStep(s.quirks, t + 5000);
   assert.equal(s.face, "pleased");
+  assert.equal(s.line, NOVA_POKE_STEP_TWO[0], "the second poke acknowledges, dry");
   s = pokeStep(s.quirks, t + 10000);
   assert.equal(s.face, "deadpan");
   assert.equal(s.line, NOVA_POKE_LINE_THREE, "the third poke earns the talked about this line");
+  assert.equal(s.line, NOVA_POKE_STEP_THREE[0], "the classic third line is the step's first variant");
   s = pokeStep(s.quirks, t + 15000);
   assert.equal(s.face, "deadpan");
-  assert.ok(!s.line);
+  assert.equal(s.line, NOVA_POKE_STEP_FOUR[0], "the fourth poke draws the documentation line");
   s = pokeStep(s.quirks, t + 20000);
   assert.equal(s.face, "asleep", "the fifth poke turns her away");
   assert.equal(s.line, NOVA_POKE_LINE_FIVE);
+  assert.equal(s.line, NOVA_POKE_STEP_FIVE[0], "the classic fifth line is the step's first variant");
   assert.equal(s.quirks.pokes.lockUntil, t + 20000 + QUIRK_POKE_LOCK_MS, "the lock should run an hour");
   const ignored = pokeStep(s.quirks, t + 25000);
   assert.equal(ignored.ignore, true, "taps during the lock are ignored");
   assert.equal(ignored.face, "asleep");
   const after = pokeStep(s.quirks, t + 20000 + QUIRK_POKE_LOCK_MS + 1000);
   assert.equal(after.face, "pleased", "after the hour she is amused again, from zero");
+  assert.equal(after.line, NOVA_POKE_STEP_ONE[1], "a fresh ladder serves the next variant, never a repeat");
+  // The bank itself: five steps, fourteen lines, originals kept.
+  assert.equal(NOVA_POKE_LINES.length, 14, "the poke bank holds every step's variants");
+  assert.ok(NOVA_POKE_LINES.includes(NOVA_POKE_LINE_THREE) && NOVA_POKE_LINES.includes(NOVA_POKE_LINE_FIVE),
+    "the two original lines stay in the bank");
   // A quiet minute resets her patience before any lock.
   let q = pokeStep({}, t).quirks;
   q = pokeStep(q, t + 5000).quirks;
@@ -3749,7 +3765,7 @@ await test("pickEggLine routes hours, memory, and the gag, and the morning denia
 });
 
 await test("the lines library obeys her voice rules: no dashes, no AI talk, no mascot talk", () => {
-  const lists = { NOVA_EGG_LINES, NOVA_SUMMON_LINES, NOVA_CELEBRATE_LINES, NOVA_GAG_LINES, NOVA_LATE_LINES, NOVA_MORNING_LINES };
+  const lists = { NOVA_EGG_LINES, NOVA_SUMMON_LINES, NOVA_CELEBRATE_LINES, NOVA_GAG_LINES, NOVA_LATE_LINES, NOVA_MORNING_LINES, NOVA_POKE_LINES };
   const singles = [
     NOVA_MORNING_DENIAL, NOVA_POKE_LINE_THREE, NOVA_POKE_LINE_FIVE, NOVA_SHELF_LINE,
     NOVA_SHELF_FAVORITE_LINE, NOVA_OPINION_HARD_LINE, NOVA_OPINION_FAST_LINE,

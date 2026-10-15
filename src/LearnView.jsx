@@ -2894,10 +2894,50 @@ export const NOVA_MORNING_LINES = [
 const NOVA_MORNING_DENIAL = "Already did cheerful. It was brief. You were here.";
 const NOVA_POKE_LINE_THREE = "Third poke. We have talked about this.";
 const NOVA_POKE_LINE_FIVE = "Five. That was the last one.";
+/* The poke ladder, one step per poke count, widened on
+   2026-10-15 after the owner called the old two line ladder
+   meh. Every step speaks now. The first poke barely
+   registers, the second acknowledges, the third warns
+   politely, the fourth documents, and the fifth is the
+   genuine boundary before the hour of silence. The early
+   steps rotate through variants (the per step serve counts
+   live in the quirks store, inside pokeStep) so repeat
+   poking does not earn a repeat line. Steps three and five
+   keep their original lines as the first variant served. */
+export const NOVA_POKE_STEP_ONE = [
+  "Mm.",
+  "I felt that. Barely.",
+  "Noted. Filing it under interruptions.",
+];
+export const NOVA_POKE_STEP_TWO = [
+  "Two. I am keeping count so you do not have to.",
+  "Acknowledged. The novelty is wearing thin.",
+  "Yes. Still me. Still not a button.",
+];
+export const NOVA_POKE_STEP_THREE = [
+  NOVA_POKE_LINE_THREE,
+  "Three. My patience is finite and you are spending it.",
+  "Three. Consider this the polite version of the warning.",
+];
+export const NOVA_POKE_STEP_FOUR = [
+  "Four. We are past playful. We are in documentation territory.",
+  "Four pokes. I am writing this down, and you are not coming out well.",
+  "Four. One more and I take my attention elsewhere for an hour.",
+];
+export const NOVA_POKE_STEP_FIVE = [
+  NOVA_POKE_LINE_FIVE,
+  "Five. Done. I resurface in an hour.",
+];
 /* The poke ladder lines as one bank (2026-10-15): exported so
    the speech module's NOVA_SPEECH_BANKS can carry them under
    the poke key, like every other line set she owns. */
-export const NOVA_POKE_LINES = [NOVA_POKE_LINE_THREE, NOVA_POKE_LINE_FIVE];
+export const NOVA_POKE_LINES = [
+  ...NOVA_POKE_STEP_ONE,
+  ...NOVA_POKE_STEP_TWO,
+  ...NOVA_POKE_STEP_THREE,
+  ...NOVA_POKE_STEP_FOUR,
+  ...NOVA_POKE_STEP_FIVE,
+];
 const NOVA_SHELF_LINE = "It stays. Do not dust it.";
 const NOVA_SHELF_FAVORITE_LINE = "Space. It goes on the good shelf. No discussion.";
 const NOVA_OPINION_HARD_LINE = "Hard card. Right answer. Noted.";
@@ -3042,9 +3082,15 @@ export function opinionForEvent(evt, quirks, now) {
 
 /* The poke ladder. Pokes inside a minute stack; a quiet minute
    resets her patience. One and two amuse her (pleased), three
-   and four draw the deadpan (three also draws the line), five
-   turns her away: asleep, taps ignored for an hour. Pure: the
-   caller loads and saves the quirks store. */
+   and four draw the deadpan, five turns her away: asleep,
+   taps ignored for an hour. Every step serves a line from its
+   own variant set; the per step serve counts persist in
+   pokes.turns, across ladders and locks alike, so a step
+   cycles through its variants instead of repeating itself.
+   The escalation shape, the gap reset, and the hour lock are
+   exactly what they were before the ladder widened
+   (2026-10-15). Pure: the caller loads and saves the quirks
+   store. */
 export function pokeStep(quirks, now) {
   const q = { ...(quirks && typeof quirks === "object" ? quirks : {}) };
   const pokes = q.pokes && typeof q.pokes === "object" ? { ...q.pokes } : { count: 0, lastAt: 0, lockUntil: 0 };
@@ -3056,17 +3102,31 @@ export function pokeStep(quirks, now) {
   count += 1;
   pokes.count = count;
   pokes.lastAt = now;
+  const turns = pokes.turns && typeof pokes.turns === "object" ? { ...pokes.turns } : {};
+  const serve = (step, variants) => {
+    const n = typeof turns[step] === "number" ? turns[step] : 0;
+    turns[step] = n + 1;
+    return variants[n % variants.length];
+  };
   let face = "pleased";
   let line = null;
   if (count >= 5) {
     face = "asleep";
-    line = NOVA_POKE_LINE_FIVE;
+    line = serve(5, NOVA_POKE_STEP_FIVE);
     pokes.lockUntil = now + QUIRK_POKE_LOCK_MS;
     pokes.count = 0;
-  } else if (count >= 3) {
+  } else if (count === 4) {
     face = "deadpan";
-    if (count === 3) line = NOVA_POKE_LINE_THREE;
+    line = serve(4, NOVA_POKE_STEP_FOUR);
+  } else if (count === 3) {
+    face = "deadpan";
+    line = serve(3, NOVA_POKE_STEP_THREE);
+  } else if (count === 2) {
+    line = serve(2, NOVA_POKE_STEP_TWO);
+  } else {
+    line = serve(1, NOVA_POKE_STEP_ONE);
   }
+  pokes.turns = turns;
   q.pokes = pokes;
   return { face, line, ignore: false, quirks: q };
 }
