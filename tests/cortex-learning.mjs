@@ -19,7 +19,7 @@
 import { strict as assert } from "node:assert";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import vm from "node:vm";
 import { parse } from "@babel/parser";
 import { transformSync } from "esbuild";
@@ -4181,6 +4181,40 @@ await test("the asset has landed: the one switch points at the shipped .riv", ()
   assert.ok(riveSrc.includes("stateMachines: NOVA_RIVE_STATE_MACHINE"), "the canvas must run the contract state machine");
   assert.ok(riveSrc.includes("useStateMachineInput"), "the canvas must bind the contract inputs");
   assert.ok(riveSrc.includes("EventType.RiveEvent"), "the canvas must listen for Rive quip events");
+});
+
+/* Regression pin for the dead canvas of 2026-10-15. The asset
+   shipped and served, the brain set its data attributes, clicks
+   registered, and the canvas still never painted: the
+   @rive-app/canvas RuntimeLoader defaults to fetching its wasm
+   from unpkg (fallback jsDelivr), and the site CSP connect-src
+   allows only 'self' plus two API origins, so the runtime never
+   initialized and the canvas stayed 0x0. The fix self hosts the
+   wasm from the installed package. These assertions fail if the
+   loader is ever left at its CDN defaults again. */
+await test("the Rive runtime wasm is self hosted, never fetched from a CDN", () => {
+  assert.ok(riveSrc.includes("RuntimeLoader.setWasmUrl("), "NovaRive must pin the runtime to a local wasm URL");
+  assert.ok(riveSrc.includes("@rive-app/canvas/rive.wasm?url"), "the primary wasm must be the one bundled from the installed @rive-app/canvas package");
+  assert.ok(riveSrc.includes("RuntimeLoader.setWasmFallbackUrl("), "the fallback wasm must be pinned locally too, or a primary failure retries against the CDN");
+  assert.ok(riveSrc.includes("@rive-app/canvas/rive_fallback.wasm?url"), "the fallback wasm must be the one bundled from the installed package");
+  assert.ok(!riveSrc.includes("unpkg.com"), "no unpkg reference may creep into the Rive wiring");
+  assert.ok(!riveSrc.includes("cdn.jsdelivr.net"), "no jsDelivr reference may creep into the Rive wiring");
+  assert.ok(
+    existsSync(join(root, "node_modules/@rive-app/canvas/rive.wasm")),
+    "the installed @rive-app/canvas package must ship rive.wasm at the imported path"
+  );
+  assert.ok(
+    existsSync(join(root, "node_modules/@rive-app/canvas/rive_fallback.wasm")),
+    "the installed @rive-app/canvas package must ship rive_fallback.wasm at the imported path"
+  );
+  /* When a build exists on disk, the emitted bundle must carry
+     the local wasm assets the loader will request. Skipped when
+     dist is absent (a bare test run before any build). */
+  const distAssets = join(root, "dist/assets");
+  if (existsSync(distAssets)) {
+    const emitted = readdirSync(distAssets).filter((f) => /^rive.*\.wasm$/i.test(f));
+    assert.ok(emitted.length >= 1, "dist/assets must contain the emitted Rive wasm asset");
+  }
 });
 
 await test("the quip bank holds all nine categories, voiced dry and free of dashes", () => {

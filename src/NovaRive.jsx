@@ -37,9 +37,29 @@ import {
   Layout,
   Fit,
   Alignment,
+  RuntimeLoader,
 } from "@rive-app/react-canvas";
+import riveWasmUrl from "@rive-app/canvas/rive.wasm?url";
+import riveWasmFallbackUrl from "@rive-app/canvas/rive_fallback.wasm?url";
 import { NovaAvatar } from "./LearnView.jsx";
 import { FONT_SIZES } from "./designSystem.jsx";
+
+/* ── Self hosted runtime wasm (fix, 2026-10-15) ───────────────
+   The @rive-app/canvas RuntimeLoader fetches its wasm from a
+   CDN by default: unpkg for the primary build, jsDelivr for
+   the fallback. Those fetches are cross origin, and the site
+   Content Security Policy allows connect-src 'self' plus two
+   API origins only, so in production both fetches were blocked,
+   the runtime never initialized, and the canvas sat at 0x0
+   forever while everything around it (the brain, the click
+   handler) worked. The fix pins the loader to the wasm files
+   shipped inside the installed @rive-app/canvas package: vite
+   emits them as local assets, and the loader fetches them from
+   this origin. This runs at module scope, before any useRive
+   call in this file can create a runtime instance, and this
+   file is the app's only Rive consumer. */
+RuntimeLoader.setWasmUrl(riveWasmUrl);
+RuntimeLoader.setWasmFallbackUrl(riveWasmFallbackUrl);
 
 /* ── The contract ─────────────────────────────────────────────
    State machine: Nova_Controller.
