@@ -2638,6 +2638,13 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   );
 }
 
+/* NovaLive is exported for the app shell (2026-10-15): every main
+   tab now carries the same resident header Nova the learning home
+   has, one per screen, with this same brain and the same data
+   attributes on the wrapper. Separate export statement so the
+   component's declaration line stays byte stable. */
+export { NovaLive };
+
 /* ── Nova's tips (presence wave, 2026-10-14) ─────────────────────
    Nova helps people through the product in speech bubbles, in
    her own voice: short, dry, one idea each. The rules are the

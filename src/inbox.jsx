@@ -12,6 +12,7 @@ import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, TYPE, Z, SHADOW, Icon,
 import { ensureE2EEDevice, decryptThreadMessages, getSafetyNumber, getRecoveryPhrase, isPeerEncryptionReady, upgradeThread, markSafetyNumberVerified, clearSafetyNumberVerified, encryptMessage } from "./e2ee/messaging.js";
 import { safeHref } from "./textUtils.js";
 import { Dialog, ModalChrome } from "./flowcharts.jsx";
+import { NovaLive } from "./LearnView.jsx";
 
 /* Group threads need to tell speakers apart at a glance. One stable
    color per person, hashed from their id, so the same researcher is
@@ -1808,9 +1809,19 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       {showList && (
         <div style={{ width: isMobile ? "100%" : 336, flexShrink: 0, borderRight: isMobile ? "none" : undefined, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, background: P.surface, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden", display: "flex", flexDirection: "column", height: "100%" }}>
           <div style={{ padding: "18px 18px 12px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
-            <div>
-              <h1 style={{ margin: 0, fontSize: FONT_SIZES.heading, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Inbox</h1>
-              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>Messages and shared papers</div>
+            {/* The resident header Nova (2026-10-15), left of the
+                Inbox title at the usual 66px, idle brain. She
+                belongs to the thread list header only: the call
+                surface is an overlay above this pane and gets no
+                resident. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <NovaLive size={66} />
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <h1 style={{ margin: 0, fontSize: FONT_SIZES.heading, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Inbox</h1>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>Messages and shared papers</div>
+              </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             <button onClick={() => setGroupModalOpen(true)} aria-label="New group" title="New group" style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>

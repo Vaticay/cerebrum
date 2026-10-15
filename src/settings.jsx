@@ -11,6 +11,7 @@ import { FONT_SIZES, Icon, ProBadge, RADIUS, SP, STATUS, TRACKING, TYPE, TierBad
 import { isProPalette } from "./palettes.js";
 import { Sfx } from "./sfx.js";
 import { Dialog } from "./flowcharts.jsx";
+import { NovaLive } from "./LearnView.jsx";
 import { clearE2EEMemory, confirmRecoveryPhrase, ensureE2EEDevice, getBackupInfo, getRecoveryPhrase, listBackups, listDevices, restoreFromPhrase, revokeDevice, uploadBackupNow } from "./e2ee/messaging.js";
 import { ZkSession, isValidRecoveryPhrase, makeItemId } from "./zkData.js";
 import { normalizePhrase } from "./e2ee/recovery.js";
@@ -2313,7 +2314,15 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             where width really is scarce, keeps the strip. */}
         <div style={{ flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
-            <div style={{ fontSize: FONT_SIZES.display, ...TYPE.heading, color: P.ink, fontFamily: "var(--cb-font)" }}>Settings</div>
+            {/* The resident header Nova (2026-10-15), left of the
+                Settings title at the usual 66px, idle brain like
+                the other quiet tabs. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <NovaLive size={66} />
+              </span>
+              <div style={{ fontSize: FONT_SIZES.display, ...TYPE.heading, color: P.ink, fontFamily: "var(--cb-font)" }}>Settings</div>
+            </div>
 
             {/* Commit 67 — search. See SETTINGS_INDEX. */}
             <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 1 320px", minWidth: 200 }}>

@@ -90,7 +90,7 @@ import { SettingsView } from "./settings.jsx";
 import LearnView from "./LearnView.jsx";
 import NovaEgg from "./NovaEgg.jsx";
 import NovaSidebarPop from "./NovaSidebarPop.jsx";
-import { createCourseFromResults, saveLearnCourse, emitNovaActivity } from "./LearnView.jsx";
+import { createCourseFromResults, saveLearnCourse, emitNovaActivity, NovaLive } from "./LearnView.jsx";
 import { NovaRive } from "./NovaRive.jsx";
 
 /* Sound effects (extracted 2026-10-07, monolith split). */
@@ -11967,6 +11967,16 @@ function WorkspacePage({ P, accent, isMobile, title, count, description, actions
       }}>
         <div style={{ marginBottom: 26 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            {/* The resident header Nova (2026-10-15): the same
+                NovaLive the learning home runs, one per screen, at
+                the same 66px class, left of the page title. Every
+                WorkspacePage destination (Library, Investigations,
+                Collections, Find people) gets her from this one
+                mount; her brain runs idle here and hears the same
+                nova-activity events as everywhere else. */}
+            <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <NovaLive size={66} />
+            </span>
             <h1 style={{
               margin: 0, fontSize: isMobile ? 28 : FONT_SIZES.hero, fontWeight: 600,
               letterSpacing: TYPE.display.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1,
@@ -12183,9 +12193,14 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px 64px" }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        {/* The resident header Nova (2026-10-15), same mount as
+            every other tab: 66px, left of the title, idle brain. */}
+        <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <NovaLive size={66} />
+        </span>
         <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</h1>
-        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: isPro ? "#d4a437" : P.ink2, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.small, fontWeight: 700, color: isPro ? "#d4a437" : P.ink2, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 8 }}>
           {isPro && <ProBadge />}
           {isPro ? "Pro" : isLite ? "Pro Lite" : "Free"}
         </span>
@@ -12398,7 +12413,15 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
 
     const load = (isBackground) => {
       if (viewingEditionRef.current) return;
-      if (!isBackground) setStatus((s) => (s === "ready" ? s : "loading"));
+      if (!isBackground) {
+        setStatus((s) => (s === "ready" ? s : "loading"));
+        /* Her context on this tab, in the same nova-activity
+           vocabulary the ask lifecycle uses: a foreground load is
+           work starting, so the masthead Nova thinks while the
+           edition is gathered and lands pleased or deadpan with
+           the outcome below. Background polls stay silent. */
+        emitNovaActivity("search", "start");
+      }
       fetch("/api/trending")
         .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
         .then(({ ok, data }) => {
@@ -12409,7 +12432,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             // failure shows the error state. But the reader should be
             // told the edition on screen is aging: health reporting
             // used to vanish entirely after a successful first load.
-            if (!isBackground) setStatus("error");
+            if (!isBackground) { setStatus("error"); emitNovaActivity("search", "failed"); }
             else setFeedMeta((prev) => ({ ...prev, stale: true }));
             return;
           }
@@ -12428,11 +12451,12 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             setMissingSources(data.sourceHealth.filter((s) => s && s.source !== "Citation counts" && !s.ok).map((s) => s.source));
             setCitationHealth(data.sourceHealth.find((s) => s && s.source === "Citation counts") || null);
           }
+          if (!isBackground) emitNovaActivity("search", "success");
           setStatus("ready");
         })
         .catch(() => {
           if (cancelled) return;
-          if (!isBackground) setStatus("error");
+          if (!isBackground) { setStatus("error"); emitNovaActivity("search", "failed"); }
           else setFeedMeta((prev) => ({ ...prev, stale: true }));
         });
     };
@@ -12584,7 +12608,16 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
             badge — the feed refreshes hourly and says so in words.
             ══════════════════════════════════════════════════════ */}
         <div style={{ marginBottom: 26, borderBottom: `2px solid ${P.ink}`, paddingBottom: 18 }}>
-          <h1 style={{ margin: 0, fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1 }}>Trending in Science</h1>
+          {/* The resident header Nova (2026-10-15), left of the
+              nameplate at the learning home's 66px class. The
+              masthead block below her stays a newspaper block;
+              she is the screen's one resident figure. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <NovaLive size={66} />
+            </span>
+            <h1 style={{ margin: 0, fontSize: FONT_SIZES.hero * 0.7, fontWeight: 700, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1 }}>Trending in Science</h1>
+          </div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>
               {dateline}{dateline ? "  ·  " : ""}Refreshed hourly from real science press
@@ -15716,9 +15749,14 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           )}
         </div>
 
-        {/* Identity: name, standing, username. */}
+        {/* Identity: name, standing, username. The resident
+            header Nova (2026-10-15) stands left of the name, the
+            same figure-left-of-title pattern as the other tabs. */}
 
         <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+          <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <NovaLive size={66} />
+          </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             {editing ? (
               <input
@@ -17439,6 +17477,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     setRerunArmed(false);
     setQaHistory([]);
     setRightTab("summary");
+    /* Her context in the reader: the analysis is this tab's
+       work, announced in the same nova-activity vocabulary the
+       ask lifecycle uses, so the toolbar Nova thinks while the
+       document is read and lands with the outcome. */
+    emitNovaActivity("search", "start");
     const ctrl = new AbortController();
     analyzeAbort.current = ctrl;
     const gen = docGen.current;
@@ -17470,9 +17513,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       );
       setSummary(result);
       setAnalysisText(srcText);
+      emitNovaActivity("search", "success");
     } catch (e) {
       // Superseded by a document switch: leave the new document's state alone.
       if (gen !== docGen.current) return;
+      emitNovaActivity("search", "failed");
       const code = e && e.code;
       if (code === "auth_required") { if (onOpenAuth) onOpenAuth("signin"); }
       else if (code === "doc_quota_exhausted") { if (onOpenPro) onOpenPro(); }
@@ -18818,6 +18863,13 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           borderBottom: `1px solid ${P.line}`,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            {/* The resident header Nova (2026-10-15), left of the
+                title in the page toolbar, 66px like every other
+                tab. The modal form of the reader (a focused
+                overlay) does not get her. */}
+            <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <NovaLive size={66} />
+            </span>
             {/* Premium pass: the product icon sits in a soft accent tile
                 (the WorkspaceEmpty icon treatment), the title uses the
                 heading type treatment, and the subtitle becomes a live
@@ -23915,6 +23967,16 @@ function App() {
                     fontFamily: "var(--cb-font)", fontWeight: 500,
                     fontSize: FONT_SIZES.display, color: P.ink, lineHeight: 1,
                   }}>Cerebrum</span>
+                  {/* The resident header Nova (2026-10-15) stands
+                      at the masthead's right end on the empty home
+                      stage, 66px like every other tab. She is this
+                      screen's only Nova: the moment a search starts
+                      the stage unmounts and the ask lifecycle's
+                      SearchNova takes over in the progress room and
+                      at the answer's head. */}
+                  <span aria-hidden="true" style={{ marginLeft: "auto", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <NovaLive size={66} />
+                  </span>
                 </header>
 
                 {/* One plain line about what this is, then the
