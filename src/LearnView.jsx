@@ -30,7 +30,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Icon, STATUS, FONT_SIZES, RADIUS, withAlpha, accentText } from "./designSystem.jsx";
 import { accentInk } from "./appUtils.js";
-import { NovaRive, appStateForActivity, quizStateForSheet, quizPointerFor } from "./NovaRive.jsx";
+import { NovaRive, appStateForActivity, quizStateForSheet, quizPointerFor, quizCategoryForState, searchCategoryForState } from "./NovaRive.jsx";
+import { useNovaSpeech, NovaBubble } from "./NovaSpeech.jsx";
 
 /* ── storage ─────────────────────────────────────────────────────── */
 const COURSES_KEY = "cerebrum-learn2-courses";
@@ -2192,13 +2193,22 @@ export function NovaAvatar({ state = "greeting", size = 48, framing = "bust", sc
    timers only change which state class renders; the motion
    itself is the avatar's CSS. A new sheet mounts a new Nova, so
    the beats always start clean and never queue across cards. */
-function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed = null, anchorRef = null }) {
+function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed = null, anchorRef = null, opinionLine = null }) {
   const [phase, setPhase] = useState(0);
   useEffect(() => {
     const t1 = setTimeout(() => setPhase(1), 650);
     const t2 = setTimeout(() => setPhase(2), 2350);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
+  /* Her speech on this sheet runs through the one controller
+     (2026-10-15, the speech unification): SheetNova owns it
+     and passes it to her NovaRive, which renders the current
+     line and pulses her mouth from it. The controller object
+     is fresh every render, so the effects below reach it
+     through a ref and fire on value changes only. */
+  const speech = useNovaSpeech();
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
   /* An opinion from the quirks engine (a genuinely hard card
      answered well, a very fast clean answer, a long easy streak)
      can name the verdict face; without one the sheet's own
@@ -2215,10 +2225,61 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
      state machine. Until it exists NovaRive renders this same
      rig as the fallback. */
   const quizState = quizStateForSheet({ phase, good, correctStreak, hover: !!(quizFeed && quizFeed.hover) });
+  /* Quiz state transitions offer their category to the
+     controller, the offer the retired quip engine used to make
+     from inside NovaRive: thinking as the sheet opens its
+     verdict beat, correct, wrong, or streak as the verdict
+     lands. The controller's cooldowns and chance rolls decide
+     whether she actually speaks. */
+  const prevQuizRef = useRef(quizState);
+  useEffect(() => {
+    const prev = prevQuizRef.current;
+    prevQuizRef.current = quizState;
+    if (prev === quizState) return;
+    const cat = quizCategoryForState(quizState);
+    if (cat) speechRef.current.offerCategory(cat);
+  }, [quizState]);
+  /* The opinion line, when the Player's quirks engine produced
+     one for this answer, is said as a lesson line: caused, so
+     it outranks ambient speech and is never cut off by typing.
+     It used to render as static copy under the sheet's WHY;
+     now it is speech, in her bubble, with her mouth moving. */
+  const opinionSaidRef = useRef(null);
+  useEffect(() => {
+    if (opinionLine && opinionSaidRef.current !== opinionLine) {
+      opinionSaidRef.current = opinionLine;
+      speechRef.current.say({ source: "lesson", text: opinionLine });
+    }
+  }, [opinionLine]);
   return (
     <NovaRive state={shown} size={48} scanning={phase === 0} quizState={quizState}
-      pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={anchorRef} />
+      pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={anchorRef} speech={speech} />
   );
+}
+
+/* The completion screen's Nova (2026-10-15, the speech
+   unification): like SheetNova she owns a speech controller,
+   offers her line (the perfect lesson line when there is one,
+   else the lesson's done line, chosen by the Player) as a
+   lesson line the moment the screen lands, and passes the
+   controller to her NovaRive, so the line speaks in her
+   bubble with her mouth moving instead of sitting as static
+   copy under the summary. The celebrate trigger still fires
+   once, as before; event routing stays off (quips false), so
+   the asset's own event chatter cannot add a second voice to
+   the screen. */
+function LessonDoneNova({ line }) {
+  const speech = useNovaSpeech();
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
+  const saidRef = useRef(null);
+  useEffect(() => {
+    if (line && saidRef.current !== line) {
+      saidRef.current = line;
+      speechRef.current.say({ source: "lesson", text: line });
+    }
+  }, [line]);
+  return <NovaRive state="pleased" size={104} framing="panel" celebrateN={1} quips={false} speech={speech} />;
 }
 
 /* ── the reactive Nova (presence wave, 2026-10-14; avatar
@@ -2256,11 +2317,9 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const [beat, setBeat] = useState(null);
   const [activityState, setActivityState] = useState(null);
   const [sleepStage, setSleepStage] = useState(() => (state === "asleep" ? 2 : state === "fading" ? 1 : 0));
-  const [pokeLine, setPokeLine] = useState(null);
   const [pokeCount, setPokeCount] = useState(0);
   const wrapRef = useRef(null);
   const beatTimer = useRef(null);
-  const lineTimer = useRef(null);
   const activityTimer = useRef(null);
   const lastActivity = useRef(Date.now());
   const baseRef = useRef(state);
@@ -2276,7 +2335,6 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const [pushN, setPushN] = useState(0);
   const [flutterN, setFlutterN] = useState(0);
   const [noticeN, setNoticeN] = useState(0);
-  const [brainLine, setBrainLine] = useState(null);
   const [glanceHold, setGlanceHold] = useState(null);
   const [brainUi, setBrainUi] = useState(() => ({ mood: state, doing: "watch" }));
   const brainRef = useRef(null);
@@ -2286,11 +2344,22 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const lastMissAtRef = useRef(0);
   const visitEndRef = useRef("ignored");
   const glanceTimer = useRef(null);
-  const brainLineTimer = useRef(null);
   const glanceSideRef = useRef(1);
   const lineFactsAt = useRef(0);
   const lineReadyRef = useRef(false);
   const reducedRef = useRef(false);
+  /* Her speech runs through the one controller now (2026-10-15,
+     the speech unification): this NovaLive owns an instance,
+     passes it into her NovaRive (which renders its current
+     line as the bubble and pulses her mouth from it), and says
+     her poke and brain lines through it. The controller object
+     is fresh every render, so timers and callbacks reach it
+     through a ref; the old private line state, its two fixed
+     3.6 second timers, and the private bubble retired with
+     the unification. */
+  const speech = useNovaSpeech();
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
 
   const persistBrain = () => {
     if (!brainRef.current) return;
@@ -2429,6 +2498,23 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     activityRef.current = activityState;
   }, [activityState]);
 
+  /* Activity transitions offer their search category to the
+     controller (2026-10-15): the offer the retired quip engine
+     used to make from inside NovaRive when its appState input
+     changed. Thinking offers searching, a pleased landing
+     offers high confidence, a deadpan landing offers the
+     preprint warning; the controller's gates decide whether
+     she speaks. */
+  const appStateNow = appStateForActivity(activityState);
+  const prevAppStateRef = useRef(appStateNow);
+  useEffect(() => {
+    const prev = prevAppStateRef.current;
+    prevAppStateRef.current = appStateNow;
+    if (prev === appStateNow) return;
+    const cat = searchCategoryForState(appStateNow);
+    if (cat) speechRef.current.offerCategory(cat);
+  }, [appStateNow]);
+
   /* The brain tick: every few seconds she decides what to do
      next. Beats own her while they run (the picker can only
      watch then); otherwise the chosen behavior is applied:
@@ -2458,11 +2544,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
         }
       } else if (name === "line") {
         const text = brainLineText();
-        if (text) {
-          setBrainLine(text);
-          if (brainLineTimer.current) clearTimeout(brainLineTimer.current);
-          brainLineTimer.current = setTimeout(() => setBrainLine(null), 3600);
-        }
+        if (text) speechRef.current.say({ source: "brain", text });
       }
     };
     const tickBrain = () => {
@@ -2556,10 +2638,8 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
 
   useEffect(() => () => {
     if (beatTimer.current) clearTimeout(beatTimer.current);
-    if (lineTimer.current) clearTimeout(lineTimer.current);
     if (activityTimer.current) clearTimeout(activityTimer.current);
     if (glanceTimer.current) clearTimeout(glanceTimer.current);
-    if (brainLineTimer.current) clearTimeout(brainLineTimer.current);
     clearWakeTimers();
     /* How this visit ended, written into her memory of it:
        poked out, pleased, or ignored. The next visit's
@@ -2589,11 +2669,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
        nothing; between the rig's stronger squash and the wrapper
        pop below, a tap now lands as a beat you cannot miss). */
     beatTimer.current = setTimeout(() => setBeat(null), 1300);
-    if (step.line) {
-      if (lineTimer.current) clearTimeout(lineTimer.current);
-      setPokeLine(step.line);
-      lineTimer.current = setTimeout(() => setPokeLine(null), 3600);
-    }
+    if (step.line) speechRef.current.say({ source: "poke", text: step.line });
   };
   const gazeShown = glanceHold || gaze;
   const vars = {
@@ -2610,7 +2686,6 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const adaptiveState = novaAdaptiveStateFor({ base: brainUi.mood, sleepStage });
   const shownState = beat || activityState || adaptiveState;
   const doingNow = beat ? "poke-beat" : activityState ? "activity-beat" : brainUi.doing;
-  const bubbleLine = pokeLine || brainLine;
   return (
     <span ref={wrapRef} data-nova-mood={brainUi.mood} data-nova-stage={sleepStage} data-nova-doing={doingNow} style={{
       display: "inline-flex", position: "relative", ...vars, cursor: "pointer",
@@ -2622,24 +2697,17 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
           stays the driver, and its outputs map onto the Rive
           contract here. Activity becomes appState (thinking 1,
           pleased 2, deadpan 3), the sleep stage fires the sleep
-          and wake triggers, each accepted tap raises the poke
-          counter, and her own line bubble, when one is up, keeps
-          the quip engine quiet through lineBusy. Until the
+          and wake triggers, and each accepted tap raises the
+          poke counter. Her speech rides the controller passed
+          as speech: NovaRive renders its current line as the
+          header bubble inside its own anchor span, in the spot
+          this wrapper's private bubble used to occupy, and
+          pulses her mouth from its talking flag. Until the
           editor asset exists, NovaRive's fallback is this same
           rig, so the swap is invisible. */}
       <NovaRive state={shownState} size={size} framing={framing} scanning={activityState === "thinking"} pushN={pushN} flutterN={flutterN} noticeN={noticeN}
         appState={appStateForActivity(activityState)} sleepStage={sleepStage} pokeN={pokeCount}
-        idleMs={Date.now() - lastActivity.current} lineBusy={!!bubbleLine} reducedMotion={reducedRef.current} />
-      {bubbleLine && (
-        <span role="status" style={{
-          position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
-          background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: 10,
-          padding: "7px 11px", fontSize: FONT_SIZES.body, lineHeight: 1.35, whiteSpace: "nowrap",
-          pointerEvents: "none", zIndex: 30, boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
-        }}>
-          {bubbleLine}
-        </span>
-      )}
+        idleMs={Date.now() - lastActivity.current} speech={speech} reducedMotion={reducedRef.current} />
     </span>
   );
 }
@@ -2655,18 +2723,25 @@ export { NovaLive };
    Nova helps people through the product in speech bubbles, in
    her own voice: short, dry, one idea each. The rules are the
    product's: one bubble on screen at a time and never a second
-   within a minute (the gate below), each tip shows on a first
-   visit only and is remembered in its own storage key, outside
-   the profile and outside the export document, on the same
-   pattern as the last visit stamp. A tip names the control it
-   teaches and sits in the flow beside it; it never covers
-   anything and never carries a duplicate button. Dismissing is
-   a real button; leaving the screen after a tip appeared also
-   counts it as seen, so nothing nags on the next visit. */
+   within a minute, each tip shows on a first visit only and is
+   remembered in its own storage key, outside the profile and
+   outside the export document, on the same pattern as the
+   last visit stamp. A tip names the control it teaches and
+   sits in the flow beside it; it never covers anything and
+   never carries a duplicate button. Dismissing is a real
+   button; leaving the screen after a tip appeared also counts
+   it as seen, so nothing nags on the next visit.
+   The one at a time and once a minute arbitration used to be
+   a private module gate here (novaTipActiveId,
+   novaTipLastShownAt); since the speech unification
+   (2026-10-15) a tip claims the page stage through the one
+   speech controller in NovaSpeech.jsx, whose ambient gap is
+   the same minute. What stays here is the per tip memory:
+   the seen storage and tipEligible, whose own gap term
+   (TIP_GAP_MS) still prices eligibility when a caller hands
+   it a last shown stamp. */
 const SEEN_TIPS_KEY = "cerebrum-learn2-seentips";
 const TIP_GAP_MS = 60000;
-let novaTipActiveId = null;
-let novaTipLastShownAt = 0;
 
 export function tipEligible(seen, id, now, lastShownAt, repeatAfterMs) {
   const at = seen && typeof seen[id] === "number" ? seen[id] : 0;
@@ -2683,88 +2758,56 @@ function recordTipSeen(id) {
   saveJSON(SEEN_TIPS_KEY, seen);
 }
 
-export function useNovaTip(id, { armed = true, repeatAfterMs = 0 } = {}) {
-  const [show, setShow] = useState(false);
+export function useNovaTip(id, { armed = true, repeatAfterMs = 0, text = null } = {}) {
+  const speech = useNovaSpeech();
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
   const claimedRef = useRef(false);
+  /* The claim: when the tip arms, check its own eligibility
+     (seen before, and its repeat window), then offer its text
+     to the controller as a tip line. The controller arbitrates
+     the stage page wide: busy, typing, or inside the ambient
+     gap, the offer is denied and the tip sits this mount out,
+     exactly as the old gate's losers did. Only a shown line
+     marks the tip claimed, and only a claimed tip records
+     itself seen on unmount. */
   useEffect(() => {
     if (!armed || !id || claimedRef.current) return;
-    if (novaTipActiveId) return;
+    if (typeof text !== "string" || !text) return;
     const seen = loadSeenTips();
-    const seenTimes = Object.values(seen).filter((v) => typeof v === "number");
-    const lastAny = Math.max(novaTipLastShownAt, ...seenTimes, 0);
-    if (!tipEligible(seen, id, Date.now(), lastAny, repeatAfterMs)) return;
-    novaTipActiveId = id;
-    novaTipLastShownAt = Date.now();
-    claimedRef.current = true;
-    setShow(true);
-    return () => {
-      if (novaTipActiveId === id) novaTipActiveId = null;
-      if (claimedRef.current) { recordTipSeen(id); claimedRef.current = false; }
-    };
-  }, [id, armed, repeatAfterMs]);
+    if (!tipEligible(seen, id, Date.now(), 0, repeatAfterMs)) return;
+    if (speechRef.current.say({ source: "tip", text }) === "shown") claimedRef.current = true;
+  }, [id, armed, repeatAfterMs, text]);
+  useEffect(() => () => {
+    if (claimedRef.current) { recordTipSeen(id); claimedRef.current = false; }
+  }, [id]);
   const dismiss = () => {
     recordTipSeen(id);
-    if (novaTipActiveId === id) novaTipActiveId = null;
     claimedRef.current = false;
-    setShow(false);
+    speech.dismiss();
   };
-  return { show, dismiss };
+  return { show: !!speech.current, dismiss, speech };
 }
 
-/* The speech bubble itself: Nova at the left, a solid cream
-   bubble with a tail toward her, text in her voice, and a
-   dismiss button when the speech is a tip. Bare mode is the
-   bubble alone, and since the one Nova per screen ruling
-   (2026-10-15) it is the mode every home speech uses: the
-   header Nova is the screen's resident, so the bubble keeps
-   its text and dismiss and drops the companion figure, and a
-   bare bubble grows no left tail toward a figure who is not
-   there. The bubble is plain text to a screen reader (role
-   status announces it); the avatar inside stays decorative. */
-function NovaSpeech({ state = "greeting", size = 44, bare = false, tail = "left", onDismiss, children }) {
-  const tailStyle = tail === "up"
-    ? { top: -7, left: "50%", marginLeft: -7, borderTop: "1px solid " + CREAM_LINE, borderLeft: "1px solid " + CREAM_LINE }
-    : { left: -7, top: 17, borderLeft: "1px solid " + CREAM_LINE, borderBottom: "1px solid " + CREAM_LINE };
-  return (
-    <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-      {!bare && (
-        <span style={{ flexShrink: 0, marginTop: 1 }}>
-          <NovaLive state={state} size={size} />
-        </span>
-      )}
-      <div role="status" style={{
-        position: "relative", background: CREAM, color: CREAM_INK,
-        border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl,
-        padding: "12px 16px", maxWidth: 470,
-      }}>
-        {(!bare || tail === "up") && (
-          <span aria-hidden="true" style={{
-            position: "absolute", width: 13, height: 13, background: CREAM,
-            transform: "rotate(45deg)", ...tailStyle,
-          }} />
-        )}
-        <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, paddingRight: onDismiss ? 24 : 0 }}>{children}</div>
-        {onDismiss && (
-          <button type="button" aria-label="Dismiss tip" onClick={onDismiss}
-            style={{
-              position: "absolute", top: 4, right: 4, width: 32, height: 32,
-              background: "none", border: "none", color: CREAM_FAINT, cursor: "pointer",
-              fontSize: 13, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center",
-            }}>
-            ✕
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
+/* The tip's rendering (2026-10-15, the speech unification):
+   the bubble is NovaBubble from the speech module now, in its
+   sheet variant: the same solid cream, tail, and real dismiss
+   button the private bubble here used to draw, with the same
+   house values. LearnView's own NovaSpeech component retired
+   with the unification; the name belongs to the module. A tip
+   renders only while its claim owns the controller's current
+   line, and its text is what the controller times and speaks,
+   so the tip's children must be a plain string: every tip in
+   the product already is one. The state, size, and bare props
+   remain accepted for the call sites that pass them; they
+   named the companion figure the one Nova per screen ruling
+   already retired, and the bubble is text only now. */
 function NovaTip({ id, state = "greeting", size = 44, bare = false, tail = "left", armed = true, repeatAfterMs = 0, style, children }) {
-  const { show, dismiss } = useNovaTip(id, { armed, repeatAfterMs });
+  const { show, dismiss } = useNovaTip(id, { armed, repeatAfterMs, text: typeof children === "string" ? children : null });
   if (!show) return null;
   return (
     <div style={style}>
-      <NovaSpeech state={state} size={size} bare={bare} tail={tail} onDismiss={dismiss}>{children}</NovaSpeech>
+      <NovaBubble variant="sheet" tail={tail} onDismiss={dismiss}>{children}</NovaBubble>
     </div>
   );
 }
@@ -2809,7 +2852,7 @@ const QUIRK_EASY_STREAK = 6;
    specific, short. No parallel constructions, no triads, no
    slogans, nothing that sounds pleased with itself, and no
    dashes anywhere, as everywhere in her voice. */
-const NOVA_EGG_LINES = [
+export const NOVA_EGG_LINES = [
   "Just passing through.",
   "Ask a hard one. The easy ones are paperwork.",
   "All quiet. I checked twice.",
@@ -2836,21 +2879,25 @@ export const NOVA_LESSON_DONE_LINES = [
   "Finished. It comes back before it fades.",
   "Done. That is the whole announcement.",
 ];
-const NOVA_GAG_LINES = [
+export const NOVA_GAG_LINES = [
   "Axolotl. Not a fish. We do this every month.",
   "Axolotl. Not a fish. I will wait while that settles in.",
 ];
-const NOVA_LATE_LINES = [
+export const NOVA_LATE_LINES = [
   "Late. The gills are tired. One more, then bed.",
   "Night hours. I keep it down. Habit, not manners.",
 ];
-const NOVA_MORNING_LINES = [
+export const NOVA_MORNING_LINES = [
   "Morning. Do not get used to the mood.",
   "Early. I am awake. That is the whole announcement.",
 ];
 const NOVA_MORNING_DENIAL = "Already did cheerful. It was brief. You were here.";
 const NOVA_POKE_LINE_THREE = "Third poke. We have talked about this.";
 const NOVA_POKE_LINE_FIVE = "Five. That was the last one.";
+/* The poke ladder lines as one bank (2026-10-15): exported so
+   the speech module's NOVA_SPEECH_BANKS can carry them under
+   the poke key, like every other line set she owns. */
+export const NOVA_POKE_LINES = [NOVA_POKE_LINE_THREE, NOVA_POKE_LINE_FIVE];
 const NOVA_SHELF_LINE = "It stays. Do not dust it.";
 const NOVA_SHELF_FAVORITE_LINE = "Space. It goes on the good shelf. No discussion.";
 const NOVA_OPINION_HARD_LINE = "Hard card. Right answer. Noted.";
@@ -11480,16 +11527,15 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               celebrate trigger raised once for the Rive asset;
               in the fallback the pleased rig is what shows. The
               raster celebrate pose that stood here retires to
-              the course complete screen and the share card. */}
+              the course complete screen and the share card.
+              Her line speaks through her own controller now
+              (LessonDoneNova, the speech unification): the
+              perfect lesson line when there is one, else the
+              done line picked above, said as a lesson line in
+              her bubble instead of printed as static copy. */}
           <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 6px" }}>
-            <NovaRive state="pleased" size={104} framing="panel" celebrateN={1} quips={false} />
+            <LessonDoneNova line={perfectLine || doneLine} />
           </div>
-          {perfectLine && (
-            <p style={{ color: P.ink, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>{perfectLine}</p>
-          )}
-          {!perfectLine && doneLine && (
-            <p style={{ color: P.ink, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>{doneLine}</p>
-          )}
           {rankSummary && (
             <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>
               Your rank: <span style={{ color: P.ink, fontWeight: 700 }}>{rankSummary.name}</span>
@@ -11648,7 +11694,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }}>
       <div style={{ maxWidth: 640, margin: "0 auto" }}>
         <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
-          <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} />
+          <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} />
         </div>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "battle" ? "Two readings, honestly held. That is the point."
@@ -11709,9 +11755,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             )}
           </>
         )}
-        {sheetOpinion && (
-          <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "12px 0 0", color: P.ink }}>{sheetOpinion.line}</p>
-        )}
+        {/* The opinion line is speech now (2026-10-15): it
+            reaches the sheet through SheetNova's opinionLine
+            prop and is said through her controller, so it no
+            longer renders as static copy here. */}
         {!sheetGood && (
           <NovaTip id="streak" bare state="worried" size={36} armed={missStreak >= 2} repeatAfterMs={7 * 24 * 3600 * 1000} style={{ marginTop: 16 }}>
             Two wrong in a row. Slow down: cover the options, say the answer in your own words, then look. Guessing faster changes nothing.
@@ -13595,9 +13642,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           or more, once, in its own voice. */}
       {showReturnGreeting && (
         <div style={{ marginTop: 22 }}>
-          <NovaSpeech bare state="greeting" size={48}>
-            {reviewDueCount > 0 ? "Back, then. Your reviews waited." : "Back, then. Nothing moved while you were gone."}
-          </NovaSpeech>
+          <NovaBubble variant="sheet">{reviewDueCount > 0 ? "Back, then. Your reviews waited." : "Back, then. Nothing moved while you were gone."}</NovaBubble>
         </div>
       )}
 
@@ -13609,10 +13654,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, margin: "20px 0 20px" }}>
         {reminder && (
           <div style={{ paddingBottom: 16, marginBottom: 16, borderBottom: "1px solid " + P.line }}>
-            <NovaSpeech bare state={reminder.kind === "atrisk" ? "worried" : "greeting"} size={52}>
+            <NovaBubble variant="sheet">
               <span style={{ fontWeight: 600, display: "block" }}>{reminder.title}</span>
               <span style={{ fontSize: FONT_SIZES.label, color: CREAM_FAINT, display: "block", marginTop: 2, lineHeight: 1.5 }}>{reminder.body}</span>
-            </NovaSpeech>
+            </NovaBubble>
           </div>
         )}
         <div className="lv-band">

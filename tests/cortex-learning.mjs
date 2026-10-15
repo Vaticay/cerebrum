@@ -226,6 +226,7 @@ const {
    declarations are extracted; the components and the quip hook
    stay in the app, and their wiring is pinned by source below. */
 const riveSrc = readFileSync(join(root, "src/NovaRive.jsx"), "utf8");
+const speechSrc = readFileSync(join(root, "src/NovaSpeech.jsx"), "utf8");
 const riveAst = parse(riveSrc, { sourceType: "module", plugins: ["jsx"] });
 function riveDeclFor(name) {
   for (const node of riveAst.program.body) {
@@ -239,7 +240,7 @@ function riveDeclFor(name) {
 }
 const RIVE_WANTED = [
   "NOVA_RIVE_STATE_MACHINE", "NOVA_RIVE_SRC", "NOVA_RIVE_ASSET", "NOVA_RIVE_INPUTS", "NOVA_RIVE_EVENTS",
-  "NOVA_QUIP_BANK", "QUIP_MIN_GAP_MS", "QUIP_SHOW_MS", "QUIP_LONG_IDLE_MS",
+  "NOVA_QUIP_BANK", "QUIP_MIN_GAP_MS", "QUIP_LONG_IDLE_MS",
   "QUIP_CATEGORY_COOLDOWN_MS", "QUIP_CATEGORY_CHANCE",
   "quizCategoryForState", "searchCategoryForState", "quipCategoryForRiveEvent",
   "quipGateAllows", "pickQuipLine", "quizPointerFor", "appStateForActivity", "quizStateForSheet",
@@ -255,7 +256,7 @@ const riveContext = vm.createContext({});
 vm.runInContext(riveJs, riveContext);
 const {
   NOVA_RIVE_STATE_MACHINE, NOVA_RIVE_SRC, NOVA_RIVE_ASSET, NOVA_RIVE_INPUTS, NOVA_RIVE_EVENTS,
-  NOVA_QUIP_BANK, QUIP_MIN_GAP_MS, QUIP_SHOW_MS, QUIP_LONG_IDLE_MS,
+  NOVA_QUIP_BANK, QUIP_MIN_GAP_MS, QUIP_LONG_IDLE_MS,
   QUIP_CATEGORY_COOLDOWN_MS, QUIP_CATEGORY_CHANCE,
   quizCategoryForState, searchCategoryForState, quipCategoryForRiveEvent,
   quipGateAllows, pickQuipLine, quizPointerFor, appStateForActivity, quizStateForSheet,
@@ -3528,14 +3529,23 @@ await test("the presence wave: Nova is live where she stands, and her tips obey 
   assert.ok(learnSrc.includes("pokeStep(loadNovaQuirks(), Date.now())"), "a tap does not run the poke ladder");
   assert.ok(learnSrc.includes("saveNovaQuirks(step.quirks)"), "the poke ladder's state is not stored");
   assert.ok(learnSrc.includes('const SEEN_TIPS_KEY = "cerebrum-learn2-seentips";'), "the seen tips store is not its own key");
-  assert.ok(learnSrc.includes("function NovaSpeech("), "the speech bubble is missing");
+  /* Pin moved 2026-10-15 (the speech unification): LearnView's
+     private NovaSpeech bubble component retired; the one bubble
+     is NovaBubble from src/NovaSpeech.jsx, which LearnView
+     imports and renders directly for its standing speeches. */
+  assert.ok(!learnSrc.includes("function NovaSpeech("), "LearnView grew a second private speech bubble");
+  assert.ok(learnSrc.includes('from "./NovaSpeech.jsx"'), "LearnView does not take its speech from the one module");
   assert.ok(learnSrc.includes("function NovaTip("), "the tip component is missing");
   for (const id of ["today", "paths", "library", "library-empty", "create", "shop", "leagues", "bench", "streak", "memory", "shelf"])
     assert.ok(learnSrc.includes(`id="${id}"`), "the " + id + " tip is not placed");
   // Pin moved 2026-10-15 (owner's one Nova per screen ruling):
   // the reminder bubble renders bare on the home, text only;
   // its companion figure is gone.
-  assert.ok(learnSrc.includes('NovaSpeech bare state={reminder.kind === "atrisk" ? "worried" : "greeting"} size={52}'), "the reminder is not in bubble form");
+  // Pin moved again the same day (the speech unification): the
+  // reminder renders as NovaBubble in its sheet variant, its
+  // title and body carried as the bubble's children.
+  assert.ok(learnSrc.includes('<NovaBubble variant="sheet">'), "the standing speeches are not NovaBubble sheet bubbles");
+  assert.ok(learnSrc.includes("{reminder.title}") && learnSrc.includes("{reminder.body}"), "the reminder is not in bubble form");
   assert.ok(learnSrc.includes("streak={missStreak}"), "the sheet Nova does not hear the miss streak");
   assert.ok(learnSrc.includes("armed={missStreak >= 2}"), "the strategy tip does not arm on the second straight miss");
   assert.ok(!JSON.stringify(buildCortexExport(cortexFixtureState, new Date())).includes("seentips"), "the export carries the seen tips store");
@@ -4329,7 +4339,14 @@ await test("her silence is priced in: praise is the rarest category, warnings th
   assert.ok(QUIP_CATEGORY_CHANCE.highConfidence < QUIP_CATEGORY_CHANCE.searching, "she is not a cheerleader");
   assert.ok(QUIP_CATEGORY_CHANCE.preprintWarning > QUIP_CATEGORY_CHANCE.highConfidence, "a warning is useful; praise is not");
   assert.ok(QUIP_MIN_GAP_MS >= 60000, "no two quips land within a minute");
-  assert.ok(QUIP_SHOW_MS > 0 && QUIP_SHOW_MS <= 5000, "a quip is a glance, not a paragraph");
+  /* Pin moved 2026-10-15 (the speech unification): QUIP_SHOW_MS
+     retired with the quip engine it timed. Display time is
+     priced by the speech controller now, as reading time
+     clamped between SPEECH_DISPLAY_MIN_MS and
+     SPEECH_DISPLAY_MAX_MS in src/NovaSpeech.jsx; the retired
+     constant must not come back. */
+  assert.ok(!riveSrc.includes("const QUIP_SHOW_MS"), "the retired fixed quip duration is back");
+  assert.ok(speechSrc.includes("SPEECH_DISPLAY_MIN_MS = 2400") && speechSrc.includes("SPEECH_DISPLAY_MAX_MS = 9000"), "the speech controller no longer prices display time by reading time");
 });
 
 await test("NovaLive and SheetNova render NovaRive behind their existing props", () => {
@@ -4374,10 +4391,18 @@ await test("answer options shift their border to the accent on a real pointer ho
 
 await test("Nova stands on the lesson complete screen, pleased, with a line from her library", () => {
   const done = learnSrc.slice(learnSrc.indexOf("if (showLessonDone)"), learnSrc.indexOf("const cardKindLabel"));
-  assert.ok(done.includes("<NovaRive"), "the completion screen renders no NovaRive");
-  assert.ok(done.includes('state="pleased"'), "she is not pleased on the completion screen");
-  assert.ok(done.includes("celebrateN={1}"), "the celebrate trigger is not raised for the asset");
-  assert.ok(done.includes("doneLine"), "no completion line is drawn");
+  /* Pin moved 2026-10-15 (the speech unification): the
+     completion screen renders LessonDoneNova, which owns the
+     speech controller for the screen and renders the NovaRive
+     itself, so the figure's props are pinned on its definition
+     and the screen is pinned on mounting it with the line. */
+  assert.ok(done.includes("<LessonDoneNova"), "the completion screen renders no Nova");
+  assert.ok(done.includes("perfectLine || doneLine"), "no completion line is drawn");
+  const doneNova = learnSrc.slice(learnSrc.indexOf("function LessonDoneNova"), learnSrc.indexOf("function LessonDoneNova") + 1200);
+  assert.ok(doneNova.includes("<NovaRive"), "LessonDoneNova renders no NovaRive");
+  assert.ok(doneNova.includes('state="pleased"'), "she is not pleased on the completion screen");
+  assert.ok(doneNova.includes("celebrateN={1}"), "the celebrate trigger is not raised for the asset");
+  assert.ok(doneNova.includes('say({ source: "lesson", text: line })'), "the completion line is not spoken through the controller");
   assert.ok(Array.isArray(NOVA_LESSON_DONE_LINES) && NOVA_LESSON_DONE_LINES.length >= 3, "the completion lines are missing from her library");
   for (const line of NOVA_LESSON_DONE_LINES) {
     assert.ok(!/[-–—]/.test(line), `a completion line carries a dash: ${line}`);
@@ -4483,8 +4508,14 @@ await test("one Nova per screen: exactly one resident figure on every home scree
   // renders only on Today. The source count is 3; at runtime
   // every home screen still carries exactly one resident
   // figure, which is what this test exists to hold.
+  // Pin updated again 2026-10-15 (the speech unification):
+  // the third mount lived inside LearnView's private
+  // NovaSpeech bubble component, which retired; its speeches
+  // are NovaBubble text now and grow no figure at all. The
+  // source count is 2, the header and the Today stage, and
+  // the runtime rule this test exists to hold is unchanged.
   const mounts = learnSrc.match(/<NovaLive/g) || [];
-  assert.equal(mounts.length, 3, "NovaLive mounts beyond NovaSpeech's internals, the header, and the Today stage");
+  assert.equal(mounts.length, 2, "NovaLive mounts beyond the header and the Today stage");
   assert.ok(learnSrc.includes("<NovaLive state={novaMood} size={66} />"), "the header resident is gone");
   assert.ok(learnSrc.includes('homeTab !== "today"'), "the header resident no longer steps aside on Today");
   for (const gone of [
@@ -4504,8 +4535,12 @@ await test("one Nova per screen: exactly one resident figure on every home scree
     '<NovaTip id="shelf" bare', '<NovaTip id="shop" bare', '<NovaTip id="leagues" bare',
     '<NovaTip id="paths" bare', '<NovaTip id="library" bare', '<NovaTip id="create" bare',
     '<NovaTip id="streak" bare',
-    '<NovaSpeech bare state="greeting" size={48}>',
-    '<NovaSpeech bare state={reminder.kind',
+    // The two standing speeches (pin moved 2026-10-15, the
+    // speech unification): NovaBubble sheet bubbles now, the
+    // return greeting keyed on its review count, the reminder
+    // carrying its title as the bubble's first child.
+    '<NovaBubble variant="sheet">{reviewDueCount > 0',
+    '{reminder.title}</span>',
   ]) {
     assert.ok(learnSrc.includes(bareSite), `a speech surface kept its companion figure: ${bareSite}`);
   }

@@ -8,28 +8,32 @@
 
    - The state machine contract (Nova_Controller and its inputs)
      the editor build is authored against, in one place below.
-   - A quip engine: categorized lines in Nova's written voice
-     (the personality sheet: calm, dry, short, no hype, no
-     exclamation, no dashes of any kind), fired by Rive events
-     and by app and quiz state transitions, gated hard so she
-     stays mostly silent, never talks over typing, and never
-     stacks two bubbles.
+   - Her voice: the categorized quip bank below, in her
+     written voice (the personality sheet: calm, dry, short,
+     no hype, no exclamation, no dashes of any kind). The
+     speaking itself is unified in NovaSpeech.jsx: one speech
+     controller arbitrates every line she says anywhere, and
+     these surfaces just render the controller's current line,
+     feed it Rive events, and pulse the isTalking input it
+     times. This file keeps the bank and the pure mapping
+     helpers the controller imports.
    - A fallback: until a real asset exists at public/nova/
      nova.riv, NovaRive renders the current SVG rig (NovaAvatar
      from LearnView) driven by the same state, so shipping this
-     file changes nothing a learner can see except the quips.
+     file changes nothing a learner can see.
 
    The one switch is NOVA_RIVE_ASSET: null means the fallback
    renders everywhere. When the editor asset lands at
    public/nova/nova.riv, set it to NOVA_RIVE_SRC and every
    surface switches with no other code change.
 
-   Palette discipline: the code side visuals here (the quip
-   bubble) use the house palette only, the cream bubble the
-   NovaLive line bubble already uses. The spec's cyan accent
-   was not adopted; Nova's world is gold, cream, and ink. */
+   Palette discipline: the code side visuals here stay in
+   the house palette only. The speech bubble itself lives in
+   NovaSpeech.jsx now, in the same cream, ink, and faint line
+   the line bubble always used. The spec's cyan accent was
+   not adopted; Nova's world is gold, cream, and ink. */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import {
   useRive,
   useStateMachineInput,
@@ -42,7 +46,7 @@ import {
 import riveWasmUrl from "@rive-app/canvas/rive.wasm?url";
 import riveWasmFallbackUrl from "@rive-app/canvas/rive_fallback.wasm?url";
 import { NovaAvatar } from "./LearnView.jsx";
-import { FONT_SIZES } from "./designSystem.jsx";
+import { NovaBubble } from "./NovaSpeech.jsx";
 
 /* ── Self hosted runtime wasm (fix, 2026-10-15) ───────────────
    The @rive-app/canvas RuntimeLoader fetches its wasm from a
@@ -136,15 +140,16 @@ export const NOVA_QUIP_BANK = {
   ],
 };
 
-/* Her temperament in numbers. One bubble at a time across every
-   Nova on the page (the module gate below, the same pattern as
-   the tip gate in LearnView), a long global gap, per category
-   cooldowns, and a chance roll per category so even an eligible
-   moment usually stays silent. Warnings land most often because
+/* Her temperament in numbers, read by the speech controller
+   in NovaSpeech.jsx: a long ambient gap (its SPEECH_MIN_GAP_MS
+   mirrors QUIP_MIN_GAP_MS here), per category cooldowns, and
+   a chance roll per category so even an eligible moment
+   usually stays silent. Warnings land most often because
    they are useful; praise lands least, because she is not a
-   cheerleader. */
+   cheerleader. How long a line stays up is the controller's
+   reading time now; the old fixed QUIP_SHOW_MS retired with
+   the engine that used it (2026-10-15). */
 export const QUIP_MIN_GAP_MS = 60000;
-export const QUIP_SHOW_MS = 3200;
 export const QUIP_LONG_IDLE_MS = 30000;
 export const QUIP_CATEGORY_COOLDOWN_MS = {
   idle: 240000,
@@ -237,140 +242,25 @@ export function quizStateForSheet({ phase = 0, good = false, correctStreak = 0, 
   return 1;
 }
 
-/* ── The quip engine ──────────────────────────────────────────
-   One gate for every Nova on the page, module level like the
-   tip gate: a global last shown stamp, per category stamps,
-   and a single active token, so two instances can never speak
-   at once. An instance offers a category; the gate decides.
-   The engine never speaks while the learner is typing, and a
-   Nova with a line of her own already up (NovaLive's poke and
-   brain lines) passes lineBusy and the quip stands down. */
-let novaQuipLastAt = 0;
-let novaQuipActiveToken = null;
-const novaQuipCategoryAt = {};
-let novaQuipTokenSeq = 0;
-
-function userIsTyping() {
-  try {
-    const el = typeof document !== "undefined" ? document.activeElement : null;
-    if (!el) return false;
-    const tag = (el.tagName || "").toUpperCase();
-    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable === true;
-  } catch {
-    return false;
-  }
-}
-
-function useNovaQuips({ quizState = 0, appState = 0, enabled = true, lineBusy = false, idleMs = 0 }) {
-  const [quip, setQuip] = useState(null);
-  const tokenRef = useRef(0);
-  const timerRef = useRef(null);
-  const lastLineRef = useRef({});
-  const quipRef = useRef(null);
-  quipRef.current = quip;
-  const enabledRef = useRef(enabled);
-  enabledRef.current = enabled;
-  const busyRef = useRef(lineBusy);
-  busyRef.current = lineBusy;
-  const ctxRef = useRef({ quizState, appState, idleMs });
-  ctxRef.current = { quizState, appState, idleMs };
-
-  const dismiss = () => {
-    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
-    if (novaQuipActiveToken === tokenRef.current) novaQuipActiveToken = null;
-    tokenRef.current = 0;
-    setQuip(null);
-  };
-  const dismissRef = useRef(dismiss);
-  dismissRef.current = dismiss;
-
-  const offer = (category) => {
-    if (!enabledRef.current || !category) return;
-    const now = Date.now();
-    const otherBusy = novaQuipActiveToken !== null && novaQuipActiveToken !== tokenRef.current;
-    const ok = quipGateAllows({
-      now,
-      category,
-      lastGlobalAt: novaQuipLastAt,
-      lastCategoryAt: novaQuipCategoryAt[category] || 0,
-      typing: userIsTyping(),
-      busy: busyRef.current || otherBusy || !!quipRef.current,
-      roll: Math.random(),
-    });
-    if (!ok) return;
-    const line = pickQuipLine(category, now, lastLineRef.current[category] || null);
-    if (!line) return;
-    lastLineRef.current[category] = line;
-    novaQuipLastAt = now;
-    novaQuipCategoryAt[category] = now;
-    const token = ++novaQuipTokenSeq;
-    tokenRef.current = token;
-    novaQuipActiveToken = token;
-    setQuip({ category, line });
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      if (tokenRef.current === token) dismissRef.current();
-    }, QUIP_SHOW_MS);
-  };
-  const offerRef = useRef(offer);
-  offerRef.current = offer;
-
-  const handleRiveEvent = useCallback((name) => {
-    const cat = quipCategoryForRiveEvent(name, ctxRef.current);
-    if (cat) offerRef.current(cat);
-  }, []);
-
-  const prevAppRef = useRef(appState);
-  useEffect(() => {
-    const prev = prevAppRef.current;
-    prevAppRef.current = appState;
-    if (prev === appState) return;
-    const cat = searchCategoryForState(appState);
-    if (cat) offerRef.current(cat);
-  }, [appState]);
-
-  const prevQuizRef = useRef(quizState);
-  useEffect(() => {
-    const prev = prevQuizRef.current;
-    prevQuizRef.current = quizState;
-    if (prev === quizState) return;
-    const cat = quizCategoryForState(quizState);
-    if (cat) offerRef.current(cat);
-  }, [quizState]);
-
-  useEffect(() => {
-    if (lineBusy && quipRef.current) dismissRef.current();
-  }, [lineBusy]);
-
-  useEffect(() => () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (novaQuipActiveToken === tokenRef.current) novaQuipActiveToken = null;
-  }, []);
-
-  return { quip, dismissQuip: dismiss, handleRiveEvent, talking: !!quip };
-}
-
-/* The bubble: the house cream bubble, the same values as the
-   NovaLive line bubble, sized to wrap her longer quip lines.
-   A click dismisses. House palette only: cream ground, ink
-   text, the faint ink line. */
-const NV_BUBBLE_CREAM = "#F5F0E8";
-const NV_BUBBLE_INK = "#1A1A1A";
-const NV_BUBBLE_LINE = "rgba(26, 26, 26, 0.16)";
-
-function QuipBubble({ line, onDismiss }) {
-  return (
-    <span role="status" title="Dismiss" onClick={onDismiss} style={{
-      position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
-      background: NV_BUBBLE_CREAM, color: NV_BUBBLE_INK, border: "1px solid " + NV_BUBBLE_LINE, borderRadius: 10,
-      padding: "7px 11px", fontSize: FONT_SIZES.body, lineHeight: 1.35, whiteSpace: "normal",
-      width: "max-content", maxWidth: 250, cursor: "pointer", zIndex: 31,
-      boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
-    }}>
-      {line}
-    </span>
-  );
-}
+/* ── The old quip engine retired here (2026-10-15) ───────────
+   This file used to run its own gate (useNovaQuips): a module
+   token, per surface offers on state transitions and Rive
+   events, a fixed display time, and a private bubble. The
+   unified speech controller in NovaSpeech.jsx owns all of
+   that now. What survives here is what the controller and
+   other callers import: the bank, the temperament numbers,
+   and the pure mapping helpers above (quizCategoryForState,
+   searchCategoryForState, quipCategoryForRiveEvent,
+   quipGateAllows, pickQuipLine). The surfaces below take a
+   speech prop (the object useNovaSpeech returns): they render
+   its current line as a NovaBubble, pulse isTalking from its
+   talking flag, and route Rive events into it. A surface with
+   no speech prop renders the figure only: no bubble, talking
+   false, events a no op. State transition offers now come
+   from the owners (NovaLive, SheetNova, SearchNova); the
+   quips prop survives only as an opt out for event routing
+   on surfaces that pass quips false (the sidebar pop, the
+   lesson completion figure). */
 
 /* ── The fallback surface ─────────────────────────────────────
    No asset yet: the traced SVG rig renders, driven by the same
@@ -383,13 +273,7 @@ function NovaFallback(props) {
     state = "greeting", size = 48, framing = "bust", scanning = false,
     pushN = 0, flutterN = 0, noticeN = 0, waveN = 0, pointer = null, anchorRef = null,
   } = props;
-  const quips = useNovaQuips({
-    quizState: props.quizState || 0,
-    appState: props.appState || 0,
-    enabled: props.quips !== false,
-    lineBusy: !!props.lineBusy,
-    idleMs: props.idleMs || 0,
-  });
+  const speech = props.speech || null;
   const vars = pointer
     ? {
         "--nv-gx": ((pointer.x / 100) * 3.2).toFixed(2) + "px",
@@ -401,7 +285,7 @@ function NovaFallback(props) {
       {/* The canvas surface's "full" is the avatar's "panel":
           both mean the whole figure standing at size. */}
       <NovaAvatar state={state} size={size} framing={framing === "full" ? "panel" : framing} scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} waveN={waveN} />
-      {quips.quip && <QuipBubble line={quips.quip.line} onDismiss={quips.dismissQuip} />}
+      {speech && speech.current && <NovaBubble text={speech.current.text} variant="header" onDismiss={speech.dismiss} />}
     </span>
   );
 }
@@ -412,20 +296,21 @@ function NovaFallback(props) {
    props: brain sleep stages fire the sleep and wake triggers,
    poke and celebrate arrive as counters from callers (a rising
    count fires the trigger once), and Rive events route into
-   the quip engine. */
+   the caller's speech controller when one is attached. */
 function NovaCanvas(props) {
   // waveN is accepted here and left unused: the Rive contract has no wave trigger.
   const {
     size = 48, framing = "bust", quizState = 0, appState = 0, pointer = null, waveN = 0,
     sleepStage = 0, pokeN = 0, celebrateN = 0, reducedMotion = false, anchorRef = null,
   } = props;
-  const quips = useNovaQuips({
-    quizState,
-    appState,
-    enabled: props.quips !== false,
-    lineBusy: !!props.lineBusy,
-    idleMs: props.idleMs || 0,
-  });
+  const speech = props.speech || null;
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
+  const speechCtxRef = useRef({ quizState, appState, idleMs: props.idleMs || 0 });
+  speechCtxRef.current = { quizState, appState, idleMs: props.idleMs || 0 };
+  const speechEventsRef = useRef(props.quips !== false);
+  speechEventsRef.current = props.quips !== false;
+  const talkingNow = speech ? !!speech.talking : false;
   /* The options ride as useRive's second argument, pinned in
      code rather than inherited: the canvas resizes to its
      container, and its backing store is sized in device
@@ -487,7 +372,7 @@ function NovaCanvas(props) {
   useEffect(() => { if (appIn) appIn.value = appState; }, [appIn, appState]);
   useEffect(() => { if (mouseXIn) mouseXIn.value = pointer ? pointer.x : 0; }, [mouseXIn, pointer]);
   useEffect(() => { if (mouseYIn) mouseYIn.value = pointer ? pointer.y : 0; }, [mouseYIn, pointer]);
-  useEffect(() => { if (talkingIn) talkingIn.value = quips.talking; }, [talkingIn, quips.talking]);
+  useEffect(() => { if (talkingIn) talkingIn.value = talkingNow; }, [talkingIn, talkingNow]);
   useEffect(() => { if (reducedIn) reducedIn.value = !!reducedMotion; }, [reducedIn, reducedMotion]);
 
   const prevPokeRef = useRef(pokeN);
@@ -517,18 +402,19 @@ function NovaCanvas(props) {
     }
   }, [sleepStage, sleepIn, wakeIn]);
 
-  const onRiveEvent = quips.handleRiveEvent;
   useEffect(() => {
-    if (!rive || !onRiveEvent) return undefined;
+    if (!rive) return undefined;
     const handler = (e) => {
       const n = e && e.data && e.data.name;
-      if (n) onRiveEvent(n);
+      if (!n || !speechEventsRef.current) return;
+      const s = speechRef.current;
+      if (s) s.handleRiveEvent(n, speechCtxRef.current);
     };
     rive.on(EventType.RiveEvent, handler);
     return () => {
       try { rive.off(EventType.RiveEvent, handler); } catch { /* the runtime is already gone */ }
     };
-  }, [rive, onRiveEvent]);
+  }, [rive]);
 
   /* Framing (2026-10-15): "bust" is the original box, size *
      1.85 by 0.62, kept byte for byte for the small spots (the
@@ -548,7 +434,7 @@ function NovaCanvas(props) {
       <span ref={boxRef} style={fullBody ? { width: w, height: h, maxWidth: "100%", display: "block" } : { width: w, height: h, display: "block" }}>
         <RiveComponent />
       </span>
-      {quips.quip && <QuipBubble line={quips.quip.line} onDismiss={quips.dismissQuip} />}
+      {speech && speech.current && <NovaBubble text={speech.current.text} variant="header" onDismiss={speech.dismiss} />}
     </span>
   );
 }
@@ -556,10 +442,13 @@ function NovaCanvas(props) {
 /* ── NovaRive ─────────────────────────────────────────────────
    One component, two surfaces, switched by the asset constant
    above and nothing else. Callers (NovaLive in the header,
-   SheetNova in the lesson sheet) pass the same character state
-   they always have, plus the Rive contract feeds this file
-   maps onward: quizState, appState, pointer, sleepStage, and
-   the poke and celebrate counters. */
+   SheetNova in the lesson sheet, SearchNova over in the app)
+   pass the same character state they always have, plus the
+   Rive contract feeds this file maps onward: quizState,
+   appState, pointer, sleepStage, and the poke and celebrate
+   counters. Speech arrives as the speech prop: the controller
+   object from useNovaSpeech in NovaSpeech.jsx, owned by the
+   caller, never created here. */
 export function NovaRive(props) {
   if (!NOVA_RIVE_ASSET) return <NovaFallback {...props} />;
   return <NovaCanvas {...props} />;

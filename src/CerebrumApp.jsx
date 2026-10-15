@@ -91,7 +91,8 @@ import LearnView from "./LearnView.jsx";
 import NovaEgg from "./NovaEgg.jsx";
 import NovaSidebarPop from "./NovaSidebarPop.jsx";
 import { createCourseFromResults, saveLearnCourse, emitNovaActivity, NovaLive } from "./LearnView.jsx";
-import { NovaRive } from "./NovaRive.jsx";
+import { NovaRive, searchCategoryForState } from "./NovaRive.jsx";
+import { useNovaSpeech } from "./NovaSpeech.jsx";
 
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
@@ -5052,8 +5053,13 @@ function ConsensusMeter({ t, P }) {
    and updates this module store, so a Nova who mounts a beat after the
    event still lands on the right face. A landed face settles back to
    her resting greeting after a few seconds. Decoration only: no panel,
-   no interruption, aria hidden. Her quips, when the engine offers one,
-   are the same gated engine the Nova tab runs, never a second voice. */
+   no interruption, aria hidden. Her speech runs through the one
+   controller in NovaSpeech.jsx (2026-10-15): this mount owns an
+   instance, offers the search category whenever her appState face
+   changes (searching as a search starts, high confidence or the
+   preprint warning as it lands), and passes the controller to her
+   NovaRive, so a search reaction is a caused line that can preempt
+   an ambient quip, never a second voice beside it. */
 const NOVA_SEARCH_FACES = {
   idle: { state: "greeting", appState: 0 },
   thinking: { state: "thinking", appState: 1 },
@@ -5094,9 +5100,26 @@ function SearchNova({ size = 52, live = true }) {
   }, [snap]);
   const faceName = !live || settled ? "idle" : snap.face;
   const f = NOVA_SEARCH_FACES[faceName] || NOVA_SEARCH_FACES.idle;
+  /* The speech controller for this mount (2026-10-15): created
+     here because the transition offers are this owner's job now.
+     The controller object is fresh every render, so the effect
+     reaches it through a ref and fires on face changes only.
+     When live is off the controller is disabled and she stays
+     silent, as the old quips flag kept her. */
+  const speech = useNovaSpeech({ enabled: live });
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
+  const prevAppRef = useRef(f.appState);
+  useEffect(() => {
+    const prev = prevAppRef.current;
+    prevAppRef.current = f.appState;
+    if (prev === f.appState) return;
+    const cat = searchCategoryForState(f.appState);
+    if (cat) speechRef.current.offerCategory(cat);
+  }, [f.appState]);
   return (
     <span aria-hidden="true" style={{ display: "inline-flex", flexShrink: 0, lineHeight: 0 }}>
-      <NovaRive state={f.state} appState={f.appState} size={size} framing="full" quips={live} />
+      <NovaRive state={f.state} appState={f.appState} size={size} framing="full" quips={live} speech={speech} />
     </span>
   );
 }
