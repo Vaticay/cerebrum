@@ -91,6 +91,7 @@ const WANTED = [
   "visitGapDays", "shelfGlyphFor", "shelfObjects", "SHELF_GLYPH_BY_PATH", "SHELF_GLYPH_BY_CATEGORY",
   "novaMoodFor", "tipEligible", "TIP_GAP_MS",
   "NOVA_ACTIVITY_EVENT", "NOVA_WAKE_STEP_MS", "novaIdleStageFor", "novaAdaptiveStateFor", "emitNovaActivity",
+  "createNovaBrain", "novaBrainObserve", "novaBrainDecide",
   "CHARACTER_POSES", "NOVA_RIG_STATES", "NOVA_RIG_MOUTHS", "NOVA_RIG_D", "NOVA_RIG_FILAMENTS",
   "QUIRKS_KEY", "QUIRK_GAG_COOLDOWN_MS", "QUIRK_SHELF_COOLDOWN_MS",
   "QUIRK_FAST_MS", "QUIRK_FAST_COOLDOWN_MS", "QUIRK_HARD_COOLDOWN_MS",
@@ -164,6 +165,7 @@ const {
   visitGapDays, shelfGlyphFor, shelfObjects,
   novaMoodFor, tipEligible, TIP_GAP_MS,
   NOVA_ACTIVITY_EVENT, NOVA_WAKE_STEP_MS, novaIdleStageFor, novaAdaptiveStateFor, emitNovaActivity,
+  createNovaBrain, novaBrainObserve, novaBrainDecide,
   CHARACTER_POSES, NOVA_RIG_STATES, NOVA_RIG_MOUTHS, NOVA_RIG_D, NOVA_RIG_FILAMENTS,
   QUIRKS_KEY, QUIRK_GAG_COOLDOWN_MS, QUIRK_SHELF_COOLDOWN_MS,
   QUIRK_FAST_MS, QUIRK_FAST_COOLDOWN_MS, QUIRK_HARD_COOLDOWN_MS,
@@ -3020,7 +3022,9 @@ await test("Nova is a traced, articulated rig at the avatar spots (2026-10-15)",
   // bust on a faint halo. The signature shape is unchanged.
   // Pin moved again the same night (adaptive animation): the
   // avatar also takes the scanning flag for a thinking rig.
-  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false })'),
+  // Pin moved 2026-10-15 (the brain): the avatar also forwards
+  // the signature cue counters, push, flutter, and notice.
+  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0 })'),
     "NovaAvatar keeps its signature; the rig lives inside it");
   assert.ok(learnSrc.includes("export function NovaRig("), "NovaRig is exported for the Easter egg");
   // The traced parts exist as path data: body and tail with
@@ -3032,9 +3036,41 @@ await test("Nova is a traced, articulated rig at the avatar spots (2026-10-15)",
     "g1", "g2", "g3", "g4", "g5", "g6",
     "pupilL", "pupilR", "lidLineL", "lidLineR", "sockL", "sockR",
     "spine", "inner", "wash", "washFin", "cheek", "armL", "armR",
-    "closedPleased", "closedAsleep"]) {
+    "closedPleased", "closedAsleep",
+    // Added 2026-10-15: the soft resting face swaps, the
+    // glasses, and the lab coat, all owner orders that night.
+    "pupilSoftL", "pupilSoftR", "lidLineSoftL", "lidLineSoftR", "shineSoftL", "shineSoftR",
+    "glassesL", "glassesR", "glassesBridge", "templeL", "templeR",
+    "coat", "coatFin", "coatHemEdge", "coatOpeningEdge", "coatCollar", "coatLapel", "coatLapelR", "coatPocket", "coatPen", "coatPenClip"]) {
     assert.equal(typeof NOVA_RIG_D[part], "string", "traced part " + part);
     assert.ok(NOVA_RIG_D[part].startsWith("M"), part + " is a path");
+  }
+  // The soft resting face (2026-10-15, the owner's "She looks
+  // mad" ruling): the default states raise their lids toward
+  // open and swap in the rounder pupils, the relaxed lid
+  // lines, and the shine; deadpan keeps the traced stare
+  // untouched, and the greeting mouth is the faint curve, not
+  // the old flat bow.
+  assert.equal(NOVA_RIG_STATES.greeting.pupilL, "pupilSoftL", "greeting reads through the soft pupils");
+  assert.equal(NOVA_RIG_STATES.greeting.lidLineL, "lidLineSoftL", "greeting's lid lines are the relaxed set");
+  assert.equal(NOVA_RIG_STATES.explaining.pupilR, "pupilSoftR", "explaining shares the resting face");
+  assert.ok(NOVA_RIG_STATES.greeting.lid < 0 && NOVA_RIG_STATES.greeting.lid > NOVA_RIG_STATES.worried.lid,
+    "greeting's lids are raised toward open, short of worried's raise");
+  assert.equal(NOVA_RIG_STATES.deadpan.pupilL, undefined, "deadpan keeps the traced pupils");
+  assert.equal(NOVA_RIG_STATES.deadpan.lidLineL, undefined, "deadpan keeps the traced lid lines");
+  assert.equal(NOVA_RIG_STATES.deadpan.shine, undefined, "deadpan has no shine");
+  assert.equal(NOVA_RIG_MOUTHS.greeting.d, "M922,540 C985,555 1052,555 1112,541", "the greeting mouth is the faintest upward curve");
+  // The outfit is worn, not pasted: the coat renders over the
+  // body inside the breath group, its fin rides the tail
+  // group, the glasses render inside the head group after the
+  // lids, and the cue animations exist for the brain to fire.
+  assert.ok(learnSrc.includes('d={NOVA_RIG_D.coat} fill={NOVA_RIG_COAT}'), "the coat panel renders");
+  assert.ok(learnSrc.includes('d={NOVA_RIG_D.coatFin} fill={NOVA_RIG_COAT}'), "the coat's hem rides the tail group for the swim");
+  assert.ok(learnSrc.includes('className={"nv-rig-glasses"'), "the glasses render as their own group");
+  assert.ok(learnSrc.includes('d={NOVA_RIG_D.glassesBridge}'), "the gold bridge renders");
+  for (const css of ["@keyframes nvRigGlassesPush", "@keyframes nvRigHeadDip", "@keyframes nvRigFlutter",
+    "@keyframes nvRigNoticeGlance", "@keyframes nvRigFanLift", "@keyframes nvRigNoticeHead"]) {
+    assert.ok(learnSrc.includes(css), "cue CSS " + css);
   }
   // Six filaments, three a side, each with its own gold tip,
   // sway origin, duration, and phase offset.
@@ -3168,15 +3204,106 @@ await test("adaptive animation: idle drift stages, late night compounding, and t
   assert.equal(typeof emitNovaActivity, "function");
   // The wiring: NovaLive listens on the window and cleans up,
   // and the course builder emits the real search signals.
-  assert.ok(learnSrc.includes('window.addEventListener("pointermove", onUser, { passive: true })'), "NovaLive does not hear pointer activity");
+  // Pins moved 2026-10-15 (the owner's browser check sat
+  // untouched for a minute and she stayed alert): the drift is
+  // driven by genuine activity only. A pointer move counts
+  // when its coordinates actually changed, a scroll counts
+  // through wheel and touch gestures, and the bare window
+  // scroll listener is gone, because programmatic and layout
+  // scrolls (a screenshot pass, a route change) fire it too
+  // and kept resetting her clock.
+  assert.ok(learnSrc.includes('window.addEventListener("pointermove", onPointerMove, { passive: true })'), "NovaLive does not hear pointer activity");
+  assert.ok(learnSrc.includes("e.clientX === lastX && e.clientY === lastY"), "a pointer move with no coordinate change still counts as activity");
   assert.ok(learnSrc.includes('window.addEventListener("keydown", onUser)'), "NovaLive does not hear keys");
-  assert.ok(learnSrc.includes('window.addEventListener("scroll", onUser, { passive: true, capture: true })'), "NovaLive does not hear scrolls");
+  assert.ok(learnSrc.includes('window.addEventListener("wheel", onUser, { passive: true })'), "NovaLive does not hear deliberate scrolls");
+  assert.ok(learnSrc.includes('window.addEventListener("touchmove", onUser, { passive: true })'), "NovaLive does not hear touch scrolls");
+  assert.ok(!learnSrc.includes('addEventListener("scroll", onUser'), "a bare scroll event feeds the idle clock again");
   assert.ok(learnSrc.includes("window.addEventListener(NOVA_ACTIVITY_EVENT, onSignal)"), "NovaLive does not hear activity signals");
-  assert.ok(learnSrc.includes('removeEventListener("pointermove", onUser)'), "NovaLive's listeners do not clean up");
+  assert.ok(learnSrc.includes('removeEventListener("pointermove", onPointerMove)'), "NovaLive's listeners do not clean up");
+  // Her state is provable (2026-10-15): the wrapper carries
+  // mood, sleep stage, and current behavior as data, so a
+  // probe reads her stage instead of judging screenshots.
+  assert.ok(learnSrc.includes("data-nova-mood={brainUi.mood}"), "the wrapper does not carry her mood");
+  assert.ok(learnSrc.includes("data-nova-stage={sleepStage}"), "the wrapper does not carry her sleep stage");
+  assert.ok(learnSrc.includes("data-nova-doing={doingNow}"), "the wrapper does not carry her current behavior");
   assert.ok(learnSrc.includes('emitNovaActivity("search", "start")'), "the course builder does not announce its search");
   assert.ok(learnSrc.includes('emitNovaActivity("search", "success")'), "the course builder does not announce a landed course");
   assert.ok(learnSrc.includes('emitNovaActivity("search", "degraded")'), "the course builder does not announce a thin result");
   assert.ok(learnSrc.includes('scanning={activityState === "thinking"}'), "a running search does not set the scanning glance");
+});
+
+await test("Nova's brain: drives in, behavior out, and she never repeats herself", () => {
+  // The brain (2026-10-15, the owner's order: "Not just three.
+  // I want her to like have her own brain."). The picker is
+  // pure: drives and context in, a chosen behavior and an
+  // accumulated mood out.
+  const ctx = (over = {}) => ({
+    now: 1000000, hour: 14, idleMs: 0, stage: 0, base: "greeting",
+    busy: false, lineReady: false, afterThinking: false, calm: false, rand: 0.5, ...over,
+  });
+  // Real events outrank self initiated behavior: while a beat
+  // owns her, even a maximally curious brain may only watch.
+  const busyOut = novaBrainDecide({ ...createNovaBrain(null), curiosity: 1 }, ctx({ busy: true }));
+  assert.equal(busyOut.behavior, "watch", "a beat in progress is never interrupted");
+  // Silence beats a line: with nothing pulling at her, an
+  // available line still loses to watching.
+  assert.equal(novaBrainDecide(createNovaBrain(null), ctx({ lineReady: true, idleMs: 1000 })).behavior, "watch",
+    "she chooses silence over a line when nothing pulls");
+  // The drift is a decision now: a long untouched page at
+  // stage zero chooses to drift, and fresh activity at stage
+  // two chooses to wake.
+  assert.equal(novaBrainDecide(createNovaBrain(null), ctx({ idleMs: 130000 })).behavior, "drift",
+    "a long idle chooses to drift a sleep stage");
+  assert.equal(novaBrainDecide(createNovaBrain(null), ctx({ idleMs: 1000, stage: 2 })).behavior, "wake",
+    "fresh activity at stage two chooses to wake");
+  // Curiosity performs: it flutters her gills, and the same
+  // brain immediately after cannot repeat the trick (the
+  // cooldown and the no repeat penalty both bind), and a
+  // third decision with both tricks cooling falls to watch.
+  const curious = { ...createNovaBrain(null), curiosity: 0.95 };
+  const first = novaBrainDecide(curious, ctx({ idleMs: 10000 }));
+  assert.equal(first.behavior, "noticing", "high curiosity at an idle screen chooses the noticing routine");
+  assert.ok(first.brain.cooldowns.noticing > 1000000, "the chosen behavior rests on its cooldown");
+  const second = novaBrainDecide(first.brain, ctx({ idleMs: 10000 }));
+  assert.notEqual(second.behavior, "noticing", "she never does the same trick twice in a row");
+  assert.equal(second.behavior, "gill-flutter", "the next best fit takes the turn");
+  const third = novaBrainDecide(second.brain, ctx({ idleMs: 10000 }));
+  assert.equal(third.behavior, "watch", "with her tricks cooling she settles back to watching");
+  // The glasses push is her resettle fidget: it wins shortly
+  // after a thinking stretch ends.
+  assert.equal(novaBrainDecide(createNovaBrain(null), ctx({ idleMs: 1000, afterThinking: true })).behavior, "glasses-push",
+    "after thinking she pushes her glasses up");
+  // Moods accumulate: two misses darken a greeting baseline
+  // to worried before any line appears, one miss only to
+  // deadpan, and a calm stretch warms a darkened bias back.
+  let b = createNovaBrain(null);
+  b = novaBrainObserve(b, { type: "miss" });
+  assert.equal(novaBrainDecide(b, ctx()).mood, "deadpan", "one miss darkens her to deadpan");
+  b = novaBrainObserve(b, { type: "miss" });
+  assert.equal(novaBrainDecide(b, ctx()).mood, "worried", "repeated misses darken her to worried");
+  const warmed = novaBrainDecide({ ...createNovaBrain(null), moodBias: -0.2 }, ctx({ calm: true }));
+  assert.equal(warmed.mood, "greeting", "a calm stretch warms the baseline back to greeting");
+  // Pokes spend patience, and the memory persists: a visit
+  // that ended poked out starts the next one patience thin.
+  const poked = novaBrainObserve(createNovaBrain(null), { type: "poke" });
+  assert.ok(poked.patience <= 0.5, "a poke spends her patience");
+  assert.ok(poked.pokeTrend > 0, "the poke leaves a trend behind");
+  assert.ok(createNovaBrain({ lastEnd: "poked-out", patience: 0.9 }).patience <= 0.35,
+    "a poked out ending carries thin patience into the next visit");
+  assert.equal(createNovaBrain({ lastEnd: "pleased" }).lastEnd, "pleased", "how a visit ended is remembered");
+  // The wiring: NovaLive runs the picker on a tick, persists
+  // the brain inside the quirks store, and the tap path is
+  // whole from the header instance to the held beat (the
+  // owner's browser check missed it on screenshot timing;
+  // every link of the chain is pinned here instead).
+  assert.ok(learnSrc.includes("novaBrainDecide(brainRef.current, {"), "NovaLive never asks the brain");
+  assert.ok(learnSrc.includes("createNovaBrain(saved)"), "NovaLive never loads the brain");
+  assert.ok(learnSrc.includes("q.brain = brainRef.current"), "the brain is not persisted in the quirks store");
+  assert.ok(learnSrc.includes('onClick={onTap}'), "the live wrapper takes no tap");
+  assert.ok(learnSrc.includes("setBeat(step.face)"), "a tap does not set the poke ladder's face");
+  assert.ok(learnSrc.includes("setTimeout(() => setBeat(null), 1300)"), "the tap beat does not hold its 1300ms");
+  assert.ok(learnSrc.includes(".nv-rig-halo {"), "the halo is missing");
+  assert.ok(learnSrc.includes("pointer-events: none; }") || learnSrc.includes("pointer-events: none"), "the halo could eat a tap");
 });
 
 await test("novaMoodFor ranks streak risk over overdue review over the late night hours", () => {

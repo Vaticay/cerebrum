@@ -1337,6 +1337,52 @@ const CSS = `
 @keyframes nvRigSwimTail { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(7deg); } }
 .nv-rig-swim .nv-rig-head { animation: nvRigSwimHead 1.5s ease-in-out infinite; }
 @keyframes nvRigSwimHead { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
+/* Her signature cues (2026-10-15): the glasses push with its
+   tiny head dip, the two beat gill flutter, and the noticing
+   routine (a long held glance, a tipped head, the far fan
+   lifted). Each is fired once by a keyed remount from the rig
+   or by the brain through NovaLive, runs its course, and
+   settles; none of them loops. */
+.nv-rig-push { animation: nvRigGlassesPush 0.7s cubic-bezier(0.3, 0.7, 0.3, 1); }
+@keyframes nvRigGlassesPush {
+  0% { transform: translateY(0px); }
+  35% { transform: translateY(calc(var(--nv-push, 22px) * -1)); }
+  100% { transform: translateY(0px); }
+}
+.nv-rig-headdip { animation: nvRigHeadDip 0.7s cubic-bezier(0.3, 0.7, 0.3, 1); transform-box: view-box; transform-origin: 950px 620px; }
+@keyframes nvRigHeadDip {
+  0% { transform: rotate(0deg) translateY(0px); }
+  35% { transform: rotate(0.7deg) translateY(4px); }
+  100% { transform: rotate(0deg) translateY(0px); }
+}
+.nv-rig-noticehead { animation: nvRigNoticeHead 1.9s ease-in-out; transform-box: view-box; transform-origin: 950px 620px; }
+@keyframes nvRigNoticeHead {
+  0% { transform: rotate(0deg); }
+  18% { transform: rotate(2.6deg); }
+  78% { transform: rotate(2.6deg); }
+  100% { transform: rotate(0deg); }
+}
+.nv-rig-flutter { animation: nvRigFlutter 0.5s ease-in-out; }
+@keyframes nvRigFlutter {
+  0% { transform: rotate(0deg); }
+  25% { transform: rotate(-2.4deg); }
+  55% { transform: rotate(1.8deg); }
+  100% { transform: rotate(0deg); }
+}
+.nv-rig-notice-glance { animation: nvRigNoticeGlance 1.9s ease-in-out; }
+@keyframes nvRigNoticeGlance {
+  0% { transform: translate(0px, 0px); }
+  18% { transform: translate(calc(var(--nv-glance-x, 9px) * 1.7), calc(var(--nv-glance-y, -2px) * 1.7)); }
+  78% { transform: translate(calc(var(--nv-glance-x, 9px) * 1.7), calc(var(--nv-glance-y, -2px) * 1.7)); }
+  100% { transform: translate(0px, 0px); }
+}
+.nv-rig-fanlift { animation: nvRigFanLift 1.9s ease-in-out; }
+@keyframes nvRigFanLift {
+  0% { transform: rotate(0deg); }
+  18% { transform: rotate(-3.2deg); }
+  78% { transform: rotate(-3.2deg); }
+  100% { transform: rotate(0deg); }
+}
 /* The home section navigation (home restructure wave): a flat
    segmented row, gold underline for the current screen, nothing
    rounded beyond the foundation tokens. */
@@ -1362,6 +1408,7 @@ const CSS = `
      posture, head tip) are not animations and stay, so she
      holds the current expression. */
   .nv-rig-breath, .nv-rig-tail, .nv-rig-fil, .nv-rig-lid, .nv-rig-glance, .nv-rig-head, .nv-rig-react { animation: none !important; }
+  .nv-rig-push, .nv-rig-headdip, .nv-rig-noticehead, .nv-rig-flutter, .nv-rig-notice-glance, .nv-rig-fanlift { animation: none !important; }
   .nv-rig .nv-rig-t { transition: none !important; }
 }
 .lv-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 16px; }
@@ -1518,11 +1565,29 @@ function CharacterPose({ pose, size = 54, live = false }) {
    head, is smoothed; the art's textured double ink line
    becomes one clean line of varied weight. Lessons,
    completion art, and the share card keep the raster poses
-   untouched; those are artwork moments. */
+   untouched; those are artwork moments.
+   The same night (2026-10-15) the owner ruled on the live
+   bust: "She looks mad." The default states now carry a soft
+   resting face as state level swaps (rounder pupils with a
+   shine, relaxed lid lines, raised lids, the faintest smile);
+   deadpan keeps the traced stare because that is its job. She
+   also gained a lab coat and glasses in the same traced ink
+   (warm paper white, gold bridge, piping, and pen that dim
+   with her fading gold), three signature cues (the glasses
+   push, the gill flutter, the noticing routine), and a brain:
+   the utility picker in novaBrainDecide whose drives,
+   accumulated mood, and persisted memory NovaLive runs on.
+   Her state is data now, carried on the NovaLive wrapper as
+   data-nova-mood, data-nova-stage, and data-nova-doing. */
 const NOVA_RIG_INK = "#4F2A12";
 const NOVA_RIG_FILL = "#FDEBCB";
 const NOVA_RIG_GOLD = "#C7A965";
 const NOVA_RIG_WASH = "#DBC0B1";
+/* The lab coat (2026-10-15, the owner's order): a warm paper
+   white sampled against the art, never blue white, and a
+   slightly deeper shade of the same paper for the pocket. */
+const NOVA_RIG_COAT = "#FAF4E4";
+const NOVA_RIG_COAT_SHADE = "#F0E5CB";
 const NOVA_RIG_D = {
   tail: "M520,1252 C560,1305 640,1360 730,1392 C830,1426 950,1432 1050,1408 C1160,1380 1260,1305 1320,1215 C1350,1170 1362,1115 1364,1068 C1364,1052 1358,1040 1348,1036 C1338,1032 1325,1050 1305,1072 C1240,1140 1140,1176 1030,1178 C940,1180 865,1150 815,1102 C800,1088 795,1078 788,1072 C700,1130 600,1190 520,1252 Z",
   body: "M612,580 C565,645 512,725 472,815 C442,885 420,962 417,1042 C419,1122 444,1196 490,1255 C525,1300 555,1322 590,1335 L800,1098 C855,1010 905,905 955,795 C985,728 1002,680 1012,650 C920,668 830,660 755,640 C690,624 645,605 612,580 Z",
@@ -1554,6 +1619,56 @@ const NOVA_RIG_D = {
   lidLineR: "M1073,431 L1146,431",
   closedPleased: "M840,455 C862,472 912,472 934,455 M1086,447 C1102,460 1126,460 1134,447",
   closedAsleep: "M842,464 C865,478 910,478 932,464 M1088,455 C1103,466 1125,466 1132,455",
+  /* The soft resting face (2026-10-15, the owner's verdict
+     "She looks mad"): at the bust framing the traced resting
+     face, heavy straight lid lines over half disc pupils,
+     reads as a glare. The default states (greeting, and
+     explaining where it shares the resting face) swap in
+     these parts at the state level: rounder, slightly larger
+     pupils sitting a touch higher, and lid lines redrawn in
+     the relaxed configuration, a shallow dome with the outer
+     ends tipped a little down instead of a straight slash.
+     Deadpan keeps the full unimpressed stare; nothing global
+     moves. The little cream highlight rides with the soft
+     pupils so the eyes read alive, not flat. */
+  pupilSoftL: "M832,466 C832,447 856,432 887,432 C918,432 942,447 942,466 C942,485 918,500 887,500 C856,500 832,485 832,466 Z",
+  pupilSoftR: "M1079,452 C1079,438 1093,427 1110,427 C1127,427 1141,438 1141,452 C1141,466 1127,477 1110,477 C1093,477 1079,466 1079,452 Z",
+  lidLineSoftL: "M826,446 C862,437 910,436 948,442",
+  lidLineSoftR: "M1073,435 C1100,430 1124,431 1146,438",
+  shineSoftL: "M866,446 C866,442 870,439 875,439 C880,439 884,442 884,446 C884,450 880,453 875,453 C870,453 866,450 866,446 Z",
+  shineSoftR: "M1099,441 C1099,438 1102,435 1106,435 C1110,435 1113,438 1113,441 C1113,444 1110,447 1106,447 C1102,447 1099,444 1099,441 Z",
+  /* The glasses (2026-10-15, the owner's order): soft
+     rectangles with rounded corners in the same ink weight as
+     the lid lines, a thin gold bridge, short temple arms
+     angling back toward the gill fans. No lens fill anywhere:
+     the lenses are fully transparent and her pupils and her
+     blink stay undimmed behind them. They are drawn last in
+     the head group, so she blinks behind her glasses. */
+  glassesL: "M824,404 L950,404 C966,404 978,416 978,432 L978,494 C978,510 966,522 950,522 L824,522 C808,522 796,510 796,494 L796,432 C796,416 808,404 824,404 Z",
+  glassesR: "M1072,396 L1152,396 C1166,396 1176,406 1176,420 L1176,474 C1176,488 1166,498 1152,498 L1072,498 C1058,498 1048,488 1048,474 L1048,420 C1048,406 1058,396 1072,396 Z",
+  glassesBridge: "M978,444 C1002,434 1024,434 1048,444",
+  templeL: "M796,434 C762,426 728,412 702,396",
+  templeR: "M1176,426 C1198,418 1220,408 1238,396",
+  /* The lab coat (2026-10-15, the owner's order): one panel
+     over the body in warm paper white, hem cut above the tail
+     fin, the belly wash showing through the open front along
+     the wash's own west boundary (coatOpeningEdge), a collar
+     band under the chin with one folded lapel starting the V,
+     a breast pocket with a gold pen, two ink buttons down the
+     panel beside the opening. The coatFin rides inside the
+     tail group, clipped by the tail the way washFin is, so
+     the swim cycle carries the hem with no seam. The gold
+     spine path is drawn over the coat as its back piping. */
+  coat: "M612,580 C565,645 512,725 472,815 C442,885 425,960 430,1052 C460,1128 540,1192 648,1222 C712,1180 762,1140 800,1098 C855,1010 905,905 955,795 C985,728 1002,680 1012,650 C920,668 830,660 755,640 C690,624 645,605 612,580 Z",
+  coatFin: "M520,1252 C600,1190 700,1130 788,1072 C800,1088 795,1078 788,1072 C700,1130 600,1190 520,1252 Z M560,1240 C640,1180 730,1122 800,1088 C812,1104 830,1122 862,1148 C780,1170 660,1210 560,1240 Z",
+  coatHemEdge: "M430,1052 C460,1128 540,1192 648,1222 C712,1180 762,1140 800,1098",
+  coatOpeningEdge: "M900,655 C862,685 830,730 800,775 C745,855 712,955 700,1040 C699,1100 698,1148 696,1238",
+  coatCollar: "M742,632 C824,658 940,668 1022,650 C1016,674 1006,692 994,704 C918,700 824,688 762,664 C752,654 744,644 742,632 Z",
+  coatLapel: "M906,668 C872,706 848,752 838,800 C876,782 908,738 922,696 C926,680 920,668 906,668 Z",
+  coatLapelR: "M1006,652 C996,690 978,738 954,784 C986,764 1006,722 1014,684 C1016,666 1014,656 1006,652 Z",
+  coatPocket: "M598,748 L686,748 L686,804 C686,817 678,824 665,824 L619,824 C606,824 598,817 598,804 Z",
+  coatPen: "M641,708 L655,708 L655,758 L641,758 Z",
+  coatPenClip: "M641,722 L655,722",
   tailEdge: "M520,1252 C560,1305 640,1360 730,1392 C830,1426 950,1432 1050,1408 C1160,1380 1260,1305 1320,1215 C1350,1170 1362,1115 1364,1068 C1364,1052 1358,1040 1348,1036 C1338,1032 1325,1050 1305,1072 C1240,1140 1140,1176 1030,1178 C940,1180 865,1150 815,1102 C800,1088 795,1078 788,1072",
   bodyEdge: "M612,580 C565,645 512,725 472,815 C442,885 420,962 417,1042 C419,1122 444,1196 490,1255 C525,1300 555,1322 590,1335",
 };
@@ -1566,7 +1681,12 @@ const NOVA_RIG_FILAMENTS = [
   { key: "r3", gold: "g6", origin: "1226px 626px", dur: "4.6s", delay: "-2.6s" },
 ];
 const NOVA_RIG_MOUTHS = {
-  greeting: { d: "M915,543 C985,537 1055,537 1118,544" },
+  /* Greeting's mouth (2026-10-15, the owner's "She looks mad"
+     ruling): the traced mouth bowed its middle up a touch,
+     flat verging on frown. It is now the faintest upward
+     curve, the pleased mouth softened well past halfway:
+     welcoming, still understated, still hers. */
+  greeting: { d: "M922,540 C985,555 1052,555 1112,541" },
   explaining: { d: "M1072,548 C1072,536 1084,528 1098,528 C1112,528 1124,536 1124,548 C1124,560 1112,568 1098,568 C1084,568 1072,560 1072,548 Z", fill: true },
   pleased: { d: "M972,530 C998,552 1046,554 1074,532" },
   thinking: { d: "M945,552 C1015,542 1085,533 1145,526" },
@@ -1576,8 +1696,15 @@ const NOVA_RIG_MOUTHS = {
   asleep: { d: "M958,552 C1005,548 1055,548 1098,552" },
 };
 const NOVA_RIG_STATES = {
-  greeting: { lid: 0, gaze: [0, 0], gill: 0, gold: 1, head: [0, 0, 0], closed: null },
-  explaining: { lid: 0, gaze: [2, 0], gill: 0, gold: 1, head: [0, 0, 0], closed: null },
+  /* The default states carry the soft resting face (2026-10-15,
+     the owner's "She looks mad" ruling): lids raised toward
+     open (greeting -8, explaining -6, still short of worried's
+     raised -16 so her dry half lid character survives) and the
+     soft pupil and lid line swaps named here. Every other
+     state keeps the traced face exactly as it was; deadpan's
+     stare is its job and stays the full one. */
+  greeting: { lid: -8, gaze: [0, 0], gill: 0, gold: 1, head: [0, 0, 0], closed: null, pupilL: "pupilSoftL", pupilR: "pupilSoftR", lidLineL: "lidLineSoftL", lidLineR: "lidLineSoftR", shine: true },
+  explaining: { lid: -6, gaze: [2, 0], gill: 0, gold: 1, head: [0, 0, 0], closed: null, pupilL: "pupilSoftL", pupilR: "pupilSoftR", lidLineL: "lidLineSoftL", lidLineR: "lidLineSoftR", shine: true },
   pleased: { lid: 0, gaze: [0, 0], gill: -1, gold: 1, head: [0, 0, 0], closed: "closedPleased" },
   thinking: { lid: -8, gaze: [-13, -9], gill: 0, gold: 1, head: [-1.5, 0, 0], closed: null },
   worried: { lid: -16, gaze: [0, -2], gill: -2.5, gold: 1, head: [0, 0, -4], closed: null },
@@ -1622,6 +1749,153 @@ export function emitNovaActivity(kind, outcome) {
     window.dispatchEvent(new CustomEvent(NOVA_ACTIVITY_EVENT, { detail: { kind, outcome, at: Date.now() } }));
   } catch { /* Nova is decoration; activity plumbing must never break the work itself. */ }
 }
+
+/* ── Nova's brain (2026-10-15, the owner's order: "Not just
+   three. I want her to like have her own brain.") ───────────
+   The signature moves stop being timers and become choices.
+   One small utility engine lives here: drives that move with
+   events and time (energy drains as the session and the hour
+   wear on and restores while she sleeps; curiosity rises
+   when new things happen on her screen and decays as she
+   inspects; attention tracks whether the user is active, idle,
+   or poking; patience is spent by pokes and restored by calm
+   stretches), a mood bias that accumulates over minutes
+   instead of flipping per event, and a picker that every few
+   seconds scores the candidate behaviors by drive fit and
+   takes the best one. Her temperament is fixed in the scores:
+   watching beats performing (watch carries the highest base
+   score on the board), silence beats a line (a line is the
+   weakest candidate that can win), and she reacts late and
+   small. A strong no repeat penalty and per behavior
+   cooldowns keep her from looping a trick. Real events always
+   outrank self initiated behavior: while a beat owns her
+   (ctx.busy) the picker may only watch. The picker is pure;
+   NovaLive feeds it the clock, the hour, the idle span, and
+   what just happened, and applies what it returns. The state
+   is a handful of numbers and flags persisted inside the
+   quirks store: how the last visit ended, her poke tolerance
+   trend, the hours she tends to be visited. Continuity, not
+   a transcript. */
+export function createNovaBrain(saved) {
+  const s = saved && typeof saved === "object" ? saved : {};
+  const num = (v, d) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : d);
+  const lastEnd = s.lastEnd === "pleased" || s.lastEnd === "poked-out" || s.lastEnd === "ignored" ? s.lastEnd : "ignored";
+  return {
+    energy: num(s.energy, 0.75),
+    curiosity: num(s.curiosity, 0.25),
+    attention: num(s.attention, 0.4),
+    /* A visit that ended with her asleep from pokes starts
+       the next visit with her patience already thin. */
+    patience: lastEnd === "poked-out" ? Math.min(num(s.patience, 0.8), 0.35) : num(s.patience, 0.8),
+    moodBias: typeof s.moodBias === "number" && Number.isFinite(s.moodBias) ? Math.max(-1, Math.min(1, s.moodBias)) : 0,
+    lastBehavior: typeof s.lastBehavior === "string" ? s.lastBehavior : "watch",
+    cooldowns: s.cooldowns && typeof s.cooldowns === "object" ? { ...s.cooldowns } : {},
+    lastEnd,
+    pokeTrend: num(s.pokeTrend, 0),
+    hours: Array.isArray(s.hours) ? s.hours.filter((h) => typeof h === "number" && Number.isFinite(h)).slice(-8) : [],
+  };
+}
+
+export function novaBrainObserve(brain, event) {
+  const b = { ...createNovaBrain(brain) };
+  const clamp = (v) => Math.max(0, Math.min(1, v));
+  const bias = (v) => Math.max(-1, Math.min(1, v));
+  switch (event && event.type) {
+    case "poke":
+      b.patience = clamp(b.patience - 0.3);
+      b.attention = clamp(b.attention + 0.1);
+      b.pokeTrend = clamp(b.pokeTrend + 0.25);
+      break;
+    case "activity":
+      b.attention = clamp(b.attention + 0.12);
+      break;
+    case "search":
+      b.curiosity = clamp(b.curiosity + 0.35);
+      break;
+    case "success":
+      b.curiosity = clamp(b.curiosity + 0.15);
+      b.moodBias = bias(b.moodBias + 0.18);
+      break;
+    case "lesson":
+      b.curiosity = clamp(b.curiosity + 0.3);
+      b.moodBias = bias(b.moodBias + 0.1);
+      break;
+    case "miss":
+      b.moodBias = bias(b.moodBias - 0.3);
+      b.curiosity = clamp(b.curiosity + 0.08);
+      break;
+    default:
+      break;
+  }
+  return b;
+}
+
+export function novaBrainDecide(brain, ctx) {
+  const c = ctx && typeof ctx === "object" ? ctx : {};
+  const now = typeof c.now === "number" ? c.now : 0;
+  const hour = typeof c.hour === "number" ? c.hour : 12;
+  const idleMs = typeof c.idleMs === "number" ? c.idleMs : 0;
+  const stage = typeof c.stage === "number" ? c.stage : 0;
+  const base = typeof c.base === "string" ? c.base : "greeting";
+  const rand = typeof c.rand === "number" && Number.isFinite(c.rand) ? Math.max(0, Math.min(1, c.rand)) : 0.5;
+  const clamp = (v) => Math.max(0, Math.min(1, v));
+  const bias = (v) => Math.max(-1, Math.min(1, v));
+  const b = { ...createNovaBrain(brain) };
+  /* The drives move first, one tick's worth. */
+  const late = hour >= 23 || hour < 5;
+  b.energy = clamp(b.energy + (stage >= 2 ? 0.06 : late ? -0.014 : -0.008));
+  if (idleMs < 5000) b.attention = clamp(b.attention + 0.08);
+  else if (idleMs > 30000) { b.attention = clamp(b.attention - 0.04); b.curiosity = clamp(b.curiosity + 0.012); }
+  if (idleMs > 45000) b.patience = clamp(b.patience + 0.03);
+  b.curiosity = clamp(b.curiosity - 0.015);
+  b.pokeTrend = clamp(b.pokeTrend - 0.01);
+  b.moodBias = c.calm ? bias(b.moodBias + 0.04) : bias(b.moodBias * 0.99);
+  /* The mood the drives add up to: an accumulation layered on
+     the handed base, never a flip. Repeated misses darken a
+     greeting baseline toward deadpan and then worried before
+     any line appears; calm productive stretches warm it back. */
+  let mood = base;
+  if (base === "greeting" || base === "explaining") {
+    if (b.moodBias <= -0.55) mood = "worried";
+    else if (b.moodBias <= -0.22) mood = "deadpan";
+  }
+  if (c.busy) {
+    b.lastBehavior = "watch";
+    return { brain: b, behavior: "watch", mood };
+  }
+  const target = novaIdleStageFor(idleMs, hour, base);
+  const cooled = (name) => typeof b.cooldowns[name] === "number" && b.cooldowns[name] > now;
+  const scores = {
+    watch: 0.45,
+    glance: idleMs < 20000 ? 0.1 + b.attention * 0.5 : -1,
+    "glasses-push": 0.16 + (1 - b.energy) * 0.22 + (c.afterThinking ? 0.55 : 0),
+    "gill-flutter": 0.04 + b.curiosity * 0.62,
+    noticing: idleMs > 8000 ? 0.06 + b.curiosity * 0.5 + (1 - b.attention) * 0.25 : -1,
+    line: c.lineReady ? 0.1 + b.curiosity * 0.18 : -1,
+    drift: target > stage ? 0.78 + (1 - b.energy) * 0.2 : -1,
+    wake: target < stage ? 0.85 : -1,
+  };
+  const performative = ["glance", "glasses-push", "gill-flutter", "noticing", "line"];
+  for (const name of performative) {
+    if (cooled(name)) scores[name] = -1;
+    else if (b.lastBehavior === name) scores[name] -= 0.5;
+  }
+  let behavior = "watch";
+  let best = scores.watch;
+  for (const name of ["glance", "glasses-push", "gill-flutter", "noticing", "line", "drift", "wake"]) {
+    if (scores[name] > best) { best = scores[name]; behavior = name; }
+  }
+  const spans = {
+    glance: [9000, 5000],
+    "glasses-push": [35000, 15000],
+    "gill-flutter": [20000, 10000],
+    noticing: [24000, 8000],
+    line: [90000, 60000],
+  };
+  if (spans[behavior]) b.cooldowns[behavior] = now + spans[behavior][0] + rand * spans[behavior][1];
+  b.lastBehavior = behavior;
+  return { brain: b, behavior, mood };
+}
 let novaRigSeq = 0;
 
 /* The rig itself. state is one of the eight expression keys;
@@ -1641,7 +1915,7 @@ let novaRigSeq = 0;
    land at a constant few screen pixels at any render size.
    The reaction squash runs when the state changes to a
    reaction face: a squash, a settle, a stretch, never a loop. */
-export function NovaRig({ state = "greeting", size = 120, halo = false, bust = false, mode = "idle", scanning = false }) {
+export function NovaRig({ state = "greeting", size = 120, halo = false, bust = false, mode = "idle", scanning = false, pushN = 0, flutterN = 0, noticeN = 0 }) {
   const known = state === "greeting" || state === "explaining" || state === "pleased" || state === "thinking" || state === "worried" || state === "fading" || state === "deadpan" || state === "asleep";
   const st = known ? NOVA_RIG_STATES[state] : NOVA_RIG_STATES.greeting;
   const mouth = known ? NOVA_RIG_MOUTHS[state] : NOVA_RIG_MOUTHS.greeting;
@@ -1650,12 +1924,40 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
   const uid = "r" + idRef.current;
   const [reactN, setReactN] = useState(0);
   const prevState = useRef(state);
+  /* Her signature cues (2026-10-15): pushN, flutterN, and
+     noticeN are counters handed down from NovaLive's brain;
+     each increment remounts the cued group under a one shot
+     CSS animation. A pleased beat flutters her gills from
+     inside the rig as well, her tell for interest, so the
+     flutter counter here is the sum of both sources. The cues
+     yield to state changes by construction: they animate
+     groups the state data does not touch, and the brain never
+     fires one while a beat owns her. */
+  const [autoFlutterN, setAutoFlutterN] = useState(0);
   useEffect(() => {
     if (prevState.current !== state) {
       prevState.current = state;
       if (state === "pleased" || state === "deadpan" || state === "worried") setReactN((n) => n + 1);
+      if (state === "pleased") setAutoFlutterN((n) => n + 1);
     }
   }, [state]);
+  const flutterKey = flutterN + autoFlutterN;
+  /* The head cues share one wrapper (a dip for the glasses
+     push, a tip and hold for noticing); the wrapper needs to
+     know which fired last, and the cue classes must clear
+     when their one shot ends or the notice glance class would
+     hold the regular glance cycle off forever. */
+  const [headCue, setHeadCue] = useState(null);
+  const cueSeen = useRef({ push: 0, notice: 0 });
+  useEffect(() => {
+    if (pushN !== cueSeen.current.push) { cueSeen.current.push = pushN; if (pushN) setHeadCue("push"); }
+    if (noticeN !== cueSeen.current.notice) { cueSeen.current.notice = noticeN; if (noticeN) setHeadCue("notice"); }
+  }, [pushN, noticeN]);
+  useEffect(() => {
+    if (!headCue) return;
+    const t = setTimeout(() => setHeadCue(null), headCue === "push" ? 750 : 1950);
+    return () => clearTimeout(t);
+  }, [headCue, pushN, noticeN]);
   const height = Math.round(size * ((bust ? 800 : 1230) / 1370));
   /* Motion in screen terms (2026-10-14, the owner's browser
      check saw no movement at all): U is rig units per screen
@@ -1684,8 +1986,8 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
     <g key={side} className="nv-rig-t nv-rig-anim" style={{ transform: "translateY(" + st.lid + "px)" }}>
       <g className="nv-rig-lid nv-rig-anim" style={side === "r" ? { animationDelay: "-0.05s" } : undefined}>
         {side === "l"
-          ? <><rect x={812} y={352} width={150} height={90} fill={NOVA_RIG_FILL} /><path d={NOVA_RIG_D.lidLineL} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" /></>
-          : <><rect x={1060} y={346} width={100} height={87} fill={NOVA_RIG_FILL} /><path d={NOVA_RIG_D.lidLineR} fill="none" stroke={NOVA_RIG_INK} strokeWidth={12} strokeLinecap="round" /></>}
+          ? <><rect x={812} y={352} width={150} height={90} fill={NOVA_RIG_FILL} /><path d={NOVA_RIG_D[st.lidLineL || "lidLineL"]} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" /></>
+          : <><rect x={1060} y={346} width={100} height={87} fill={NOVA_RIG_FILL} /><path d={NOVA_RIG_D[st.lidLineR || "lidLineR"]} fill="none" stroke={NOVA_RIG_INK} strokeWidth={12} strokeLinecap="round" /></>}
       </g>
     </g>
   );
@@ -1697,6 +1999,7 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
       "--nv-breath-y": breathY.toFixed(4),
       "--nv-glance-x": Math.round(2.1 * U) + "px",
       "--nv-glance-y": Math.round(-0.5 * U) + "px",
+      "--nv-push": Math.round(2.1 * U) + "px",
     }}>
       {halo && <span aria-hidden="true" className="nv-rig-halo" />}
       <svg className={"nv-rig nv-rig-st-" + (known ? state : "greeting") + (mode === "swim" ? " nv-rig-swim" : "")}
@@ -1709,6 +2012,7 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
               <path d={NOVA_RIG_D.tail} fill={NOVA_RIG_FILL} />
               <clipPath id={"tl" + uid}><path d={NOVA_RIG_D.tail} /></clipPath>
               <g clipPath={"url(#tl" + uid + ")"}><path d={NOVA_RIG_D.washFin} fill={NOVA_RIG_WASH} /></g>
+              <g clipPath={"url(#tl" + uid + ")"}><path d={NOVA_RIG_D.coatFin} fill={NOVA_RIG_COAT} /></g>
               <path d={NOVA_RIG_D.tailEdge} fill="none" stroke={NOVA_RIG_INK} strokeWidth={16} strokeLinecap="round" />
             </g>
             <path d={NOVA_RIG_D.body} fill={NOVA_RIG_FILL} />
@@ -1716,8 +2020,31 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
             <clipPath id={"bd" + uid}><path d={NOVA_RIG_D.body} /><path d={NOVA_RIG_D.tail} /></clipPath>
             <g clipPath={"url(#bd" + uid + ")"}>
               <path d={NOVA_RIG_D.wash} fill={NOVA_RIG_WASH} />
-              <path d={NOVA_RIG_D.spine} fill="none" stroke={NOVA_RIG_GOLD} strokeWidth={20} strokeLinecap="round" />
             </g>
+            {/* The lab coat (2026-10-15): a layer over the body
+                inside the same breath group, so it breathes and
+                squashes with her. The panel covers the body, the
+                wash is redrawn over it inside the open front,
+                and the gold spine becomes piping along the
+                coat's back edge, dimming with her gold in the
+                fading state like the pen and the bridge. */}
+            <path d={NOVA_RIG_D.coat} fill={NOVA_RIG_COAT} />
+            <g clipPath={"url(#bd" + uid + ")"}>
+              <path d={NOVA_RIG_D.wash} fill={NOVA_RIG_WASH} />
+            </g>
+            <path d={NOVA_RIG_D.coatHemEdge} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" />
+            <path d={NOVA_RIG_D.coatOpeningEdge} fill="none" stroke={NOVA_RIG_INK} strokeWidth={12} strokeLinecap="round" />
+            <path className="nv-rig-gold nv-rig-t" d={NOVA_RIG_D.spine} fill="none" stroke={NOVA_RIG_GOLD} strokeWidth={20} strokeLinecap="round" style={{ opacity: st.gold }} />
+            <path d={NOVA_RIG_D.coatCollar} fill={NOVA_RIG_COAT} stroke={NOVA_RIG_INK} strokeWidth={11} strokeLinejoin="round" />
+            <path d={NOVA_RIG_D.coatLapel} fill={NOVA_RIG_COAT} stroke={NOVA_RIG_INK} strokeWidth={11} strokeLinejoin="round" />
+            <path d={NOVA_RIG_D.coatLapelR} fill={NOVA_RIG_COAT} stroke={NOVA_RIG_INK} strokeWidth={11} strokeLinejoin="round" />
+            <path d={NOVA_RIG_D.coatPocket} fill={NOVA_RIG_COAT_SHADE} stroke={NOVA_RIG_INK} strokeWidth={10} strokeLinejoin="round" />
+            <g transform="rotate(9 648 733)">
+              <path className="nv-rig-gold nv-rig-t" d={NOVA_RIG_D.coatPen} fill={NOVA_RIG_GOLD} stroke={NOVA_RIG_INK} strokeWidth={6} style={{ opacity: st.gold }} />
+              <path d={NOVA_RIG_D.coatPenClip} stroke={NOVA_RIG_INK} strokeWidth={5} strokeLinecap="round" />
+            </g>
+            <circle cx={664} cy={908} r={12} fill={NOVA_RIG_INK} />
+            <circle cx={642} cy={1038} r={12} fill={NOVA_RIG_INK} />
             <path d={NOVA_RIG_D.inner} fill="none" stroke={NOVA_RIG_INK} strokeWidth={14} strokeLinecap="round" />
             <g fill="none" strokeLinecap="round">
               <path d={NOVA_RIG_D.armL} stroke={NOVA_RIG_INK} strokeWidth={54} />
@@ -1727,13 +2054,16 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
             </g>
             {[[838, 918], [856, 916], [870, 906]].map(([x, y]) => <circle key={x} cx={x} cy={y} r={7} fill={NOVA_RIG_INK} />)}
             <circle cx={1180} cy={642} r={26} fill={NOVA_RIG_FILL} stroke={NOVA_RIG_INK} strokeWidth={12} />
-            <g className="nv-rig-t nv-rig-anim" style={{ transform: "rotate(" + st.gill + "deg)", transformOrigin: "640px 470px" }}>
-              {NOVA_RIG_FILAMENTS.slice(0, 3).map(fil)}
-            </g>
-            <g className="nv-rig-t nv-rig-anim" style={{ transform: "rotate(" + (-st.gill) + "deg)", transformOrigin: "1180px 480px" }}>
-              {NOVA_RIG_FILAMENTS.slice(3).map(fil)}
+            <g key={"fl" + flutterKey} className={"nv-rig-anim" + (flutterKey ? " nv-rig-flutter" : "")} style={{ transformOrigin: "950px 470px" }}>
+              <g className="nv-rig-t nv-rig-anim" style={{ transform: "rotate(" + st.gill + "deg)", transformOrigin: "640px 470px" }}>
+                {NOVA_RIG_FILAMENTS.slice(0, 3).map(fil)}
+              </g>
+              <g key={"fr" + noticeN} className={"nv-rig-t nv-rig-anim" + (headCue === "notice" ? " nv-rig-fanlift" : "")} style={{ transform: "rotate(" + (-st.gill) + "deg)", transformOrigin: "1180px 480px" }}>
+                {NOVA_RIG_FILAMENTS.slice(3).map(fil)}
+              </g>
             </g>
             <g className="nv-rig-t nv-rig-anim" style={{ transform: headT, transformOrigin: "950px 620px" }}>
+              <g key={"hd" + pushN + "n" + noticeN} className={headCue === "push" ? "nv-rig-headdip" : headCue === "notice" ? "nv-rig-noticehead" : undefined}>
               <g className="nv-rig-head nv-rig-anim">
                 <path d={NOVA_RIG_D.head} fill={NOVA_RIG_FILL} stroke={NOVA_RIG_INK} strokeWidth={16} strokeLinejoin="round" />
                 <path d={NOVA_RIG_D.cheek} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" />
@@ -1742,11 +2072,13 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
                   : (<>
                       <clipPath id={"sk" + uid}><path d={NOVA_RIG_D.sockL + " " + NOVA_RIG_D.sockR} /></clipPath>
                       <g clipPath={"url(#sk" + uid + ")"}>
-                        <g className="nv-rig-glance nv-rig-anim" style={scanning ? { animationDuration: "2.6s" } : undefined}>
+                        <g key={"gl" + noticeN} className={"nv-rig-glance nv-rig-anim" + (headCue === "notice" ? " nv-rig-notice-glance" : "")} style={scanning ? { animationDuration: "2.6s" } : undefined}>
                           <g style={{ transform: "translate(calc(var(--nv-gx, 0px) * " + pointerMult + "), calc(var(--nv-gy, 0px) * " + pointerMult + "))" }}>
                             <g className="nv-rig-t" style={{ transform: "translate(" + gazeX + "px, " + gazeY + "px)" }}>
-                              <path d={NOVA_RIG_D.pupilL} fill={NOVA_RIG_INK} />
-                              <path d={NOVA_RIG_D.pupilR} fill={NOVA_RIG_INK} />
+                              <path d={NOVA_RIG_D[st.pupilL || "pupilL"]} fill={NOVA_RIG_INK} />
+                              <path d={NOVA_RIG_D[st.pupilR || "pupilR"]} fill={NOVA_RIG_INK} />
+                              {st.shine && <path d={NOVA_RIG_D.shineSoftL} fill={NOVA_RIG_FILL} />}
+                              {st.shine && <path d={NOVA_RIG_D.shineSoftR} fill={NOVA_RIG_FILL} />}
                             </g>
                           </g>
                         </g>
@@ -1757,6 +2089,21 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
                 {mouth.fill
                   ? <path d={mouth.d} fill={NOVA_RIG_INK} />
                   : <path d={mouth.d} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" />}
+                {/* Her glasses (2026-10-15) ride the head group
+                    and are drawn last, over pupils and lids, so
+                    she blinks behind them; the temples angle
+                    back toward the gill fans and the bridge is
+                    gold that dims with her fading gold. A push
+                    from the brain remounts the group under its
+                    one shot animation. */}
+                <g key={"g" + pushN} className={"nv-rig-glasses" + (pushN ? " nv-rig-push" : "")}>
+                  <path d={NOVA_RIG_D.templeL} fill="none" stroke={NOVA_RIG_INK} strokeWidth={11} strokeLinecap="round" />
+                  <path d={NOVA_RIG_D.templeR} fill="none" stroke={NOVA_RIG_INK} strokeWidth={11} strokeLinecap="round" />
+                  <path d={NOVA_RIG_D.glassesL} fill="none" stroke={NOVA_RIG_INK} strokeWidth={12} strokeLinejoin="round" />
+                  <path d={NOVA_RIG_D.glassesR} fill="none" stroke={NOVA_RIG_INK} strokeWidth={12} strokeLinejoin="round" />
+                  <path className="nv-rig-gold nv-rig-t" d={NOVA_RIG_D.glassesBridge} fill="none" stroke={NOVA_RIG_GOLD} strokeWidth={9} strokeLinecap="round" style={{ opacity: st.gold }} />
+                </g>
+              </g>
               </g>
             </g>
           </g>
@@ -1775,15 +2122,15 @@ export function NovaRig({ state = "greeting", size = 120, halo = false, bust = f
    she stands free on the page at the exact size, the full
    figure. The signature is the one the raster avatar had, so
    every call site is unchanged. */
-function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false }) {
+function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0 }) {
   if (framing === "panel") {
     return (
       <span className="nv-rig-panel">
-        <NovaRig state={state} size={size} scanning={scanning} />
+        <NovaRig state={state} size={size} scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} />
       </span>
     );
   }
-  return <NovaRig state={state} size={Math.round(size * 1.85)} bust halo scanning={scanning} />;
+  return <NovaRig state={state} size={Math.round(size * 1.85)} bust halo scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} />;
 }
 
 /* The feedback sheet's Nova (home restructure wave, reaction
@@ -1858,6 +2205,49 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const sleepStageRef = useRef(sleepStage);
   const wakeTimers = useRef([]);
   const proximityKey = useRef("");
+  /* The brain (2026-10-15): drives and memory in a ref, its
+     current mood and chosen behavior in state where the
+     wrapper's data attributes and the shown face read them,
+     and the cue counters the rig's signature moves fire from.
+     The brain's state persists inside the quirks store; on
+     unmount the visit records how it ended for her. */
+  const [pushN, setPushN] = useState(0);
+  const [flutterN, setFlutterN] = useState(0);
+  const [noticeN, setNoticeN] = useState(0);
+  const [brainLine, setBrainLine] = useState(null);
+  const [glanceHold, setGlanceHold] = useState(null);
+  const [brainUi, setBrainUi] = useState(() => ({ mood: state, doing: "watch" }));
+  const brainRef = useRef(null);
+  const beatRef = useRef(null);
+  const activityRef = useRef(null);
+  const afterThinkingRef = useRef(false);
+  const lastMissAtRef = useRef(0);
+  const visitEndRef = useRef("ignored");
+  const glanceTimer = useRef(null);
+  const brainLineTimer = useRef(null);
+  const glanceSideRef = useRef(1);
+  const lineFactsAt = useRef(0);
+  const lineReadyRef = useRef(false);
+  const reducedRef = useRef(false);
+
+  const persistBrain = () => {
+    if (!brainRef.current) return;
+    try {
+      const q = loadNovaQuirks();
+      q.brain = brainRef.current;
+      saveNovaQuirks(q);
+    } catch { /* Her brain is decoration; storage must never break the page. */ }
+  };
+  const brainLineText = () => {
+    try {
+      const mem = memoryLineFor(loadNovaMemoryFacts());
+      if (mem) return mem;
+      const set = hourLineSet(new Date().getHours());
+      if (set === "late") return pickNovaLine(NOVA_LATE_LINES, Date.now());
+      if (set === "morning") return pickNovaLine(NOVA_MORNING_LINES, Date.now());
+    } catch { /* A line she cannot ground is a line she does not say. */ }
+    return null;
+  };
 
   const setSleepStageBoth = (next) => {
     sleepStageRef.current = next;
@@ -1885,14 +2275,19 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     noteActivity();
     if (activityTimer.current) clearTimeout(activityTimer.current);
     if (detail.kind === "search" && detail.outcome === "start") {
+      if (brainRef.current) brainRef.current = novaBrainObserve(brainRef.current, { type: "search" });
       setActivityState("thinking");
       activityTimer.current = setTimeout(() => setActivityState(null), 30000);
       return;
     }
     if (detail.outcome === "success" || detail.outcome === "landed" || detail.outcome === "correct") {
+      if (brainRef.current) brainRef.current = novaBrainObserve(brainRef.current, { type: "success" });
+      if (visitEndRef.current !== "poked-out") visitEndRef.current = "pleased";
       setActivityState("pleased");
       activityTimer.current = setTimeout(() => setActivityState(null), 1400);
     } else if (detail.outcome === "degraded" || detail.outcome === "failed" || detail.outcome === "miss") {
+      if (brainRef.current) brainRef.current = novaBrainObserve(brainRef.current, { type: "miss" });
+      lastMissAtRef.current = Date.now();
       setActivityState("deadpan");
       activityTimer.current = setTimeout(() => setActivityState(null), 1800);
     }
@@ -1904,37 +2299,139 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     if (contextStage > sleepStageRef.current && !wakeTimers.current.length) setSleepStageBoth(contextStage);
   }, [state]);
 
-  /* The adaptive loop: real activity on the window, not a
-     decorative timer. Pointer moves, pointer presses, keys,
-     scrolls, and nova-activity signals all count as life; the
-     one second tick only reads how long it has been since the
-     last one and raises the sleep stage on the thresholds in
-     novaIdleStageFor. Every listener and timer is removed on
-     unmount. */
+  /* The activity signals: genuine use only (2026-10-15). A
+     pointer move counts when the pointer actually moved (the
+     coordinates changed), a scroll counts through the
+     gestures that cause one (wheel, touch, keys, presses),
+     and no bare scroll event counts at all: programmatic and
+     layout scrolls fire those too, and the owner's browser
+     check scrolled the page to take its screenshots, which
+     kept resetting her idle clock for a full minute while
+     nothing real happened. The drift itself is no longer a
+     threshold timer here; the brain below decides it, with
+     novaIdleStageFor as the pressure it reads. Every listener
+     is removed on unmount. */
   useEffect(() => {
+    let lastX = null;
+    let lastY = null;
+    const onPointerMove = (e) => {
+      if (e && typeof e.clientX === "number" && typeof e.clientY === "number") {
+        if (lastX !== null && e.clientX === lastX && e.clientY === lastY) return;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      }
+      noteActivity();
+    };
     const onUser = () => noteActivity();
     const onSignal = (e) => showActivity(e.detail);
     const onVisibility = () => { if (!document.hidden) noteActivity(); };
-    window.addEventListener("pointermove", onUser, { passive: true });
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
     window.addEventListener("pointerdown", onUser);
     window.addEventListener("keydown", onUser);
-    window.addEventListener("scroll", onUser, { passive: true, capture: true });
+    window.addEventListener("wheel", onUser, { passive: true });
+    window.addEventListener("touchmove", onUser, { passive: true });
     window.addEventListener(NOVA_ACTIVITY_EVENT, onSignal);
     document.addEventListener("visibilitychange", onVisibility);
-    const tick = setInterval(() => {
-      if (wakeTimers.current.length) return;
-      const target = novaIdleStageFor(Date.now() - lastActivity.current, new Date().getHours(), baseRef.current);
-      if (target > sleepStageRef.current) setSleepStageBoth(target);
-    }, 1000);
     return () => {
-      window.removeEventListener("pointermove", onUser);
+      window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerdown", onUser);
       window.removeEventListener("keydown", onUser);
-      window.removeEventListener("scroll", onUser, { capture: true });
+      window.removeEventListener("wheel", onUser);
+      window.removeEventListener("touchmove", onUser);
       window.removeEventListener(NOVA_ACTIVITY_EVENT, onSignal);
       document.removeEventListener("visibilitychange", onVisibility);
-      clearInterval(tick);
     };
+  }, []);
+
+  /* The brain loads from the quirks store on mount (a visit
+     that ended poked out starts this one patience thin), notes
+     the hour of the visit, and learns whether this user stills
+     her movement with reduced motion: under it the brain may
+     still change her expression, but she does not perform. */
+  useEffect(() => {
+    let saved = null;
+    try { saved = loadNovaQuirks().brain; } catch { saved = null; }
+    const b = createNovaBrain(saved);
+    const hr = new Date().getHours();
+    if (b.hours[b.hours.length - 1] !== hr) b.hours = [...b.hours, hr].slice(-8);
+    brainRef.current = b;
+    try { reducedRef.current = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch { reducedRef.current = false; }
+  }, []);
+
+  /* Beat and thinking mirrors for the brain tick, plus the
+     resettle cue: the glasses push likes to fire once shortly
+     after a thinking stretch ends. */
+  useEffect(() => { beatRef.current = beat; }, [beat]);
+  useEffect(() => {
+    if (activityRef.current === "thinking" && activityState !== "thinking") afterThinkingRef.current = true;
+    activityRef.current = activityState;
+  }, [activityState]);
+
+  /* The brain tick: every few seconds she decides what to do
+     next. Beats own her while they run (the picker can only
+     watch then); otherwise the chosen behavior is applied:
+     cues increment their counters, drift and wake move the
+     sleep stage one step, a glance holds her gaze to a side
+     briefly, and a line, rarely, fills the bubble from the
+     written libraries only. Nothing here invents speech. */
+  useEffect(() => {
+    const applyBehavior = (name) => {
+      if (name === "drift") {
+        setSleepStageBoth(Math.min(2, sleepStageRef.current + 1));
+      } else if (name === "wake") {
+        const floor = baseRef.current === "fading" ? 1 : 0;
+        setSleepStageBoth(Math.max(floor, sleepStageRef.current - 1));
+      } else if (name === "glasses-push") {
+        if (!reducedRef.current) setPushN((n) => n + 1);
+      } else if (name === "gill-flutter") {
+        if (!reducedRef.current) setFlutterN((n) => n + 1);
+      } else if (name === "noticing") {
+        if (!reducedRef.current) setNoticeN((n) => n + 1);
+      } else if (name === "glance") {
+        if (!reducedRef.current) {
+          glanceSideRef.current = -glanceSideRef.current;
+          setGlanceHold({ x: 3.2 * glanceSideRef.current, y: -0.5 });
+          if (glanceTimer.current) clearTimeout(glanceTimer.current);
+          glanceTimer.current = setTimeout(() => setGlanceHold(null), 1200);
+        }
+      } else if (name === "line") {
+        const text = brainLineText();
+        if (text) {
+          setBrainLine(text);
+          if (brainLineTimer.current) clearTimeout(brainLineTimer.current);
+          brainLineTimer.current = setTimeout(() => setBrainLine(null), 3600);
+        }
+      }
+    };
+    const tickBrain = () => {
+      if (!brainRef.current) brainRef.current = createNovaBrain(null);
+      const nowB = Date.now();
+      if (nowB - lineFactsAt.current > 30000) {
+        lineFactsAt.current = nowB;
+        try { lineReadyRef.current = memoryLineFor(loadNovaMemoryFacts()) != null || hourLineSet(new Date().getHours()) != null; }
+        catch { lineReadyRef.current = false; }
+      }
+      const busy = !!(beatRef.current || activityRef.current) || wakeTimers.current.length > 0;
+      const out = novaBrainDecide(brainRef.current, {
+        now: nowB,
+        hour: new Date().getHours(),
+        idleMs: nowB - lastActivity.current,
+        stage: sleepStageRef.current,
+        base: baseRef.current,
+        busy,
+        lineReady: lineReadyRef.current,
+        afterThinking: afterThinkingRef.current,
+        calm: nowB - lastMissAtRef.current > 60000,
+        rand: Math.random(),
+      });
+      afterThinkingRef.current = false;
+      brainRef.current = out.brain;
+      setBrainUi({ mood: out.mood, doing: out.behavior });
+      persistBrain();
+      if (!busy) applyBehavior(out.behavior);
+    };
+    const iv = setInterval(tickBrain, 2600);
+    return () => clearInterval(iv);
   }, []);
 
   /* Proximity: a pointer near her, not just on her, turns the
@@ -1999,13 +2496,28 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     if (beatTimer.current) clearTimeout(beatTimer.current);
     if (lineTimer.current) clearTimeout(lineTimer.current);
     if (activityTimer.current) clearTimeout(activityTimer.current);
+    if (glanceTimer.current) clearTimeout(glanceTimer.current);
+    if (brainLineTimer.current) clearTimeout(brainLineTimer.current);
     clearWakeTimers();
+    /* How this visit ended, written into her memory of it:
+       poked out, pleased, or ignored. The next visit's
+       patience starts from it. */
+    if (brainRef.current) {
+      brainRef.current = { ...brainRef.current, lastEnd: visitEndRef.current };
+      persistBrain();
+    }
   }, []);
 
   const onTap = () => {
     noteActivity();
     const step = pokeStep(loadNovaQuirks(), Date.now());
     saveNovaQuirks(step.quirks);
+    if (brainRef.current) {
+      brainRef.current = novaBrainObserve(brainRef.current, { type: "poke" });
+      persistBrain();
+    }
+    if (step.face === "asleep") visitEndRef.current = "poked-out";
+    else if (step.face === "pleased" && visitEndRef.current !== "poked-out") visitEndRef.current = "pleased";
     if (step.ignore) return;
     if (beatTimer.current) clearTimeout(beatTimer.current);
     setBeat(step.face);
@@ -2020,28 +2532,38 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
       lineTimer.current = setTimeout(() => setPokeLine(null), 3600);
     }
   };
+  const gazeShown = glanceHold || gaze;
   const vars = {
-    "--nv-gx": (gaze ? gaze.x : 0).toFixed(2) + "px",
-    "--nv-gy": (gaze ? gaze.y : 0).toFixed(2) + "px",
+    "--nv-gx": (gazeShown ? gazeShown.x : 0).toFixed(2) + "px",
+    "--nv-gy": (gazeShown ? gazeShown.y : 0).toFixed(2) + "px",
   };
-  const adaptiveState = novaAdaptiveStateFor({ base: state, sleepStage });
+  /* Her shown face is the brain's output now: the mood the
+     drives add up to, staged by the sleep stage, with beats
+     and activity still outranking anything self initiated.
+     The wrapper carries the same three facts as data
+     attributes (2026-10-15), so a probe can read her mind as
+     data, mood, stage, and the behavior she last chose,
+     instead of judging screenshots of a 0.55s squash. */
+  const adaptiveState = novaAdaptiveStateFor({ base: brainUi.mood, sleepStage });
   const shownState = beat || activityState || adaptiveState;
+  const doingNow = beat ? "poke-beat" : activityState ? "activity-beat" : brainUi.doing;
+  const bubbleLine = pokeLine || brainLine;
   return (
-    <span ref={wrapRef} style={{
+    <span ref={wrapRef} data-nova-mood={brainUi.mood} data-nova-stage={sleepStage} data-nova-doing={doingNow} style={{
       display: "inline-flex", position: "relative", ...vars, cursor: "pointer",
       transform: (lift ? "translateY(-2px)" : "translateY(0px)") + (beat ? " scale(1.07)" : "") + " translate(" + lean.x + "px, " + lean.y + "px) rotate(" + lean.r + "deg)",
       transition: "transform 0.3s cubic-bezier(0.22, 0.9, 0.28, 1)",
     }}
       onClick={onTap}>
-      <NovaAvatar state={shownState} size={size} framing={framing} scanning={activityState === "thinking"} />
-      {pokeLine && (
+      <NovaAvatar state={shownState} size={size} framing={framing} scanning={activityState === "thinking"} pushN={pushN} flutterN={flutterN} noticeN={noticeN} />
+      {bubbleLine && (
         <span role="status" style={{
           position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
           background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: 10,
           padding: "7px 11px", fontSize: FONT_SIZES.body, lineHeight: 1.35, whiteSpace: "nowrap",
           pointerEvents: "none", zIndex: 30, boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
         }}>
-          {pokeLine}
+          {bubbleLine}
         </span>
       )}
     </span>
