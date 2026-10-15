@@ -1232,6 +1232,8 @@ function playSound(kind, enabled) {
 
 /* ── shared styles ───────────────────────────────────────────────── */
 const SERIF = "Georgia, 'Iowan Old Style', 'Times New Roman', serif";
+/* Wordmark only (2026-10-15, owner pick Orbitron 800): the standalone word Nova, never headings or body text. */
+const WORDMARK = "'Orbitron', 'Inter Tight', ui-sans-serif, system-ui, sans-serif";
 const CSS = `
 .lv-rise { animation: lvRise .45s cubic-bezier(.05,.7,.1,1) both; }
 @keyframes lvRise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
@@ -10819,11 +10821,12 @@ function ShareCardButton({ model, P, accent }) {
         im.src = src;
       }) : null;
       ctx.textAlign = "center";
-      /* Panel 8 fix (2026-10-14): the product name is the serif
-         wordmark, not a sans; the tagline sits directly under it
-         in gold sans, the spec's lockup, above everything else. */
+      /* The product name is the Orbitron wordmark (2026-10-15
+         owner pick, superseding the Panel 8 serif lockup; tagline
+         stays gold sans under it), above everything else. */
+      try { if (document.fonts && document.fonts.load) await document.fonts.load("800 68px 'Orbitron'"); } catch { }
       ctx.fillStyle = INK;
-      ctx.font = "600 68px 'Source Serif 4', Georgia, 'Times New Roman', serif";
+      ctx.font = "800 68px 'Orbitron', 'Inter Tight', sans-serif";
       ctx.fillText("Nova", 540, 138);
       ctx.fillStyle = GOLD;
       ctx.font = "400 34px 'Inter Tight', 'Segoe UI', sans-serif";
@@ -12662,7 +12665,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           </span>
           <span style={{ marginLeft: 2 }}><NovaAvatar state="greeting" size={40} /></span>
         </div>
-        <h1 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
+        <h1 style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.hero, fontWeight: 800, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 6px" }}>{CORTEX_TAGLINE}</p>
         {step === 0 ? (
           <>
@@ -13578,7 +13581,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 <NovaLive state={novaMood} size={66} />
               </span>
               <div style={{ minWidth: 0 }}>
-                <h1 className="lv-wordmark" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
+                <h1 className="lv-wordmark" style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.display, fontWeight: 800, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
                 <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "8px 0 0" }}>{CORTEX_TAGLINE}</p>
               </div>
             </>
@@ -13647,7 +13650,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <NovaLive state={novaMood} size={288} framing="full" />
           </span>
           <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-            <h2 className="lv-stage-word" style={{ fontFamily: SERIF, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h2>
+            <h2 className="lv-stage-word" style={{ fontFamily: WORDMARK, fontWeight: 800, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "10px 0 0" }}>{CORTEX_TAGLINE}</p>
             <div style={{ marginTop: 24 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TODAY'S PATH</div>

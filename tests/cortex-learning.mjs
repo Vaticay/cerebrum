@@ -3901,11 +3901,12 @@ await test("the home's accent text runs through the shell's accentInk correction
   assert.ok(learnSrc.includes('color: ink, margin: "8px 0 0"'), "the header tagline does not take the corrected ink");
 });
 
-await test("the share card sets the name as the serif wordmark with the tagline under it", () => {
-  // Panel 8 fold in (2026-10-14): the card set the product name in
-  // a sans; the spec lockup is the serif wordmark with the tagline
+await test("the share card sets the name as the Orbitron wordmark with the tagline under it", () => {
+  // 2026-10-15: owner picked Orbitron 800 for the wordmark,
+  // superseding the Panel 8 serif lockup. The tagline stays
   // directly under it in gold sans, above everything else.
-  assert.ok(learnSrc.includes(`ctx.font = "600 68px 'Source Serif 4', Georgia, 'Times New Roman', serif";`), "the share card name is not set in the serif wordmark");
+  assert.ok(learnSrc.includes(`ctx.font = "800 68px 'Orbitron', 'Inter Tight', sans-serif";`), "the share card name is not set in the Orbitron wordmark");
+  assert.ok(!learnSrc.includes(`ctx.font = "600 68px 'Source Serif 4', Georgia, 'Times New Roman', serif";`), "the share card name is still set in the old serif wordmark");
   assert.ok(!learnSrc.includes("600 68px 'Inter Tight'"), "the share card name is still set in a sans");
   assert.ok(
     learnSrc.indexOf('ctx.fillText("Nova", 540, 138)') < learnSrc.indexOf("ctx.fillText(CORTEX_TAGLINE, 540, 188)"),
