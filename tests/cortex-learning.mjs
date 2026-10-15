@@ -90,7 +90,7 @@ const WANTED = [
   "shareCardModel",
   "visitGapDays", "shelfGlyphFor", "shelfObjects", "SHELF_GLYPH_BY_PATH", "SHELF_GLYPH_BY_CATEGORY",
   "novaMoodFor", "tipEligible", "TIP_GAP_MS",
-  "CHARACTER_POSES", "NOVA_AVATAR_SRC", "NOVA_CROPS",
+  "CHARACTER_POSES", "NOVA_RIG_STATES", "NOVA_RIG_MOUTHS", "NOVA_RIG_D", "NOVA_RIG_FILAMENTS",
   "QUIRKS_KEY", "QUIRK_GAG_COOLDOWN_MS", "QUIRK_SHELF_COOLDOWN_MS",
   "QUIRK_FAST_MS", "QUIRK_FAST_COOLDOWN_MS", "QUIRK_HARD_COOLDOWN_MS",
   "QUIRK_BROW_COOLDOWN_MS", "QUIRK_PERFECT_COOLDOWN_MS", "QUIRK_POKE_GAP_MS",
@@ -162,7 +162,7 @@ const {
   shareCardModel,
   visitGapDays, shelfGlyphFor, shelfObjects,
   novaMoodFor, tipEligible, TIP_GAP_MS,
-  CHARACTER_POSES, NOVA_AVATAR_SRC, NOVA_CROPS,
+  CHARACTER_POSES, NOVA_RIG_STATES, NOVA_RIG_MOUTHS, NOVA_RIG_D, NOVA_RIG_FILAMENTS,
   QUIRKS_KEY, QUIRK_GAG_COOLDOWN_MS, QUIRK_SHELF_COOLDOWN_MS,
   QUIRK_FAST_MS, QUIRK_FAST_COOLDOWN_MS, QUIRK_HARD_COOLDOWN_MS,
   QUIRK_BROW_COOLDOWN_MS, QUIRK_PERFECT_COOLDOWN_MS, QUIRK_POKE_GAP_MS,
@@ -2995,54 +2995,95 @@ await test("the home is six focused screens behind one tablist, and Today holds 
   assert.ok(create.includes("BUILD A COURSE") && create.includes("CONTRIBUTOR STUDIO"), "the Create screen lost the builder or the studio");
 });
 
-await test("the avatar is the approved raster art in a cream disc, print finished, and the drawn vector is gone", () => {
-  // Pins moved 2026-10-14 (avatar replacement wave): the hand
-  // drawn vector Nova was rejected by the owner twice from live
-  // screenshots, first as a placeholder looking doodle and then,
-  // after the presence wave redraw, photographed in the real
-  // header with the face squished in the circle, the body reading
-  // as a bib, and the gill fan as sun rays ("Nova looks so bad").
-  // The hand drawing route is closed. The persistent avatar is
-  // the owner approved generated raster pose set, cropped into a
-  // cream disc (or a cream panel for the large empty state),
-  // moving by transforms on the art: breath, pointer gaze, pose
-  // crossfades. No blink is faked over raster art. The drawing,
-  // its per state lid and gill CSS, and its blink keyframes are
-  // removed, not left dead, and these pins now describe the
-  // raster implementation and the drawing's absence.
-  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "disc" })'), "the raster Nova component is missing");
-  for (const s of ["greeting", "explaining", "pleased", "thinking", "worried", "asleep", "fading", "deadpan"]) {
-    // The pose set keys two entries from the teaching side
-    // (explain, think); the contract is the art file each state
-    // lands on, which must be the approved pose for that state.
-    assert.equal(NOVA_AVATAR_SRC[s], "/cortex/character/nova-" + s + ".webp",
-      "the avatar state " + s + " does not read the approved pose art");
-    const crop = NOVA_CROPS[s];
-    assert.ok(crop && crop.s > 0.5 && crop.s <= 1 && crop.x >= 0 && crop.x <= 0.3 && crop.y >= 0 && crop.y <= 0.3,
-      "the " + s + " crop is not a plausible head window over the art");
+/* 2026-10-15: the avatar test is rewritten for the rig. The
+   raster portrait it pinned since the character wave was
+   rejected by the owner the night it shipped ("She is horribly
+   made", "she's not animated", "Like how you animate... your
+   chat logo thing"), as two hand drawn vectors had been
+   before it. What stands now is NovaRig: one character traced
+   from the approved greeting pose into articulated parts,
+   with the eight states as data. The absence pins this block
+   used to carry for the second vector's CSS (@keyframes
+   nvBlink, .nv-lid, .nv-st-, NV_INK) flip by design: the
+   rig's blink and lids are nvRigBlink and .nv-rig-lid,
+   different strings for a traced character, not the rejected
+   freehand drawing come back. */
+await test("Nova is a traced, articulated rig at the avatar spots (2026-10-15)", () => {
+  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "disc" })'),
+    "NovaAvatar keeps its signature; the rig lives inside it");
+  assert.ok(learnSrc.includes("export function NovaRig("), "NovaRig is exported for the Easter egg");
+  // The traced parts exist as path data: body and tail with
+  // separate edge strokes (no seam line at the hinge), head,
+  // six filaments, six gold tips, pupils, lid lines, sockets,
+  // spine, inner curve, both washes, cheek, arms, closed eyes.
+  for (const part of ["body", "bodyEdge", "tail", "tailEdge", "head",
+    "l1", "l2", "l3", "r1", "r2", "r3",
+    "g1", "g2", "g3", "g4", "g5", "g6",
+    "pupilL", "pupilR", "lidLineL", "lidLineR", "sockL", "sockR",
+    "spine", "inner", "wash", "washFin", "cheek", "armL", "armR",
+    "closedPleased", "closedAsleep"]) {
+    assert.equal(typeof NOVA_RIG_D[part], "string", "traced part " + part);
+    assert.ok(NOVA_RIG_D[part].startsWith("M"), part + " is a path");
   }
-  assert.ok(learnSrc.includes(".nv-disc { position: relative; border-radius: 50%; overflow: hidden;"), "the cream disc framing is missing");
-  assert.ok(learnSrc.includes(".nv-panel { position: relative; border-radius: 18px;"), "the cream panel framing is missing");
-  assert.ok(learnSrc.includes("@keyframes nvFigBreath"), "the figure breath is missing");
-  assert.ok(learnSrc.includes("@keyframes nvLayerIn"), "the pose crossfade is missing");
-  assert.ok(learnSrc.includes("transform: translate(var(--nv-gx, 0px), var(--nv-gy, 0px));"), "the pointer gaze does not ride on the art");
-  // The print treatment (same wave, the owner's less AI looking
-  // ruling): one warm grade filter chain and a static turbulence
-  // grain, finer at small sizes, coarser at large ones.
-  assert.ok(learnSrc.includes("filter: sepia(0.17) saturate(0.93) brightness(1.02) contrast(1.04);"), "the print grade is missing or drifted");
-  assert.ok(learnSrc.includes("feTurbulence"), "the print grain is missing");
-  assert.ok(learnSrc.includes("background-size: 88px 88px"), "the small print grain is missing");
-  assert.ok(learnSrc.includes("background-size: 132px 132px"), "the standard print grain is missing");
-  assert.ok(learnSrc.includes("background-size: 190px 190px"), "the large print grain is missing");
-  // Reduced motion stills the art; the print finish is a finish,
-  // not a motion, and stays.
-  assert.ok(learnSrc.includes(".nv-figwrap, .nv-layer-in { animation: none !important; }"), "reduced motion does not still the figure");
-  assert.ok(learnSrc.includes(".nv-img, .nv-panel-img { transition: none !important; transform: none !important; }"), "reduced motion does not still the gaze");
-  // The drawn vector is gone, in code and in CSS.
-  assert.ok(!learnSrc.includes("@keyframes nvBlink"), "the drawn blink survived");
-  assert.ok(!learnSrc.includes(".nv-lid"), "the drawn eyelids survived");
-  assert.ok(!learnSrc.includes(".nv-st-"), "the drawn per state CSS survived");
-  assert.ok(!learnSrc.includes("NV_INK"), "the drawn palette survived");
+  // Six filaments, three a side, each with its own gold tip,
+  // sway origin, duration, and phase offset.
+  assert.equal(NOVA_RIG_FILAMENTS.length, 6);
+  assert.equal(NOVA_RIG_FILAMENTS.map((f) => f.key).join(","), "l1,l2,l3,r1,r2,r3", "filament order");
+  for (const f of NOVA_RIG_FILAMENTS) {
+    assert.ok(NOVA_RIG_D[f.gold], "gold tip path for " + f.key);
+    assert.ok(f.origin.includes("px"), "sway origin for " + f.key);
+  }
+  assert.equal(new Set(NOVA_RIG_FILAMENTS.map((f) => f.delay)).size, 6, "per filament phase offsets");
+  // The eight states are complete rig data.
+  for (const s of ["greeting", "explaining", "pleased", "thinking", "worried", "fading", "deadpan", "asleep"]) {
+    const st = NOVA_RIG_STATES[s];
+    assert.ok(st, "rig state " + s);
+    assert.ok(Number.isFinite(st.lid), s + " lid height");
+    assert.equal(st.gaze.length, 2, s + " gaze pair");
+    assert.ok(st.gold > 0 && st.gold <= 1, s + " gold brightness");
+    assert.equal(st.head.length, 3, s + " head tip");
+    assert.ok(NOVA_RIG_MOUTHS[s] && NOVA_RIG_MOUTHS[s].d.startsWith("M"), s + " mouth path");
+  }
+  assert.equal(NOVA_RIG_MOUTHS.explaining.fill, true, "explaining has the open mouth");
+  assert.ok(NOVA_RIG_STATES.deadpan.lid > NOVA_RIG_STATES.greeting.lid, "deadpan lids sit lower");
+  assert.ok(NOVA_RIG_STATES.worried.lid < NOVA_RIG_STATES.greeting.lid, "worried lids raise");
+  assert.ok(NOVA_RIG_STATES.fading.gold < NOVA_RIG_STATES.greeting.gold, "fading dims the gold tips");
+  assert.ok(NOVA_RIG_STATES.fading.gill > 0 && NOVA_RIG_STATES.asleep.gill > 0, "fading and asleep gills droop");
+  assert.equal(NOVA_RIG_STATES.pleased.closed, "closedPleased");
+  assert.equal(NOVA_RIG_STATES.asleep.closed, "closedAsleep");
+  assert.ok(NOVA_RIG_STATES.asleep.head[0] > 0 && NOVA_RIG_STATES.asleep.head[2] > 0, "asleep tips the head down");
+  // The articulation is CSS on the traced parts: blink, sway,
+  // breath, glance, head follow, tail sway, swim cycle, and
+  // the reaction squash, all transform-boxed to the viewBox.
+  for (const css of [".nv-rig-disc", ".nv-rig-panel", "@keyframes nvRigBlink", "@keyframes nvRigSway",
+    "@keyframes nvRigBreath", "@keyframes nvRigGlance", "@keyframes nvRigHeadTurn",
+    "@keyframes nvRigTailSway", "@keyframes nvRigSwimTail", "@keyframes nvRigSwimBody",
+    "@keyframes nvRigReact", "transform-box: view-box"]) {
+    assert.ok(learnSrc.includes(css), "rig CSS " + css);
+  }
+  assert.ok(learnSrc.includes("nvRigBlink 11.7s"), "the blink runs on the irregular 11.7s cycle");
+  assert.ok(learnSrc.includes("translateY(58px)"), "the lid slab travels far enough to close the eye");
+  assert.ok(learnSrc.includes('className="nv-rig-lid nv-rig-anim"'), "eyelid slabs render");
+  assert.ok(learnSrc.includes("calc(var(--nv-gx, 0px) * 6)"), "NovaLive's pointer gaze still moves the pupils");
+  // The raster avatar machinery is gone, and the flat finish
+  // goes with it: no pose source, no crops, no print filter,
+  // no grain, no raster breath or crossfade.
+  assert.ok(!learnSrc.includes("NOVA_AVATAR_SRC"), "the raster pose source is gone");
+  assert.ok(!learnSrc.includes("NOVA_CROPS"), "the disc crops are gone");
+  assert.ok(!learnSrc.includes("nv-print"), "the print treatment is gone");
+  assert.ok(!learnSrc.includes("feTurbulence"), "the grain overlay is gone");
+  assert.ok(!learnSrc.includes("@keyframes nvFigBreath"), "the raster breath is gone");
+  // The Easter egg rides the rig, with the swim cycle while
+  // she crosses; its raster disc is gone.
+  const eggSrc2 = readFileSync(join(root, "src/NovaEgg.jsx"), "utf8");
+  assert.ok(eggSrc2.includes("NovaRig"), "the egg renders NovaRig");
+  assert.ok(eggSrc2.includes('mode={swimming ? "swim" : "idle"}'), "the egg swims the rig while she crosses");
+  assert.ok(!eggSrc2.includes("PoseDisc"), "the egg's raster disc is gone");
+  assert.ok(!eggSrc2.includes("EGG_POSES"), "the egg's pose table is gone");
+  // Reduced motion stills the rig to the current expression:
+  // every rig animation is in the gate.
+  assert.ok(learnSrc.includes(".nv-rig-breath, .nv-rig-tail, .nv-rig-fil, .nv-rig-lid, .nv-rig-glance, .nv-rig-head, .nv-rig-react { animation: none !important; }"),
+    "reduced motion stills every rig animation");
 });
 
 await test("the raster Nova stands at the persistent spots and the raster art keeps the artwork moments", () => {
@@ -3386,8 +3427,14 @@ await test("the egg is mounted once in the shell, still under quiet motion, and 
   assert.ok(eggSrc.includes('aria-label="Back to landing page"'), "the summon does not watch the sidebar brand");
   assert.ok(eggSrc.includes(".cb-stage-masthead"), "the summon does not watch the masthead wordmark");
   assert.ok(eggSrc.includes('".lv-sheet"'), "the lesson exclusion does not probe the lesson sheet");
-  assert.ok(eggSrc.includes("sepia(0.17) saturate(0.93) brightness(1.02) contrast(1.04)"), "the egg's print grade drifted from the avatar's");
-  assert.ok(eggSrc.includes("feTurbulence"), "the egg's print grain is missing");
+  // Pin changed 2026-10-15 (rig wave): this pair used to pin the
+  // egg's print grade and grain to the avatar's, value for value.
+  // The print treatment is retired on both sides; the egg now
+  // renders the same NovaRig as the avatar, and neither file
+  // carries the filter chain or the grain.
+  assert.ok(eggSrc.includes("NovaRig"), "the egg does not render the rig");
+  assert.ok(!eggSrc.includes("sepia(0.17)"), "the egg still carries the retired print grade");
+  assert.ok(!eggSrc.includes("feTurbulence"), "the egg still carries the retired print grain");
   assert.ok(eggSrc.includes("@keyframes neRoll"), "the swim's barrel roll is missing");
   assert.ok(eggSrc.includes("if (!visit) return null;"), "the egg does not unmount to zero cost when idle");
   assert.ok(!/Audio|playSound|speak\(/.test(eggSrc), "the egg makes noise; it should be silent by construction");

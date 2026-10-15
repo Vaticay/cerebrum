@@ -21,8 +21,10 @@
    visit is running the component renders nothing and keeps no
    timers beyond one slow check interval that only runs while
    the tab is visible. Her lines come from the lines library in
-   LearnView; her print treatment matches the avatar's, value
-   for value (the filter chain and grain at .ne-disc below). */
+   LearnView; the figure herself is NovaRig, the traced and
+   articulated character from LearnView, running her swim
+   cycle while she crosses (2026-10-15: the raster pose disc
+   she used to ride in is gone, with the print treatment). */
 import React, { useEffect, useRef, useState } from "react";
 import { cbMotionOff } from "./flowcharts.jsx";
 import {
@@ -33,6 +35,7 @@ import {
   loadNovaMemoryFacts,
   pickEggLine,
   pickNovaLine,
+  NovaRig,
 } from "./LearnView.jsx";
 
 const EGG_STORE_KEY = "cerebrum-novaegg";
@@ -45,16 +48,6 @@ export const EGG_TICK_MS = 45000;
 export const WORDMARK_GAP_MS = 700;
 export const WORDMARK_CLICKS = 3;
 
-const EGG_POSES = {
-  greeting: "/cortex/character/nova-greeting.webp",
-  explaining: "/cortex/character/nova-explaining.webp",
-  pleased: "/cortex/character/nova-pleased.webp",
-  thinking: "/cortex/character/nova-thinking.webp",
-  worried: "/cortex/character/nova-worried.webp",
-  fading: "/cortex/character/nova-fading.webp",
-  deadpan: "/cortex/character/nova-deadpan.webp",
-  asleep: "/cortex/character/nova-asleep.webp",
-};
 
 /* The cooldown a store full of history earns: two dismissals
    stretch it from eight hours to two days. */
@@ -166,40 +159,12 @@ function probeEggContext() {
   return ctx;
 }
 
-/* Her portrait for the visit: the pose art in a cream disc, the
-   print treatment on it, poses crossfading the way the avatar's
-   do. The figure in the art fills the disc; only cream ground
-   meets the edge. */
-function PoseDisc({ pose, size }) {
-  const [shown, setShown] = useState(pose);
-  const [incoming, setIncoming] = useState(null);
-  useEffect(() => {
-    if (pose === shown) { setIncoming(null); return; }
-    setIncoming(pose);
-    const t = setTimeout(() => { setShown(pose); setIncoming(null); }, 330);
-    return () => clearTimeout(t);
-  }, [pose, shown]);
-  const bg = (p) => ({ backgroundImage: "url(\"" + (EGG_POSES[p] || EGG_POSES.greeting) + "\")" });
-  return (
-    <div className="ne-disc" style={{ width: size, height: size }}>
-      <div className="ne-disc-layer" style={bg(shown)} />
-      {incoming && incoming !== shown && <div className="ne-disc-layer ne-pose-in" style={bg(incoming)} />}
-      <span className="ne-grain" />
-    </div>
-  );
-}
-
 const EGG_CSS = `
 .ne-stage { position: fixed; inset: 0; z-index: 80; pointer-events: none; overflow: hidden; }
 .ne-shimmer { position: absolute; left: 0; right: 0; bottom: 6%; height: 190px; pointer-events: none; background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,0.05) 47%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.05) 53%, transparent 70%); background-size: 250% 100%; animation: neShimmerMove 9s linear infinite; }
 @keyframes neShimmerMove { from { background-position: 120% 0; } to { background-position: -120% 0; } }
 .ne-rig { position: absolute; pointer-events: none; }
 .ne-rig-live { pointer-events: auto; cursor: pointer; }
-.ne-disc { position: relative; border-radius: 50%; overflow: hidden; background: #F6E7C6; box-shadow: inset 0 0 0 1px rgba(58,53,44,0.25), 0 10px 28px rgba(0,0,0,0.28); }
-.ne-disc-layer { position: absolute; inset: 0; background-size: cover; background-position: center; filter: sepia(0.17) saturate(0.93) brightness(1.02) contrast(1.04); }
-.ne-pose-in { animation: nePoseIn 0.32s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
-@keyframes nePoseIn { from { opacity: 0; transform: scale(1.04); } to { opacity: 1; transform: scale(1); } }
-.ne-grain { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0.36; mix-blend-mode: overlay; background-size: 150px 150px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E"); }
 .ne-shadow { position: absolute; left: 12%; right: 12%; bottom: -13px; height: 15px; border-radius: 50%; background: rgba(0,0,0,0.35); filter: blur(7px); }
 .ne-bob { animation: neBob 3.1s ease-in-out infinite alternate; }
 @keyframes neBob { from { transform: translateY(0) rotate(-0.5deg); } to { transform: translateY(-6px) rotate(0.6deg); } }
@@ -540,6 +505,7 @@ export default function NovaEgg() {
       }} />
     ))
     : null;
+  const swimming = visit.kind === "swim" || (visit.kind === "celebrate" && (visit.phase === "enter" || visit.phase === "cross"));
   return (
     <div className="ne-stage" aria-hidden={!visit.line}>
       <style>{EGG_CSS}</style>
@@ -551,7 +517,7 @@ export default function NovaEgg() {
         <div className="ne-shadow" />
         <div className="ne-bob">
           <div className="ne-roll">
-            <PoseDisc pose={visit.pose} size={EGG_SIZES[visit.kind] || 140} />
+            <NovaRig state={visit.pose} size={EGG_SIZES[visit.kind] || 140} mode={swimming ? "swim" : "idle"} />
           </div>
         </div>
         {bubbles}

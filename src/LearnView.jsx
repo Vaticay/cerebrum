@@ -1258,46 +1258,72 @@ const CSS = `
   0%, 100% { transform: rotate(-0.6deg) scale(1, 1); }
   50% { transform: rotate(0.6deg) scale(1.008, 1.016); }
 }
-/* The living Nova (avatar replacement wave, 2026-10-14): the
-   persistent avatar is the generated character art itself, the
-   eight raster poses, cropped to a head and gills portrait
-   inside a cream disc. The hand drawn vector Nova that stood
-   here was rejected by the owner twice from live screenshots
-   (the face squished in its circle, the body reading as a bib,
-   the gill fan as sun rays), so the drawing and every rule that
-   animated its parts are gone. The art carries the character
-   now; the life is in transforms on the art: a slow breath and
-   sway on the figure wrapper, state changes as pose crossfades
-   of about 300ms with a slight scale breath, and the pointer
-   gaze as a few pixels of travel on the crop. No blink is faked
-   over raster art. The print treatment (.nv-print) breaks the
-   generated gloss: a warm grade in the filter chain on the
-   image and a fine static grain laid over the top, so she
-   reads as printed illustration. Reduced motion stills all of
-   it (the gate at the end of this stylesheet). */
-.nv-disc { position: relative; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: #F6E7C6; display: block; }
-.nv-panel { position: relative; border-radius: 18px; overflow: hidden; flex-shrink: 0; background: #F6E7C6; display: block; border: 1px solid rgba(58, 53, 44, 0.28); }
-.nv-figwrap { position: absolute; inset: 0; animation: nvFigBreath 5.4s ease-in-out infinite alternate; transform-origin: 50% 88%; }
-@keyframes nvFigBreath { from { transform: scale(1) rotate(0deg); } to { transform: scale(1.018) rotate(0.45deg); } }
-.nv-disc-asleep .nv-figwrap, .nv-panel-asleep .nv-figwrap { animation-duration: 7.5s; }
-.nv-layer { position: absolute; inset: 0; }
-.nv-layer-in { animation: nvLayerIn 0.32s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
-@keyframes nvLayerIn { from { opacity: 0; transform: scale(1.035); } to { opacity: 1; transform: scale(1); } }
-.nv-img { position: absolute; max-width: none; height: auto; display: block; transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); transform: translate(var(--nv-gx, 0px), var(--nv-gy, 0px)); }
-.nv-panel-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); transform: translate(var(--nv-gx, 0px), var(--nv-gy, 0px)); }
-/* The print treatment: one filter chain wherever the raster
-   Nova stands as avatar, egg, or bubble companion. Sepia pulls
-   the palette toward the house cream and gold, a small
-   brightness lift with settled contrast lifts the blacks a
-   touch and firms the ink, and the grain overlay (an SVG
-   turbulence tile, static, in overlay blend) darkens line
-   edges and breaks the smooth generated finish. The grain runs
-   finer on small discs so it never turns to noise. The egg
-   carries the same values in its own stylesheet (src/NovaEgg.jsx). */
-.nv-print .nv-img, .nv-print .nv-panel-img { filter: sepia(0.17) saturate(0.93) brightness(1.02) contrast(1.04); }
-.nv-grain { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0.34; mix-blend-mode: overlay; background-size: 132px 132px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E"); }
-.nv-print-sm .nv-grain { background-size: 88px 88px; opacity: 0.28; }
-.nv-print-lg .nv-grain { background-size: 190px 190px; opacity: 0.38; }
+/* Nova, the rig (2026-10-15): the persistent avatar is a
+   traced, articulated character, NovaRig. The raster portrait
+   that stood here was rejected by the owner the night it
+   shipped ("She is horribly made", "she's not animated", "Like
+   how you animate... your chat logo thing"), and two hand
+   drawn vectors were rejected before it, so the way through
+   is a rig traced from the approved character art itself:
+   layered parts (body with a hinged tail group, two gill fans
+   of three filaments each with gold tip sub paths, eyelid
+   slabs over pupils, the gold spine line, the mauve wash,
+   mouths per expression) with the life in CSS articulation.
+   A true blink from the lid slabs on an irregular 11.7 second
+   cycle with a double blink, per filament gill sway with
+   phase offsets, breath through the body group, an occasional
+   sideways glance with a slight head follow, a slow tail sway
+   at idle, a swim cycle for the Easter egg (tail and body
+   counter rotate), and a squash and stretch beat when the
+   expression changes to a reaction. Transforms and opacity
+   only, no per frame JavaScript. She stands on the page on a
+   transparent ground; the cream disc stays as a backdrop she
+   can break the edge of. Lessons, completion art, and the
+   share card keep the raster poses (artwork moments). A faint
+   grain was considered and dropped: the flat vector finish is
+   the finish. Reduced motion stills the rig to the current
+   expression (the gate at the end of this stylesheet). */
+.nv-rig-wrap { position: relative; display: inline-block; flex-shrink: 0; }
+.nv-rig-disc { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; background: #F6E7C6; box-shadow: inset 0 0 0 1px rgba(58, 53, 44, 0.25); pointer-events: none; }
+.nv-rig-panel { position: relative; display: inline-block; flex-shrink: 0; }
+.nv-rig { display: block; overflow: visible; }
+.nv-rig .nv-rig-t { transition: transform 0.45s cubic-bezier(0.3, 0.7, 0.3, 1), opacity 0.45s ease; }
+.nv-rig .nv-rig-anim { transform-box: view-box; }
+.nv-rig-breath { animation: nvRigBreath 5.4s ease-in-out infinite alternate; transform-origin: 800px 1250px; }
+@keyframes nvRigBreath { from { transform: scale(1, 1) rotate(0deg); } to { transform: scale(1.008, 1.018) rotate(0.35deg); } }
+.nv-rig-st-asleep .nv-rig-breath { animation-duration: 7.6s; }
+.nv-rig-tail { animation: nvRigTailSway 6.8s ease-in-out infinite alternate; transform-origin: 700px 1175px; }
+@keyframes nvRigTailSway { from { transform: rotate(-1.3deg); } to { transform: rotate(1.3deg); } }
+.nv-rig-fil { animation: nvRigSway 3.8s ease-in-out infinite alternate; }
+@keyframes nvRigSway { from { transform: rotate(-1.6deg); } to { transform: rotate(1.6deg); } }
+.nv-rig-lid { animation: nvRigBlink 11.7s linear infinite; }
+@keyframes nvRigBlink {
+  0%, 7%, 10%, 44%, 47%, 74%, 79.2%, 100% { transform: translateY(0px); }
+  8.5%, 45.5%, 75.3%, 77.9% { transform: translateY(58px); }
+}
+.nv-rig-glance { animation: nvRigGlance 13s linear infinite; }
+@keyframes nvRigGlance {
+  0%, 58%, 76%, 100% { transform: translate(0px, 0px); }
+  64%, 70% { transform: translate(9px, -2px); }
+}
+.nv-rig-head { animation: nvRigHeadTurn 17s linear infinite; transform-origin: 950px 620px; }
+@keyframes nvRigHeadTurn {
+  0%, 57%, 75%, 100% { transform: rotate(0deg); }
+  63%, 69% { transform: rotate(1.1deg); }
+}
+.nv-rig-react { animation: nvRigReact 0.55s cubic-bezier(0.3, 0.7, 0.3, 1); transform-box: fill-box; transform-origin: 50% 96%; }
+@keyframes nvRigReact {
+  0% { transform: scale(1, 1); }
+  30% { transform: scale(1.07, 0.88); }
+  58% { transform: scale(0.97, 1.05); }
+  100% { transform: scale(1, 1); }
+}
+.nv-rig-swim .nv-rig-breath { animation: nvRigSwimBody 1.5s ease-in-out infinite; }
+@keyframes nvRigSwimBody { 0%, 100% { transform: rotate(2.4deg); } 50% { transform: rotate(-2.4deg); } }
+.nv-rig-swim .nv-rig-tail { animation: nvRigSwimTail 1.5s ease-in-out infinite; }
+@keyframes nvRigSwimTail { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(7deg); } }
+.nv-rig-swim .nv-rig-head { animation: nvRigSwimHead 1.5s ease-in-out infinite; }
+@keyframes nvRigSwimHead { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
 /* The home section navigation (home restructure wave): a flat
    segmented row, gold underline for the current screen, nothing
    rounded beyond the foundation tokens. */
@@ -1318,12 +1344,12 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) {
   .lv-rise, .lv-sheet, .lv-shake, .lv-pop, .lv-pulse, .lv-nova-live { animation: none !important; }
   .lv-btn, .lv-opt, .lv-fill, .lv-node, .lv-topic, .lv-chip { transition: none !important; }
-  /* The avatar stills: no breath, no crossfade travel, no
-     pointer gaze travel. State changes are plain swaps of the
-     pose, and the print treatment stays (it is a finish, not
-     a motion). */
-  .nv-figwrap, .nv-layer-in { animation: none !important; }
-  .nv-img, .nv-panel-img { transition: none !important; transform: none !important; }
+  /* The rig stills: no blink, sway, breath, glance, swim, or
+     reaction; the state values (lid height, gaze, gill
+     posture, head tip) are not animations and stay, so she
+     holds the current expression. */
+  .nv-rig-breath, .nv-rig-tail, .nv-rig-fil, .nv-rig-lid, .nv-rig-glance, .nv-rig-head, .nv-rig-react { animation: none !important; }
+  .nv-rig .nv-rig-t { transition: none !important; }
 }
 .lv-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 16px; }
 .lv-topic { transition: transform .15s, border-color .15s; }
@@ -1455,64 +1481,97 @@ function CharacterPose({ pose, size = 54, live = false }) {
   );
 }
 
-/* ── the living Nova (avatar replacement wave, 2026-10-14) ────
-   The persistent avatar is the generated character art itself.
-   The hand drawn vector Nova that stood here was rejected by
-   the owner twice from live screenshots: in the real header the
-   face read squished inside its circle, the body read as a bib,
-   the gill fan as sun rays, and the whole thing read childish
-   next to the pose art the owner had already approved. The
-   drawing route is closed. What stands here now is a portrait
-   built from the eight raster poses: a head and gills crop of
-   the pose art fills a cream disc (the art's own cream ground
-   fills the disc, so no square edge ever shows), larger
-   placements use the same disc bigger or the full figure in a
-   cream panel, and state changes are pose crossfades. Her life
-   is transforms on the art (the CSS at .nv-disc): a slow breath
-   and sway on the figure wrapper, the pointer gaze as a few
-   pixels of travel on the crop, tap beats as pose crossfades.
-   No blink is faked over raster art. The Player, lessons, and
-   share card already used this art and do not change. */
-const NOVA_AVATAR_SRC = {
-  greeting: CHARACTER_POSES.greeting,
-  explaining: CHARACTER_POSES.explain,
-  pleased: CHARACTER_POSES.pleased,
-  thinking: CHARACTER_POSES.think,
-  worried: CHARACTER_POSES.worried,
-  fading: CHARACTER_POSES.fading,
-  deadpan: CHARACTER_POSES.deadpan,
-  asleep: CHARACTER_POSES.asleep,
+/* ── Nova, the rig (2026-10-15) ─────────────────────────────
+   The persistent Nova is ONE character traced from the
+   approved greeting pose art (public/cortex/character/
+   nova-greeting.webp) into layered vector parts and
+   articulated: body, a hinged tail group, two gill fans of
+   three filaments each with the gold tips as their own sub
+   paths, eyelid slabs over pupils, the gold spine line, the
+   mauve underside wash, and a mouth per expression. The other
+   seven poses serve as expression references only; the eight
+   states are data (NOVA_RIG_STATES), never redraws. She had
+   to be a rig: two hand drawn vectors were rejected from live
+   screenshots, then the raster portrait in a cream disc was
+   rejected the night it shipped ("She is horribly made",
+   "she's not animated", "Like how you animate... your chat
+   logo thing"). The trace was iterated against the art as a
+   literal underlay in ~/workspace/nova-rig-harness (overlay
+   comparison, the rig alone at 66, 120, and 240 in all eight
+   states, mid swim frames). Divergences from the art, stated
+   plainly: the worried pose's clasped hands and wavy lid tops
+   are simplified to raised lids and the wavy mouth; the
+   dome's left root, where the top filament crosses behind the
+   head, is smoothed; the art's textured double ink line
+   becomes one clean line of varied weight. Lessons,
+   completion art, and the share card keep the raster poses
+   untouched; those are artwork moments. */
+const NOVA_RIG_INK = "#4F2A12";
+const NOVA_RIG_FILL = "#FDEBCB";
+const NOVA_RIG_GOLD = "#C7A965";
+const NOVA_RIG_WASH = "#DBC0B1";
+const NOVA_RIG_D = {
+  tail: "M520,1252 C560,1305 640,1360 730,1392 C830,1426 950,1432 1050,1408 C1160,1380 1260,1305 1320,1215 C1350,1170 1362,1115 1364,1068 C1364,1052 1358,1040 1348,1036 C1338,1032 1325,1050 1305,1072 C1240,1140 1140,1176 1030,1178 C940,1180 865,1150 815,1102 C800,1088 795,1078 788,1072 C700,1130 600,1190 520,1252 Z",
+  body: "M612,580 C565,645 512,725 472,815 C442,885 420,962 417,1042 C419,1122 444,1196 490,1255 C525,1300 555,1322 590,1335 L800,1098 C855,1010 905,905 955,795 C985,728 1002,680 1012,650 C920,668 830,660 755,640 C690,624 645,605 612,580 Z",
+  wash: "M900,655 C990,646 1100,652 1180,660 C1090,682 1045,700 975,790 C940,835 915,890 885,945 C862,990 845,1030 838,1095 C822,1165 830,1250 862,1332 C882,1382 902,1402 928,1418 C855,1448 772,1442 722,1406 C698,1352 694,1300 696,1238 C698,1148 699,1100 700,1040 C712,955 745,855 800,775 C830,730 862,685 900,655 Z",
+  washFin: "M1000,1330 C1080,1300 1140,1262 1200,1218 C1260,1175 1310,1120 1345,1072 C1355,1058 1362,1052 1364,1068 C1362,1115 1350,1170 1322,1222 C1280,1295 1200,1352 1115,1382 C1078,1395 1030,1368 1000,1330 Z",
+  spine: "M627,620 C590,700 545,780 520,860 C495,950 470,1030 472,1120 C474,1200 490,1240 513,1275",
+  inner: "M1012,650 C985,728 955,795 905,905 C855,1010 830,1055 800,1098",
+  armL: "M718,714 C706,770 712,822 736,862 C758,896 800,916 838,916 C852,916 862,912 870,906",
+  armR: "M1012,700 C1055,758 1108,772 1142,738 C1162,718 1172,692 1178,668",
+  cheek: "M772,545 C795,578 822,600 850,614",
+  head: "M672,360 C720,302 820,284 925,288 C1035,292 1128,336 1178,415 C1212,468 1232,515 1228,562 C1224,615 1178,648 1110,660 C1010,676 905,670 820,652 C742,636 668,612 640,560 C618,516 626,458 646,412 C654,392 662,374 672,360 Z",
+  l1: "M674,382 C640,350 600,336 532,326 C480,322 460,342 400,368 C350,390 300,405 238,406 C214,406 196,400 187,371 C184,355 192,344 204,343 C230,342 250,348 265,354 C290,360 320,352 343,337 C390,308 430,282 458,279 C490,272 520,264 556,260 C580,258 610,262 640,274 C668,288 690,320 700,352 C694,368 686,378 674,382 Z",
+  l2: "M675,472 C640,462 590,452 546,454 C500,458 460,470 436,504 C400,552 340,596 288,626 C262,640 230,646 205,645 C180,644 160,634 147,614 C150,598 200,580 227,585 C300,540 370,470 417,439 C460,412 500,396 538,381 C556,374 570,372 583,375 C620,385 655,420 675,472 Z",
+  l3: "M593,579 C570,592 545,605 503,632 C450,668 400,712 343,782 C320,806 290,816 268,809 C248,803 232,810 223,802 C219,793 222,784 228,780 C250,762 275,752 299,747 C340,730 400,660 438,601 C465,562 510,525 570,504 C585,525 592,552 593,579 Z",
+  r1: "M1148,398 C1210,388 1260,402 1310,448 C1350,484 1395,500 1420,494 C1440,488 1442,466 1428,455 C1390,442 1330,428 1280,382 C1240,346 1195,332 1160,338 C1115,346 1085,352 1068,340 C1100,368 1125,388 1148,398 Z",
+  r2: "M1182,505 C1230,520 1265,560 1315,640 C1350,695 1395,738 1432,742 C1452,744 1458,728 1448,712 C1400,680 1365,650 1320,560 C1295,510 1250,462 1205,442 C1185,434 1172,440 1168,452 C1172,472 1176,490 1182,505 Z",
+  r3: "M1200,638 C1202,720 1212,802 1242,856 C1256,880 1282,882 1292,864 C1292,796 1280,716 1262,656 C1256,634 1246,618 1234,610 C1220,616 1206,624 1200,638 Z",
+  g1: "M200,346 C245,356 290,370 318,382 C312,394 275,402 240,398 C215,395 200,378 196,362 C195,354 196,349 200,346 Z",
+  g2: "M150,600 C195,592 255,600 300,618 C296,632 250,642 205,642 C175,640 155,624 150,600 Z",
+  g3: "M224,776 C270,752 320,738 362,734 C366,752 350,772 320,786 C285,800 250,806 232,800 C220,794 218,784 224,776 Z",
+  g4: "M1348,452 C1375,458 1405,468 1428,462 C1440,470 1436,486 1422,494 C1395,496 1368,482 1352,466 Z",
+  g5: "M1352,672 C1385,690 1415,712 1438,728 C1425,742 1395,738 1370,716 C1358,700 1350,686 1352,672 Z",
+  g6: "M1224,782 C1240,812 1252,838 1260,858 C1250,874 1230,864 1224,840 C1220,818 1218,798 1224,782 Z",
+  pupilL: "M833,440 L941,440 C941,470 920,489 887,489 C854,489 833,470 833,440 Z",
+  pupilR: "M1080,431 L1139,431 C1139,452 1128,470 1110,470 C1092,470 1080,452 1080,431 Z",
+  sockL: "M820,424 L954,424 L954,498 L820,498 Z",
+  sockR: "M1068,416 L1151,416 L1151,478 L1068,478 Z",
+  lidLineL: "M826,440 L948,440",
+  lidLineR: "M1073,431 L1146,431",
+  closedPleased: "M840,455 C862,472 912,472 934,455 M1086,447 C1102,460 1126,460 1134,447",
+  closedAsleep: "M842,464 C865,478 910,478 932,464 M1088,455 C1103,466 1125,466 1132,455",
+  tailEdge: "M520,1252 C560,1305 640,1360 730,1392 C830,1426 950,1432 1050,1408 C1160,1380 1260,1305 1320,1215 C1350,1170 1362,1115 1364,1068 C1364,1052 1358,1040 1348,1036 C1338,1032 1325,1050 1305,1072 C1240,1140 1140,1176 1030,1178 C940,1180 865,1150 815,1102 C800,1088 795,1078 788,1072",
+  bodyEdge: "M612,580 C565,645 512,725 472,815 C442,885 420,962 417,1042 C419,1122 444,1196 490,1255 C525,1300 555,1322 590,1335",
 };
-
-/* The portrait crop per pose, as fractions of the square art:
-   s is the side of the square window the disc shows, x and y
-   its top left corner. The window takes the head and the gill
-   fan and leaves the body curl below the frame. The eight poses
-   share one composition (measured: the figure spans x 9 to 91
-   percent, y 16 to 90 percent in every pose), so the crops sit
-   within a point or two of each other; each was set against the
-   harness sheet, not assumed. */
-const NOVA_CROPS = {
-  greeting: { s: 0.76, x: 0.09, y: 0.06 },
-  explaining: { s: 0.76, x: 0.09, y: 0.06 },
-  pleased: { s: 0.76, x: 0.09, y: 0.06 },
-  thinking: { s: 0.76, x: 0.09, y: 0.06 },
-  worried: { s: 0.76, x: 0.09, y: 0.06 },
-  fading: { s: 0.76, x: 0.09, y: 0.06 },
-  deadpan: { s: 0.76, x: 0.09, y: 0.06 },
-  asleep: { s: 0.76, x: 0.10, y: 0.06 },
+const NOVA_RIG_FILAMENTS = [
+  { key: "l1", gold: "g1", origin: "690px 362px", dur: "3.4s", delay: "0s" },
+  { key: "l2", gold: "g2", origin: "600px 445px", dur: "3.9s", delay: "-1.2s" },
+  { key: "l3", gold: "g3", origin: "592px 545px", dur: "4.4s", delay: "-2.1s" },
+  { key: "r1", gold: "g4", origin: "1120px 378px", dur: "3.6s", delay: "-0.7s" },
+  { key: "r2", gold: "g5", origin: "1180px 472px", dur: "4.1s", delay: "-1.8s" },
+  { key: "r3", gold: "g6", origin: "1226px 626px", dur: "4.6s", delay: "-2.6s" },
+];
+const NOVA_RIG_MOUTHS = {
+  greeting: { d: "M915,543 C985,537 1055,537 1118,544" },
+  explaining: { d: "M1072,548 C1072,536 1084,528 1098,528 C1112,528 1124,536 1124,548 C1124,560 1112,568 1098,568 C1084,568 1072,560 1072,548 Z", fill: true },
+  pleased: { d: "M972,530 C998,552 1046,554 1074,532" },
+  thinking: { d: "M945,552 C1015,542 1085,533 1145,526" },
+  worried: { d: "M925,553 C955,538 980,567 1010,552 C1040,537 1065,565 1100,549" },
+  fading: { d: "M922,549 C995,544 1075,544 1128,550" },
+  deadpan: { d: "M950,544 C1005,542 1060,542 1108,544" },
+  asleep: { d: "M958,552 C1005,548 1055,548 1098,552" },
 };
-
-let novaPosesPreloaded = false;
-function preloadNovaPoses() {
-  if (novaPosesPreloaded || typeof Image === "undefined") return;
-  novaPosesPreloaded = true;
-  for (const key of Object.keys(NOVA_AVATAR_SRC)) {
-    const im = new Image();
-    im.src = NOVA_AVATAR_SRC[key];
-  }
-}
-
+const NOVA_RIG_STATES = {
+  greeting: { lid: 0, gaze: [0, 0], gill: 0, gold: 1, head: [0, 0, 0], closed: null },
+  explaining: { lid: 0, gaze: [2, 0], gill: 0, gold: 1, head: [0, 0, 0], closed: null },
+  pleased: { lid: 0, gaze: [0, 0], gill: -1, gold: 1, head: [0, 0, 0], closed: "closedPleased" },
+  thinking: { lid: -8, gaze: [-13, -9], gill: 0, gold: 1, head: [-1.5, 0, 0], closed: null },
+  worried: { lid: -16, gaze: [0, -2], gill: -2.5, gold: 1, head: [0, 0, -4], closed: null },
+  fading: { lid: 38, gaze: [0, 4], gill: 3, gold: 0.45, head: [1.5, 0, 6], closed: null },
+  deadpan: { lid: 20, gaze: [0, 1], gill: 0, gold: 1, head: [0, 0, 0], closed: null },
+  asleep: { lid: 0, gaze: [0, 0], gill: 2, gold: 0.85, head: [5, 6, 16], closed: "closedAsleep" },
+};
 export function novaMoodFor({ hour = 12, streakAtRisk = false, reviewDue = false, returned = false } = {}) {
   if (streakAtRisk) return "worried";
   if (reviewDue) return "fading";
@@ -1520,64 +1579,131 @@ export function novaMoodFor({ hour = 12, streakAtRisk = false, reviewDue = false
   if (returned) return "greeting";
   return "greeting";
 }
+let novaRigSeq = 0;
 
-/* The avatar itself: a cream disc (or, with framing "panel",
-   a cream rounded panel holding the full figure) carrying the
-   current pose, crossfading to the next pose when the state
-   changes. The incoming pose only starts its fade once its
-   image has loaded, so a slow network never shows a hole; the
-   outgoing pose leaves a beat after the fade lands. Under
-   reduced motion the fade class is stilled by the CSS gate and
-   the swap is plain. */
-function NovaAvatar({ state = "greeting", size = 48, framing = "disc" }) {
-  const pose = NOVA_AVATAR_SRC[state] ? state : "greeting";
-  const [shown, setShown] = useState(pose);
-  const [incoming, setIncoming] = useState(null);
-  const [incomingOn, setIncomingOn] = useState(false);
-  useEffect(() => { preloadNovaPoses(); }, []);
+/* The rig itself. state is one of the eight expression keys;
+   size is the width in pixels (the traced figure is wider than
+   tall, 1370 by 1230 units); disc keeps the cream disc as a
+   backdrop she stands in front of and breaks the edge of; mode
+   "swim" runs the swim cycle for the Easter egg. All motion is
+   CSS (the .nv-rig rules in the stylesheet); this component
+   only picks paths and state values. The reaction squash runs
+   when the state changes to a reaction face: a squash, a
+   settle, a stretch, never a loop. */
+export function NovaRig({ state = "greeting", size = 120, disc = false, mode = "idle" }) {
+  const known = state === "greeting" || state === "explaining" || state === "pleased" || state === "thinking" || state === "worried" || state === "fading" || state === "deadpan" || state === "asleep";
+  const st = known ? NOVA_RIG_STATES[state] : NOVA_RIG_STATES.greeting;
+  const mouth = known ? NOVA_RIG_MOUTHS[state] : NOVA_RIG_MOUTHS.greeting;
+  const idRef = useRef(0);
+  if (!idRef.current) { novaRigSeq += 1; idRef.current = novaRigSeq; }
+  const uid = "r" + idRef.current;
+  const [reactN, setReactN] = useState(0);
+  const prevState = useRef(state);
   useEffect(() => {
-    if (pose === shown) {
-      if (incoming) { setIncoming(null); setIncomingOn(false); }
-      return;
+    if (prevState.current !== state) {
+      prevState.current = state;
+      if (state === "pleased" || state === "deadpan" || state === "worried") setReactN((n) => n + 1);
     }
-    if (incoming !== pose) { setIncoming(pose); setIncomingOn(false); }
-  }, [pose, shown, incoming]);
-  useEffect(() => {
-    if (!incoming || !incomingOn) return;
-    const t = setTimeout(() => { setShown(incoming); setIncoming(null); setIncomingOn(false); }, 330);
-    return () => clearTimeout(t);
-  }, [incoming, incomingOn]);
-
-  const layer = (p, isIn) => {
-    const onLoad = isIn ? () => setIncomingOn(true) : undefined;
-    if (framing === "panel") {
-      return (
-        <span key={p} className={"nv-layer" + (isIn ? " nv-layer-in" : "")}>
-          <img className="nv-panel-img" src={NOVA_AVATAR_SRC[p]} alt="" aria-hidden="true" draggable="false" onLoad={onLoad} />
-        </span>
-      );
-    }
-    const c = NOVA_CROPS[p] || NOVA_CROPS.greeting;
-    return (
-      <span key={p} className={"nv-layer" + (isIn ? " nv-layer-in" : "")}>
-        <img className="nv-img" src={NOVA_AVATAR_SRC[p]} alt="" aria-hidden="true" draggable="false"
-          style={{ width: (100 / c.s) + "%", left: (-(c.x / c.s) * 100) + "%", top: (-(c.y / c.s) * 100) + "%" }}
-          onLoad={onLoad} />
-      </span>
-    );
-  };
-
-  const printSize = size <= 52 ? " nv-print-sm" : size >= 100 ? " nv-print-lg" : "";
-  const frameCls = (framing === "panel" ? "nv-panel nv-panel-" : "nv-disc nv-disc-") + shown;
+  }, [state]);
+  const height = Math.round(size * (1230 / 1370));
+  const headT = "translate(" + st.head[1] + "px, " + st.head[2] + "px) rotate(" + st.head[0] + "deg)";
+  const fil = (f) => (
+    <g key={f.key} className="nv-rig-fil nv-rig-anim" style={{ transformOrigin: f.origin, animationDuration: f.dur, animationDelay: f.delay }}>
+      <path d={NOVA_RIG_D[f.key]} fill={NOVA_RIG_FILL} stroke={NOVA_RIG_INK} strokeWidth={14} strokeLinejoin="round" />
+      <path className="nv-rig-gold nv-rig-t" d={NOVA_RIG_D[f.gold]} fill={NOVA_RIG_GOLD} stroke={NOVA_RIG_INK} strokeWidth={9} strokeLinejoin="round" style={{ opacity: st.gold }} />
+    </g>
+  );
+  const lid = (side) => (
+    <g key={side} className="nv-rig-t nv-rig-anim" style={{ transform: "translateY(" + st.lid + "px)" }}>
+      <g className="nv-rig-lid nv-rig-anim" style={side === "r" ? { animationDelay: "-0.05s" } : undefined}>
+        {side === "l"
+          ? <><rect x={812} y={352} width={150} height={90} fill={NOVA_RIG_FILL} /><path d={NOVA_RIG_D.lidLineL} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" /></>
+          : <><rect x={1060} y={346} width={100} height={87} fill={NOVA_RIG_FILL} /><path d={NOVA_RIG_D.lidLineR} fill="none" stroke={NOVA_RIG_INK} strokeWidth={12} strokeLinecap="round" /></>}
+      </g>
+    </g>
+  );
   return (
-    <span className={frameCls + " nv-print" + printSize} style={{ width: size, height: size }} aria-hidden="true">
-      <span className="nv-figwrap">
-        {layer(shown, false)}
-        {incoming && incoming !== shown ? layer(incoming, true) : null}
-      </span>
-      <span className="nv-grain" />
+    <span className="nv-rig-wrap" style={{ width: size, height }}>
+      {disc && <span className="nv-rig-disc" style={{ width: Math.round(size / 1.3), height: Math.round(size / 1.3) }} />}
+      <svg className={"nv-rig nv-rig-st-" + (known ? state : "greeting") + (mode === "swim" ? " nv-rig-swim" : "")}
+        width={size} height={height} viewBox="120 230 1370 1230" aria-hidden="true" focusable="false">
+        <g key={reactN} className={reactN ? "nv-rig-react" : undefined}>
+          <g className="nv-rig-breath nv-rig-anim">
+            <g className="nv-rig-tail nv-rig-anim">
+              <path d={NOVA_RIG_D.tail} fill={NOVA_RIG_FILL} />
+              <clipPath id={"tl" + uid}><path d={NOVA_RIG_D.tail} /></clipPath>
+              <g clipPath={"url(#tl" + uid + ")"}><path d={NOVA_RIG_D.washFin} fill={NOVA_RIG_WASH} /></g>
+              <path d={NOVA_RIG_D.tailEdge} fill="none" stroke={NOVA_RIG_INK} strokeWidth={16} strokeLinecap="round" />
+            </g>
+            <path d={NOVA_RIG_D.body} fill={NOVA_RIG_FILL} />
+            <path d={NOVA_RIG_D.bodyEdge} fill="none" stroke={NOVA_RIG_INK} strokeWidth={16} strokeLinecap="round" />
+            <clipPath id={"bd" + uid}><path d={NOVA_RIG_D.body} /><path d={NOVA_RIG_D.tail} /></clipPath>
+            <g clipPath={"url(#bd" + uid + ")"}>
+              <path d={NOVA_RIG_D.wash} fill={NOVA_RIG_WASH} />
+              <path d={NOVA_RIG_D.spine} fill="none" stroke={NOVA_RIG_GOLD} strokeWidth={20} strokeLinecap="round" />
+            </g>
+            <path d={NOVA_RIG_D.inner} fill="none" stroke={NOVA_RIG_INK} strokeWidth={14} strokeLinecap="round" />
+            <g fill="none" strokeLinecap="round">
+              <path d={NOVA_RIG_D.armL} stroke={NOVA_RIG_INK} strokeWidth={54} />
+              <path d={NOVA_RIG_D.armL} stroke={NOVA_RIG_FILL} strokeWidth={30} />
+              <path d={NOVA_RIG_D.armR} stroke={NOVA_RIG_INK} strokeWidth={54} />
+              <path d={NOVA_RIG_D.armR} stroke={NOVA_RIG_FILL} strokeWidth={30} />
+            </g>
+            {[[838, 918], [856, 916], [870, 906]].map(([x, y]) => <circle key={x} cx={x} cy={y} r={7} fill={NOVA_RIG_INK} />)}
+            <circle cx={1180} cy={642} r={26} fill={NOVA_RIG_FILL} stroke={NOVA_RIG_INK} strokeWidth={12} />
+            <g className="nv-rig-t nv-rig-anim" style={{ transform: "rotate(" + st.gill + "deg)", transformOrigin: "640px 470px" }}>
+              {NOVA_RIG_FILAMENTS.slice(0, 3).map(fil)}
+            </g>
+            <g className="nv-rig-t nv-rig-anim" style={{ transform: "rotate(" + (-st.gill) + "deg)", transformOrigin: "1180px 480px" }}>
+              {NOVA_RIG_FILAMENTS.slice(3).map(fil)}
+            </g>
+            <g className="nv-rig-t nv-rig-anim" style={{ transform: headT, transformOrigin: "950px 620px" }}>
+              <g className="nv-rig-head nv-rig-anim">
+                <path d={NOVA_RIG_D.head} fill={NOVA_RIG_FILL} stroke={NOVA_RIG_INK} strokeWidth={16} strokeLinejoin="round" />
+                <path d={NOVA_RIG_D.cheek} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" />
+                {st.closed
+                  ? <path d={NOVA_RIG_D[st.closed]} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" />
+                  : (<>
+                      <clipPath id={"sk" + uid}><path d={NOVA_RIG_D.sockL + " " + NOVA_RIG_D.sockR} /></clipPath>
+                      <g clipPath={"url(#sk" + uid + ")"}>
+                        <g className="nv-rig-glance nv-rig-anim">
+                          <g style={{ transform: "translate(calc(var(--nv-gx, 0px) * 6), calc(var(--nv-gy, 0px) * 6))" }}>
+                            <g className="nv-rig-t" style={{ transform: "translate(" + st.gaze[0] + "px, " + st.gaze[1] + "px)" }}>
+                              <path d={NOVA_RIG_D.pupilL} fill={NOVA_RIG_INK} />
+                              <path d={NOVA_RIG_D.pupilR} fill={NOVA_RIG_INK} />
+                            </g>
+                          </g>
+                        </g>
+                        {lid("l")}
+                        {lid("r")}
+                      </g>
+                    </>)}
+                {mouth.fill
+                  ? <path d={mouth.d} fill={NOVA_RIG_INK} />
+                  : <path d={mouth.d} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" />}
+              </g>
+            </g>
+          </g>
+        </g>
+      </svg>
     </span>
   );
+}
+
+/* The avatar: NovaRig at the persistent spots. With framing
+   "disc" she stands in front of the cream disc at 1.3 times
+   the old disc size, so her gills break its rim; with framing
+   "panel" she stands free on the page. The signature is the
+   one the raster avatar had, so every call site is unchanged. */
+function NovaAvatar({ state = "greeting", size = 48, framing = "disc" }) {
+  if (framing === "panel") {
+    return (
+      <span className="nv-rig-panel">
+        <NovaRig state={state} size={size} />
+      </span>
+    );
+  }
+  return <NovaRig state={state} size={Math.round(size * 1.3)} disc />;
 }
 
 /* The feedback sheet's Nova (home restructure wave, reaction
@@ -12222,7 +12348,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           it never turns sound on by itself. */}
       <div className="lv-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, minHeight: 56 }}>
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", minWidth: 0 }}>
-          <span aria-hidden="true" style={{ width: 68, height: 68, borderRadius: "50%", overflow: "hidden", flexShrink: 0, border: "1px solid " + P.line, background: CREAM, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span aria-hidden="true" style={{ width: 68, height: 68, borderRadius: "50%", flexShrink: 0, border: "1px solid " + P.line, background: CREAM, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <NovaLive state={novaMood} size={66} />
           </span>
           <div style={{ minWidth: 0 }}>
