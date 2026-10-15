@@ -5096,7 +5096,7 @@ function SearchNova({ size = 52, live = true }) {
   const f = NOVA_SEARCH_FACES[faceName] || NOVA_SEARCH_FACES.idle;
   return (
     <span aria-hidden="true" style={{ display: "inline-flex", flexShrink: 0, lineHeight: 0 }}>
-      <NovaRive state={f.state} appState={f.appState} size={size} framing="bust" quips={live} />
+      <NovaRive state={f.state} appState={f.appState} size={size} framing="full" quips={live} />
     </span>
   );
 }
