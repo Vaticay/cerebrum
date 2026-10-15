@@ -5101,6 +5101,87 @@ function SearchNova({ size = 52, live = true }) {
   );
 }
 
+/* ── One Nova for the whole search (2026-10-15) ─────────────────────────
+   Diagnosis (owner: "when searching she glitches too and is very
+   small"). SearchNova used to be mounted independently in three
+   places — the progress room, the newest answer's head, the error
+   panel — and every mount is a fresh NovaRive, which means a fresh
+   Rive runtime: the artboard reloads, the state machine restarts
+   from the bind pose, the quip engine resets. The ask lifecycle
+   made it worse:
+   - She mounted in the room 200ms into a search and unmounted the
+     moment the answer landed, the head copy mounting in the same
+     commit: a vanish and a pop in, at a new size (46 to 54) and a
+     new place, animation restarted.
+   - The head copy was gated on the answer's assembly reveal
+     finishing, so during the reveal there was no Nova anywhere,
+     then she popped in late, restarted again.
+   - During a follow up, the previous answer's head Nova was still
+     mounted (its turn stays "last" until the new turn appends)
+     while the room mounted a second one: two of her, both
+     thinking — then both died and a third instance popped in at
+     the new answer.
+   The fix: ONE SearchNova instance, owned by SearchNovaStage and
+   mounted for the whole thread session. Each surface renders a
+   SearchNovaSlot, an empty span that registers itself in the
+   module store; the stage portals the single instance into the
+   winning slot. Changing a portal's target re parents the canvas
+   DOM node without unmounting the component, so the runtime, the
+   state machine, and the quip engine all survive the move; the
+   only change across surfaces is the size prop, a canvas resize,
+   not a restart. Priority: the progress room wins while a search
+   runs, then the error panel, then the answer's head, so a follow
+   up never shows two of her and the latest news always owns her.
+   With no slot live she parks, invisible, in the stage's keeper
+   span, still mounted. Stage changes reach her only as inputs,
+   through the emitSearchNova store above, as they always did. */
+const NOVA_STAGE_PRIORITY = { busy: 3, error: 2, answer: 1 };
+const novaStageSlots = new Map();
+const novaStageListeners = new Set();
+let novaStageSeq = 0;
+function novaStageCurrent() {
+  let best = null;
+  for (const s of novaStageSlots.values()) {
+    if (!best) { best = s; continue; }
+    const dp = (NOVA_STAGE_PRIORITY[s.kind] || 0) - (NOVA_STAGE_PRIORITY[best.kind] || 0);
+    if (dp > 0 || (dp === 0 && s.seq > best.seq)) best = s;
+  }
+  return best;
+}
+function novaStageNotify() { novaStageListeners.forEach((fn) => { try { fn(); } catch { /* one bad listener never breaks a search */ } }); }
+function SearchNovaSlot({ kind, size = 72 }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const entry = { el, kind, size, seq: ++novaStageSeq };
+    const key = kind + ":" + entry.seq;
+    novaStageSlots.set(key, entry);
+    novaStageNotify();
+    return () => { novaStageSlots.delete(key); novaStageNotify(); };
+  }, [kind, size]);
+  return <span ref={ref} style={{ display: "inline-flex", flexShrink: 0, lineHeight: 0 }} />;
+}
+function SearchNovaStage() {
+  const keeperRef = useRef(null);
+  const [keeperEl, setKeeperEl] = useState(null);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    setKeeperEl(keeperRef.current);
+    const fn = () => setTick((n) => n + 1);
+    novaStageListeners.add(fn);
+    return () => { novaStageListeners.delete(fn); };
+  }, []);
+  const cur = novaStageCurrent();
+  const target = cur ? cur.el : keeperEl;
+  return (
+    <>
+      <span ref={keeperRef} aria-hidden="true" style={{ position: "absolute", width: 0, height: 0, overflow: "hidden", visibility: "hidden", pointerEvents: "none" }} />
+      {target ? createPortal(<SearchNova size={cur ? cur.size : 72} />, target) : null}
+    </>
+  );
+}
+
 /* ── SearchErrorPanel (#16) ───────────────────────────────────────────────
    The failure panel speaks the instrument's language — a hairline, a
    kicker, plain words — not a red alert box. "Search failed" as a verdict
@@ -5121,9 +5202,12 @@ function SearchErrorPanel({ P, accent, errorKind, errorTitle, error, errorDetail
   return (
     <div role="alert" className="cb-fade" style={{ marginTop: 6, padding: "22px 4px 8px", borderTop: `1px solid ${P.line}` }}>
       {/* Nova lands her deadpan face beside a failed search (2026-10-15):
-          the lifecycle's failed emit reaches her through SearchNova. */}
+          the lifecycle's failed emit reaches her through the search
+          store. The panel renders a slot, not an instance: the one
+          persistent SearchNova (see SearchNovaStage) relocates here
+          without restarting. */}
       <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-        <SearchNova size={46} />
+        <SearchNovaSlot kind="error" size={72} />
         <div>
           <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 600, letterSpacing: "normal", textTransform: "none", color: P.faint, marginBottom: 10, fontFamily: "var(--cb-font)" }}>Search interrupted</div>
           <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, marginBottom: 6, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{errorTitle || "The search didn't come back."}</div>
@@ -9701,8 +9785,14 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             She lands pleased or deadpan off the lifecycle emit, then
             settles back to her resting greeting. Older answers keep
             their heads clear. She is a resident of the current answer,
-            not a stamp on every one. */}
-        {last && done && !synthFailed && <SearchNova size={54} />}
+            not a stamp on every one. The head renders a slot, not an
+            instance: the one persistent SearchNova (SearchNovaStage)
+            relocates here the moment the turn lands, so she rides
+            the assembly reveal instead of popping in, restarted,
+            after it — the old done gate is gone for exactly that
+            reason. At 100 (76 on mobile) she stands at a readable
+            size beside the question, not a 54px thumbnail. */}
+        {last && !synthFailed && <SearchNovaSlot kind="answer" size={isMobile ? 76 : 100} />}
         </div>
       </div>
       {/* The verdict instrument: the measurement lands here, before the
@@ -24124,6 +24214,10 @@ function App() {
             </Reveal>
           ) : (
             <div style={{ ...S.workspace, ...(isMobile ? S.workspaceMobile : S.workspaceWithSidebar) }} className="cb-page-enter">
+              {/* The one persistent search Nova lives here for the
+                  whole thread session; the surfaces below only offer
+                  her slots to relocate into (SearchNovaStage). */}
+              <SearchNovaStage />
               <div style={S.thread}>
                 {turns.map((t, ti) => {
                   /* The Dive: the freshly arrived answer ascends back to
@@ -24151,9 +24245,12 @@ function App() {
                       sub-280ms answers never flash a loader. */}
                   {/* Nova rides the search (2026-10-15): her thinking face
                       sits over the room while the lifecycle's outcome
-                      emit is still outstanding. */}
+                      emit is still outstanding. A slot, not an instance:
+                      the persistent SearchNova (SearchNovaStage) moves
+                      here at 80 when the room opens and moves on to the
+                      answer's head when it lands, never restarting. */}
                   <div style={{ display: "flex", justifyContent: "center", marginBottom: 2 }}>
-                    <SearchNova size={46} />
+                    <SearchNovaSlot kind="busy" size={80} />
                   </div>
                   <Dive P={P} accent={accent} q={(lastAskRef.current && lastAskRef.current.q) || input || "Searching the literature"} contextual={contextBusy} videosLocated={videosLocated}
                     stream={streamActive ? streamStage : null}
