@@ -141,14 +141,14 @@ function renderPage(slug, data, shell) {
     <meta property="og:title" content="${esc(title)}" />
     <meta property="og:description" content="${esc(description)}" />
     <meta property="og:url" content="${esc(canonical)}" />
-    <meta property="og:image" content="${ORIGIN}/og-image.png?v=20260912" />
+    <meta property="og:image" content="${ORIGIN}/og-image.png?v=20261015" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Cerebrum · scientific literature search" />
+    <meta property="og:image:alt" content="Cerebrum · scientific literature search, with Nova the axolotl mascot" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${esc(title)}" />
     <meta name="twitter:description" content="${esc(description)}" />
-    <meta name="twitter:image" content="${ORIGIN}/og-image.png?v=20260912" />
+    <meta name="twitter:image" content="${ORIGIN}/og-image.png?v=20261015" />
     <meta name="robots" content="index, follow" />${faqJsonLd}${softwareJsonLd}`;
 
   /* The prerendered content sits inside the SPA's mount point. React replaces
