@@ -87,6 +87,14 @@ export function cardIsPaperBacked(card) {
   if (card.kind === "paper") return true;
   if (card.cite != null) return true;
   if (card.paperTitle != null) return true;
+  /* Claim battles are paper machinery by construction: two sourced
+     readings pitted against each other, the old generator's way of
+     quoting papers inside a lesson. Generation stopped in the
+     2026-10-14 pivot; the owner's permanent ruling of 2026-10-15 closed
+     the kind for good, so a stored battle card retires its course
+     like any other paper card, and its claim and source fields are
+     screened below with the rest of the card's text. */
+  if (card.kind === "battle") return true;
   const question = typeof card.question === "string" ? card.question : "";
   if (/\bet al\.?\b/i.test(question)) return true;
   if (/^what did .+ report\??$/i.test(question.trim())) return true;
@@ -95,6 +103,10 @@ export function cardIsPaperBacked(card) {
   const candidates = [];
   if (typeof card.prompt === "string") candidates.push(card.prompt);
   if (typeof card.why === "string") candidates.push(card.why);
+  if (typeof card.claimA === "string") candidates.push(card.claimA);
+  if (typeof card.claimB === "string") candidates.push(card.claimB);
+  if (typeof card.sourceA === "string") candidates.push(card.sourceA);
+  if (typeof card.sourceB === "string") candidates.push(card.sourceB);
   if (Array.isArray(card.options)) {
     for (const opt of card.options) if (typeof opt === "string") candidates.push(opt);
   }
@@ -126,7 +138,11 @@ export function courseIsPaperBacked(course) {
    and kept claims stay exactly as they were, apart from HTML
    entities in their strings being decoded to the characters they
    stand for. This function is pure and touches nothing else: no
-   profile, no path progress, no XP, no streaks, and no Sparks. */
+   profile, no path progress, no XP, no streaks, and no Sparks.
+   Claim battle cards joined the screen on 2026-10-15, when the
+   owner made the removal permanent: papers stay out of lessons,
+   the Player's battle branch came out, and no surface in the
+   learning flow talks about papers at all any more. */
 export function retirePaperBackedLearning(courses, claims) {
   const list = Array.isArray(courses) ? courses : [];
   const claimMap = cortexIsPlainObject(claims) ? claims : {};
@@ -1088,7 +1104,10 @@ function RichText({ text }) {
    to teach from honestly. The conflicts argument is still accepted
    for caller compatibility; the old claim battle lesson quoted two
    papers against each other, which is paper referencing inside the
-   learning flow, so battles are no longer generated. */
+   learning flow, so battles are no longer generated. Since
+   2026-10-15 the kind is retired outright: the storage screen drops
+   any stored course still holding a battle card, and the Player
+   carries no battle branch. */
 export function createCourseFromResults(query, sources, answerMd, conflicts) {
   const srcs = (sources || []).filter((s) => s && s.title);
   if (srcs.length < 2) return null;
@@ -9950,7 +9969,7 @@ export function builtinPathFor(id) {
   return LEARNING_PATHS.find((p) => p.id === id) || TOPIC_COURSES.find((p) => p.id === id) || null;
 }
 
-export const INTERACTIVE_KINDS = ["quiz", "cloze", "battle", "truefalse", "match", "order", "visualq", "spoterror", "predict", "build"];
+export const INTERACTIVE_KINDS = ["quiz", "cloze", "truefalse", "match", "order", "visualq", "spoterror", "predict", "build"];
 export function isInteractiveCard(card) {
   return !!card && INTERACTIVE_KINDS.includes(card.kind);
 }
@@ -10322,8 +10341,7 @@ function courseFromPath(path, progress) {
    attempt happened, the learning is in the feedback, and the point
    says so without pretending it was half a success (wrong answers
    used to earn 4, and reading a card earned 2, so the total mostly
-   counted activity). Battle cards have no wrong answer to give, so
-   engaging one earns its flat 6. Finishing a lesson earns 20.
+   counted activity). Finishing a lesson earns 20.
    Reading cards (notes, deepen pieces, and summaries) earn nothing:
    advancing past a card is not an achievement.
    Replays are capped per lesson: the first completion of a lesson
@@ -10332,7 +10350,6 @@ function courseFromPath(path, progress) {
    the points stop. */
 export const XP_CORRECT = 10;
 export const XP_WRONG = 1;
-export const XP_BATTLE = 6;
 export const XP_LESSON_FINISH = 20;
 
 /* Match cards: a clean run earns full marks; every miss knocks 2
@@ -11083,7 +11100,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   }, [card, attempt]);
   const displayOptions = quizDisplay ? quizDisplay.options : (card ? card.options : null);
   const displayCorrect = quizDisplay ? quizDisplay.correct : (card ? card.correct : null);
-  const isRight = interactive && card.kind !== "battle" && (
+  const isRight = interactive && (
     card.kind === "match" ? matchMistakes === 0
     : card.kind === "order" || card.kind === "build" ? orderCorrect
     : card.kind === "spoterror" ? picked === card.wrong
@@ -11096,15 +11113,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
      when the sheet lands the quirks engine reads the event once
      per card (speed, whether the lesson is a checkpoint or
      capstone, the running easy streak) and answers with a line
-     and a face, or with silence. Battle cards are discussions,
-     not answers, and earn no opinion. */
+     and a face, or with silence. */
   useEffect(() => {
     if (!checked) {
       cardShownAtRef.current = Date.now();
       setSheetOpinion(null);
       return;
     }
-    if (!card || card.kind === "battle") return;
+    if (!card) return;
     const key = lessonIdx + ":" + cardIdx + ":" + attempt;
     if (opinionKeyRef.current === key) return;
     opinionKeyRef.current = key;
@@ -11274,12 +11290,6 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     if (card.kind === "match" || card.kind === "order" || card.kind === "build") return;
     setChecked(true);
     setAnswered((n) => n + 1);
-    if (card.kind === "battle") {
-      const paid = pay(XP_BATTLE);
-      playSound("tick", soundOn);
-      say("Both readings are on the table. Plus " + paid + " XP.");
-      return;
-    }
     const correct = card.kind === "spoterror" ? picked === card.wrong : picked === displayCorrect;
     setMissStreak((n) => (correct ? 0 : n + 1));
     setRightStreak((n) => (correct ? n + 1 : 0));
@@ -11534,7 +11544,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>ABOUT THESE LESSONS</div>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>
-                {"Written for Nova from standard textbook material covering " + course.title + ". The checks explain the ideas in plain words and quote no single paper. Courses built from a search on the Nova home teach the same way: plain statements first, then quizzes on the ideas."}
+                {"Written for Nova from standard textbook material covering " + course.title + ". The checks explain the ideas in plain words. Courses built from a search on the Nova home teach the same way: plain statements first, then quizzes on the ideas."}
               </p>
             </div>
           )}
@@ -11724,7 +11734,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     );
   }
 
-  const cardKindLabel = (c) => c.kind === "cloze" ? "Predict" : c.kind === "battle" ? "Debate" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.kind === "match" ? "Match" : c.kind === "order" ? "Order" : c.kind === "build" ? "Build" : c.kind === "visualq" ? "Look" : c.kind === "spoterror" ? "Spot the error" : c.kind === "predict" ? "Predict" : c.kind === "truefalse" ? "True or false" : c.kind === "deepen" ? "Go deeper" : c.vocab ? "Vocab" : "Recall";
+  const cardKindLabel = (c) => c.kind === "cloze" ? "Predict" : c.kind === "note" ? "Intro" : c.kind === "summary" ? "Wrap" : c.kind === "match" ? "Match" : c.kind === "order" ? "Order" : c.kind === "build" ? "Build" : c.kind === "visualq" ? "Look" : c.kind === "spoterror" ? "Spot the error" : c.kind === "predict" ? "Predict" : c.kind === "truefalse" ? "True or false" : c.kind === "deepen" ? "Go deeper" : c.vocab ? "Vocab" : "Recall";
 
   /* Feedback tones (wave 3, 2026-10-14): the reconciled Nova
      discipline replaces the STATUS green and red in the Player.
@@ -11746,7 +11756,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const goodWash = withAlphaSafe(accent, P.dark ? 0.2 : 0.13);
   const badWash = withAlphaSafe(WRONG_LINE, P.dark ? 0.16 : 0.12);
 
-  const sheetGood = checked && (card.kind === "battle" || isRight);
+  const sheetGood = checked && isRight;
   const sheet = checked ? (
     <div className="lv-sheet" style={{
       position: "sticky", bottom: 0, marginTop: 28,
@@ -11760,8 +11770,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} />
         </div>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
-          {card.kind === "battle" ? "Two readings, honestly held. That is the point."
-            : card.kind === "match" ? (isRight ? "Every pair, first try." : "All pairs matched.")
+          {card.kind === "match" ? (isRight ? "Every pair, first try." : "All pairs matched.")
             : card.kind === "order" || card.kind === "build" ? (orderResult && orderResult.perfect ? (card.kind === "build" ? "Built in the right order." : "In the right order.")
               : orderResult && orderResult.correctPositions > 0 ? orderResult.correctPositions + " of " + orderResult.total + " steps in the right place."
               : "Not the right order.")
@@ -11771,12 +11780,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             {"+" + lastAward + " XP"}
           </span>
         </div>
-        {card.kind === "battle" ? (
-          <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: 0, color: P.ink2 || P.ink }}>
-            These two readings do not agree, and there is no correct side to pick here. Disagreement at this level usually means the answer depends on conditions, and seeing both sides plainly is the skill being practiced.
-          </p>
-        ) : (
-          <>
+        <>
             {!isRight && displayOptions && picked !== null && picked !== undefined && (
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 10px", color: P.ink2 || P.ink }}>
                 You picked: <span style={{ fontWeight: 600 }}><RichText text={displayOptions[picked]} /></span>
@@ -11816,8 +11820,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 It should say: <span style={{ fontWeight: 600 }}><RichText text={card.fix} /></span>
               </p>
             )}
-          </>
-        )}
+        </>
         {/* The opinion line is speech now (2026-10-15): it
             reaches the sheet through SheetNova's opinionLine
             prop and is said through her controller, so it no
@@ -11887,7 +11890,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       {/* card stage */}
       <div style={{ flex: 1, width: "100%", maxWidth: 680, margin: "0 auto", padding: "26px 24px 8px", boxSizing: "border-box" }}>
         <div key={lessonIdx + "-" + cardIdx} className="lv-rise">
-          {(card.kind === "quiz" || card.kind === "cloze" || card.kind === "battle") && course.img && (
+          {(card.kind === "quiz" || card.kind === "cloze") && course.img && (
             <div style={{ position: "relative", height: 92, borderRadius: 18, overflow: "hidden", marginBottom: 22, border: "1px solid " + P.line }}>
               <img src={course.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
               <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(6,10,6,0.05), rgba(6,10,6,0.72))" }} />
@@ -11988,40 +11991,6 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       <span style={{ minWidth: 0, overflowWrap: "break-word" }}><RichText text={opt} /></span>
                     </button>
                   );
-                })}
-              </div>
-            </div>
-          )}
-
-          {card.kind === "battle" && (
-            <div>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>CLAIM BATTLE · TWO READINGS</div>
-              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 20px" }}>{card.question}</h2>
-              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                {[{ claim: card.claimA, src: card.sourceA, tag: "POSITION A" }, { claim: card.claimB, src: card.sourceB, tag: "POSITION B" }].flatMap((side, i) => {
-                  const btn = (
-                    <button key={"side" + i} onClick={() => pick(i)} disabled={checked}
-                      onMouseEnter={quizHoverStart} onMouseLeave={quizHoverEnd} onFocus={quizHoverStart} onBlur={quizHoverEnd}
-                      className="lv-opt"
-                      style={{
-                        width: "100%", boxSizing: "border-box", textAlign: "left",
-                        background: P.raised, border: "2px solid " + (!checked && picked === i ? accent : P.line), borderRadius: 18,
-                        padding: "18px 20px", cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)",
-                      }}>
-                      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: accent, marginBottom: 9 }}>{side.tag}</div>
-                      <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.55, margin: 0 }}><RichText text={side.claim} /></p>
-                    </button>
-                  );
-                  if (i === 0) return [btn];
-                  return [(
-                    <div key="vs" style={{ display: "flex", justifyContent: "center", margin: "-13px 0", position: "relative", zIndex: 1 }}>
-                      <span style={{
-                        width: 40, height: 40, borderRadius: "50%", background: accent, color: "#14240a",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: FONT_SIZES.label, fontWeight: 800, border: "3px solid " + P.bg, boxSizing: "border-box",
-                      }}>VS</span>
-                    </div>
-                  ), btn];
                 })}
               </div>
             </div>
@@ -12387,10 +12356,10 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
         <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{path.title}</h2>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 6px" }}>{path.blurb}</p>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, margin: 0 }}>
-          {pp.total} lessons · {path.units.length} unit{path.units.length === 1 ? "" : "s"} · about {pace.minutes} min · {pace.word} · taught directly, no papers needed
+          {pp.total} lessons · {path.units.length} unit{path.units.length === 1 ? "" : "s"} · about {pace.minutes} min · {pace.word} · taught directly
         </p>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "6px 0 0" }}>
-          {"Written for Nova from standard textbook material covering " + path.title + ". These lessons teach the ideas directly and quote no single paper. Courses built from your searches teach the same way: plain statements first, then quizzes on the ideas."}
+          {"Written for Nova from standard textbook material covering " + path.title + ". These lessons teach the ideas directly. Courses built from your searches teach the same way: plain statements first, then quizzes on the ideas."}
         </p>
         <div style={{ margin: "16px 0 6px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>

@@ -62,7 +62,7 @@ const WANTED = [
   "flattenPathLessons", "isLessonUnlocked", "pathProgress", "pathPaceFor",
   "applyLessonResult", "buildDailyPracticeCards", "validateCurriculum",
   "MASTERY_MIN_PCT", "isLessonMastered", "orderScore", "parseRichText",
-  "XP_CORRECT", "XP_WRONG", "XP_BATTLE", "XP_LESSON_FINISH",
+  "XP_CORRECT", "XP_WRONG", "XP_LESSON_FINISH",
   "matchScore", "lessonXpScale", "scaleXp",
   "TOUR_STEPS", "focusTrapStep",
   "CORTEX_EXPORT_FORMAT", "CORTEX_EXPORT_VERSION",
@@ -146,7 +146,7 @@ const {
   focusTrapStep, cleanText,
   decodeHtmlEntities, decodeStringsDeep, cardIsPaperBacked, courseIsPaperBacked,
   retirePaperBackedLearning, loadLearnCourses, loadClaims, dueClaims, retrievability,
-  XP_CORRECT, XP_WRONG, XP_BATTLE, XP_LESSON_FINISH,
+  XP_CORRECT, XP_WRONG, XP_LESSON_FINISH,
   matchScore, lessonXpScale, scaleXp,
   COURSES_KEY, CLAIMS_KEY, PROFILE_KEY, SOUND_KEY, BUILTIN_PROGRESS_KEY,
   CORTEX_EXPORT_FORMAT, CORTEX_EXPORT_VERSION, buildCortexExport, parseCortexImport,
@@ -1346,13 +1346,32 @@ await test("the Player source carries no paper card branch or kind label", () =>
   assert.ok(!learnSrc.includes('c.kind === "paper" ? "Read"'), "the removed paper kind label survived");
 });
 
+await test("the Player source carries no battle branch, and a stored battle card retires its course", () => {
+  // Permanent ruling (2026-10-15): papers stay out of lessons for
+  // good. The claim battle was the last paper shaped card kind:
+  // the Player rendered two sourced readings against each other,
+  // claims and source labels alike. The branch is out, the kind
+  // is out of INTERACTIVE_KINDS, and the storage screen retires
+  // any stored course still holding one. The one surviving
+  // mention of the kind in the source is the screen itself.
+  assert.ok(!learnSrc.includes('card.kind === "battle" &&'), "the Player battle renderer survived");
+  assert.ok(!learnSrc.includes("CLAIM BATTLE"), "the battle card heading survived");
+  assert.ok(!INTERACTIVE_KINDS.includes("battle"), "battle is still an interactive kind");
+  assert.equal(cardIsPaperBacked({ kind: "battle", question: "Which reading holds up?", claimA: "One plain statement.", sourceA: "Some Journal, 2021", claimB: "Another plain statement.", sourceB: "Another Journal, 2022" }), true, "a battle card was not flagged");
+  assert.equal(courseIsPaperBacked({ lessons: [{ cards: [{ kind: "battle", claimA: "a", claimB: "b" }] }] }), true, "a course holding a battle card was not flagged");
+});
+
 // ─═════════════════════════════════════════════════════════════════
 group("XP economy: points follow learning, not activity");
 
 await test("the award values are the rebalanced ones", () => {
   assert.equal(XP_CORRECT, 10);
   assert.equal(XP_WRONG, 1, "a wrong answer earns the token point, not 4");
-  assert.equal(XP_BATTLE, 6);
+  // The battle award (a flat 6 for engaging a claim battle) was
+  // removed on 2026-10-15 with the battle kind itself: battles
+  // were paper machinery, and the owner's permanent ruling took
+  // papers out of lessons for good.
+  assert.ok(!learnSrc.includes("XP_BATTLE"), "the retired battle award survived");
   assert.equal(XP_LESSON_FINISH, 20);
 });
 
@@ -1420,7 +1439,10 @@ await test("double asterisks parse as bold, underscores as italics", () => {
 });
 
 await test("generated card text renders through RichText on the card surfaces", () => {
-  for (const needle of ["<RichText text={card.why} />", "<RichText text={opt} />", "<RichText text={side.claim} />", "<RichText text={card.prompt} />", "<RichText text={card.statement} />"]) {
+  // The side.claim needle left the list on 2026-10-15: it pinned
+  // the claim battle renderer, and the battle kind was retired
+  // outright when the owner ruled papers out of lessons for good.
+  for (const needle of ["<RichText text={card.why} />", "<RichText text={opt} />", "<RichText text={card.prompt} />", "<RichText text={card.statement} />"]) {
     assert.ok(learnSrc.includes(needle), `a card surface does not render through RichText: ${needle}`);
   }
 });
@@ -1442,10 +1464,16 @@ await test("the tour describes taught lessons and real quizzes, with no paper ta
   assert.ok(TOUR_STEPS[3].body.includes("review schedule"), "the review step does not name the review schedule");
 });
 
-await test("builtin lessons carry an honest source note, with no invented citation", () => {
+await test("builtin lessons carry an honest source note, with no paper talk on the surface", () => {
   const hits = learnSrc.match(/for Nova from standard textbook material/g) || [];
   assert.ok(hits.length >= 3, `the textbook source note should appear in the tour, the path view, and the lesson intro; found ${hits.length}`);
-  assert.ok(learnSrc.includes("quote no single paper"), "the source note does not say plainly that no paper is quoted");
+  // Permanent ruling (2026-10-15): papers are out of lessons for
+  // good, and lesson surfaces no longer talk about papers at all,
+  // not even to say that none is quoted. This replaces the earlier
+  // pin, which required the words "quote no single paper" in the
+  // note; that wording was itself paper talk on a lesson surface.
+  assert.ok(!learnSrc.includes("quote no single paper"), "a lesson surface still talks about papers");
+  assert.ok(!learnSrc.includes("no papers needed"), "a lesson surface still talks about papers");
 });
 
 await test("catalog blurbs describe coverage instead of asserting facts", () => {
@@ -4376,10 +4404,14 @@ await test("NovaLive and SheetNova render NovaRive behind their existing props",
 });
 
 await test("the Player wires option hover and focus into the quiz feed", () => {
+  // Threshold corrected 2026-10-15: the floor was 4 while the
+  // claim battle buttons were one of the wired surfaces. The
+  // battle kind was retired outright that day (papers out of
+  // lessons, permanently), leaving 3 wired option surfaces.
   const hovers = (learnSrc.match(/onMouseEnter=\{quizHoverStart\}/g) || []).length;
-  assert.ok(hovers >= 4, `expected the hover wiring on at least 4 option surfaces, found ${hovers}`);
+  assert.ok(hovers >= 3, `expected the hover wiring on at least 3 option surfaces, found ${hovers}`);
   const focuses = (learnSrc.match(/onFocus=\{quizHoverStart\}/g) || []).length;
-  assert.ok(focuses >= 4, `expected the focus wiring on at least 4 option surfaces, found ${focuses}`);
+  assert.ok(focuses >= 3, `expected the focus wiring on at least 3 option surfaces, found ${focuses}`);
   assert.ok(learnSrc.includes("correctStreak={rightStreak}"), "SheetNova must receive the correct streak");
   assert.ok(learnSrc.includes("quizFeed={quizFeed}"), "SheetNova must receive the quiz feed");
   // Pin corrected 2026-10-15 (audit fix 3): the pointer anchor is
