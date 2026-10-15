@@ -21,12 +21,16 @@
    visit is running the component renders nothing and keeps no
    timers beyond one slow check interval that only runs while
    the tab is visible. Her lines come from the lines library in
-   LearnView; the figure herself is NovaRig, the traced and
-   articulated character from LearnView, running her swim
-   cycle while she crosses (2026-10-15: the raster pose disc
-   she used to ride in is gone, with the print treatment). */
+   LearnView; the figure herself is the NovaRive canvas, the
+   same v3 character every other surface renders (2026-10-15,
+   the old model purge: the traced SVG rig she used to ride
+   retired with the raster poses). The canvas contract has no
+   swim cycle, so the crossing itself still comes from the
+   stage CSS below (the travel, the bob, the roll); her in
+   figure motion while she crosses is the canvas idle. */
 import React, { useEffect, useRef, useState } from "react";
 import { cbMotionOff } from "./flowcharts.jsx";
+import { NovaRive } from "./NovaRive.jsx";
 import {
   NOVA_SUMMON_LINES,
   NOVA_CELEBRATE_LINES,
@@ -35,7 +39,6 @@ import {
   loadNovaMemoryFacts,
   pickEggLine,
   pickNovaLine,
-  NovaRig,
 } from "./LearnView.jsx";
 
 const EGG_STORE_KEY = "cerebrum-novaegg";
@@ -308,6 +311,30 @@ const EGG_TIMELINES = {
 const EGG_SIZES = { swim: 148, peek: 132, celebrate: 148, summon: 168, still: 120 };
 const EGG_SPEAK_PHASES = { swim: ["pause"], peek: ["look"], celebrate: ["cross"], summon: ["speak"], still: ["show"] };
 
+/* Her figure on the egg stage (2026-10-15, the old model
+   purge): the NovaRive canvas at full framing. The egg's poses
+   map onto the canvas contract as closely as it allows:
+   thinking rides quizState 1, pleased rides quizState 3 plus
+   the celebrate trigger, and greeting and explaining ride the
+   idle (her line rides in the egg's own bubble beside her, so
+   the canvas stays figure only and event routing stays off).
+   The celebrate counter rises a beat after the pleased pose
+   lands rather than with it: the canvas binds its trigger
+   inputs as the asset loads, and a rise that lands before the
+   binding is swallowed by the counter's own bookkeeping. */
+function EggFigure({ pose, size }) {
+  const [celebrateN, setCelebrateN] = useState(0);
+  const mountedAtRef = useRef(Date.now());
+  useEffect(() => {
+    if (pose !== "pleased") return undefined;
+    const wait = Math.max(0, 700 - (Date.now() - mountedAtRef.current));
+    const t = setTimeout(() => setCelebrateN((n) => n + 1), wait);
+    return () => clearTimeout(t);
+  }, [pose]);
+  const quizState = pose === "thinking" ? 1 : pose === "pleased" ? 3 : 0;
+  return <NovaRive state={pose} size={size} framing="full" quizState={quizState} celebrateN={celebrateN} quips={false} />;
+}
+
 export default function NovaEgg() {
   const [visit, setVisit] = useState(null);
   const visitRef = useRef(null);
@@ -505,7 +532,6 @@ export default function NovaEgg() {
       }} />
     ))
     : null;
-  const swimming = visit.kind === "swim" || (visit.kind === "celebrate" && (visit.phase === "enter" || visit.phase === "cross"));
   return (
     <div className="ne-stage" aria-hidden={!visit.line}>
       <style>{EGG_CSS}</style>
@@ -517,7 +543,7 @@ export default function NovaEgg() {
         <div className="ne-shadow" />
         <div className="ne-bob">
           <div className="ne-roll">
-            <NovaRig state={visit.pose} size={EGG_SIZES[visit.kind] || 140} mode={swimming ? "swim" : "idle"} />
+            <EggFigure pose={visit.pose} size={EGG_SIZES[visit.kind] || 140} />
           </div>
         </div>
         {bubbles}

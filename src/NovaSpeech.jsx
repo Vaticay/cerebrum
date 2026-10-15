@@ -45,7 +45,7 @@
       NOVA_QUIP_BANK, QUIP_CATEGORY_COOLDOWN_MS,
       QUIP_CATEGORY_CHANCE, and quipCategoryForRiveEvent
       from this file.
-   2. In NovaCanvas and NovaFallback, replace the internal
+   2. In NovaCanvas, replace the internal
       call `const quips = useNovaQuips({...})` with a new prop:
       both surfaces receive `speech` (a controller created by
       their caller with useNovaSpeech) and read speech.current,

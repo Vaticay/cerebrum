@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" xmlns:c2pa="http://c2pa.org/manifest">
+<!-- Nova model sheet REVISION 3. Front view only.
+     Palette: skin #C97B63, blush #DD9A82, coat #FDF3D7, line #2A1A12, gold accent #A98A4C, bg #2E2A26.
+     Stroke weights: heavy 10 (silhouette), thin 4 (interior), glasses 13. Flat fills only.
+     Changes this round: head split from body into its own shape for rigging; left arm rebuilt as a
+     continuous sleeve with cuff; floating white panel deleted; scalloped bib replaced with two flat
+     notched lapel panels; hanging stem-and-dots replaced with a real placket band and buttons on it;
+     glasses recolored sage to gold; Cerebrum ID badge rebuilt as a readable credential; added
+     nostrils, blush, lens glare, cuffs, two pockets with monogram, toe lines, tail crease.
+     Draw order is deliberate: Body sits behind Head_Base, Coat covers the neck join, the badge sits
+     between the sleeve and the hand so the fingers read as gripping it. -->
+
+
+  <g id="Tail" data-pivot="650,730">
+    <path d="M 636 668 C 748 692, 828 766, 888 848 C 900 868, 892 884, 872 882 C 792 876, 714 830, 656 776 C 638 742, 630 702, 636 668 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M 664 710 C 736 754, 798 806, 840 850" fill="none" stroke="#2A1A12" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <g id="Gill_L1" data-pivot="300,330">
+    <path d="M 300 330 C 328.8 269.6, 324.7 214.1, 298.8 152.3 C 291.1 111.6, 270.8 113.4, 270.3 154.8 C 255.6 220.2, 261.1 275.5, 300 330 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+  <g id="Gill_L2" data-pivot="300,330">
+    <path d="M 300 330 C 298.1 258.7, 268.4 206, 216 156 C 190.1 119.3, 172.4 129.5, 191.3 170.3 C 208.4 240.6, 239.2 292.7, 300 330 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+  <g id="Gill_L3" data-pivot="300,330">
+    <path d="M 300 330 C 264.1 270, 213.5 240, 144.8 223.9 C 105 205.6, 94.8 223.3, 130.5 248.6 C 178.8 300.1, 230.1 328.9, 300 330 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+  <g id="Gill_R1" data-pivot="724,330">
+    <path d="M 724 330 C 762.9 275.5, 768.4 220.2, 753.7 154.8 C 753.2 113.4, 732.9 111.6, 725.2 152.3 C 699.3 214.1, 695.2 269.6, 724 330 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+  <g id="Gill_R2" data-pivot="724,330">
+    <path d="M 724 330 C 784.8 292.7, 815.6 240.6, 832.7 170.3 C 851.6 129.5, 833.9 119.3, 808 156 C 755.6 206, 725.9 258.7, 724 330 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+  <g id="Gill_R3" data-pivot="724,330">
+    <path d="M 724 330 C 793.9 328.9, 845.2 300.1, 893.5 248.6 C 929.2 223.3, 919 205.6, 879.2 223.9 C 810.5 240, 759.9 270, 724 330 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+
+  <g id="Body" data-pivot="512,860">
+    <path d="M 672 470 C 674 490, 670 510, 672 544 C 678 644, 682 742, 676 820 C 674 840, 658 856, 636 864 C 626 868, 622 874, 624 884 C 626 896, 612 902, 590 902 C 568 902, 552 897, 547 886 C 543 876, 544 865, 533 859 C 524 854, 500 854, 491 859 C 480 865, 481 876, 477 886 C 472 897, 456 902, 434 902 C 412 902, 398 896, 400 884 C 402 874, 398 868, 388 864 C 366 856, 350 840, 350 820 C 352 760, 354 690, 354 640 C 352 560, 354 508, 352 470 C 420 450, 604 450, 672 470 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M 426 876 L 426 899" fill="none" stroke="#2A1A12" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 452 878 L 452 900" fill="none" stroke="#2A1A12" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 572 878 L 572 900" fill="none" stroke="#2A1A12" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 598 876 L 598 899" fill="none" stroke="#2A1A12" stroke-width="4" stroke-linecap="round"/>
+  </g>
+
+  <g id="Head_Base" data-pivot="512,460">
+    <path d="M 512 112 C 606 112, 684 138, 724 196 C 754 240, 762 292, 760 342 C 758 402, 738 446, 694 464 C 640 496, 384 496, 332 466 C 288 446, 266 402, 264 344 C 262 292, 270 240, 300 196 C 340 138, 418 112, 512 112 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+
+  <g id="Coat" data-pivot="512,650">
+    <path d="M 356 470 C 340 560, 336 660, 342 758 C 344 796, 350 818, 362 824 C 450 848, 580 848, 668 824 C 680 818, 686 796, 688 758 C 694 660, 690 560, 674 470 C 620 446, 566 438, 515 438 C 464 438, 410 446, 356 470 Z" fill="#FDF3D7" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+    <g id="Collar">
+      <path d="M 370 462 L 512 468 L 492 538 L 366 500 Z" fill="#FDF3D7" stroke="#2A1A12" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M 654 462 L 512 468 L 532 538 L 658 500 Z" fill="#FDF3D7" stroke="#2A1A12" stroke-width="4" stroke-linejoin="round"/>
+    </g>
+    <g id="Placket">
+      <path d="M 490 538 L 490 838" fill="none" stroke="#2A1A12" stroke-width="4" stroke-linecap="round"/>
+      <path d="M 532 538 L 532 838" fill="none" stroke="#2A1A12" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="511" cy="596" r="9" fill="#2A1A12"/>
+      <circle cx="511" cy="668" r="9" fill="#2A1A12"/>
+      <circle cx="511" cy="740" r="9" fill="#2A1A12"/>
+      <circle cx="511" cy="806" r="9" fill="#2A1A12"/>
+    </g>
+    <g id="Pocket_L">
+      <path d="M 386 592 L 468 592 L 468 652 C 468 662, 460 668, 450 668 L 404 668 C 394 668, 386 662, 386 652 Z" fill="#FDF3D7" stroke="#2A1A12" stroke-width="4" stroke-linejoin="round"/>
+      <g fill="none" stroke="#A98A4C" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" transform="translate(431 630) scale(1.3) translate(-12 -12)">
+        <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z"/>
+        <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z"/>
+      </g>
+    </g>
+    <g id="Pocket_R">
+      <path d="M 556 592 L 638 592 L 638 652 C 638 662, 630 668, 620 668 L 574 668 C 564 668, 556 662, 556 652 Z" fill="#FDF3D7" stroke="#2A1A12" stroke-width="4" stroke-linejoin="round"/>
+    </g>
+  </g>
+
+  <g id="Arm_R" data-pivot="652,530">
+    <path d="M 672 518 C 700 572, 730 640, 750 697 L 702 715 C 690 650, 668 590, 648 534 Z" fill="#FDF3D7" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M 694 692 L 742 674" fill="none" stroke="#2A1A12" stroke-width="4" stroke-linecap="round"/>
+    <g id="Hand_R" data-pivot="726,712">
+      <path d="M 760 712 C 770 730, 772 756, 766 774 C 762 788, 750 790, 746 780 C 742 792, 730 792, 728 780 C 725 792, 713 792, 711 779 C 708 790, 696 786, 693 772 C 686 754, 686 728, 694 712 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+      <ellipse cx="686" cy="746" rx="13" ry="23" fill="#C97B63" stroke="#2A1A12" stroke-width="10" transform="rotate(-32 686 746)"/>
+    </g>
+  </g>
+
+  <g id="Arm_L" data-pivot="364,532">
+    <path d="M 387 510 C 352 478, 312 442, 276 406 L 240 442 C 276 478, 310 514, 341 554 Z" fill="#FDF3D7" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M 293 423 L 257 459" fill="none" stroke="#2A1A12" stroke-width="4" stroke-linecap="round"/>
+
+    <g id="Keycard" data-pivot="205,440" transform="rotate(-6 205 585)">
+      <path d="M 194 419 L 216 419 C 219 419, 221 421, 221 424 L 221 447 L 189 447 L 189 424 C 189 421, 191 419, 194 419 Z" fill="#FDF3D7" stroke="#2A1A12" stroke-width="6" stroke-linejoin="round"/>
+      <rect x="125" y="435" width="160" height="300" rx="12" fill="#FDF3D7" stroke="#2A1A12" stroke-width="10"/>
+      <rect x="139" y="506" width="132" height="36" fill="#2A1A12"/>
+      <text x="205" y="533" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="19" font-weight="700" letter-spacing="2.2" text-anchor="middle" fill="#FDF3D7">CEREBRUM</text>
+      <rect x="139" y="552" width="78" height="84" fill="#2E2A26" stroke="#2A1A12" stroke-width="4"/>
+      <g id="Badge_Photo">
+        <path d="M 161 588 L 143 574 L 145 586 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="3" stroke-linejoin="round"/>
+        <path d="M 160 597 L 141 593 L 149 602 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="3" stroke-linejoin="round"/>
+        <path d="M 195 588 L 213 574 L 211 586 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="3" stroke-linejoin="round"/>
+        <path d="M 196 597 L 215 593 L 207 602 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="3" stroke-linejoin="round"/>
+        <ellipse cx="178" cy="594" rx="18" ry="16" fill="#C97B63" stroke="#2A1A12" stroke-width="3"/>
+        <path d="M 172 603 Q 178 607 184 603" fill="none" stroke="#2A1A12" stroke-width="2.4" stroke-linecap="round"/>
+        <circle cx="171" cy="590" r="3.6" fill="#2A1A12"/>
+        <circle cx="185" cy="590" r="3.6" fill="#2A1A12"/>
+      </g>
+      <text x="225" y="572" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" font-weight="700" fill="#2A1A12">ID 0001</text>
+      <text x="225" y="594" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8" letter-spacing="0.2" fill="#2A1A12">CLEARANCE</text>
+      <text x="225" y="610" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#2A1A12">LEVEL 3</text>
+      <rect x="225" y="618" width="28" height="18" rx="3" fill="none" stroke="#A98A4C" stroke-width="3"/>
+      <path d="M 225 627 L 253 627 M 239 618 L 239 636" fill="none" stroke="#A98A4C" stroke-width="2.4"/>
+      <path d="M 139 650 L 271 650" fill="none" stroke="#2A1A12" stroke-width="4" stroke-linecap="round"/>
+      <text x="139" y="683" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="25" font-weight="700" letter-spacing="0.5" fill="#2A1A12">NOVA</text>
+      <text x="140" y="700" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" letter-spacing="0.6" fill="#2A1A12">RESEARCH ASSISTANT</text>
+      <path d="M 141 715 L 243 715" fill="none" stroke="#2A1A12" stroke-width="14" stroke-linecap="butt" stroke-dasharray="4 3 2 3 6 2 2 4 3 2 5 3 2 2 4 3 3 2 5 2"/>
+      <text x="251" y="720" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="8" fill="#2A1A12">0001</text>
+    </g>
+
+    <g id="Hand_L" data-pivot="258,424">
+      <path d="M 228 394 C 262 384, 294 398, 302 426 C 308 446, 298 464, 274 468 C 246 473, 218 459, 212 436 C 206 414, 212 396, 228 394 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M 216 456 C 208 474, 210 488, 222 490 C 233 492, 237 478, 234 460 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M 237 460 C 231 480, 234 494, 246 496 C 257 498, 260 482, 255 462 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M 258 458 C 254 476, 258 490, 268 490 C 278 490, 280 474, 274 454 Z" fill="#C97B63" stroke="#2A1A12" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <g id="Head_Features" data-pivot="512,460">
+    <ellipse cx="344" cy="410" rx="32" ry="15" fill="#DD9A82"/>
+    <ellipse cx="680" cy="410" rx="32" ry="15" fill="#DD9A82"/>
+    <circle cx="494" cy="372" r="4.5" fill="#2A1A12"/>
+    <circle cx="530" cy="372" r="4.5" fill="#2A1A12"/>
+    <g id="Eye_L" data-pivot="408,330">
+      <ellipse cx="408" cy="330" rx="27" ry="38" fill="#2A1A12" transform="rotate(6 408 330)"/>
+      <circle cx="417" cy="319" r="6" fill="#FDF3D7"/>
+    </g>
+    <g id="Eye_R" data-pivot="616,330">
+      <ellipse cx="616" cy="330" rx="27" ry="38" fill="#2A1A12" transform="rotate(-6 616 330)"/>
+      <circle cx="625" cy="319" r="6" fill="#FDF3D7"/>
+    </g>
+    <path id="Mouth" d="M 478 404 Q 512 418 546 404" fill="none" stroke="#2A1A12" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+  </g>
+
+  <g id="Glasses" data-pivot="512,330">
+    <path d="M 372 281 L 444 281 Q 462 281 462 299 L 462 361 Q 462 379 444 379 L 372 379 Q 354 379 354 361 L 354 299 Q 354 281 372 281 Z" fill="none" stroke="#A98A4C" stroke-width="13" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M 580 281 L 652 281 Q 670 281 670 299 L 670 361 Q 670 379 652 379 L 580 379 Q 562 379 562 361 L 562 299 Q 562 281 580 281 Z" fill="none" stroke="#A98A4C" stroke-width="13" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M 462 318 Q 512 302 562 318" fill="none" stroke="#A98A4C" stroke-width="13" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M 354 306 L 266 298" fill="none" stroke="#A98A4C" stroke-width="13" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M 670 306 L 758 298" fill="none" stroke="#A98A4C" stroke-width="13" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M 366 352 L 378 326" fill="none" stroke="#FDF3D7" stroke-width="7" stroke-linecap="round"/>
+    <path d="M 658 352 L 646 326" fill="none" stroke="#FDF3D7" stroke-width="7" stroke-linecap="round"/>
+  </g>
+</svg>

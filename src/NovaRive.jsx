@@ -17,15 +17,13 @@
      feed it Rive events, and pulse the isTalking input it
      times. This file keeps the bank and the pure mapping
      helpers the controller imports.
-   - A fallback: until a real asset exists at public/nova/
-     nova.riv, NovaRive renders the current SVG rig (NovaAvatar
-     from LearnView) driven by the same state, so shipping this
-     file changes nothing a learner can see.
-
-   The one switch is NOVA_RIVE_ASSET: null means the fallback
-   renders everywhere. When the editor asset lands at
-   public/nova/nova.riv, set it to NOVA_RIVE_SRC and every
-   surface switches with no other code change.
+   - The renderer itself: NovaRive is the canvas and nothing
+     else. The asset at public/nova/nova.riv has been live
+     since 2026-10-15, and the SVG rig that used to stand in
+     for it retired the same day (the old model purge: the
+     owner saw the traced rig still rendering and ordered it
+     gone). NOVA_RIVE_ASSET stays as the one place the asset
+     path is named; there is no second surface behind it.
 
    Palette discipline: the code side visuals here stay in
    the house palette only. The speech bubble itself lives in
@@ -45,7 +43,6 @@ import {
 } from "@rive-app/react-canvas";
 import riveWasmUrl from "@rive-app/canvas/rive.wasm?url";
 import riveWasmFallbackUrl from "@rive-app/canvas/rive_fallback.wasm?url";
-import { NovaAvatar } from "./LearnView.jsx";
 import { NovaBubble } from "./NovaSpeech.jsx";
 
 /* ── Self hosted runtime wasm (fix, 2026-10-15) ───────────────
@@ -76,8 +73,9 @@ RuntimeLoader.setWasmFallbackUrl(riveWasmFallbackUrl);
    Events the asset may fire: EmitIdleQuip, EmitQuizQuip,
    EmitSearchQuip.
    Canvas box: the character renders at size * 1.85 wide with a
-   height ratio of 0.62, matching the fallback rig's bust box,
-   so the editor artboard should be authored wide.
+   height ratio of 0.62, matching the bust box the small spots
+   have always used, so the editor artboard should be authored
+   wide.
    Framing update (2026-10-15, the owner's verdict on the first
    live build: "She's blurry and too small"): the shipped asset
    is a full body character on a square 1024 artboard, and she
@@ -88,8 +86,9 @@ RuntimeLoader.setWasmFallbackUrl(riveWasmFallbackUrl);
    (the default, the box above, unchanged for the small spots)
    or "full" (a box hugging the figure's own aspect, width
    size * 1.02 by height size), and "panel" means full too,
-   matching NovaAvatar's panel semantics. Her stage on the
-   learning home passes framing "full" at a large size. */
+   the standing figure semantics the large spots always used.
+   Her stage on the learning home passes framing "full" at a
+   large size. */
 export const NOVA_RIVE_STATE_MACHINE = "Nova_Controller";
 export const NOVA_RIVE_SRC = "/nova/nova.riv";
 export const NOVA_RIVE_ASSET = "/nova/nova.riv";
@@ -315,36 +314,11 @@ export function quizStateForSheet({ phase = 0, good = false, correctStreak = 0, 
    on surfaces that pass quips false (the sidebar pop, the
    lesson completion figure). */
 
-/* ── The fallback surface ─────────────────────────────────────
-   No asset yet: the traced SVG rig renders, driven by the same
-   state the canvas surface will take. The pointer feed, when a
-   caller supplies one, lands on the rig's gaze custom
-   properties at the same scale NovaLive's proximity gaze uses,
-   so she looks toward the hovered answer option. */
-function NovaFallback(props) {
-  const {
-    state = "greeting", size = 48, framing = "bust", scanning = false,
-    pushN = 0, flutterN = 0, noticeN = 0, waveN = 0, pointer = null, anchorRef = null,
-  } = props;
-  const speech = props.speech || null;
-  const vars = pointer
-    ? {
-        "--nv-gx": ((pointer.x / 100) * 3.2).toFixed(2) + "px",
-        "--nv-gy": ((pointer.y / 100) * 2.4).toFixed(2) + "px",
-      }
-    : null;
-  return (
-    <span ref={anchorRef} style={{ position: "relative", display: "inline-flex", ...(vars || {}) }}>
-      {/* The canvas surface's "full" is the avatar's "panel":
-          both mean the whole figure standing at size. */}
-      <NovaAvatar state={state} size={size} framing={framing === "full" ? "panel" : framing} scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} waveN={waveN} />
-      {speech && speech.current && <NovaBubble text={speech.current.text} variant="header" onDismiss={speech.dismiss} />}
-    </span>
-  );
-}
-
 /* ── The canvas surface ───────────────────────────────────────
-   Mounts only when NOVA_RIVE_ASSET is set. Every contract
+   The only surface (2026-10-15, the old model purge): the
+   traced SVG rig that used to render here as a fallback until
+   the asset landed retired with the raster poses the same
+   day, and the asset has been live since. Every contract
    input is bound through useStateMachineInput and fed from
    props: brain sleep stages fire the sleep and wake triggers,
    poke and celebrate arrive as counters from callers (a rising
@@ -493,16 +467,15 @@ function NovaCanvas(props) {
 }
 
 /* ── NovaRive ─────────────────────────────────────────────────
-   One component, two surfaces, switched by the asset constant
-   above and nothing else. Callers (NovaLive in the header,
-   SheetNova in the lesson sheet, SearchNova over in the app)
-   pass the same character state they always have, plus the
-   Rive contract feeds this file maps onward: quizState,
-   appState, pointer, sleepStage, and the poke and celebrate
-   counters. Speech arrives as the speech prop: the controller
-   object from useNovaSpeech in NovaSpeech.jsx, owned by the
-   caller, never created here. */
+   One component, one surface: the canvas, fed by the asset
+   constant above. Callers (NovaLive in the header, SheetNova
+   in the lesson sheet, SearchNova over in the app) pass the
+   same character state they always have, plus the Rive
+   contract feeds this file maps onward: quizState, appState,
+   pointer, sleepStage, and the poke and celebrate counters.
+   Speech arrives as the speech prop: the controller object
+   from useNovaSpeech in NovaSpeech.jsx, owned by the caller,
+   never created here. */
 export function NovaRive(props) {
-  if (!NOVA_RIVE_ASSET) return <NovaFallback {...props} />;
   return <NovaCanvas {...props} />;
 }

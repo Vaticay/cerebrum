@@ -92,7 +92,11 @@ const WANTED = [
   "novaMoodFor", "tipEligible", "TIP_GAP_MS",
   "NOVA_ACTIVITY_EVENT", "NOVA_WAKE_STEP_MS", "novaIdleStageFor", "novaAdaptiveStateFor", "emitNovaActivity",
   "createNovaBrain", "novaBrainObserve", "novaBrainDecide",
-  "CHARACTER_POSES", "NOVA_RIG_STATES", "NOVA_RIG_MOUTHS", "NOVA_RIG_D", "NOVA_RIG_FILAMENTS",
+  /* Removed 2026-10-15 (the old model purge): CHARACTER_POSES and
+     the rig data tables (NOVA_RIG_STATES, NOVA_RIG_MOUTHS,
+     NOVA_RIG_D, NOVA_RIG_FILAMENTS) retired with the two old
+     models they described. The purge test below pins their
+     absence from the source instead of extracting them. */
   "QUIRKS_KEY", "QUIRK_GAG_COOLDOWN_MS", "QUIRK_SHELF_COOLDOWN_MS",
   "QUIRK_FAST_MS", "QUIRK_FAST_COOLDOWN_MS", "QUIRK_HARD_COOLDOWN_MS",
   "QUIRK_BROW_COOLDOWN_MS", "QUIRK_PERFECT_COOLDOWN_MS", "QUIRK_POKE_GAP_MS",
@@ -177,7 +181,6 @@ const {
   novaMoodFor, tipEligible, TIP_GAP_MS,
   NOVA_ACTIVITY_EVENT, NOVA_WAKE_STEP_MS, novaIdleStageFor, novaAdaptiveStateFor, emitNovaActivity,
   createNovaBrain, novaBrainObserve, novaBrainDecide,
-  CHARACTER_POSES, NOVA_RIG_STATES, NOVA_RIG_MOUTHS, NOVA_RIG_D, NOVA_RIG_FILAMENTS,
   QUIRKS_KEY, QUIRK_GAG_COOLDOWN_MS, QUIRK_SHELF_COOLDOWN_MS,
   QUIRK_FAST_MS, QUIRK_FAST_COOLDOWN_MS, QUIRK_HARD_COOLDOWN_MS,
   QUIRK_BROW_COOLDOWN_MS, QUIRK_PERFECT_COOLDOWN_MS, QUIRK_POKE_GAP_MS,
@@ -2602,24 +2605,18 @@ await test("the Player renders every second version kind and the character slot"
   }
   assert.ok(learnSrc.includes("function CardVisual"), "the visual slot component is missing");
   assert.ok(learnSrc.includes('state === "error"'), "the visual slot does not hide a missing asset");
-  assert.ok(learnSrc.includes("function CharacterPose"), "the character slot component is missing");
-  // Pin corrected 2026-10-14: the first version of this test pinned the
-  // placeholder pose paths the engine wave guessed (cheer.png and
-  // celebrate.png, which no art deliverable ever produced). The poses now
-  // point at the art wave's real files, and this pin names them so a
-  // future rename on either side fails loudly instead of rendering air.
-  // Rename pin (2026-10-14): the owner ordered the product renamed
-  // to Nova and the character is now Nova the axolotl, so the poses
-  // point at the nova files under the same character asset root.
-  // Completion lands on the pleased expression, and the Nova set
-  // adds deadpan (the wrong answer face) and asleep (night and
-  // empty states) to the six expressions the loop surfaces use.
-  assert.ok(learnSrc.includes("/cortex/character/nova-pleased.webp") && learnSrc.includes("/cortex/character/nova-greeting.webp"),
-    "the character poses are not declared under the character asset root");
-  assert.ok(learnSrc.includes("/cortex/character/nova-thinking.webp") && learnSrc.includes("/cortex/character/nova-worried.webp") && learnSrc.includes("/cortex/character/nova-fading.webp") && learnSrc.includes("/cortex/character/nova-explaining.webp"),
-    "the thinking, worried, fading, or explaining Nova poses are not declared");
-  assert.ok(learnSrc.includes("/cortex/character/nova-deadpan.webp") && learnSrc.includes("/cortex/character/nova-asleep.webp"),
-    "the deadpan or asleep Nova expressions are not declared");
+  // Pin corrected 2026-10-15 (the old model purge): this block used
+  // to pin the CharacterPose component and the eight raster pose
+  // paths under /cortex/character/ (themselves corrected twice on
+  // 2026-10-14). The owner saw the old raster model still
+  // rendering and ordered it gone: the character slot in the
+  // Player is the NovaRive canvas now (the lesson intro mount
+  // below), the pose table and its files are deleted, and the
+  // pins here flip to absences so the portraits cannot return.
+  assert.ok(!learnSrc.includes("function CharacterPose"), "the retired raster pose slot came back");
+  assert.ok(!learnSrc.includes("/cortex/character/nova-"), "a raster Nova pose path is declared again");
+  assert.ok(learnSrc.includes('<NovaRive state="greeting" size={128} framing="full" />'),
+    "the lesson intro no longer opens on the canvas Nova");
   assert.ok(!learnSrc.includes("wick-"), "a live Wick pose path survived the Nova rename");
   assert.ok(!learnSrc.includes("pip-"), "a live Pip pose path survived the rename");
   assert.ok(learnSrc.includes("<DiagramArt"), "the diagram renderer is not used");
@@ -2970,12 +2967,18 @@ await test("the wave 3 home carries its zones, its settings surface, and Nova's 
     // Pin moved 2026-10-14 (owner's voice ruling): the return
     // greeting was rewritten drier; see the lines library note.
     "NOVA'S SHELF", "Nothing on the shelf yet", "Back, then. Your reviews waited.",
-    "Due for review", "Nova settings", "lv-nova-live", "lv-band", "lv-status", "lv-cols",
+    "Due for review", "Nova settings", "lv-band", "lv-status", "lv-cols",
     'const CREAM = "#F5F0E8"', "Progress stays in this browser. Export to keep a copy.",
     '<Icon name="bookOpen" size={26} />', "Start daily practice", "LAST_VISIT_KEY",
   ]) {
     assert.ok(learnSrc.includes(needle), `the wave 3 home is missing: ${needle}`);
   }
+  // Pin removed 2026-10-15 (the old model purge): the needle list
+  // above carried "lv-nova-live", the idle sway class the raster
+  // portraits wore on the home. The portraits are deleted and
+  // the home's Nova is the canvas stage; the class retired with
+  // them, and its absence is pinned here instead.
+  assert.ok(!learnSrc.includes("lv-nova-live"), "the raster portrait's idle sway class is back");
   assert.ok(!learnSrc.includes("lv-pills"), "the old stat chip row survived the rebuild");
   assert.ok(!learnSrc.includes("YOUR RANK · RUNG"), "the old rank card survived the rebuild");
   assert.ok(!learnSrc.includes('fontStyle: "italic"'), "an italic style survived in LearnView chrome");
@@ -3100,156 +3103,70 @@ await test("the home is six focused screens behind one tablist, and Today holds 
   assert.ok(create.includes("BUILD A COURSE") && create.includes("CONTRIBUTOR STUDIO"), "the Create screen lost the builder or the studio");
 });
 
-/* 2026-10-15: the avatar test is rewritten for the rig. The
-   raster portrait it pinned since the character wave was
-   rejected by the owner the night it shipped ("She is horribly
-   made", "she's not animated", "Like how you animate... your
-   chat logo thing"), as two hand drawn vectors had been
-   before it. What stands now is NovaRig: one character traced
-   from the approved greeting pose into articulated parts,
-   with the eight states as data. The absence pins this block
-   used to carry for the second vector's CSS (@keyframes
-   nvBlink, .nv-lid, .nv-st-, NV_INK) flip by design: the
-   rig's blink and lids are nvRigBlink and .nv-rig-lid,
-   different strings for a traced character, not the rejected
-   freehand drawing come back. */
-await test("Nova is a traced, articulated rig at the avatar spots (2026-10-15)", () => {
-  // Pin moved 2026-10-14 (owner's disc and bust rulings): the
-  // default framing is no longer "disc"; it is the head focused
-  // bust on a faint halo. The signature shape is unchanged.
-  // Pin moved again the same night (adaptive animation): the
-  // avatar also takes the scanning flag for a thinking rig.
-  // Pin moved 2026-10-15 (the brain): the avatar also forwards
-  // the signature cue counters, push, flutter, and notice.
-  // Pin moved 2026-10-15 (the sidebar pop): the avatar also
-  // forwards the wave counter, the pop's greeting cue.
-  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0, waveN = 0 })'),
-    "NovaAvatar keeps its signature; the rig lives inside it");
-  assert.ok(learnSrc.includes("export function NovaRig("), "NovaRig is exported for the Easter egg");
-  // The traced parts exist as path data: body and tail with
-  // separate edge strokes (no seam line at the hinge), head,
-  // six filaments, six gold tips, pupils, lid lines, sockets,
-  // spine, inner curve, both washes, cheek, arms, closed eyes.
-  for (const part of ["body", "bodyEdge", "tail", "tailEdge", "head",
-    "l1", "l2", "l3", "r1", "r2", "r3",
-    "g1", "g2", "g3", "g4", "g5", "g6",
-    "pupilL", "pupilR", "lidLineL", "lidLineR", "sockL", "sockR",
-    "spine", "inner", "wash", "washFin", "cheek", "armL", "armR",
-    "closedPleased", "closedAsleep",
-    // Added 2026-10-15: the soft resting face swaps, the
-    // glasses, and the lab coat, all owner orders that night.
-    "pupilSoftL", "pupilSoftR", "lidLineSoftL", "lidLineSoftR", "shineSoftL", "shineSoftR",
-    "glassesL", "glassesR", "glassesBridge", "templeL", "templeR",
-    "coat", "coatFin", "coatHemEdge", "coatOpeningEdge", "coatCollar", "coatLapel", "coatLapelR", "coatPocket", "coatPen", "coatPenClip"]) {
-    assert.equal(typeof NOVA_RIG_D[part], "string", "traced part " + part);
-    assert.ok(NOVA_RIG_D[part].startsWith("M"), part + " is a path");
+/* 2026-10-15, rewritten the same day (the old model purge): the
+   test this replaces pinned the traced rig in loving detail, and
+   the raster pose test before it pinned the portraits. Both old
+   models are gone now. The owner saw one of them still
+   rendering live (the lesson intro, completions, the payoff,
+   the onboarding header, and the Easter egg all still drew the
+   retired art while the header and stage ran the v3 canvas) and
+   ordered the old model gone. What this test pins is the
+   corrected contract: one Nova, the v3 Rive canvas, on every
+   surface, and no road back for either retired model. */
+await test("the old Nova models are purged: one character, the v3 canvas, everywhere (2026-10-15)", () => {
+  // Neither retired model exists in the learning source: no
+  // traced rig, no avatar wrapper over it, no path or state
+  // tables, no raster pose table or slot, no rig CSS.
+  for (const gone of ["function NovaRig", "function NovaAvatar", "NOVA_RIG_D", "NOVA_RIG_STATES",
+    "NOVA_RIG_MOUTHS", "NOVA_RIG_FILAMENTS", "CHARACTER_POSES", "function CharacterPose",
+    "/cortex/character/nova-", ".nv-rig", "@keyframes nvRig", "nova-rig-import"]) {
+    assert.ok(!learnSrc.includes(gone), `the purged model left a trace in LearnView: ${gone}`);
   }
-  // The soft resting face (2026-10-15, the owner's "She looks
-  // mad" ruling): the default states raise their lids toward
-  // open and swap in the rounder pupils, the relaxed lid
-  // lines, and the shine; deadpan keeps the traced stare
-  // untouched, and the greeting mouth is the faint curve, not
-  // the old flat bow.
-  assert.equal(NOVA_RIG_STATES.greeting.pupilL, "pupilSoftL", "greeting reads through the soft pupils");
-  assert.equal(NOVA_RIG_STATES.greeting.lidLineL, "lidLineSoftL", "greeting's lid lines are the relaxed set");
-  assert.equal(NOVA_RIG_STATES.explaining.pupilR, "pupilSoftR", "explaining shares the resting face");
-  assert.ok(NOVA_RIG_STATES.greeting.lid < 0 && NOVA_RIG_STATES.greeting.lid > NOVA_RIG_STATES.worried.lid,
-    "greeting's lids are raised toward open, short of worried's raise");
-  assert.equal(NOVA_RIG_STATES.deadpan.pupilL, undefined, "deadpan keeps the traced pupils");
-  assert.equal(NOVA_RIG_STATES.deadpan.lidLineL, undefined, "deadpan keeps the traced lid lines");
-  assert.equal(NOVA_RIG_STATES.deadpan.shine, undefined, "deadpan has no shine");
-  assert.equal(NOVA_RIG_MOUTHS.greeting.d, "M922,540 C985,555 1052,555 1112,541", "the greeting mouth is the faintest upward curve");
-  // The outfit is worn, not pasted: the coat renders over the
-  // body inside the breath group, its fin rides the tail
-  // group, the glasses render inside the head group after the
-  // lids, and the cue animations exist for the brain to fire.
-  assert.ok(learnSrc.includes('d={NOVA_RIG_D.coat} fill={NOVA_RIG_COAT}'), "the coat panel renders");
-  assert.ok(learnSrc.includes('d={NOVA_RIG_D.coatFin} fill={NOVA_RIG_COAT}'), "the coat's hem rides the tail group for the swim");
-  assert.ok(learnSrc.includes('className={"nv-rig-glasses"'), "the glasses render as their own group");
-  assert.ok(learnSrc.includes('d={NOVA_RIG_D.glassesBridge}'), "the gold bridge renders");
-  for (const css of ["@keyframes nvRigGlassesPush", "@keyframes nvRigHeadDip", "@keyframes nvRigFlutter",
-    "@keyframes nvRigNoticeGlance", "@keyframes nvRigFanLift", "@keyframes nvRigNoticeHead"]) {
-    assert.ok(learnSrc.includes(css), "cue CSS " + css);
+  // The surfaces that drew the old art draw the canvas now, at
+  // the same spots and comparable scale: the lesson intro in
+  // its greeting idle, course completion and the daily payoff
+  // on the shared celebration figure, and the onboarding header
+  // at its 40px.
+  assert.ok(learnSrc.includes('<NovaRive state="greeting" size={128} framing="full" />'),
+    "the lesson intro does not open on the canvas");
+  assert.ok(learnSrc.includes("function NovaCelebrateFigure"), "the completion figure is missing");
+  assert.equal((learnSrc.match(/<NovaCelebrateFigure size=\{128\} \/>/g) || []).length, 2,
+    "course completion and the daily payoff must both render the celebration figure");
+  assert.ok(learnSrc.includes("celebrateN={celebrateN}"), "the celebration figure does not fire the celebrate trigger");
+  assert.ok(learnSrc.includes('<NovaRive state="greeting" size={40} />'),
+    "the onboarding header does not render the canvas at 40px");
+  // The share card draws the canonical v3 model sheet, the
+  // ground stripped copy the link card treatment established,
+  // and no longer reads a pose table.
+  assert.ok(learnSrc.includes('SHARE_CARD_NOVA_SRC = "/nova/nova-model-sheet.svg"'),
+    "the share card does not name the model sheet as its art source");
+  assert.ok(!learnSrc.includes("CHARACTER_POSES[model.pose]"), "the share card reads the retired pose set again");
+  // The Easter egg's figure is the canvas too, its poses mapped
+  // onto the contract: thinking to quizState 1, pleased to
+  // quizState 3 with the celebrate counter, at full framing.
+  // Its visit logic, rarity, and cooldowns are pinned by the
+  // egg tests below and did not move.
+  assert.ok(eggSrc.includes("function EggFigure"), "the egg has no canvas figure");
+  assert.ok(eggSrc.includes('from "./NovaRive.jsx"'), "the egg does not import the canvas");
+  assert.ok(eggSrc.includes('pose === "thinking" ? 1 : pose === "pleased" ? 3 : 0'),
+    "the egg's pose to quizState mapping changed");
+  assert.ok(eggSrc.includes('framing="full"'), "the egg's figure is not at full framing");
+  assert.ok(!eggSrc.includes("NovaRig"), "the egg renders the retired rig again");
+  // NovaRive has one surface left: the canvas. The fallback
+  // branch and its import are gone; the asset constant stays.
+  assert.ok(!riveSrc.includes("NovaFallback"), "the retired fallback surface is back");
+  assert.ok(!riveSrc.includes("NovaAvatar"), "NovaRive still imports the retired avatar");
+  assert.ok(riveSrc.includes("return <NovaCanvas {...props} />;"), "NovaRive no longer renders the canvas directly");
+  // The retired files are deleted and the sheet asset exists.
+  for (const f of ["nova-greeting", "nova-pleased", "nova-thinking", "nova-worried",
+    "nova-fading", "nova-explaining", "nova-deadpan", "nova-asleep"]) {
+    assert.ok(!existsSync(join(root, "public/cortex/character/" + f + ".webp")), f + " is still on disk");
   }
-  // Six filaments, three a side, each with its own gold tip,
-  // sway origin, duration, and phase offset.
-  assert.equal(NOVA_RIG_FILAMENTS.length, 6);
-  assert.equal(NOVA_RIG_FILAMENTS.map((f) => f.key).join(","), "l1,l2,l3,r1,r2,r3", "filament order");
-  for (const f of NOVA_RIG_FILAMENTS) {
-    assert.ok(NOVA_RIG_D[f.gold], "gold tip path for " + f.key);
-    assert.ok(f.origin.includes("px"), "sway origin for " + f.key);
-  }
-  assert.equal(new Set(NOVA_RIG_FILAMENTS.map((f) => f.delay)).size, 6, "per filament phase offsets");
-  // The eight states are complete rig data.
-  for (const s of ["greeting", "explaining", "pleased", "thinking", "worried", "fading", "deadpan", "asleep"]) {
-    const st = NOVA_RIG_STATES[s];
-    assert.ok(st, "rig state " + s);
-    assert.ok(Number.isFinite(st.lid), s + " lid height");
-    assert.equal(st.gaze.length, 2, s + " gaze pair");
-    assert.ok(st.gold > 0 && st.gold <= 1, s + " gold brightness");
-    assert.equal(st.head.length, 3, s + " head tip");
-    assert.ok(NOVA_RIG_MOUTHS[s] && NOVA_RIG_MOUTHS[s].d.startsWith("M"), s + " mouth path");
-  }
-  assert.equal(NOVA_RIG_MOUTHS.explaining.fill, true, "explaining has the open mouth");
-  assert.ok(NOVA_RIG_STATES.deadpan.lid > NOVA_RIG_STATES.greeting.lid, "deadpan lids sit lower");
-  assert.ok(NOVA_RIG_STATES.worried.lid < NOVA_RIG_STATES.greeting.lid, "worried lids raise");
-  assert.ok(NOVA_RIG_STATES.fading.gold < NOVA_RIG_STATES.greeting.gold, "fading dims the gold tips");
-  assert.ok(NOVA_RIG_STATES.fading.gill > 0 && NOVA_RIG_STATES.asleep.gill > 0, "fading and asleep gills droop");
-  assert.equal(NOVA_RIG_STATES.pleased.closed, "closedPleased");
-  assert.equal(NOVA_RIG_STATES.asleep.closed, "closedAsleep");
-  assert.ok(NOVA_RIG_STATES.asleep.head[0] > 0 && NOVA_RIG_STATES.asleep.head[2] > 0, "asleep tips the head down");
-  // The articulation is CSS on the traced parts: blink, sway,
-  // breath, glance, head follow, tail sway, swim cycle, and
-  // the reaction squash, all transform-boxed to the viewBox.
-  // Pin moved 2026-10-14 (owner's ruling, "There's a circle
-  // over her"): the hard edged cream disc is gone; the only
-  // ground is the edgeless radial halo.
-  for (const css of [".nv-rig-halo", ".nv-rig-panel", "@keyframes nvRigBlink", "@keyframes nvRigSway",
-    "@keyframes nvRigBreath", "@keyframes nvRigGlance", "@keyframes nvRigHeadTurn",
-    "@keyframes nvRigTailSway", "@keyframes nvRigSwimTail", "@keyframes nvRigSwimBody",
-    "@keyframes nvRigReact", "transform-box: view-box"]) {
-    assert.ok(learnSrc.includes(css), "rig CSS " + css);
-  }
-  assert.ok(!learnSrc.includes(".nv-rig-disc"), "the cream disc class is gone");
-  assert.ok(learnSrc.includes("radial-gradient(closest-side"), "the halo is a soft radial falloff, never a hard edge");
-  assert.ok(learnSrc.includes("nvRigBlink 11.7s"), "the blink runs on the irregular 11.7s cycle");
-  assert.ok(learnSrc.includes("translateY(58px)"), "the lid slab travels far enough to close the eye");
-  assert.ok(learnSrc.includes('className="nv-rig-lid nv-rig-anim"'), "eyelid slabs render");
-  // Pins added 2026-10-14 (the owner's browser check saw no
-  // motion at real size): the bust viewBox crops to the head,
-  // the full fans, and the top of the body, and the motion
-  // amplitudes are computed per render size (the --nv
-  // variables) instead of fixed rig units.
-  assert.ok(learnSrc.includes('"120 200 1370 800"'), "the bust viewBox exists for small placements");
-  assert.ok(learnSrc.includes('"--nv-sway"') && learnSrc.includes('"--nv-glance-x"') && learnSrc.includes('"--nv-breath-y"'),
-    "the rig computes its motion amplitudes per render size");
-  // Pin moved 2026-10-14: the pointer gaze multiplier is no
-  // longer a fixed 6 rig units (sub pixel at header size); it
-  // is computed from the render size so the pupils travel a
-  // constant few screen pixels.
-  assert.ok(learnSrc.includes("calc(var(--nv-gx, 0px) * \" + pointerMult"), "NovaLive's pointer gaze still moves the pupils, scaled to the render size");
-  // The raster avatar machinery is gone, and the flat finish
-  // goes with it: no pose source, no crops, no print filter,
-  // no grain, no raster breath or crossfade.
-  assert.ok(!learnSrc.includes("NOVA_AVATAR_SRC"), "the raster pose source is gone");
-  assert.ok(!learnSrc.includes("NOVA_CROPS"), "the disc crops are gone");
-  assert.ok(!learnSrc.includes("nv-print"), "the print treatment is gone");
-  assert.ok(!learnSrc.includes("feTurbulence"), "the grain overlay is gone");
-  assert.ok(!learnSrc.includes("@keyframes nvFigBreath"), "the raster breath is gone");
-  // The Easter egg rides the rig, with the swim cycle while
-  // she crosses; its raster disc is gone.
-  const eggSrc2 = readFileSync(join(root, "src/NovaEgg.jsx"), "utf8");
-  assert.ok(eggSrc2.includes("NovaRig"), "the egg renders NovaRig");
-  assert.ok(eggSrc2.includes('mode={swimming ? "swim" : "idle"}'), "the egg swims the rig while she crosses");
-  assert.ok(!eggSrc2.includes("PoseDisc"), "the egg's raster disc is gone");
-  assert.ok(!eggSrc2.includes("EGG_POSES"), "the egg's pose table is gone");
-  // Reduced motion stills the rig to the current expression:
-  // every rig animation is in the gate.
-  assert.ok(learnSrc.includes(".nv-rig-breath, .nv-rig-tail, .nv-rig-fil, .nv-rig-lid, .nv-rig-glance, .nv-rig-head, .nv-rig-react { animation: none !important; }"),
-    "reduced motion stills every rig animation");
+  assert.ok(!existsSync(join(root, "public/nova/nova-rig-import.svg")), "the retired rig import sheet is still on disk");
+  assert.ok(existsSync(join(root, "public/nova/nova-model-sheet.svg")), "the share card's model sheet asset is missing");
 });
 
-await test("the raster Nova stands at the persistent spots and the raster art keeps the artwork moments", () => {
+await test("the live Nova stands at the persistent spots and the artwork moments are canvas and sheet", () => {
   // Pins moved 2026-10-14 (presence wave): the owner ordered Nova
   // bigger and reactive. The header Nova is 66px in a 68px circle
   // and the bench greeter is 54px, both through the reactive
@@ -3272,8 +3189,13 @@ await test("the raster Nova stands at the persistent spots and the raster art ke
   // absences below are the pins now.
   assert.ok(!learnSrc.includes('state="fading" size={54}'), "the review bench grew a second Nova again");
   assert.ok(!learnSrc.includes('state="asleep" size={120} framing="panel"'), "the library empty state grew a second Nova again");
-  assert.ok(learnSrc.includes('pose="greeting" size={128}'), "the lesson intro lost its raster artwork");
-  assert.ok(learnSrc.includes("CHARACTER_POSES[model.pose]"), "the share card no longer reads the raster pose set");
+  // Pins replaced 2026-10-15 (the old model purge): the lesson
+  // intro's raster artwork and the share card's pose set are
+  // both retired. The intro renders the canvas greeting, and
+  // the share card draws the v3 model sheet; the full purge
+  // contract is pinned by the purge test above.
+  assert.ok(learnSrc.includes('<NovaRive state="greeting" size={128} framing="full" />'), "the lesson intro lost its canvas Nova");
+  assert.ok(learnSrc.includes("SHARE_CARD_NOVA_SRC"), "the share card no longer names the model sheet");
 });
 
 await test("adaptive animation: idle drift stages, late night compounding, and the wake resolver", () => {
@@ -3407,8 +3329,13 @@ await test("Nova's brain: drives in, behavior out, and she never repeats herself
   assert.ok(learnSrc.includes('onClick={onTap}'), "the live wrapper takes no tap");
   assert.ok(learnSrc.includes("setBeat(step.face)"), "a tap does not set the poke ladder's face");
   assert.ok(learnSrc.includes("setTimeout(() => setBeat(null), 1300)"), "the tap beat does not hold its 1300ms");
-  assert.ok(learnSrc.includes(".nv-rig-halo {"), "the halo is missing");
-  assert.ok(learnSrc.includes("pointer-events: none; }") || learnSrc.includes("pointer-events: none"), "the halo could eat a tap");
+  // Pin replaced 2026-10-15 (the old model purge): this pair
+  // pinned the rig's halo (the faint radial ground behind the
+  // bust) and that it could not eat a tap. The halo was part of
+  // the retired rig's rendering and is deleted with it; the
+  // canvas figure paints no ground layer at all, so there is
+  // nothing between the tap and the wrapper that takes it.
+  assert.ok(!learnSrc.includes(".nv-rig-halo"), "the retired rig's halo is back");
 });
 
 await test("Nova's brain: a full tick simulation of an untouched page drifts on schedule", () => {
@@ -3909,7 +3836,13 @@ await test("the egg is mounted once in the shell, still under quiet motion, and 
   // The print treatment is retired on both sides; the egg now
   // renders the same NovaRig as the avatar, and neither file
   // carries the filter chain or the grain.
-  assert.ok(eggSrc.includes("NovaRig"), "the egg does not render the rig");
+  // Pin changed again 2026-10-15 (the old model purge): the rig
+  // itself retired the same day. The egg renders the NovaRive
+  // canvas through its EggFigure, the same v3 character as
+  // every other surface; the mapping is pinned in the purge
+  // test above.
+  assert.ok(eggSrc.includes("NovaRive"), "the egg does not render the canvas");
+  assert.ok(!eggSrc.includes("NovaRig"), "the egg renders the retired rig");
   assert.ok(!eggSrc.includes("sepia(0.17)"), "the egg still carries the retired print grade");
   assert.ok(!eggSrc.includes("feTurbulence"), "the egg still carries the retired print grain");
   assert.ok(eggSrc.includes("@keyframes neRoll"), "the swim's barrel roll is missing");
@@ -4247,11 +4180,17 @@ await test("the state machine contract is the one the editor build is authored a
    so this test now holds the shipped contract instead of the
    pre asset one. The switch carries the asset path, the canvas
    surface is live, and the fallback branch stays in the code
-   for any caller that ever needs it again. */
+   for any caller that ever needs it again.
+   Pin updated again 2026-10-15 (the old model purge): the
+   fallback branch did not stay. The owner saw the traced rig
+   still rendering on the surfaces that had not switched and
+   ordered the old model gone, so the wrapper renders the
+   canvas directly and the fallback surface is deleted. */
 await test("the asset has landed: the one switch points at the shipped .riv", () => {
   assert.equal(NOVA_RIVE_ASSET, "/nova/nova.riv", "the asset switch must carry the shipped asset path");
-  assert.ok(riveSrc.includes("if (!NOVA_RIVE_ASSET) return <NovaFallback"), "the wrapper must branch on the asset switch in one place");
-  assert.ok(riveSrc.includes("<NovaAvatar"), "the fallback must render the current rig");
+  assert.ok(riveSrc.includes("return <NovaCanvas {...props} />;"), "the wrapper must render the canvas directly");
+  assert.ok(!riveSrc.includes("NovaFallback"), "the retired fallback surface is back");
+  assert.ok(!riveSrc.includes("<NovaAvatar"), "the canvas file still renders the retired avatar");
   assert.ok(riveSrc.includes("stateMachines: NOVA_RIVE_STATE_MACHINE"), "the canvas must run the contract state machine");
   assert.ok(riveSrc.includes("useStateMachineInput"), "the canvas must bind the contract inputs");
   assert.ok(riveSrc.includes("EventType.RiveEvent"), "the canvas must listen for Rive quip events");
@@ -4313,7 +4252,12 @@ await test("her stage: full body framing on Today, a DPR synced canvas, the shel
   assert.ok(riveSrc.includes("Math.round(size * 1.85)"), "the bust box changed under the small spots");
   assert.ok(riveSrc.includes("useDevicePixelRatio: true"), "the canvas does not pin the device pixel ratio option");
   assert.ok(riveSrc.includes("resizeDrawingSurfaceToCanvas"), "the canvas never syncs its drawing surface to the device pixel ratio");
-  assert.ok(riveSrc.includes('framing === "full" ? "panel" : framing'), "the fallback does not map full to its panel framing");
+  // Pin replaced 2026-10-15 (the old model purge): this slot
+  // pinned the fallback surface mapping "full" onto the
+  // avatar's "panel" framing. The fallback is deleted; the
+  // canvas itself treats "panel" as full, pinned two lines
+  // above, and the old mapping string stays gone.
+  assert.ok(!riveSrc.includes('framing === "full" ? "panel" : framing'), "the retired fallback framing mapping is back");
 });
 
 await test("the quip bank holds all nine categories, voiced dry and free of dashes", () => {
@@ -4419,7 +4363,11 @@ await test("NovaLive and SheetNova render NovaRive behind their existing props",
   assert.ok(learnSrc.includes("sleepStage={sleepStage}"), "NovaLive must feed the brain sleep stage");
   assert.ok(learnSrc.includes("<NovaRive state={shown}"), "SheetNova must render NovaRive");
   assert.ok(learnSrc.includes("quizStateForSheet({ phase, good, correctStreak"), "SheetNova must map its phases onto quizState");
-  assert.ok(learnSrc.includes("export function NovaAvatar"), "NovaAvatar must be exported for the NovaRive fallback");
+  // Pin replaced 2026-10-15 (the old model purge): this slot
+  // pinned the avatar's export for the NovaRive fallback. The
+  // fallback and the avatar are both deleted; the absence is
+  // the pin now.
+  assert.ok(!learnSrc.includes("export function NovaAvatar"), "the retired avatar export is back");
 });
 
 await test("the Player wires option hover and focus into the quiz feed", () => {
@@ -4759,21 +4707,19 @@ await test("the pop is mounted once in the shell and is silent, storeless, and q
   assert.ok(!/Audio|playSound|speak\(/.test(popSrc), "the pop makes noise; it should be silent by construction");
 });
 
-await test("the wave cue runs from NovaRive through NovaAvatar into a grouped right arm in the rig", () => {
-  assert.ok(riveSrc.includes("waveN={waveN}"), "NovaRive's fallback does not hand the wave counter to the avatar");
-  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0, waveN = 0 })'),
-    "NovaAvatar does not take the wave counter");
-  assert.ok(learnSrc.includes("noticeN = 0, waveN = 0 })"), "NovaRig does not take the wave counter");
-  assert.ok(learnSrc.includes('key={"wv" + waveN}'), "the right arm is not keyed by the wave counter");
-  assert.ok(learnSrc.includes('transformOrigin: "1012px 700px"'), "the arm group does not rotate around its shoulder root");
-  assert.ok(learnSrc.includes(".nv-rig-wave"), "the wave class is missing");
-  assert.ok(learnSrc.includes("@keyframes nvRigWave"), "the wave keyframes are missing");
-  // The wave group carries the arm's own parts: the two armR
-  // strokes and the fist at 1180, 642, wrapped together.
-  const start = learnSrc.indexOf('key={"wv" + waveN}');
-  const waveGroup = learnSrc.slice(start, start + 500);
-  assert.ok(waveGroup.includes("NOVA_RIG_D.armR"), "the wave group lost the right arm strokes");
-  assert.ok(waveGroup.includes("cx={1180} cy={642}"), "the wave group lost the fist");
+/* Pin rewritten 2026-10-15 (the old model purge): this test
+   pinned the wave cue's road through the avatar into the rig's
+   grouped right arm. The rig is deleted, and the Rive contract
+   has no wave trigger, so the road ends at the canvas: callers
+   may still pass the counter (the sidebar pop does), and
+   NovaCanvas accepts it and leaves it unused, documented in
+   the source. The rig's wave machinery stays gone. */
+await test("the wave cue ends at the canvas: accepted, unused, and the rig's wave stays gone", () => {
+  assert.ok(riveSrc.includes("waveN is accepted here and left unused"), "NovaCanvas no longer documents the unused wave counter");
+  assert.ok(!learnSrc.includes('key={"wv" + waveN}'), "the rig's keyed wave arm group is back");
+  assert.ok(!learnSrc.includes(".nv-rig-wave"), "the rig's wave class is back");
+  assert.ok(!learnSrc.includes("@keyframes nvRigWave"), "the rig's wave keyframes are back");
+  assert.ok(!learnSrc.includes("NOVA_RIG_D.armR"), "the rig's arm paths are back");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

@@ -1297,150 +1297,6 @@ const CSS = `
 @keyframes lvPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,.28); } 50% { box-shadow: 0 0 0 9px rgba(255,255,255,0); } }
 .lv-node { transition: transform .15s; }
 .lv-node:hover { transform: translateY(-2px); }
-/* Nova's idle life (wave 3, 2026-10-14): a slow gill sway and a
-   breath, run on the pose art itself. Two quiet motions on one
-   track, ease in out both ways, never a bounce, never a loop that
-   performs. Reduced motion stills it completely. */
-.lv-nova-live { animation: lvNovaLive 7s ease-in-out infinite; transform-origin: 50% 88%; }
-@keyframes lvNovaLive {
-  0%, 100% { transform: rotate(-0.6deg) scale(1, 1); }
-  50% { transform: rotate(0.6deg) scale(1.008, 1.016); }
-}
-/* Nova, the rig (2026-10-15): the persistent avatar is a
-   traced, articulated character, NovaRig. The raster portrait
-   that stood here was rejected by the owner the night it
-   shipped ("She is horribly made", "she's not animated", "Like
-   how you animate... your chat logo thing"), and two hand
-   drawn vectors were rejected before it, so the way through
-   is a rig traced from the approved character art itself:
-   layered parts (body with a hinged tail group, two gill fans
-   of three filaments each with gold tip sub paths, eyelid
-   slabs over pupils, the gold spine line, the mauve wash,
-   mouths per expression) with the life in CSS articulation.
-   A true blink from the lid slabs on an irregular 11.7 second
-   cycle with a double blink, per filament gill sway with
-   phase offsets, breath through the body group, an occasional
-   sideways glance with a slight head follow, a slow tail sway
-   at idle, a swim cycle for the Easter egg (tail and body
-   counter rotate), and a squash and stretch beat when the
-   expression changes to a reaction. Transforms and opacity
-   only, no per frame JavaScript. She stands on the page on a
-   transparent ground. The cream disc she first stood in was
-   removed on the owner's ruling (2026-10-14, "There's a circle
-   over her"): at persistent spots she stands directly on the
-   page, and the only ground left is a faint warm radial halo
-   with no edge, painted behind her. Small placements (roughly
-   100px and under: the header, bubble companions, the bench,
-   the feedback sheet) use a bust framing, the viewBox cropped
-   to her head, the full gill fans, and the top of the body, so
-   the face is large and readable; large placements keep the
-   full figure. Her motion amplitudes are computed per render
-   size in NovaRig (the --nv-sway, --nv-breath, and --nv-glance
-   variables, and the pointer gaze multiplier), because rig
-   units shrink to a sixteenth of a pixel at header size and
-   fixed unit motion read as no motion at all in the owner's
-   browser check. Lessons, completion art, and the share card
-   keep the raster poses (artwork moments). A faint grain was
-   considered and dropped: the flat vector finish is the
-   finish. Reduced motion stills the rig to the current
-   expression (the gate at the end of this stylesheet). */
-.nv-rig-wrap { position: relative; display: inline-block; flex-shrink: 0; }
-.nv-rig-halo { position: absolute; left: 50%; top: 46%; width: 124%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(closest-side, rgba(247, 233, 201, 0.5), rgba(247, 233, 201, 0.16) 55%, rgba(247, 233, 201, 0) 74%); pointer-events: none; }
-.nv-rig-panel { position: relative; display: inline-block; flex-shrink: 0; }
-.nv-rig { display: block; overflow: visible; }
-.nv-rig .nv-rig-t { transition: transform 0.45s cubic-bezier(0.3, 0.7, 0.3, 1), opacity 0.45s ease; }
-.nv-rig .nv-rig-anim { transform-box: view-box; }
-.nv-rig-breath { animation: nvRigBreath 5.4s ease-in-out infinite alternate; transform-origin: 800px 1250px; }
-@keyframes nvRigBreath { from { transform: scale(1, 1) rotate(0deg); } to { transform: scale(var(--nv-breath-x, 1.008), var(--nv-breath-y, 1.018)) rotate(0.35deg); } }
-.nv-rig-st-asleep .nv-rig-breath { animation-duration: 7.6s; }
-.nv-rig-tail { animation: nvRigTailSway 6.8s ease-in-out infinite alternate; transform-origin: 700px 1175px; }
-@keyframes nvRigTailSway { from { transform: rotate(-1.3deg); } to { transform: rotate(1.3deg); } }
-.nv-rig-fil { animation: nvRigSway 3.8s ease-in-out infinite alternate; }
-@keyframes nvRigSway { from { transform: rotate(calc(var(--nv-sway, 1.6deg) * -1)); } to { transform: rotate(var(--nv-sway, 1.6deg)); } }
-.nv-rig-lid { animation: nvRigBlink 11.7s linear infinite; }
-@keyframes nvRigBlink {
-  0%, 7%, 10%, 44%, 47%, 74%, 79.2%, 100% { transform: translateY(0px); }
-  8.5%, 45.5%, 75.3%, 77.9% { transform: translateY(58px); }
-}
-.nv-rig-glance { animation: nvRigGlance 13s linear infinite; }
-@keyframes nvRigGlance {
-  0%, 58%, 76%, 100% { transform: translate(0px, 0px); }
-  64%, 70% { transform: translate(var(--nv-glance-x, 9px), var(--nv-glance-y, -2px)); }
-}
-.nv-rig-head { animation: nvRigHeadTurn 17s linear infinite; transform-origin: 950px 620px; }
-@keyframes nvRigHeadTurn {
-  0%, 57%, 75%, 100% { transform: rotate(0deg); }
-  63%, 69% { transform: rotate(1.1deg); }
-}
-.nv-rig-react { animation: nvRigReact 0.55s cubic-bezier(0.3, 0.7, 0.3, 1); transform-box: fill-box; transform-origin: 50% 96%; }
-@keyframes nvRigReact {
-  0% { transform: scale(1, 1); }
-  30% { transform: scale(1.13, 0.8); }
-  58% { transform: scale(0.95, 1.07); }
-  100% { transform: scale(1, 1); }
-}
-.nv-rig-swim .nv-rig-breath { animation: nvRigSwimBody 1.5s ease-in-out infinite; }
-@keyframes nvRigSwimBody { 0%, 100% { transform: rotate(2.4deg); } 50% { transform: rotate(-2.4deg); } }
-.nv-rig-swim .nv-rig-tail { animation: nvRigSwimTail 1.5s ease-in-out infinite; }
-@keyframes nvRigSwimTail { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(7deg); } }
-.nv-rig-swim .nv-rig-head { animation: nvRigSwimHead 1.5s ease-in-out infinite; }
-@keyframes nvRigSwimHead { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
-/* Her signature cues (2026-10-15): the glasses push with its
-   tiny head dip, the two beat gill flutter, and the noticing
-   routine (a long held glance, a tipped head, the far fan
-   lifted). Each is fired once by a keyed remount from the rig
-   or by the brain through NovaLive, runs its course, and
-   settles; none of them loops. */
-.nv-rig-push { animation: nvRigGlassesPush 0.7s cubic-bezier(0.3, 0.7, 0.3, 1); }
-@keyframes nvRigGlassesPush {
-  0% { transform: translateY(0px); }
-  35% { transform: translateY(calc(var(--nv-push, 22px) * -1)); }
-  100% { transform: translateY(0px); }
-}
-.nv-rig-headdip { animation: nvRigHeadDip 0.7s cubic-bezier(0.3, 0.7, 0.3, 1); transform-box: view-box; transform-origin: 950px 620px; }
-@keyframes nvRigHeadDip {
-  0% { transform: rotate(0deg) translateY(0px); }
-  35% { transform: rotate(0.7deg) translateY(4px); }
-  100% { transform: rotate(0deg) translateY(0px); }
-}
-.nv-rig-noticehead { animation: nvRigNoticeHead 1.9s ease-in-out; transform-box: view-box; transform-origin: 950px 620px; }
-@keyframes nvRigNoticeHead {
-  0% { transform: rotate(0deg); }
-  18% { transform: rotate(2.6deg); }
-  78% { transform: rotate(2.6deg); }
-  100% { transform: rotate(0deg); }
-}
-.nv-rig-flutter { animation: nvRigFlutter 0.5s ease-in-out; }
-@keyframes nvRigFlutter {
-  0% { transform: rotate(0deg); }
-  25% { transform: rotate(-2.4deg); }
-  55% { transform: rotate(1.8deg); }
-  100% { transform: rotate(0deg); }
-}
-.nv-rig-notice-glance { animation: nvRigNoticeGlance 1.9s ease-in-out; }
-@keyframes nvRigNoticeGlance {
-  0% { transform: translate(0px, 0px); }
-  18% { transform: translate(calc(var(--nv-glance-x, 9px) * 1.7), calc(var(--nv-glance-y, -2px) * 1.7)); }
-  78% { transform: translate(calc(var(--nv-glance-x, 9px) * 1.7), calc(var(--nv-glance-y, -2px) * 1.7)); }
-  100% { transform: translate(0px, 0px); }
-}
-.nv-rig-fanlift { animation: nvRigFanLift 1.9s ease-in-out; }
-@keyframes nvRigFanLift {
-  0% { transform: rotate(0deg); }
-  18% { transform: rotate(-3.2deg); }
-  78% { transform: rotate(-3.2deg); }
-  100% { transform: rotate(0deg); }
-}
-.nv-rig-wave { animation: nvRigWave 1.1s ease-in-out; }
-@keyframes nvRigWave {
-  0% { transform: rotate(0deg); }
-  20% { transform: rotate(-21deg); }
-  40% { transform: rotate(-7deg); }
-  55% { transform: rotate(-21deg); }
-  70% { transform: rotate(-7deg); }
-  85% { transform: rotate(-17deg); }
-  100% { transform: rotate(0deg); }
-}
 /* The home section navigation (home restructure wave): a flat
    segmented row, gold underline for the current screen, nothing
    rounded beyond the foundation tokens. */
@@ -1465,15 +1321,8 @@ const CSS = `
   .lv-cols { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .lv-rise, .lv-sheet, .lv-shake, .lv-pop, .lv-pulse, .lv-nova-live { animation: none !important; }
+  .lv-rise, .lv-sheet, .lv-shake, .lv-pop, .lv-pulse { animation: none !important; }
   .lv-btn, .lv-opt, .lv-fill, .lv-node, .lv-topic, .lv-chip { transition: none !important; }
-  /* The rig stills: no blink, sway, breath, glance, swim, or
-     reaction; the state values (lid height, gaze, gill
-     posture, head tip) are not animations and stay, so she
-     holds the current expression. */
-  .nv-rig-breath, .nv-rig-tail, .nv-rig-fil, .nv-rig-lid, .nv-rig-glance, .nv-rig-head, .nv-rig-react { animation: none !important; }
-  .nv-rig-push, .nv-rig-headdip, .nv-rig-noticehead, .nv-rig-flutter, .nv-rig-notice-glance, .nv-rig-fanlift, .nv-rig-wave { animation: none !important; }
-  .nv-rig .nv-rig-t { transition: none !important; }
 }
 .lv-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 16px; }
 .lv-topic { transition: transform .15s, border-color .15s; }
@@ -1570,212 +1419,19 @@ function CardVisual({ src, P, accent, height = 190 }) {
   );
 }
 
-/* Nova the axolotl (rename, 2026-10-14). The flame set retired
-   with the Wick name the same day it shipped; the owner picked
-   Nova and ordered a real mascot with a personality. Pose keys
-   keep their names so every call site and pin holds; the files
-   behind them are the eight Nova expressions. Cheer and celebrate
-   land on pleased because completion in Nova's register is quiet
-   satisfaction, not a party. Deadpan is the wrong answer face,
-   asleep serves night and empty states. */
-const CHARACTER_POSES = {
-  wave: "/cortex/character/nova-greeting.webp",
-  greeting: "/cortex/character/nova-greeting.webp",
-  cheer: "/cortex/character/nova-pleased.webp",
-  think: "/cortex/character/nova-thinking.webp",
-  celebrate: "/cortex/character/nova-pleased.webp",
-  pleased: "/cortex/character/nova-pleased.webp",
-  worried: "/cortex/character/nova-worried.webp",
-  fading: "/cortex/character/nova-fading.webp",
-  explain: "/cortex/character/nova-explaining.webp",
-  deadpan: "/cortex/character/nova-deadpan.webp",
-  asleep: "/cortex/character/nova-asleep.webp",
-};
-
-function CharacterPose({ pose, size = 54, live = false }) {
-  const [ok, setOk] = useState(false);
-  const src = CHARACTER_POSES[pose] || null;
-  useEffect(() => { setOk(false); }, [src]);
-  if (!src) return null;
-  return (
-    <img src={src} alt="" aria-hidden="true" loading="lazy"
-      className={live ? "lv-nova-live" : undefined}
-      onLoad={() => setOk(true)} onError={() => setOk(false)}
-      style={{ display: ok ? "block" : "none", width: size, height: size, objectFit: "contain", flexShrink: 0 }} />
-  );
-}
-
-/* ── Nova, the rig (2026-10-15) ─────────────────────────────
-   The persistent Nova is ONE character traced from the
-   approved greeting pose art (public/cortex/character/
-   nova-greeting.webp) into layered vector parts and
-   articulated: body, a hinged tail group, two gill fans of
-   three filaments each with the gold tips as their own sub
-   paths, eyelid slabs over pupils, the gold spine line, the
-   mauve underside wash, and a mouth per expression. The other
-   seven poses serve as expression references only; the eight
-   states are data (NOVA_RIG_STATES), never redraws. She had
-   to be a rig: two hand drawn vectors were rejected from live
-   screenshots, then the raster portrait in a cream disc was
-   rejected the night it shipped ("She is horribly made",
-   "she's not animated", "Like how you animate... your chat
-   logo thing"). The trace was iterated against the art as a
-   literal underlay in ~/workspace/nova-rig-harness (overlay
-   comparison, the rig alone at 66, 120, and 240 in all eight
-   states, mid swim frames). Divergences from the art, stated
-   plainly: the worried pose's clasped hands and wavy lid tops
-   are simplified to raised lids and the wavy mouth; the
-   dome's left root, where the top filament crosses behind the
-   head, is smoothed; the art's textured double ink line
-   becomes one clean line of varied weight. Lessons,
-   completion art, and the share card keep the raster poses
-   untouched; those are artwork moments.
-   The same night (2026-10-15) the owner ruled on the live
-   bust: "She looks mad." The default states now carry a soft
-   resting face as state level swaps (rounder pupils with a
-   shine, relaxed lid lines, raised lids, the faintest smile);
-   deadpan keeps the traced stare because that is its job. She
-   also gained a lab coat and glasses in the same traced ink
-   (warm paper white, gold bridge, piping, and pen that dim
-   with her fading gold), three signature cues (the glasses
-   push, the gill flutter, the noticing routine), and a brain:
-   the utility picker in novaBrainDecide whose drives,
-   accumulated mood, and persisted memory NovaLive runs on.
-   Her state is data now, carried on the NovaLive wrapper as
-   data-nova-mood, data-nova-stage, and data-nova-doing. */
-const NOVA_RIG_INK = "#4F2A12";
-const NOVA_RIG_FILL = "#FDEBCB";
-const NOVA_RIG_GOLD = "#C7A965";
-const NOVA_RIG_WASH = "#DBC0B1";
-/* The lab coat (2026-10-15, the owner's order): a warm paper
-   white sampled against the art, never blue white, and a
-   slightly deeper shade of the same paper for the pocket. */
-const NOVA_RIG_COAT = "#FAF4E4";
-const NOVA_RIG_COAT_SHADE = "#F0E5CB";
-const NOVA_RIG_D = {
-  tail: "M520,1252 C560,1305 640,1360 730,1392 C830,1426 950,1432 1050,1408 C1160,1380 1260,1305 1320,1215 C1350,1170 1362,1115 1364,1068 C1364,1052 1358,1040 1348,1036 C1338,1032 1325,1050 1305,1072 C1240,1140 1140,1176 1030,1178 C940,1180 865,1150 815,1102 C800,1088 795,1078 788,1072 C700,1130 600,1190 520,1252 Z",
-  body: "M612,580 C565,645 512,725 472,815 C442,885 420,962 417,1042 C419,1122 444,1196 490,1255 C525,1300 555,1322 590,1335 L800,1098 C855,1010 905,905 955,795 C985,728 1002,680 1012,650 C920,668 830,660 755,640 C690,624 645,605 612,580 Z",
-  wash: "M900,655 C990,646 1100,652 1180,660 C1090,682 1045,700 975,790 C940,835 915,890 885,945 C862,990 845,1030 838,1095 C822,1165 830,1250 862,1332 C882,1382 902,1402 928,1418 C855,1448 772,1442 722,1406 C698,1352 694,1300 696,1238 C698,1148 699,1100 700,1040 C712,955 745,855 800,775 C830,730 862,685 900,655 Z",
-  washFin: "M1000,1330 C1080,1300 1140,1262 1200,1218 C1260,1175 1310,1120 1345,1072 C1355,1058 1362,1052 1364,1068 C1362,1115 1350,1170 1322,1222 C1280,1295 1200,1352 1115,1382 C1078,1395 1030,1368 1000,1330 Z",
-  spine: "M627,620 C590,700 545,780 520,860 C495,950 470,1030 472,1120 C474,1200 490,1240 513,1275",
-  inner: "M1012,650 C985,728 955,795 905,905 C855,1010 830,1055 800,1098",
-  armL: "M718,714 C706,770 712,822 736,862 C758,896 800,916 838,916 C852,916 862,912 870,906",
-  armR: "M1012,700 C1055,758 1108,772 1142,738 C1162,718 1172,692 1178,668",
-  cheek: "M772,545 C795,578 822,600 850,614",
-  head: "M672,360 C720,302 820,284 925,288 C1035,292 1128,336 1178,415 C1212,468 1232,515 1228,562 C1224,615 1178,648 1110,660 C1010,676 905,670 820,652 C742,636 668,612 640,560 C618,516 626,458 646,412 C654,392 662,374 672,360 Z",
-  l1: "M674,382 C640,350 600,336 532,326 C480,322 460,342 400,368 C350,390 300,405 238,406 C214,406 196,400 187,371 C184,355 192,344 204,343 C230,342 250,348 265,354 C290,360 320,352 343,337 C390,308 430,282 458,279 C490,272 520,264 556,260 C580,258 610,262 640,274 C668,288 690,320 700,352 C694,368 686,378 674,382 Z",
-  l2: "M675,472 C640,462 590,452 546,454 C500,458 460,470 436,504 C400,552 340,596 288,626 C262,640 230,646 205,645 C180,644 160,634 147,614 C150,598 200,580 227,585 C300,540 370,470 417,439 C460,412 500,396 538,381 C556,374 570,372 583,375 C620,385 655,420 675,472 Z",
-  l3: "M593,579 C570,592 545,605 503,632 C450,668 400,712 343,782 C320,806 290,816 268,809 C248,803 232,810 223,802 C219,793 222,784 228,780 C250,762 275,752 299,747 C340,730 400,660 438,601 C465,562 510,525 570,504 C585,525 592,552 593,579 Z",
-  r1: "M1148,398 C1210,388 1260,402 1310,448 C1350,484 1395,500 1420,494 C1440,488 1442,466 1428,455 C1390,442 1330,428 1280,382 C1240,346 1195,332 1160,338 C1115,346 1085,352 1068,340 C1100,368 1125,388 1148,398 Z",
-  r2: "M1182,505 C1230,520 1265,560 1315,640 C1350,695 1395,738 1432,742 C1452,744 1458,728 1448,712 C1400,680 1365,650 1320,560 C1295,510 1250,462 1205,442 C1185,434 1172,440 1168,452 C1172,472 1176,490 1182,505 Z",
-  r3: "M1200,638 C1202,720 1212,802 1242,856 C1256,880 1282,882 1292,864 C1292,796 1280,716 1262,656 C1256,634 1246,618 1234,610 C1220,616 1206,624 1200,638 Z",
-  g1: "M200,346 C245,356 290,370 318,382 C312,394 275,402 240,398 C215,395 200,378 196,362 C195,354 196,349 200,346 Z",
-  g2: "M150,600 C195,592 255,600 300,618 C296,632 250,642 205,642 C175,640 155,624 150,600 Z",
-  g3: "M224,776 C270,752 320,738 362,734 C366,752 350,772 320,786 C285,800 250,806 232,800 C220,794 218,784 224,776 Z",
-  g4: "M1348,452 C1375,458 1405,468 1428,462 C1440,470 1436,486 1422,494 C1395,496 1368,482 1352,466 Z",
-  g5: "M1352,672 C1385,690 1415,712 1438,728 C1425,742 1395,738 1370,716 C1358,700 1350,686 1352,672 Z",
-  g6: "M1224,782 C1240,812 1252,838 1260,858 C1250,874 1230,864 1224,840 C1220,818 1218,798 1224,782 Z",
-  pupilL: "M833,440 L941,440 C941,470 920,489 887,489 C854,489 833,470 833,440 Z",
-  pupilR: "M1080,431 L1139,431 C1139,452 1128,470 1110,470 C1092,470 1080,452 1080,431 Z",
-  sockL: "M820,424 L954,424 L954,498 L820,498 Z",
-  sockR: "M1068,416 L1151,416 L1151,478 L1068,478 Z",
-  lidLineL: "M826,440 L948,440",
-  lidLineR: "M1073,431 L1146,431",
-  closedPleased: "M840,455 C862,472 912,472 934,455 M1086,447 C1102,460 1126,460 1134,447",
-  closedAsleep: "M842,464 C865,478 910,478 932,464 M1088,455 C1103,466 1125,466 1132,455",
-  /* The soft resting face (2026-10-15, the owner's verdict
-     "She looks mad"): at the bust framing the traced resting
-     face, heavy straight lid lines over half disc pupils,
-     reads as a glare. The default states (greeting, and
-     explaining where it shares the resting face) swap in
-     these parts at the state level: rounder, slightly larger
-     pupils sitting a touch higher, and lid lines redrawn in
-     the relaxed configuration, a shallow dome with the outer
-     ends tipped a little down instead of a straight slash.
-     Deadpan keeps the full unimpressed stare; nothing global
-     moves. The little cream highlight rides with the soft
-     pupils so the eyes read alive, not flat. */
-  pupilSoftL: "M832,466 C832,447 856,432 887,432 C918,432 942,447 942,466 C942,485 918,500 887,500 C856,500 832,485 832,466 Z",
-  pupilSoftR: "M1079,452 C1079,438 1093,427 1110,427 C1127,427 1141,438 1141,452 C1141,466 1127,477 1110,477 C1093,477 1079,466 1079,452 Z",
-  lidLineSoftL: "M826,446 C862,437 910,436 948,442",
-  lidLineSoftR: "M1073,435 C1100,430 1124,431 1146,438",
-  shineSoftL: "M866,446 C866,442 870,439 875,439 C880,439 884,442 884,446 C884,450 880,453 875,453 C870,453 866,450 866,446 Z",
-  shineSoftR: "M1099,441 C1099,438 1102,435 1106,435 C1110,435 1113,438 1113,441 C1113,444 1110,447 1106,447 C1102,447 1099,444 1099,441 Z",
-  /* The glasses (2026-10-15, the owner's order): soft
-     rectangles with rounded corners in the same ink weight as
-     the lid lines, a thin gold bridge, short temple arms
-     angling back toward the gill fans. No lens fill anywhere:
-     the lenses are fully transparent and her pupils and her
-     blink stay undimmed behind them. They are drawn last in
-     the head group, so she blinks behind her glasses. */
-  glassesL: "M824,404 L950,404 C966,404 978,416 978,432 L978,494 C978,510 966,522 950,522 L824,522 C808,522 796,510 796,494 L796,432 C796,416 808,404 824,404 Z",
-  glassesR: "M1072,396 L1152,396 C1166,396 1176,406 1176,420 L1176,474 C1176,488 1166,498 1152,498 L1072,498 C1058,498 1048,488 1048,474 L1048,420 C1048,406 1058,396 1072,396 Z",
-  glassesBridge: "M978,444 C1002,434 1024,434 1048,444",
-  templeL: "M796,434 C762,426 728,412 702,396",
-  templeR: "M1176,426 C1198,418 1220,408 1238,396",
-  /* The lab coat (2026-10-15, the owner's order): one panel
-     over the body in warm paper white, hem cut above the tail
-     fin, the belly wash showing through the open front along
-     the wash's own west boundary (coatOpeningEdge), a collar
-     band under the chin with one folded lapel starting the V,
-     a breast pocket with a gold pen, two ink buttons down the
-     panel beside the opening. The coatFin rides inside the
-     tail group, clipped by the tail the way washFin is, so
-     the swim cycle carries the hem with no seam. The gold
-     spine path is drawn over the coat as its back piping. */
-  coat: "M612,580 C565,645 512,725 472,815 C442,885 425,960 430,1052 C460,1128 540,1192 648,1222 C712,1180 762,1140 800,1098 C855,1010 905,905 955,795 C985,728 1002,680 1012,650 C920,668 830,660 755,640 C690,624 645,605 612,580 Z",
-  coatFin: "M520,1252 C600,1190 700,1130 788,1072 C800,1088 795,1078 788,1072 C700,1130 600,1190 520,1252 Z M560,1240 C640,1180 730,1122 800,1088 C812,1104 830,1122 862,1148 C780,1170 660,1210 560,1240 Z",
-  coatHemEdge: "M430,1052 C460,1128 540,1192 648,1222 C712,1180 762,1140 800,1098",
-  coatOpeningEdge: "M900,655 C862,685 830,730 800,775 C745,855 712,955 700,1040 C699,1100 698,1148 696,1238",
-  coatCollar: "M742,632 C824,658 940,668 1022,650 C1016,674 1006,692 994,704 C918,700 824,688 762,664 C752,654 744,644 742,632 Z",
-  coatLapel: "M906,668 C872,706 848,752 838,800 C876,782 908,738 922,696 C926,680 920,668 906,668 Z",
-  coatLapelR: "M1006,652 C996,690 978,738 954,784 C986,764 1006,722 1014,684 C1016,666 1014,656 1006,652 Z",
-  coatPocket: "M598,748 L686,748 L686,804 C686,817 678,824 665,824 L619,824 C606,824 598,817 598,804 Z",
-  coatPen: "M641,708 L655,708 L655,758 L641,758 Z",
-  coatPenClip: "M641,722 L655,722",
-  tailEdge: "M520,1252 C560,1305 640,1360 730,1392 C830,1426 950,1432 1050,1408 C1160,1380 1260,1305 1320,1215 C1350,1170 1362,1115 1364,1068 C1364,1052 1358,1040 1348,1036 C1338,1032 1325,1050 1305,1072 C1240,1140 1140,1176 1030,1178 C940,1180 865,1150 815,1102 C800,1088 795,1078 788,1072",
-  bodyEdge: "M612,580 C565,645 512,725 472,815 C442,885 420,962 417,1042 C419,1122 444,1196 490,1255 C525,1300 555,1322 590,1335",
-};
-const NOVA_RIG_FILAMENTS = [
-  { key: "l1", gold: "g1", origin: "690px 362px", dur: "3.4s", delay: "0s" },
-  { key: "l2", gold: "g2", origin: "600px 445px", dur: "3.9s", delay: "-1.2s" },
-  { key: "l3", gold: "g3", origin: "592px 545px", dur: "4.4s", delay: "-2.1s" },
-  { key: "r1", gold: "g4", origin: "1120px 378px", dur: "3.6s", delay: "-0.7s" },
-  { key: "r2", gold: "g5", origin: "1180px 472px", dur: "4.1s", delay: "-1.8s" },
-  { key: "r3", gold: "g6", origin: "1226px 626px", dur: "4.6s", delay: "-2.6s" },
-];
-const NOVA_RIG_MOUTHS = {
-  /* Greeting's mouth (2026-10-15, the owner's "She looks mad"
-     ruling): the traced mouth bowed its middle up a touch,
-     flat verging on frown. It is now the faintest upward
-     curve, the pleased mouth softened well past halfway:
-     welcoming, still understated, still hers. */
-  greeting: { d: "M922,540 C985,555 1052,555 1112,541" },
-  explaining: { d: "M1072,548 C1072,536 1084,528 1098,528 C1112,528 1124,536 1124,548 C1124,560 1112,568 1098,568 C1084,568 1072,560 1072,548 Z", fill: true },
-  pleased: { d: "M972,530 C998,552 1046,554 1074,532" },
-  thinking: { d: "M945,552 C1015,542 1085,533 1145,526" },
-  worried: { d: "M925,553 C955,538 980,567 1010,552 C1040,537 1065,565 1100,549" },
-  fading: { d: "M922,549 C995,544 1075,544 1128,550" },
-  deadpan: { d: "M950,544 C1005,542 1060,542 1108,544" },
-  asleep: { d: "M958,552 C1005,548 1055,548 1098,552" },
-};
-const NOVA_RIG_STATES = {
-  /* The default states carry the soft resting face (2026-10-15,
-     the owner's "She looks mad" ruling): lids raised toward
-     open (greeting -8, explaining -6, still short of worried's
-     raised -16 so her dry half lid character survives) and the
-     soft pupil and lid line swaps named here. Every other
-     state keeps the traced face exactly as it was; deadpan's
-     stare is its job and stays the full one. */
-  greeting: { lid: -8, gaze: [0, 0], gill: 0, gold: 1, head: [0, 0, 0], closed: null, pupilL: "pupilSoftL", pupilR: "pupilSoftR", lidLineL: "lidLineSoftL", lidLineR: "lidLineSoftR", shine: true },
-  explaining: { lid: -6, gaze: [2, 0], gill: 0, gold: 1, head: [0, 0, 0], closed: null, pupilL: "pupilSoftL", pupilR: "pupilSoftR", lidLineL: "lidLineSoftL", lidLineR: "lidLineSoftR", shine: true },
-  pleased: { lid: 0, gaze: [0, 0], gill: -1, gold: 1, head: [0, 0, 0], closed: "closedPleased" },
-  thinking: { lid: -8, gaze: [-13, -9], gill: 0, gold: 1, head: [-1.5, 0, 0], closed: null },
-  worried: { lid: -16, gaze: [0, -2], gill: -2.5, gold: 1, head: [0, 0, -4], closed: null },
-  fading: { lid: 38, gaze: [0, 4], gill: 3, gold: 0.45, head: [1.5, 0, 6], closed: null },
-  deadpan: { lid: 20, gaze: [0, 1], gill: 0, gold: 1, head: [0, 0, 0], closed: null },
-  asleep: { lid: 0, gaze: [0, 0], gill: 2, gold: 0.85, head: [5, 6, 16], closed: "closedAsleep" },
-};
+/* The old Nova models retired here (2026-10-15, the owner's
+   purge): this file used to carry two of them, the raster pose
+   portraits (eight webp expressions in a pose table with its
+   own slot component) and the traced SVG rig (an avatar
+   component over a path table, state data, and articulation
+   CSS). The owner saw the old model still rendering and
+   ordered it gone: every figure on every surface is the v3
+   Rive canvas through NovaRive now, the lesson intro,
+   completions, and onboarding included, the Easter egg's
+   figure included, and the share card draws the canonical
+   model sheet. What survives below is her brain: the mood
+   and state math never rendered anything itself, it only
+   ever chose the state the figure wore. */
 export function novaMoodFor({ hour = 12, streakAtRisk = false, reviewDue = false, returned = false } = {}) {
   if (streakAtRisk) return "worried";
   if (reviewDue) return "fading";
@@ -1960,251 +1616,6 @@ export function novaBrainDecide(brain, ctx) {
   b.lastBehavior = behavior;
   return { brain: b, behavior, mood };
 }
-let novaRigSeq = 0;
-
-/* The rig itself. state is one of the eight expression keys;
-   size is the width in pixels (the traced figure is wider than
-   tall, 1370 by 1230 units); halo paints the faint edgeless
-   warm glow behind her, all that is left of the cream disc the
-   owner ordered removed (2026-10-14, "There's a circle over
-   her"); bust crops the viewBox to her head, the full gill
-   fans, and the top of the body, for small placements where
-   the full figure left her face a few pixels tall; mode "swim"
-   runs the swim cycle for the Easter egg. All motion is CSS
-   (the .nv-rig rules in the stylesheet); this component only
-   picks paths and state values, and scales the motion: one rig
-   unit is 1370/size screen pixels wide, so unit fixed
-   amplitudes vanish at header size, and the sway, breath,
-   glance, state gaze, and pointer gaze are computed here to
-   land at a constant few screen pixels at any render size.
-   The reaction squash runs when the state changes to a
-   reaction face: a squash, a settle, a stretch, never a loop. */
-export function NovaRig({ state = "greeting", size = 120, halo = false, bust = false, mode = "idle", scanning = false, pushN = 0, flutterN = 0, noticeN = 0, waveN = 0 }) {
-  const known = state === "greeting" || state === "explaining" || state === "pleased" || state === "thinking" || state === "worried" || state === "fading" || state === "deadpan" || state === "asleep";
-  const st = known ? NOVA_RIG_STATES[state] : NOVA_RIG_STATES.greeting;
-  const mouth = known ? NOVA_RIG_MOUTHS[state] : NOVA_RIG_MOUTHS.greeting;
-  const idRef = useRef(0);
-  if (!idRef.current) { novaRigSeq += 1; idRef.current = novaRigSeq; }
-  const uid = "r" + idRef.current;
-  const [reactN, setReactN] = useState(0);
-  const prevState = useRef(state);
-  /* Her signature cues (2026-10-15): pushN, flutterN, and
-     noticeN are counters handed down from NovaLive's brain;
-     each increment remounts the cued group under a one shot
-     CSS animation. A pleased beat flutters her gills from
-     inside the rig as well, her tell for interest, so the
-     flutter counter here is the sum of both sources. The cues
-     yield to state changes by construction: they animate
-     groups the state data does not touch, and the brain never
-     fires one while a beat owns her. */
-  const [autoFlutterN, setAutoFlutterN] = useState(0);
-  useEffect(() => {
-    if (prevState.current !== state) {
-      prevState.current = state;
-      if (state === "pleased" || state === "deadpan" || state === "worried") setReactN((n) => n + 1);
-      if (state === "pleased") setAutoFlutterN((n) => n + 1);
-    }
-  }, [state]);
-  const flutterKey = flutterN + autoFlutterN;
-  /* The head cues share one wrapper (a dip for the glasses
-     push, a tip and hold for noticing); the wrapper needs to
-     know which fired last, and the cue classes must clear
-     when their one shot ends or the notice glance class would
-     hold the regular glance cycle off forever. */
-  const [headCue, setHeadCue] = useState(null);
-  const cueSeen = useRef({ push: 0, notice: 0 });
-  useEffect(() => {
-    if (pushN !== cueSeen.current.push) { cueSeen.current.push = pushN; if (pushN) setHeadCue("push"); }
-    if (noticeN !== cueSeen.current.notice) { cueSeen.current.notice = noticeN; if (noticeN) setHeadCue("notice"); }
-  }, [pushN, noticeN]);
-  useEffect(() => {
-    if (!headCue) return;
-    const t = setTimeout(() => setHeadCue(null), headCue === "push" ? 750 : 1950);
-    return () => clearTimeout(t);
-  }, [headCue, pushN, noticeN]);
-  const height = Math.round(size * ((bust ? 800 : 1230) / 1370));
-  /* Motion in screen terms (2026-10-14, the owner's browser
-     check saw no movement at all): U is rig units per screen
-     pixel at this render size. The amplitudes below are chosen
-     in screen pixels and converted: gill tips travel about 2.4
-     screen pixels, the breath lifts the head about 1.2, the
-     glance and both gazes move the pupils about 2.3 to 2.4
-     (the state gaze is clamped so a pupil never leaves its
-     socket outright). At 240px these stay proportionate; at
-     header size they are finally visible. */
-  const U = 1370 / size;
-  const swayDeg = Math.min(4.5, Math.max(1.6, (Math.asin(Math.min(0.09, (2.4 * U) / 420)) * 180) / Math.PI));
-  const breathY = 1 + Math.min(0.024, Math.max(0.007, (1.15 * U) / 800));
-  const gazeK = U / 5.7;
-  const gazeX = Math.max(-30, Math.min(30, Math.round(st.gaze[0] * gazeK)));
-  const gazeY = Math.max(-22, Math.min(22, Math.round(st.gaze[1] * gazeK)));
-  const pointerMult = Math.round(0.75 * U * 10) / 10;
-  const headT = "translate(" + st.head[1] + "px, " + st.head[2] + "px) rotate(" + st.head[0] + "deg)";
-  const fil = (f) => (
-    <g key={f.key} className="nv-rig-fil nv-rig-anim" style={{ transformOrigin: f.origin, animationDuration: f.dur, animationDelay: f.delay }}>
-      <path d={NOVA_RIG_D[f.key]} fill={NOVA_RIG_FILL} stroke={NOVA_RIG_INK} strokeWidth={14} strokeLinejoin="round" />
-      <path className="nv-rig-gold nv-rig-t" d={NOVA_RIG_D[f.gold]} fill={NOVA_RIG_GOLD} stroke={NOVA_RIG_INK} strokeWidth={9} strokeLinejoin="round" style={{ opacity: st.gold }} />
-    </g>
-  );
-  const lid = (side) => (
-    <g key={side} className="nv-rig-t nv-rig-anim" style={{ transform: "translateY(" + st.lid + "px)" }}>
-      <g className="nv-rig-lid nv-rig-anim" style={side === "r" ? { animationDelay: "-0.05s" } : undefined}>
-        {side === "l"
-          ? <><rect x={812} y={352} width={150} height={90} fill={NOVA_RIG_FILL} /><path d={NOVA_RIG_D[st.lidLineL || "lidLineL"]} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" /></>
-          : <><rect x={1060} y={346} width={100} height={87} fill={NOVA_RIG_FILL} /><path d={NOVA_RIG_D[st.lidLineR || "lidLineR"]} fill="none" stroke={NOVA_RIG_INK} strokeWidth={12} strokeLinecap="round" /></>}
-      </g>
-    </g>
-  );
-  return (
-    <span className="nv-rig-wrap" style={{
-      width: size, height,
-      "--nv-sway": swayDeg.toFixed(2) + "deg",
-      "--nv-breath-x": (1 + (breathY - 1) * 0.45).toFixed(4),
-      "--nv-breath-y": breathY.toFixed(4),
-      "--nv-glance-x": Math.round(2.1 * U) + "px",
-      "--nv-glance-y": Math.round(-0.5 * U) + "px",
-      "--nv-push": Math.round(2.1 * U) + "px",
-    }}>
-      {halo && <span aria-hidden="true" className="nv-rig-halo" />}
-      <svg className={"nv-rig nv-rig-st-" + (known ? state : "greeting") + (mode === "swim" ? " nv-rig-swim" : "")}
-        width={size} height={height} viewBox={bust ? "120 200 1370 800" : "120 230 1370 1230"}
-        style={bust ? { position: "relative", overflow: "hidden" } : { position: "relative" }}
-        aria-hidden="true" focusable="false">
-        <g key={reactN} className={reactN ? "nv-rig-react" : undefined}>
-          <g className="nv-rig-breath nv-rig-anim">
-            <g className="nv-rig-tail nv-rig-anim">
-              <path d={NOVA_RIG_D.tail} fill={NOVA_RIG_FILL} />
-              <clipPath id={"tl" + uid}><path d={NOVA_RIG_D.tail} /></clipPath>
-              <g clipPath={"url(#tl" + uid + ")"}><path d={NOVA_RIG_D.washFin} fill={NOVA_RIG_WASH} /></g>
-              <g clipPath={"url(#tl" + uid + ")"}><path d={NOVA_RIG_D.coatFin} fill={NOVA_RIG_COAT} /></g>
-              <path d={NOVA_RIG_D.tailEdge} fill="none" stroke={NOVA_RIG_INK} strokeWidth={16} strokeLinecap="round" />
-            </g>
-            <path d={NOVA_RIG_D.body} fill={NOVA_RIG_FILL} />
-            <path d={NOVA_RIG_D.bodyEdge} fill="none" stroke={NOVA_RIG_INK} strokeWidth={16} strokeLinecap="round" />
-            <clipPath id={"bd" + uid}><path d={NOVA_RIG_D.body} /><path d={NOVA_RIG_D.tail} /></clipPath>
-            <g clipPath={"url(#bd" + uid + ")"}>
-              <path d={NOVA_RIG_D.wash} fill={NOVA_RIG_WASH} />
-            </g>
-            {/* The lab coat (2026-10-15): a layer over the body
-                inside the same breath group, so it breathes and
-                squashes with her. The panel covers the body, the
-                wash is redrawn over it inside the open front,
-                and the gold spine becomes piping along the
-                coat's back edge, dimming with her gold in the
-                fading state like the pen and the bridge. */}
-            <path d={NOVA_RIG_D.coat} fill={NOVA_RIG_COAT} />
-            <g clipPath={"url(#bd" + uid + ")"}>
-              <path d={NOVA_RIG_D.wash} fill={NOVA_RIG_WASH} />
-            </g>
-            <path d={NOVA_RIG_D.coatHemEdge} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" />
-            <path d={NOVA_RIG_D.coatOpeningEdge} fill="none" stroke={NOVA_RIG_INK} strokeWidth={12} strokeLinecap="round" />
-            <path className="nv-rig-gold nv-rig-t" d={NOVA_RIG_D.spine} fill="none" stroke={NOVA_RIG_GOLD} strokeWidth={20} strokeLinecap="round" style={{ opacity: st.gold }} />
-            <path d={NOVA_RIG_D.coatCollar} fill={NOVA_RIG_COAT} stroke={NOVA_RIG_INK} strokeWidth={11} strokeLinejoin="round" />
-            <path d={NOVA_RIG_D.coatLapel} fill={NOVA_RIG_COAT} stroke={NOVA_RIG_INK} strokeWidth={11} strokeLinejoin="round" />
-            <path d={NOVA_RIG_D.coatLapelR} fill={NOVA_RIG_COAT} stroke={NOVA_RIG_INK} strokeWidth={11} strokeLinejoin="round" />
-            <path d={NOVA_RIG_D.coatPocket} fill={NOVA_RIG_COAT_SHADE} stroke={NOVA_RIG_INK} strokeWidth={10} strokeLinejoin="round" />
-            <g transform="rotate(9 648 733)">
-              <path className="nv-rig-gold nv-rig-t" d={NOVA_RIG_D.coatPen} fill={NOVA_RIG_GOLD} stroke={NOVA_RIG_INK} strokeWidth={6} style={{ opacity: st.gold }} />
-              <path d={NOVA_RIG_D.coatPenClip} stroke={NOVA_RIG_INK} strokeWidth={5} strokeLinecap="round" />
-            </g>
-            <circle cx={664} cy={908} r={12} fill={NOVA_RIG_INK} />
-            <circle cx={642} cy={1038} r={12} fill={NOVA_RIG_INK} />
-            <path d={NOVA_RIG_D.inner} fill="none" stroke={NOVA_RIG_INK} strokeWidth={14} strokeLinecap="round" />
-            <g fill="none" strokeLinecap="round">
-              <path d={NOVA_RIG_D.armL} stroke={NOVA_RIG_INK} strokeWidth={54} />
-              <path d={NOVA_RIG_D.armL} stroke={NOVA_RIG_FILL} strokeWidth={30} />
-            </g>
-            {/* The wave cue (2026-10-15): the right arm and its
-                fist sit in one group so the cue can rotate the
-                whole arm around its shoulder root. Resting
-                geometry is unchanged; only the grouping moved. */}
-            <g key={"wv" + waveN} className={"nv-rig-anim" + (waveN ? " nv-rig-wave" : "")} style={{ transformOrigin: "1012px 700px" }}>
-              <g fill="none" strokeLinecap="round">
-                <path d={NOVA_RIG_D.armR} stroke={NOVA_RIG_INK} strokeWidth={54} />
-                <path d={NOVA_RIG_D.armR} stroke={NOVA_RIG_FILL} strokeWidth={30} />
-              </g>
-              <circle cx={1180} cy={642} r={26} fill={NOVA_RIG_FILL} stroke={NOVA_RIG_INK} strokeWidth={12} />
-            </g>
-            {[[838, 918], [856, 916], [870, 906]].map(([x, y]) => <circle key={x} cx={x} cy={y} r={7} fill={NOVA_RIG_INK} />)}
-            <g key={"fl" + flutterKey} className={"nv-rig-anim" + (flutterKey ? " nv-rig-flutter" : "")} style={{ transformOrigin: "950px 470px" }}>
-              <g className="nv-rig-t nv-rig-anim" style={{ transform: "rotate(" + st.gill + "deg)", transformOrigin: "640px 470px" }}>
-                {NOVA_RIG_FILAMENTS.slice(0, 3).map(fil)}
-              </g>
-              <g key={"fr" + noticeN} className={"nv-rig-t nv-rig-anim" + (headCue === "notice" ? " nv-rig-fanlift" : "")} style={{ transform: "rotate(" + (-st.gill) + "deg)", transformOrigin: "1180px 480px" }}>
-                {NOVA_RIG_FILAMENTS.slice(3).map(fil)}
-              </g>
-            </g>
-            <g className="nv-rig-t nv-rig-anim" style={{ transform: headT, transformOrigin: "950px 620px" }}>
-              <g key={"hd" + pushN + "n" + noticeN} className={headCue === "push" ? "nv-rig-headdip" : headCue === "notice" ? "nv-rig-noticehead" : undefined}>
-              <g className="nv-rig-head nv-rig-anim">
-                <path d={NOVA_RIG_D.head} fill={NOVA_RIG_FILL} stroke={NOVA_RIG_INK} strokeWidth={16} strokeLinejoin="round" />
-                <path d={NOVA_RIG_D.cheek} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" />
-                {st.closed
-                  ? <path d={NOVA_RIG_D[st.closed]} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" />
-                  : (<>
-                      <clipPath id={"sk" + uid}><path d={NOVA_RIG_D.sockL + " " + NOVA_RIG_D.sockR} /></clipPath>
-                      <g clipPath={"url(#sk" + uid + ")"}>
-                        <g key={"gl" + noticeN} className={"nv-rig-glance nv-rig-anim" + (headCue === "notice" ? " nv-rig-notice-glance" : "")} style={scanning ? { animationDuration: "2.6s" } : undefined}>
-                          <g style={{ transform: "translate(calc(var(--nv-gx, 0px) * " + pointerMult + "), calc(var(--nv-gy, 0px) * " + pointerMult + "))" }}>
-                            <g className="nv-rig-t" style={{ transform: "translate(" + gazeX + "px, " + gazeY + "px)" }}>
-                              <path d={NOVA_RIG_D[st.pupilL || "pupilL"]} fill={NOVA_RIG_INK} />
-                              <path d={NOVA_RIG_D[st.pupilR || "pupilR"]} fill={NOVA_RIG_INK} />
-                              {st.shine && <path d={NOVA_RIG_D.shineSoftL} fill={NOVA_RIG_FILL} />}
-                              {st.shine && <path d={NOVA_RIG_D.shineSoftR} fill={NOVA_RIG_FILL} />}
-                            </g>
-                          </g>
-                        </g>
-                        {lid("l")}
-                        {lid("r")}
-                      </g>
-                    </>)}
-                {mouth.fill
-                  ? <path d={mouth.d} fill={NOVA_RIG_INK} />
-                  : <path d={mouth.d} fill="none" stroke={NOVA_RIG_INK} strokeWidth={13} strokeLinecap="round" />}
-                {/* Her glasses (2026-10-15) ride the head group
-                    and are drawn last, over pupils and lids, so
-                    she blinks behind them; the temples angle
-                    back toward the gill fans and the bridge is
-                    gold that dims with her fading gold. A push
-                    from the brain remounts the group under its
-                    one shot animation. */}
-                <g key={"g" + pushN} className={"nv-rig-glasses" + (pushN ? " nv-rig-push" : "")}>
-                  <path d={NOVA_RIG_D.templeL} fill="none" stroke={NOVA_RIG_INK} strokeWidth={11} strokeLinecap="round" />
-                  <path d={NOVA_RIG_D.templeR} fill="none" stroke={NOVA_RIG_INK} strokeWidth={11} strokeLinecap="round" />
-                  <path d={NOVA_RIG_D.glassesL} fill="none" stroke={NOVA_RIG_INK} strokeWidth={12} strokeLinejoin="round" />
-                  <path d={NOVA_RIG_D.glassesR} fill="none" stroke={NOVA_RIG_INK} strokeWidth={12} strokeLinejoin="round" />
-                  <path className="nv-rig-gold nv-rig-t" d={NOVA_RIG_D.glassesBridge} fill="none" stroke={NOVA_RIG_GOLD} strokeWidth={9} strokeLinecap="round" style={{ opacity: st.gold }} />
-                </g>
-              </g>
-              </g>
-            </g>
-          </g>
-        </g>
-      </svg>
-    </span>
-  );
-}
-
-/* The avatar: NovaRig at the persistent spots. The default
-   framing is the bust (2026-10-14, the owner's rulings:
-   "There's a circle over her" and the browser check that found
-   her face a few pixels tall in the header): the head focused
-   crop on the faint halo, rendered wider than the nominal spot
-   so the face reads, no disc anywhere. With framing "panel"
-   she stands free on the page at the exact size, the full
-   figure. The signature is the one the raster avatar had, so
-   every call site is unchanged. */
-export function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false, pushN = 0, flutterN = 0, noticeN = 0, waveN = 0 }) {
-  if (framing === "panel") {
-    return (
-      <span className="nv-rig-panel">
-        <NovaRig state={state} size={size} scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} waveN={waveN} />
-      </span>
-    );
-  }
-  return <NovaRig state={state} size={Math.round(size * 1.85)} bust halo scanning={scanning} pushN={pushN} flutterN={flutterN} noticeN={noticeN} waveN={waveN} />;
-}
-
 /* The feedback sheet's Nova (home restructure wave, reaction
    beats extended by the presence wave, 2026-10-14): the sheet is
    where Nova reacts, in three beats. Thinking while the answer
@@ -2243,9 +1654,8 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
      beat 1, or 2 while the learner's hover feed says suspense;
      verdict 3, 4 on a miss, 5 when a correct streak reaches
      three), and the Player's hover pointer feeds the joystick
-     inputs, so the asset the editor builds lands in a live
-     state machine. Until it exists NovaRive renders this same
-     rig as the fallback. */
+     inputs, so the shipped asset runs in a live state machine
+     on every sheet. */
   const quizState = quizStateForSheet({ phase, good, correctStreak, hover: !!(quizFeed && quizFeed.hover) });
   /* Quiz state transitions offer their category to the
      controller, the offer the retired quip engine used to make
@@ -2304,15 +1714,34 @@ function LessonDoneNova({ line }) {
   return <NovaRive state="pleased" size={104} framing="panel" celebrateN={1} quips={false} speech={speech} />;
 }
 
+/* The big completion figure (2026-10-15, the old model
+   purge): course completion and the daily session payoff used
+   to render a raster portrait here; both render the canvas
+   now, full body at the same 128px the portrait stood at,
+   with the celebrate trigger fired once. The counter rises a
+   beat after mount rather than starting high: the canvas
+   binds its trigger inputs as the asset loads, and a rise
+   that lands before the binding is swallowed by the
+   counter's own bookkeeping in NovaCanvas. No speech rides
+   this figure; the screens that speak (the lesson completion
+   above) own their controllers, and these two never did. */
+function NovaCelebrateFigure({ size = 128 }) {
+  const [celebrateN, setCelebrateN] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => setCelebrateN(1), 700);
+    return () => clearTimeout(t);
+  }, []);
+  return <NovaRive state="pleased" size={size} framing="full" celebrateN={celebrateN} quips={false} />;
+}
+
 /* ── the reactive Nova (presence wave, 2026-10-14; avatar
    replacement and quirks, later the same day) ────────────────
    NovaLive wraps the avatar where Nova is present at size: the
    header, the bench, the empty states, the speech bubbles. She
    notices the pointer: her gaze follows it a few pixels (the
-   values ride in as CSS custom properties and land on the
-   pupils' transform, where NovaRig scales them to the render
-   size), and the whole portrait lifts a touch while the
-   pointer is near. Taps are pokes, and she dislikes being
+   pointer feed rides into the canvas as the contract's mouseX
+   and mouseY inputs, scaled to the render size), and the whole
+   portrait lifts a touch while the pointer is near. Taps are pokes, and she dislikes being
    poked (quirks engine, below): the first taps amuse her, the
    third earns the deadpan and a line, the fifth turns her away
    (asleep, taps ignored) for an hour. The counts live in the
@@ -2351,7 +1780,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   /* The brain (2026-10-15): drives and memory in a ref, its
      current mood and chosen behavior in state where the
      wrapper's data attributes and the shown face read them,
-     and the cue counters the rig's signature moves fire from.
+     and the cue counters her signature beats fire from.
      The brain's state persists inside the quirks store; on
      unmount the visit records how it ended for her. */
   const [pushN, setPushN] = useState(0);
@@ -2688,7 +2117,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     setPokeCount((n) => n + 1);
     /* The beat holds about a second and a quarter (2026-10-14:
        the owner's browser check clicked the header Nova and saw
-       nothing; between the rig's stronger squash and the wrapper
+       nothing; between the beat's squash and the wrapper
        pop below, a tap now lands as a beat you cannot miss). */
     beatTimer.current = setTimeout(() => setBeat(null), 1300);
     if (step.line) speechRef.current.say({ source: "poke", text: step.line });
@@ -2724,9 +2153,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
           as speech: NovaRive renders its current line as the
           header bubble inside its own anchor span, in the spot
           this wrapper's private bubble used to occupy, and
-          pulses her mouth from its talking flag. Until the
-          editor asset exists, NovaRive's fallback is this same
-          rig, so the swap is invisible. */}
+          pulses her mouth from its talking flag. */}
       <NovaRive state={shownState} size={size} framing={framing} scanning={activityState === "thinking"} pushN={pushN} flutterN={flutterN} noticeN={noticeN}
         appState={appStateForActivity(activityState)} sleepStage={sleepStage} pokeN={pokeCount}
         idleMs={Date.now() - lastActivity.current} speech={speech} reducedMotion={reducedRef.current} />
@@ -10810,7 +10237,16 @@ export function shareCardModel(kind, data = {}) {
 /* ── share cards: one square image the learner chooses to share ──
    The click draws a 1080 by 1080 canvas from the pure model, then
    offers the system share sheet when the browser can share files
-   and a download either way. Nothing is posted automatically. */
+   and a download either way. Nothing is posted automatically.
+   Her art on the card is the canonical v3 model sheet (2026-10-15,
+   the old model purge): public/nova/nova-model-sheet.svg is the
+   owner's sheet with its full canvas ground rect and metadata
+   stripped, the same treatment scripts/build-og-image.mjs gives
+   it for the link card, so she stands on the card's own cream
+   circle. The raster pose portraits it replaces retired with
+   the rest of the old model. The model's pose field survives
+   as data; it no longer selects art, there is one Nova now. */
+const SHARE_CARD_NOVA_SRC = "/nova/nova-model-sheet.svg";
 function ShareCardButton({ model, P, accent }) {
   const [msg, setMsg] = useState("");
   if (!model) return null;
@@ -10831,13 +10267,12 @@ function ShareCardButton({ model, P, accent }) {
       const GOLD = "#C4A35A";
       ctx.fillStyle = "#0F0F0F";
       ctx.fillRect(0, 0, 1080, 1080);
-      const src = CHARACTER_POSES[model.pose] || null;
-      const img = src ? await new Promise((resolve) => {
+      const img = await new Promise((resolve) => {
         const im = new Image();
         im.onload = () => resolve(im);
         im.onerror = () => resolve(null);
-        im.src = src;
-      }) : null;
+        im.src = SHARE_CARD_NOVA_SRC;
+      });
       ctx.textAlign = "center";
       /* The product name is the Orbitron wordmark (2026-10-15
          owner pick, superseding the Panel 8 serif lockup; tagline
@@ -11433,7 +10868,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             </p>
           )}
           <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 18px" }}>
-            <CharacterPose pose="celebrate" size={128} live />
+            <NovaCelebrateFigure size={128} />
           </div>
           <div style={{ margin: "0 auto 18px" }}>
             <ShareCardButton P={P} accent={accent} model={shareCardModel("course", { title: course.title, accuracy: answered ? Math.round((right / answered) * 100) : 100, xp: sessionXp })} />
@@ -11499,9 +10934,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <Cover title={course.title} height={150} radius={20} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
           {/* Nova opens every lesson (wave 3): centered above the
               title at the identity spec's lesson start size, with
-              its slow idle life. It never sits beside a question. */}
+              its slow idle life. It never sits beside a question.
+              Since the old model purge (2026-10-15) the figure is
+              the Rive canvas at full framing in its greeting
+              idle, not the raster greeting portrait. */}
           <div style={{ display: "flex", justifyContent: "center", margin: "26px 0 2px" }}>
-            <CharacterPose pose="greeting" size={128} live />
+            <NovaRive state="greeting" size={128} framing="full" />
           </div>
           <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.2, margin: "18px 0 12px" }}>{lesson.title}</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 14px", maxWidth: 420 }}>{lesson.subtitle}</p>
@@ -12560,7 +11998,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint }}>
             WELCOME TO NOVA · {step + 1} OF 3
           </span>
-          <span style={{ marginLeft: 2 }}><NovaAvatar state="greeting" size={40} /></span>
+          <span style={{ marginLeft: 2 }}><NovaRive state="greeting" size={40} /></span>
         </div>
         <h1 style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.hero, fontWeight: 800, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 6px" }}>{CORTEX_TAGLINE}</p>
@@ -13356,7 +12794,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <style>{CSS}</style>
         <div className="lv-rise">
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
-            <CharacterPose pose="celebrate" size={128} live />
+            <NovaCelebrateFigure size={128} />
           </div>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: ink, marginBottom: 10 }}>DAILY SESSION COMPLETE</div>
           <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.2 }}>That is today, done properly.</h2>
