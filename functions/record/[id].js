@@ -137,6 +137,32 @@ function recordHealthNote(record) {
  * only when the record carries a ledger with real totals; older
  * records say the counts were not recorded, in the page's usual
  * way. */
+/* The claim check's tier trace (2026-10-14, wave sixteen,
+ * eighth panel, Trust): the record's JSON carried factCheckTrace
+ * since wave thirteen, but this page — the reader facing health
+ * view of the run — never rendered it, so a search whose check
+ * never landed looked identical here to one whose check landed
+ * clean. Each trace entry prints as its tier, its outcome, and
+ * its detail when the search recorded one, in the same plain
+ * list style as the budget section; a record written before the
+ * trace existed (or one the stage produced no trace for) says
+ * so in the page's standard not recorded sentence. */
+function recordFactCheckSection(record) {
+  const trace = Array.isArray(record.factCheckTrace) ? record.factCheckTrace : null;
+  const entries = trace
+    ? trace.filter((t) => t && typeof t === "object" && (t.tier || t.outcome))
+    : [];
+  if (entries.length === 0) {
+    return "<h2>Fact check</h2>\n<p>Fact check attempts were not recorded for this search.</p>";
+  }
+  const items = entries.map((t) => {
+    let line = esc(t.tier || "") + ": " + esc(t.outcome || "");
+    if (t.detail) line += " (" + esc(t.detail) + ")";
+    return "<li>" + line + "</li>";
+  });
+  return "<h2>Fact check</h2>\n<ul>" + items.join("") + "</ul>";
+}
+
 function recordBudgetSection(record) {
   const L = record.ledger;
   if (!L || typeof L !== "object" || !Number.isFinite(L.used) || !Number.isFinite(L.limit)) {
@@ -234,6 +260,8 @@ function recordPage(record, url) {
   }
 
   parts.push(recordBudgetSection(record));
+
+  parts.push(recordFactCheckSection(record));
 
   parts.push("<h2>Model</h2>");
   parts.push("<p>" + (record.synthesisModel

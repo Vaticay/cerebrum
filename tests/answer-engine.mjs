@@ -1216,8 +1216,16 @@ test("pre-work fetchers keep the abort armed through the body read", () => {
 test("synthesis deadline is derived from the global request budget", () => {
   // 2026-09-12: a flat 90s synthesisDeadline was incompatible with the
   // 20s end-to-end ceiling. It must now derive from requestDeadline.
+  // PIN UPDATED (2026-10-14, wave sixteen): the derivation now
+  // runs through synthesisDeadlineFor, which subtracts the
+  // 2,500 ms assembly reserve and, when the request carries
+  // the fact check, the check's reserved window
+  // (FACT_CHECK_RESERVE_MS) from the same request deadline.
+  // The contract this pin protects (the deadline derives from
+  // the global request budget) is unchanged; its shape moved.
   assert.ok(
-    apiSrc.includes("requestDeadline - 2500") || apiSrc.includes("requestDeadline-2500"),
+    apiSrc.includes("synthesisDeadlineFor(Date.now(), requestDeadline") &&
+    apiSrc.includes("requestDeadlineMs - 2500"),
     "synthesisDeadline must derive from requestDeadline"
   );
   assert.ok(

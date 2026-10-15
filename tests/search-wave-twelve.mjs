@@ -771,8 +771,12 @@ await test("CACHE_SCHEMA_VERSION is v49 with the wave fourteen chain entry, v47 
   // foundational lane gains founding form legs over the
   // unexpanded system name, and the record gains the
   // foundational near miss section.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v50";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v50");
+  // PIN UPDATED (2026-10-14, wave sixteen): v51, the serve
+  // side honesty wave. The v50 entry stays as history below.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v51";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v51");
+  assert.ok(/\/\/ v51 \(2026-10-14, wave sixteen\)/.test(src),
+    "the v51 chain entry is missing its dated reason");
   assert.ok(/\/\/ v50 \(2026-10-14, wave fifteen\)/.test(src),
     "the v50 chain entry is missing its dated reason");
   assert.ok(/\/\/ v49 \(2026-10-14, wave fourteen\)/.test(src),

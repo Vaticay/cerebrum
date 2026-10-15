@@ -363,6 +363,16 @@ export function resetLegHealth() {
 export const CF_LEG_TIMEOUT_OVERRIDES = {
   "@cf/meta/llama-4-scout-17b-16e-instruct": 3000,
   "@cf/mistralai/mistral-small-3.1-24b-instruct": 3000,
+  // Wave sixteen (2026-10-14, eighth panel, Infrastructure
+  // defect 2): gpt-oss-20b is wave 1's only Workers AI leg and
+  // had NO entry in either timeout map, so it burned the full
+  // wave timeouts (10,000 ms in wave 1, 12,000 ms in the rescue
+  // wave) plus long "response too short" burns, in wave 1 and
+  // again in the rescue of the same request. It takes the
+  // standard 3,000 ms cap every other capped leg carries; the
+  // rescue wave's call site now consults this map too (it used
+  // to pass its 12,000 ms raw).
+  "@cf/openai/gpt-oss-20b": 3000,
 };
 export function cfLegTimeoutMs(model, waveTimeoutMs) {
   const o = CF_LEG_TIMEOUT_OVERRIDES[model];
@@ -427,6 +437,65 @@ export const DELAYED_RESCUE_WAIT_MS = 20000;
 export const DELAYED_RESCUE_RETRY_MS = 8000;
 export const DELAYED_RESCUE_OVERRUN_MS = 30000;
 export const DELAYED_RESCUE_MIN_WAIT_MS = 5000;
+
+/* FACT CHECK TIME RESERVE (2026-10-14, wave sixteen, eighth
+ * panel, item 5): the deep claim check's stage gate asks for
+ * more than 4 seconds of request budget remaining, but the
+ * gate was evaluated AFTER synthesis, and synthesis could
+ * lawfully consume the request down to its own 2.5 second
+ * assembly reserve — so under exactly the fleet saturation
+ * the check exists for, slow synthesis closed the gate
+ * before the stage could fire (the panel measured the stage
+ * attempted on 0 of 6 probes, every eligible one skipped as
+ * no-time, and wave thirteen's fallback tier never reached
+ * its own trigger). The reserve is computed at request
+ * start from the request's own settings: when the fact
+ * check is on for the request, its window is held back from
+ * synthesis up front, and synthesis gets what remains. The
+ * alternative (measuring the gate from a budget reserved at
+ * the stage) leaves every earlier stage free to spend the
+ * window the gate then pretends exists; reserving up front
+ * is the shape that keeps the total handler time bounded by
+ * the same request deadline as before. 5,000 ms: the gate's
+ * 4,000 ms floor plus the post synthesis text passes that
+ * run between the synthesis deadline and the stage. */
+export const FACT_CHECK_RESERVE_MS = 5000;
+
+/* synthesisDeadlineFor(nowMs, requestDeadlineMs, factCheckOn):
+ * the synthesis stage's deadline — the request deadline less
+ * the 2,500 ms assembly reserve and, when the request carries
+ * the fact check, less the fact check's reserved window
+ * above. Extracted so the arithmetic the handler runs is the
+ * arithmetic the fixtures pin. */
+export function synthesisDeadlineFor(nowMs, requestDeadlineMs, factCheckOn) {
+  return Math.min(
+    nowMs + 90000,
+    requestDeadlineMs - 2500 - (factCheckOn ? FACT_CHECK_RESERVE_MS : 0)
+  );
+}
+
+/* RETRY RACE CLOSE (2026-10-14, wave sixteen, eighth panel,
+ * Infrastructure defect 2): after a synthesis winner lands,
+ * the post winner retries (quality, citation, minimum
+ * support) raced fresh legs with 12,000 ms timeouts and
+ * raceBest waited for EVERY leg to settle when none succeeded
+ * quickly — the panel timed winners at 1,305 to 2,226 ms
+ * inside synthesis stages of 9,685 to 13,209 ms, the gap
+ * spent on those retry races. A retry now gets a short
+ * window: the winner's own grace (raceBest's) plus this
+ * close, and then the race closes and the shipped draft
+ * stands. raceWithCloseWindow resolves the race's winner,
+ * null on rejection, or the string "closed" when the window
+ * expires — callers already treat any non answer result as
+ * "no retry", and the minimum support outcome names the
+ * closure as its own reason. */
+export const RETRY_RACE_CLOSE_MS = 5000;
+export function raceWithCloseWindow(racePromise, windowMs) {
+  return Promise.race([
+    Promise.resolve(racePromise).then((v) => v, () => null),
+    new Promise((res) => setTimeout(() => res("closed"), Math.max(0, windowMs))),
+  ]);
+}
 
 /* Plan the delayed rescue from the recorded attempt trail. Pure over
  * its inputs plus the leg health store, with an injectable clock, so
@@ -2236,7 +2305,25 @@ export function isNonLiterature(p) {
 // shipped contract.
 // v49 (2026-10-14, wave fourteen): the search record now carries a bounded foundational fate diagnostic — for each paper the foundational lane admits as a primary (capped at five), the named pipeline step its path ended at (dedupe, language screen, quality floor, shelf cut, rerank, retraction screen, filters, programmatic passes, citation gate, evidence slice, LLM validation, final gate) or the list it presented in — so a founding paper's burial is provable from the record instead of inferred. The LLM validation pass can no longer remove a foundational primary that clears the citation gate standard: the gate's abstract aware topicality judgment is the standard for the lane's primaries, the same substitution wave thirteen made at the presented tail, because a strict validator judging direct address by title language is the category error that buries first descriptions whose titles name neither the product nor the protein. At the presented layer, a title announcing a device or apparatus class now earns placement only when its abstract engages the question's subject, the citation gate's own subject standard. Presented lists and search records change under this wave, so payloads cached under v48 predate the shipped contract.
 // v50 (2026-10-14, wave fifteen): the foundational lane gains a founding form leg — the same citation sorted Europe PMC and OpenAlex legs fired a second time over the question's unexpanded system name alone (the subject concept in the asker's own words, plus its adjacent name word), because the lane's expanded, vocabulary loaded query demonstrably never returns the first descriptions it exists to find: probed live on "how does crispr cas9 cut dna", the nine term lane query's Europe PMC match set (95 hits) excludes the 2012 founding paper outright (its abstract says "cleave", never the expansion "Deoxyribonucleic acid", "mechanism", or "cut"), and OpenAlex's match set excludes it the same way, while the system name alone returns it second on both engines with its abstract and citation count intact. The search record's funnel also gains a bounded foundational near miss section: lane returned papers at or above the capture's citation median (or in the lane's top citation ranks) that fail the primary test, each with its failing properties named from a closed set, so a primary that never forms is diagnosable from the record the way a formed primary's fate now is. Presented lists and search records change under this wave, so payloads cached under v49 predate the shipped contract.
-const CACHE_SCHEMA_VERSION = "v50";
+// v51 (2026-10-14, wave sixteen): the serve side honesty wave.
+// The final cited set is tested for subject engagement at the
+// serve (citedSetEngagesSubject) and the run falls to the
+// honest no evidence state when no cited paper engages the
+// question's subject, so cached rows written under the old
+// serve (which decided from pool size) must not replay junk
+// citations; claims the claim check flags unsupported now
+// leave the shipped body (deep verdicts hard, the mechanical
+// kinds soft) with a degrade when the central claim goes; the
+// confidence line is regenerated from the calibrated level,
+// so a cached answer's level and line can no longer
+// contradict; the fact check stage reports its named skip
+// state when its trace shows no verdict landed, and the deep
+// check leads with an independent quota Gemini tier while
+// synthesis holds back the check's reserved window and the
+// uncapped gpt-oss-20b leg takes the standard 3,000 ms cap.
+// Search records also gain the subject serve diagnostic, and
+// the record page renders the fact check trace.
+const CACHE_SCHEMA_VERSION = "v51";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
@@ -9574,7 +9661,7 @@ export function factCheckTraceSummary(trace) {
     .slice(0, 160);
 }
 
-async function deepFactCheck(answer, papers, env, ledger = null, trace = null) {
+export async function deepFactCheck(answer, papers, env, ledger = null, trace = null) {
   if (!answer || !papers || papers.length === 0) return null;
   const note = (tier, outcome, detail) => {
     if (!Array.isArray(trace)) return;
@@ -9591,7 +9678,62 @@ async function deepFactCheck(answer, papers, env, ledger = null, trace = null) {
     { role: "user", content: userContent },
   ];
 
-  // Tier 1: Workers AI . no external network egress, tried first.
+  // Tier 1 (wave sixteen, item 5): Gemini, on its own family's
+  // quota. The eighth panel's infrastructure recheck measured
+  // the pattern this copies: the paper validation stage's
+  // independent quota Gemini leg answered 6 of 6 probes while
+  // every shared quota leg around it failed — Workers AI's
+  // daily neuron allocation exhausted (error 4006), the
+  // OpenRouter free pool answering 429 on both validate
+  // models. This check's tiers all rode shared quotas (the
+  // Cloudflare account the synthesis legs drain, and the
+  // OpenRouter pool), so saturation closed every tier at
+  // once. The tiers now lead with the independent quota the
+  // way validation's leg order does, then the shared quota
+  // legs in their established order. The tier exists only
+  // when GEMINI_KEY is configured (the validation legs are
+  // built the same way: a leg whose key is absent is not a
+  // leg, and leaves no trace entry), spends one ledger unit
+  // like every tier, gated on the same ledger room the
+  // OpenRouter tier requires, and takes the fleet's 3,000 ms
+  // cap for this model (the validation Gemini leg's
+  // timeoutCapMs, and its COMPAT_LEG_TIMEOUT_OVERRIDES entry).
+  const geminiKey = env ? (env.GEMINI_KEY || "") : "";
+  if (geminiKey) {
+    if (ledger && ledger.remaining() <= 0) {
+      note("gemini", "budget", "the subrequest ledger was spent before this tier");
+    } else {
+      const cg = new AbortController();
+      let tg = null;
+      try {
+        tg = setTimeout(() => cg.abort(), 3000);
+        if (ledger) ledger.spend();
+        const rg = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + geminiKey },
+          body: JSON.stringify({ model: "gemini-3.5-flash-lite", temperature: 0, max_tokens: 1900, messages }),
+          signal: cg.signal,
+        });
+        if (rg.ok) {
+          const jg = await rg.json();
+          const claimsG = parseDeepFactCheckJSON(jg?.choices?.[0]?.message?.content || "");
+          if (claimsG) { note("gemini", "ok"); return claimsG; }
+          note("gemini", "unparseable", "the response did not yield two or more usable claims");
+        } else {
+          note("gemini", "http-" + rg.status, "the Gemini validate model answered HTTP " + rg.status);
+          await rg.text().catch(() => {});
+        }
+      } catch (tierErr) {
+        const abortedG = tierErr && (tierErr.name === "AbortError" || /abort/i.test(String(tierErr.message || "")));
+        note("gemini", abortedG ? "timeout" : "error", String((tierErr && tierErr.message) || tierErr || ""));
+        // Fall through to tier 2.
+      } finally {
+        if (tg) clearTimeout(tg);
+      }
+    }
+  }
+
+  // Tier 2: Workers AI . no external network egress.
   //
   // This whole function runs AFTER the main answer already exists, entirely
   // on the response's critical path (the client waits for it before seeing
@@ -9629,21 +9771,22 @@ async function deepFactCheck(answer, papers, env, ledger = null, trace = null) {
     note("workers-ai", "no-binding", "the Workers AI binding is not available in this environment");
   }
 
-  // Tier 2: OpenRouter . only reached if Workers AI is unavailable, timed
-  // out, or returned something that didn't parse into usable claims.
+  // Tier 3: OpenRouter . only reached if the Gemini and Workers
+  // AI tiers are unavailable, timed out, or returned something
+  // that didn't parse into usable claims.
   // 2026-09-12: was OR_PRIMARY (550B . the slowest model in the catalog
   // doing a 1900-token JSON job). Now OR_VALIDATE (gemma-4-31b), same
   // verdicts in ~2s.
-  // Subrequest budget: tier 2 is a fetch. When the allowance is
+  // Subrequest budget: this tier is a fetch. When the allowance is
   // spent it is skipped, not fired to die at the runtime . the
   // caller falls back to the zero network heuristic either way.
-  let tier2Outcome = null;
+  let orTierOutcome = null;
   if (!openRouterKey(env)) {
     note("openrouter", "no-key", "no OpenRouter key is configured");
-    tier2Outcome = "no-key";
+    orTierOutcome = "no-key";
   } else if (ledger && ledger.remaining() <= 0) {
     note("openrouter", "budget", "the subrequest ledger was spent before this tier");
-    tier2Outcome = "budget";
+    orTierOutcome = "budget";
   } else {
     const c = new AbortController();
     // Wave twelve (item 1): the timer is declared OUTSIDE the try.
@@ -9673,33 +9816,34 @@ async function deepFactCheck(answer, papers, env, ledger = null, trace = null) {
         const claims = parseDeepFactCheckJSON(j?.choices?.[0]?.message?.content || "");
         if (claims) { note("openrouter", "ok"); return claims; }
         note("openrouter", "unparseable", "the response did not yield two or more usable claims");
-        tier2Outcome = "unparseable";
+        orTierOutcome = "unparseable";
       } else {
         // WAVE THIRTEEN: the status is the diagnosis. It used to
         // be drained and discarded, so a quota wall (429) and a
         // dead key (401) were indistinguishable from success's
-        // absence. The 429 outcome is also the tier three trigger
+        // absence. The 429 outcome is also the tier four trigger
         // below.
-        tier2Outcome = "http-" + r.status;
-        note("openrouter", tier2Outcome, "the validate model answered HTTP " + r.status);
+        orTierOutcome = "http-" + r.status;
+        note("openrouter", orTierOutcome, "the validate model answered HTTP " + r.status);
         await r.text().catch(() => {});
       }
     } catch (tierErr) {
       const aborted = tierErr && (tierErr.name === "AbortError" || /abort/i.test(String(tierErr.message || "")));
-      tier2Outcome = aborted ? "timeout" : "error";
-      note("openrouter", tier2Outcome, String((tierErr && tierErr.message) || tierErr || ""));
-      // Both tiers failed . tier three may still fire below;
-      // otherwise the caller falls back to verifyAnswerAgainstSources.
+      orTierOutcome = aborted ? "timeout" : "error";
+      note("openrouter", orTierOutcome, String((tierErr && tierErr.message) || tierErr || ""));
+      // The earlier tiers failed . tier four may still fire
+      // below; otherwise the caller falls back to
+      // verifyAnswerAgainstSources.
     } finally {
       if (t) clearTimeout(t);
     }
   }
 
-  // Tier 3 (wave thirteen, brief item 3): the cheapest reliable
+  // Tier 4 (wave thirteen, brief item 3): the cheapest reliable
   // tier instead of nothing. Fires ONLY on the fleet saturation
-  // signature — tier two answered HTTP 429, that model's free
-  // quota spent — and only while the ledger has room, under the
-  // same gate tier two itself uses: the spend below is refused
+  // signature — the OpenRouter tier answered HTTP 429, that
+  // model's free quota spent — and only while the ledger has
+  // room, under the same gate that tier itself uses: the spend below is refused
   // by the ledger ahead of the call if the invocation total
   // would pass its cap, and this point in the handler is past
   // every grant path stage but the bookkeeping tail, which
@@ -9712,7 +9856,7 @@ async function deepFactCheck(answer, papers, env, ledger = null, trace = null) {
   // a partial check (two or more usable claims of the three to
   // five asked) is labeled by its actual counts downstream, and
   // anything under two usable claims is no check, as before.
-  if (tier2Outcome === "http-429" && openRouterKey(env) &&
+  if (orTierOutcome === "http-429" && openRouterKey(env) &&
       !(ledger && ledger.remaining() <= 0)) {
     const c3 = new AbortController();
     let t3 = null;
@@ -12944,6 +13088,28 @@ export function stripUnsupportedCitations(answer, papers) {
   return { text: tidied, removed };
 }
 
+/* tidyCitationArtifacts(text): the punctuation husks citation
+ * removal leaves behind (2026-10-14, wave sixteen, eighth
+ * panel, Answer defect 4). A stripped marker in a list shaped
+ * sentence ("...associated with aging [1], [2].") tidies to
+ * "[1],." — a comma stranded against the terminal period —
+ * because the strip passes' tidy only collapses the space
+ * before punctuation, never the punctuation pair itself. This
+ * pass removes the pairings removal creates: a comma or
+ * semicolon directly against terminal punctuation goes, an
+ * empty marker husk goes, and the standard spacing tidies
+ * run. It runs at the ship points the removal passes feed, on
+ * the shipped prose only; it never touches a marker that
+ * survives, and numbers ("1,000.5") are untouched because the
+ * punctuation pair, not the comma, is the pattern. */
+export function tidyCitationArtifacts(text) {
+  return String(text || "")
+    .replace(/\[\s*\]/g, "")
+    .replace(/([,;])\s*([.!?])/g, "$2")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([.,;:!?])/g, "$1");
+}
+
 /* ── Prose bound to the trust fields (2026-10-14, fourth panel) ──
  * The verdict fields were made honest in the correctness wave;
  * the synthesis prose was never bound to them. The fourth panel
@@ -13452,7 +13618,21 @@ export function bindBakedConfidenceLine(answer, level, line) {
 export function dedupeRepeatedSentences(text) {
   const src = String(text || "");
   if (!src) return src;
-  const norm = (s) => s.toLowerCase().replace(/\*\*/g, "").replace(/\s+/g, " ").trim();
+  // Wave sixteen (2026-10-14, eighth panel, Trust defect 3):
+  // normalization also strips terminal punctuation, so the
+  // comparison is sentence level equality (or containment) of
+  // the sentence itself, not of its punctuation. The defect
+  // this closes: a paragraph carrying the shipped line
+  // "...capped because the answer was assembled from source
+  // excerpts and part of the answer pipeline degraded." and,
+  // sentences later, the baked standalone "Confidence is
+  // capped because the answer was assembled from source
+  // excerpts." — the standalone was NOT a substring of the
+  // joined line's sentence (its terminal period sits where
+  // the line has " and ..."), so the old normalization, which
+  // kept the period, never saw the containment and the cap
+  // reason printed twice in one paragraph.
+  const norm = (s) => s.toLowerCase().replace(/\*\*/g, "").replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "");
   return src.split(/\n{2,}/).map((para) => {
     const flat = para.replace(/\n/g, " ").trim();
     if (!flat || flat.startsWith("#") || flat.startsWith("- ") || flat.startsWith("*")) return para;
@@ -14438,6 +14618,27 @@ export function citationGateStandard(query, dynLookup) {
   };
 }
 
+/* gateJudgedConcepts(standard): the concept set the citation
+ * standard actually judges on — the central concepts, plus the
+ * standard's central terms standing in as bare concepts when it
+ * carries them (the degraded case paperClearsCitationGate
+ * documents). Extracted (2026-10-14, wave sixteen) so the serve
+ * side subject test below judges on the SAME set the gate
+ * judged, never a second reconstruction of it. */
+export function gateJudgedConcepts(std) {
+  const concepts = std && Array.isArray(std.centralConcepts) ? std.centralConcepts : [];
+  let judged = concepts;
+  if (std && (std.centralTerms || []).length > 0) {
+    const have = new Set(concepts.map((c) => c.term));
+    const extra = std.centralTerms
+      .map((t) => String(t || "").toLowerCase())
+      .filter((t) => t && !have.has(t))
+      .map((t) => ({ term: t, group: null, subject: false }));
+    if (extra.length > 0) judged = [...concepts, ...extra];
+  }
+  return judged;
+}
+
 // Whether one paper clears the standard (exemptions — anchor,
 // existence — are the callers', applied before this).
 // WAVE EIGHT (2026-10-14, seventh panel, Job 1b): when the
@@ -14467,15 +14668,9 @@ export function paperClearsCitationGate(paper, standard) {
     // (the mimosa question's one group), judging on it alone
     // would bar papers the founding degraded standard admitted
     // for sharing the question's central terms (touch, leaves).
-    let judged = concepts;
-    if ((std.centralTerms || []).length > 0) {
-      const have = new Set(concepts.map((c) => c.term));
-      const extra = std.centralTerms
-        .map((t) => String(t || "").toLowerCase())
-        .filter((t) => t && !have.has(t))
-        .map((t) => ({ term: t, group: null, subject: false }));
-      if (extra.length > 0) judged = [...concepts, ...extra];
-    }
+    // The judged set is gateJudgedConcepts' (wave sixteen):
+    // the serve side subject test below reads the same set.
+    const judged = gateJudgedConcepts(std);
     // The title exception (Job 1b) reads the FULL judged set:
     // the subject plus a second central term in the title is
     // the one title only engagement that clears, and the
@@ -14723,6 +14918,103 @@ export function conceptGateContext(papers, query, dynLookup) {
     } catch { /* best effort, mirroring the gate */ }
   }
   return { groups, centralTerms: standard.centralTerms, subjectGroup: standard.subjectGroup || null, centralConcepts: standard.centralConcepts || [], mechanismShape: standard.mechanismShape, anchorNeedles, existenceIdx };
+}
+
+/* ── WAVE SIXTEEN (2026-10-14, eighth panel, item 1): THE
+ * SERVE SIDE SUBJECT TEST ───────────────────────────────────
+ * The eighth panel's Search verdict: the honest no evidence
+ * state never fired in ten probes, including a grocery
+ * checkout question that cited a digital transformation
+ * review and a creatine question in plain words that cited a
+ * hair oil trial — while the same state fired backwards on
+ * two abundant literature topics whose single presented
+ * paper was a word collision. The serve decided from pool
+ * size and per paper clearance, never from whether the set
+ * the answer FINALLY CITES can address the question's
+ * subject. Per paper clearance cannot see it: the gate's two
+ * concept rule can be satisfied by two non subject concepts
+ * (the bare head words of the judged set), and the wave ten
+ * comparison admission ships a limited set on group touches
+ * the subject is not one of. This test judges the cited set
+ * as a set, at the last step, with the gate's own subject
+ * computation: a cited paper engages the subject when
+ * centralConceptHits over the gate's judged set reports
+ * subjectHit, or the paper is carried by the gate's own
+ * exemptions (the organism or binomial anchor, the existence
+ * path's paper). On a question whose central concepts do not
+ * resolve, the legacy subject group touch is the test. When
+ * no subject resolves at all the test does not judge — there
+ * is nothing to measure engagement against, exactly the
+ * gate's own early return — and the serve stands. The handler
+ * applies it to the final cited set (the answer's surviving
+ * markers); a judged set with NO cited paper engaging the
+ * subject falls to the honest no evidence state regardless
+ * of pool size. */
+export function citedSetEngagesSubject(evidencePapers, citedIdx, query, dynLookup) {
+  const list = Array.isArray(evidencePapers) ? evidencePapers : [];
+  const idxs = [...(citedIdx || [])]
+    .filter((n) => Number.isInteger(n) && n >= 1 && n <= list.length);
+  if (list.length === 0 || idxs.length === 0) {
+    return { judged: false, engaged: false, subjectTerm: null };
+  }
+  let ctx = null;
+  try { ctx = conceptGateContext(list, query, dynLookup); } catch { ctx = null; }
+  if (!ctx) return { judged: false, engaged: true, subjectTerm: null };
+  const std = {
+    groups: ctx.groups || [],
+    centralTerms: ctx.centralTerms || [],
+    subjectGroup: ctx.subjectGroup || null,
+    centralConcepts: Array.isArray(ctx.centralConcepts) ? ctx.centralConcepts : [],
+    mechanismShape: !!ctx.mechanismShape,
+  };
+  const hasCentral = std.centralConcepts.length > 0;
+  let subjectTerm = null;
+  if (hasCentral) {
+    const judged = gateJudgedConcepts(std);
+    const subj = judged.find((c) => c && c.subject);
+    // No subject concept resolved: the test does not judge.
+    if (!subj) return { judged: false, engaged: true, subjectTerm: null };
+    subjectTerm = subj.term || null;
+    const anchorNeedles = Array.isArray(ctx.anchorNeedles) ? ctx.anchorNeedles : [];
+    for (const idx of idxs) {
+      const p = list[idx - 1] || {};
+      if (ctx.existenceIdx && idx === ctx.existenceIdx) {
+        return { judged: true, engaged: true, subjectTerm };
+      }
+      if (anchorNeedles.length > 0) {
+        const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
+        if (anchorNeedles.some((n) => n && hay.includes(n))) {
+          return { judged: true, engaged: true, subjectTerm };
+        }
+      }
+      if (centralConceptHits(p, judged).subjectHit) {
+        return { judged: true, engaged: true, subjectTerm };
+      }
+    }
+    return { judged: true, engaged: false, subjectTerm };
+  }
+  // Legacy branch: the subject is the subject concept group,
+  // and one touch of it is engagement — the standard the
+  // pre wave eight gate shipped, applied to the cited set.
+  if (!std.subjectGroup) return { judged: false, engaged: true, subjectTerm: null };
+  try { subjectTerm = subjectTermInQuestion(query, std.subjectGroup); } catch { subjectTerm = null; }
+  const anchorNeedles = Array.isArray(ctx.anchorNeedles) ? ctx.anchorNeedles : [];
+  for (const idx of idxs) {
+    const p = list[idx - 1] || {};
+    if (ctx.existenceIdx && idx === ctx.existenceIdx) {
+      return { judged: true, engaged: true, subjectTerm };
+    }
+    if (anchorNeedles.length > 0) {
+      const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
+      if (anchorNeedles.some((n) => n && hay.includes(n))) {
+        return { judged: true, engaged: true, subjectTerm };
+      }
+    }
+    if (paperConceptGroupHits(p, [std.subjectGroup]) >= 1) {
+      return { judged: true, engaged: true, subjectTerm };
+    }
+  }
+  return { judged: true, engaged: false, subjectTerm };
 }
 
 export function conceptGateKeeps(paper, idx, gateCtx) {
@@ -15119,6 +15411,59 @@ export function appendClaimCheckSentence(answer, sentence) {
   return text;
 }
 
+/* confidenceLineText(level, parts): the reader facing confidence
+ * line for one level, rendered from the parts buildConfidenceLine
+ * computed (cited count, verdict status and split, mean relevance,
+ * cap reasons, the claim check support clause). Extracted
+ * (2026-10-14, wave sixteen, eighth panel, Trust defect 1) so the
+ * line is a FUNCTION of the level: calibrateConfidenceScore re
+ * derives the level from the adjusted score, and the shipped line
+ * is regenerated from the calibrated level through this same
+ * renderer — level, line, and body prose can no longer disagree
+ * the way the panel measured (level "thin" shipped beside the
+ * line "Moderate confidence: this answer rests on 2 cited
+ * sources"). The wording is the builder's wording, byte for
+ * byte; only its ownership moved. */
+export function confidenceLineText(level, parts) {
+  const p = parts || {};
+  const n = Math.max(0, Math.floor(Number(p.n) || 0));
+  const status = p.status || null;
+  const citedWord = n === 1 ? "cited source" : "cited sources";
+  const supClause = typeof p.supClause === "string" ? p.supClause : "";
+  let line;
+  if (level === "strong") {
+    line = "Strong confidence: this answer rests on " + n + " " + citedWord + "." + supClause;
+  } else if (level === "moderate") {
+    if (status === "divided") {
+      const sides = p.sides;
+      const k = p.conflictCount || 0;
+      line = sides && sides.a > 0 && sides.b > 0
+        ? "Moderate confidence: the cited sources split on " + k + " point" + (k === 1 ? "" : "s") +
+          ": " + sides.a + " cited source" + (sides.a === 1 ? "" : "s") + " appear" + (sides.a === 1 ? "s" : "") +
+          " on one side and " + sides.b + " on the other. Treat conclusions as provisional."
+        : "Moderate confidence: the cited sources genuinely split on " + (k || "some") +
+          " point" + (k === 1 ? "" : "s") + ". Treat conclusions as provisional.";
+      line += supClause;
+    } else {
+      line = "Moderate confidence: this answer rests on " + n + " " + citedWord +
+        ". No opposing findings were detected among them, but the evidence base is not broad enough for a stronger claim." + supClause;
+    }
+  } else {
+    line = n <= 2
+      ? "Low confidence: this answer rests on only " + n + " " + citedWord + ". Treat this answer as provisional." + supClause
+      : (typeof p.avgRelevance === "number" && p.avgRelevance < 40)
+        ? "Low confidence: the " + n + " " + citedWord +
+          " are only tangentially related to this question. Treat this answer as provisional." + supClause
+        : "Low confidence: this answer rests on " + n + " " + citedWord +
+          ", and the available checks do not support a stronger claim. Treat this answer as provisional." + supClause;
+  }
+  const capReasons = Array.isArray(p.capReasons) ? p.capReasons : [];
+  if (capReasons.length > 0 && level !== "strong") {
+    line += " Confidence is capped because " + capReasons.join(" and ") + ".";
+  }
+  return line;
+}
+
 // 0-100 confidence score built from observable evidence signals . source
 // count, mean relevance, disagreement verdict, citation quality
 // (peer-reviewed vs preprint), recency, and abstract coverage . plus a
@@ -15305,54 +15650,37 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   // claim verdicts (context.support, from factCheckSupport); when no
   // check ran, the line rests on the citation count and says nothing
   // about support at all.
-  const citedWord = n === 1 ? "cited source" : "cited sources";
   const sup = context && context.support && typeof context.support.checked === "number" && context.support.checked > 0
     ? context.support : null;
   const supClause = sup
     ? " The claim check supports " + sup.supported + " of " + sup.checked +
       " checked claim" + (sup.checked === 1 ? "" : "s") + "."
     : "";
-  let line;
-  if (level === "strong") {
-    line = "Strong confidence: this answer rests on " + n + " " + citedWord + "." + supClause;
-  } else if (level === "moderate") {
-    if (status === "divided") {
-      // The divided line states the split itself: how many cited
-      // sources sit on each side of the pairs. It used to read
-      // "N cited sources are cited, and they split on K points" .
-      // a tautology that never said what the split was.
-      const sides = verdict && verdict.sides;
-      const k = verdict.conflictCount || 0;
-      line = sides && sides.a > 0 && sides.b > 0
-        ? "Moderate confidence: the cited sources split on " + k + " point" + (k === 1 ? "" : "s") +
-          ": " + sides.a + " cited source" + (sides.a === 1 ? "" : "s") + " appear" + (sides.a === 1 ? "s" : "") +
-          " on one side and " + sides.b + " on the other. Treat conclusions as provisional."
-        : "Moderate confidence: the cited sources genuinely split on " + (k || "some") +
-          " point" + (k === 1 ? "" : "s") + ". Treat conclusions as provisional.";
-      line += supClause;
-    } else {
-      line = "Moderate confidence: this answer rests on " + n + " " + citedWord +
-        ". No opposing findings were detected among them, but the evidence base is not broad enough for a stronger claim." + supClause;
-    }
-  } else {
-    line = n <= 2
-      ? "Low confidence: this answer rests on only " + n + " " + citedWord + ". Treat this answer as provisional." + supClause
-      : avgRelevance < 40
-        ? "Low confidence: the " + n + " " + citedWord +
-          " are only tangentially related to this question. Treat this answer as provisional." + supClause
-        : "Low confidence: this answer rests on " + n + " " + citedWord +
-          ", and the available checks do not support a stronger claim. Treat this answer as provisional." + supClause;
-  }
-  if (capReasons.length > 0 && level !== "strong") {
-    line += " Confidence is capped because " + capReasons.join(" and ") + ".";
-  }
+  // The line is rendered by confidenceLineText from these parts,
+  // and the parts ride the object (internal, like the score) so
+  // calibrateConfidenceScore can regenerate the line from the
+  // CALIBRATED level: the shipped line is a function of the
+  // shipped level, never a leftover of the pre calibration one
+  // (wave sixteen, Trust defect 1). The divided line states the
+  // split itself: how many cited sources sit on each side of the
+  // pairs — the renderer keeps that wording from the parts.
+  const lineParts = {
+    n,
+    status: status || null,
+    sides: verdict && verdict.sides ? verdict.sides : null,
+    conflictCount: (verdict && verdict.conflictCount) || 0,
+    avgRelevance,
+    capReasons: capReasons.slice(),
+    supClause,
+  };
+  const line = confidenceLineText(level, lineParts);
 
   // verdictStatus is part of the return contract: calibrateConfidenceScore
   // reads it (and cap) to keep the honesty caps binding downstream. It
   // used to be absent, so calibration silently re derived the level from
   // the bare score and a divided answer capped here at moderate/70 came
   // out of calibration as strong/70.
-  return { level, score, line, factors, cap: cap < 100 ? cap : null, capReasons, verdictStatus: status || null };
+  return { level, score, line, factors, cap: cap < 100 ? cap : null, capReasons, verdictStatus: status || null, lineParts };
 }
 
 // ── CONFIDENCE CALIBRATION (2026-10-07) ───────────────────────────
@@ -15418,13 +15746,35 @@ export function calibrateConfidenceScore(conf, ctx = {}) {
   if (cap !== null) score = Math.min(score, cap);
   let level;
   if ((cap !== null && cap <= 45) || score < 50) level = "thin";
-  else if ((cap !== null && cap <= 59) || status === "divided" || score < 60) level = "moderate";
+  // Wave sixteen (item 3): the banding matches the builder's
+  // exactly, including its wave eight thin verdict rule (a thin
+  // verdict caps the level at moderate) — calibration's copy of
+  // the banding had dropped that branch, so a thin verdict
+  // answer could be promoted to strong here on score alone.
+  else if ((cap !== null && cap <= 59) || status === "divided" || status === "thin" || score < 60) level = "moderate";
   else level = "strong";
+
+  // Wave sixteen (item 3): the shipped line is REGENERATED from
+  // the calibrated level through the same renderer the builder
+  // used, from the parts the builder stored. This function used
+  // to return the original line unchanged beside the re derived
+  // level, so whenever calibration dropped a band (the panel's
+  // specimen: after citation stripping) the response shipped
+  // level "thin" beside the line "Moderate confidence: this
+  // answer rests on 2 cited sources", and publicConfidence
+  // shipped both verbatim. A confidence object built without
+  // parts (an older or hand built shape) keeps its line: there
+  // is nothing faithful to regenerate it from.
+  let line = conf.line;
+  if (conf.lineParts && typeof conf.lineParts === "object") {
+    try { line = confidenceLineText(level, conf.lineParts); } catch { line = conf.line; }
+  }
 
   return {
     ...conf,
     score,
     level,
+    line,
     calibrated: true,
     calibrationAdjustments: adjustments,
     rawScore: conf.score,
@@ -16234,6 +16584,25 @@ export function buildSearchRecord(input) {
       }
     } catch { recordFactCheckTrace = null; }
 
+    // Wave sixteen (brief item 1): the subject serve — present
+    // only when the final cited set failed the subject
+    // engagement test and the run fell to the honest no
+    // evidence state: how many papers the answer cited and the
+    // subject term none of them engaged, so the record can
+    // answer "why did a large pool ship no answer" in named
+    // terms instead of silence.
+    let recordSubjectServe = null;
+    try {
+      const ss = input.subjectServe;
+      if (ss && typeof ss === "object" && ss.fired) {
+        recordSubjectServe = {
+          fired: true,
+          cited: typeof ss.cited === "number" ? ss.cited : null,
+          subject: typeof ss.subject === "string" ? ss.subject.slice(0, 80) : null,
+        };
+      }
+    } catch { recordSubjectServe = null; }
+
     return {
       // Version 2 (2026-10-13): sources carry authors and journal,
       // and the record carries the executed query set. Consumers read
@@ -16259,6 +16628,7 @@ export function buildSearchRecord(input) {
       sources: recordSources,
       ...(recordMinSupport ? { minSupport: recordMinSupport } : {}),
       ...(recordGateAudit ? { gateAudit: recordGateAudit } : {}),
+      ...(recordSubjectServe ? { subjectServe: recordSubjectServe } : {}),
       ...(recordFactCheckTrace ? { factCheckTrace: recordFactCheckTrace } : {}),
     };
   } catch {
@@ -26610,7 +26980,12 @@ async function runSearchPipeline(pctx) {
         }));
       const legs = fireWaveLegs(descriptors, { keepTailReserve: true });
       if (legs.length === 0) return null;
-      return raceBest(legs, query, 500);
+      // Wave sixteen (item 5): the race closes after a short
+      // window (see raceWithCloseWindow). A retry exists to
+      // rescue a defective draft, not to hold the stage open
+      // to its deadline; on closure the caller keeps the
+      // draft it already has.
+      return raceWithCloseWindow(raceBest(legs, query, 500), RETRY_RACE_CLOSE_MS);
     };
 
     // fastpathCalls moved INTO the wave-1 block (2026-09-14): it must be
@@ -26827,7 +27202,12 @@ async function runSearchPipeline(pctx) {
     // request deadline: synthesis must finish with ≥2.5s left for the
     // extractive fallback + response assembly. Individual waves are
     // additionally gated on remaining budget below.
-    const synthesisDeadline = Math.min(Date.now() + 90000, requestDeadline - 2500);
+    // Wave sixteen (item 5): the deadline is computed through
+    // synthesisDeadlineFor so the fact check's reserved window
+    // (when this request carries the setting) is held back
+    // from synthesis up front — synthesis gets what remains
+    // after the check's window and the assembly reserve.
+    const synthesisDeadline = synthesisDeadlineFor(Date.now(), requestDeadline, !!(settings && settings.factCheck));
     const synthesisStageT0 = Date.now();
 
     // PRO TIER . the gate was resolved at the top of the handler (before any
@@ -27228,7 +27608,7 @@ async function runSearchPipeline(pctx) {
         // unchanged.
         const rescueDescriptors = [
           { label: "groq:openai/gpt-oss-120b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, 12000) },
-          ...(cfBound ? [{ label: CF_WAVE1[0], bucket: "workers-ai", fetchCost: 1, wave: 5, fire: () => callCF(CF_WAVE1[0], rescueMsgs, maxTokens, 12000) }] : []),
+          ...(cfBound ? [{ label: CF_WAVE1[0], bucket: "workers-ai", fetchCost: 1, wave: 5, fire: () => callCF(CF_WAVE1[0], rescueMsgs, maxTokens, cfLegTimeoutMs(CF_WAVE1[0], 12000)) }] : []),
           { label: "groq:openai/gpt-oss-20b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-20b", rescueMsgs, maxTokens, 12000) },
           ...(token ? [{ label: OR_FREE_MODELS[3], bucket: "openrouter", fetchCost: 1, wave: 5, fire: () => callOR(OR_FREE_MODELS[3], rescueMsgs, maxTokens, 12000) }] : []),
         ];
@@ -27464,7 +27844,13 @@ async function runSearchPipeline(pctx) {
       // 2026-09-12: the retry race costs up to 12s . only when the global
       // budget has room. A good-enough answer delivered on time beats a
       // marginally better one delivered late.
-      if (qualityScore < 35 && token && msLeft() > 9000 && !draftPassesBinding) {
+      // Wave sixteen (item 5): the retry must also fit inside
+      // the synthesis window — its close window
+      // (RETRY_RACE_CLOSE_MS) has to fit before the synthesis
+      // deadline, so a post winner retry spends synthesis
+      // time, never the fact check's reserved window behind
+      // the deadline.
+      if (qualityScore < 35 && token && msLeft() > 9000 && !draftPassesBinding && (synthesisDeadline - Date.now()) > RETRY_RACE_CLOSE_MS) {
         // Build a retry prompt that's EXTREMELY explicit about what went wrong
         const retrySystemPrompt =
           "You are a scientific expert writing a research synthesis. CRITICAL RULES:\n\n" +
@@ -27533,7 +27919,10 @@ async function runSearchPipeline(pctx) {
     if (aiOK && useEvidence && evidencePapers.length > 0) {
       const hasCitations = /\[\d+\]/.test(answer);
       // 2026-09-12: budget-gated like the quality retry above.
-      if (!hasCitations && msLeft() > 9000) {
+      // Wave sixteen (item 5): the synthesis window gate from
+      // the quality retry applies here too (the close window
+      // must fit before the synthesis deadline).
+      if (!hasCitations && msLeft() > 9000 && (synthesisDeadline - Date.now()) > RETRY_RACE_CLOSE_MS) {
         try {
           const retryMsgs2 = [
             { role: "system", content: "You are a scientific expert. Write a thorough, accurate answer. " +
@@ -27605,6 +27994,13 @@ async function runSearchPipeline(pctx) {
         } catch { /* a mechanical pass must never break the answer */ }
       }
 
+      // Wave sixteen (item 2): the strips above can leave
+      // punctuation husks where a marker died inside a list
+      // shaped sentence ("[1],." — the eighth panel's specimen).
+      // No orphaned citation fragment survives in shipped
+      // prose; the tidy runs here, at the ship point the
+      // strips feed, and again at the claim removal point.
+      try { answer = tidyCitationArtifacts(answer); } catch { /* the tidy must never break the answer */ }
       // The flip (defect 2): whatever reaches this point with zero
       // citations . the draft never had any and the retry could not
       // fix it, or the strips above removed every marker because
@@ -27659,6 +28055,13 @@ async function runSearchPipeline(pctx) {
             minSupportOutcome.reason = "degraded";
           } else if (ledger.remaining() <= SUBREQUEST_TAIL_RESERVE) {
             minSupportOutcome.reason = "budget";
+          } else if ((synthesisDeadline - Date.now()) <= RETRY_RACE_CLOSE_MS) {
+            // Wave sixteen (item 5): the retry is a synthesis
+            // spend; when its close window no longer fits
+            // inside the synthesis deadline, the time belongs
+            // to the fact check's reserved window, and the
+            // outcome says so instead of firing late.
+            minSupportOutcome.reason = "no-time";
           } else {
             const winnerEntry = [...aiAttempts].reverse().find((a) => a && a.ok && typeof a.model === "string");
             const winnerLabel = winnerEntry ? winnerEntry.model : null;
@@ -27685,7 +28088,10 @@ async function runSearchPipeline(pctx) {
                 minSupportOutcome.reason = "retry-kept-original";
               }
             } else {
-              minSupportOutcome.reason = "no-unparked-leg";
+              // Wave sixteen (item 5): a race that closed on
+              // its window is a different outcome from a race
+              // no leg could enter, and the record says which.
+              minSupportOutcome.reason = r === "closed" ? "retry-closed" : "no-unparked-leg";
             }
           }
         } catch { if (!minSupportOutcome.reason) minSupportOutcome.reason = "retry-error"; }
@@ -28105,6 +28511,92 @@ async function runSearchPipeline(pctx) {
       factCheckSkipCause = "fact check skipped: under 4 seconds left in the request";
       factCheckTrace.push({ tier: "stage", outcome: "no-time", detail: "the stage needs more than 4 seconds of request budget and less remained" });
     }
+    // WAVE SIXTEEN (2026-10-14, eighth panel, item 2): the
+    // degrade the serve rules share. When a claim the pipeline
+    // itself marked unsupported carried the answer — the zero
+    // support serve's central claim case, and now the removal
+    // point's — the draft does not ship as a research answer:
+    // the run falls to the extractive tier over citable
+    // papers, or to the honest no evidence state when that set
+    // is empty. Extracted from the zero support serve (which
+    // calls it with its own reason) so both rules degrade
+    // identically: the shipped answer's check becomes the
+    // wording trace over the new text, the discarded draft's
+    // strip bookkeeping is cleared, and the synthesis stage
+    // record stops naming a winner for an answer that did not
+    // ship.
+    const degradeAnswerToExtractiveOrNoEvidence = (synthSkipReason) => {
+      const gateDynZ = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+        ? buildDynLookup(gResult._diag.llmExpanded)
+        : null;
+      const prunedZ = pruneExtractiveEvidence(evidencePapers, query, gateDynZ);
+      let fellToExtractive = false;
+      if (prunedZ.papers.length > 0) {
+        evidencePapers = prunedZ.papers;
+        sourceList = evidencePapers.map(toSourceEntry);
+        const extZ = buildExtractiveSynthesis(prunedZ.papers, prunedZ.papers, {
+          query: searchQuery,
+          queryAnalysis: analyzeQuery(searchQuery),
+          answerLength,
+          dynLookup: gateDynZ,
+          isNameSearch,
+          isFollowupMode,
+          sourcesQueried: publicSourcesQueried(),
+          relevanceGatedOut,
+          ambiguity,
+          aiGateReason: null,
+        });
+        if (extZ) {
+          answer = extZ;
+          answerTier = getLastExtractiveTier();
+          extractiveOK = true;
+          fellToExtractive = true;
+          // The shipped answer is extractive now: its check
+          // is the wording trace over the new text, exactly
+          // as the wave 4 extractive path computes it, so
+          // the body sentence and the confidence line below
+          // describe the shipped answer, not the discarded
+          // draft.
+          factCheckResult = null;
+          try {
+            if (ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
+              const alignZ = verifyExtractiveAlignment(answer, evidencePapers);
+              if (alignZ && alignZ.checked) factCheckResult = alignZ;
+            }
+          } catch { /* the trace is best effort */ }
+        }
+      }
+      if (!fellToExtractive) {
+        noResultsPayload = buildNoResultsPayload({
+          query: searchQuery,
+          sourcesQueried: publicSourcesQueried(),
+          rungsTried: retrievalStrategiesTried(gResult && gResult._diag),
+          gatedOut: relevanceGatedOut,
+          gatedExamples: gatedOutTitles,
+          filteredOut: evidenceFilteredOut,
+          filterLabel: evidenceFilterApplied,
+        });
+        answer = renderNoResultsAnswer(searchQuery, noResultsPayload);
+        responseKind = "no-results";
+        factCheckResult = null;
+      }
+      aiOK = false;
+      // The discarded draft's strip bookkeeping must not be
+      // consumed against the shipped answer (the wave 4 flip
+      // clears it the same way), and the synthesis stage
+      // record must not name a winning leg for an answer that
+      // did not ship (the wave 6 winner honesty rule).
+      unsupportedStripped = [];
+      conceptDemoted = [];
+      try {
+        const synthEntry = stageHealth.find((s) => s && s.name === "synthesis");
+        if (synthEntry) {
+          synthEntry.ok = false;
+          synthEntry.winner = null;
+          synthEntry.skipReason = synthSkipReason;
+        }
+      } catch { /* the record amendment is best effort */ }
+    };
     // Commit 51 . `&& aiOK` added. Without it, the moment every model is
     // rate-limited (!aiOK), `answer` above gets overwritten with the "Unable
     // To Synthesize . Showing Source Papers Directly" fallback: a formatted
@@ -28273,6 +28765,23 @@ async function runSearchPipeline(pctx) {
     // prose asserting claims its own panel called unsupported.
     let aiAlignmentIssues = [];
     if (aiOK && useEvidence && evidencePapers.length > 0) {
+      // WAVE SIXTEEN (item 4): whether the fact check STAGE
+      // itself produced a verdict, captured here — before the
+      // alignment pass contributes issues and before the
+      // mechanical integrity flags merge into the panel below.
+      // The stage record at the end of this block reads these
+      // two values, never the merged panel: the panel exists
+      // whenever the mechanical flags exist, and the panel's
+      // existence was the old ok test, which is exactly how
+      // the stage reported ok true on runs whose trace shows
+      // every tier failing (the eighth panel's Trust defect:
+      // "workers-ai error 4006; openrouter http-429" beside
+      // stageHealth ok true). A landed deep or terms verdict
+      // has claims; a flags only panel is not a verdict.
+      const factCheckStageProducedResult = !!(
+        factCheckResult && Array.isArray(factCheckResult.claims) && factCheckResult.claims.length > 0
+      );
+      const factCheckStageCheckedFlag = factCheckResult ? factCheckResult.checked : undefined;
       try {
         aiAlignmentIssues = postCheckAIAlignment(answer, evidencePapers).issues;
       } catch { aiAlignmentIssues = []; }
@@ -28364,13 +28873,108 @@ async function runSearchPipeline(pctx) {
       // are legitimate prose. The flags stay in the panel either
       // way: the removal is visible there, not silent.
       {
+        // WAVE SIXTEEN (2026-10-14, eighth panel, Answer defect
+        // 4): the panel's unsupported claims join the removal
+        // as SOFT targets. The fourth panel's JOB 3(b) shipped
+        // flag only for the mechanical kinds (stripped,
+        // demoted, alignment): their citations were removed
+        // and the claims themselves were deliberately left
+        // standing, on the reasoning that the prose might
+        // still be true. The eighth panel measured what that
+        // ships: claims the system's own panel marks
+        // unsupported standing in the body with only their
+        // markers gone. The wave sixteen contract: a flagged
+        // unsupported claim leaves the body too, under the
+        // machinery's existing soft rule — its sentence is
+        // removed only when it carries no SURVIVING citation
+        // marker, so a claim another paper still supports
+        // keeps its sentence (and its marker), and a claim
+        // whose support the check removed goes with the
+        // marker. The deep check's verdicts stay HARD targets,
+        // exactly as JOB 3(b) ordered.
+        //
+        // Scoping, stated plainly: the soft rule acts only
+        // when the claim check itself produced a verdict for
+        // this answer (factCheckStageProducedResult, item 4).
+        // The mechanical passes run on every AI answer,
+        // including runs whose check is off or never landed,
+        // and they flag vocabulary misses on true claims as
+        // readily as real ones; sentence removal is the claim
+        // check's remedy, and it is gated on the check having
+        // run, the same distinction item 4 draws for the
+        // stage record. A flags only panel keeps the flag only
+        // contract.
+        const panelSoftTargets = factCheckStageProducedResult
+          ? (factCheckResult && Array.isArray(factCheckResult.claims) ? factCheckResult.claims : [])
+              .filter((c) => c && c.status === "unsupported" && typeof c.claim === "string" && c.claim.trim().length > 0 &&
+                (c.kind === "stripped" || c.kind === "demoted" || c.kind === "alignment"))
+              .map((c) => ({ claim: c.claim, hard: false }))
+          : [];
         const removalTargets = [
           ...factCheckUnsupportedClaims.map((c) => ({ claim: c.claim, sourceIndex: c.sourceIndex, hard: true })),
+          ...panelSoftTargets,
         ];
         if (removalTargets.length > 0) {
           try {
             const rm = removeUnsupportedClaimsFromAnswer(answer, removalTargets);
-            if (rm.removed > 0) answer = rm.text;
+            if (rm.removed > 0) {
+              answer = rm.text;
+              // The removals can leave punctuation husks
+              // where a marker died inside a list shaped
+              // sentence ("[1],."): no orphaned citation
+              // fragment survives in the shipped prose.
+              try { answer = tidyCitationArtifacts(answer); } catch { /* the tidy must never break the answer */ }
+            }
+            // The gut test, judged on the POST removal answer
+            // — the zero support serve's own convention (its
+            // central claim is read from the stripped text,
+            // not the draft). The answer is gutted when its
+            // center is now a claim the check refused, or its
+            // short answer is gone, AND no claim the panel
+            // supports still stands anywhere in the body:
+            // what remains then is fragments around the hole
+            // where its answer stood, with nothing checked
+            // holding it up, and it degrades through the same
+            // closure the zero support serve uses —
+            // extractive over citable papers, or the honest
+            // no evidence state — instead of shipping the
+            // husk as a research answer. When the removal
+            // takes a checked claim out of the head and an
+            // unchecked remainder becomes the answer's center
+            // (the trust binding shape: two refused claims
+            // leave, the standing remainder and the limits
+            // section carry the answer), the answer survived
+            // its surgery and ships. The wave thirteen denial
+            // shape is the same rule from the other side: the
+            // denying sentence goes, the supported teaching
+            // becomes the center, and the answer stands on
+            // it. The test also covers the removal floor's
+            // case: when EVERY body sentence is a target, the
+            // removal pass keeps the text whole (its never
+            // empty the body floor), so removed reads 0 — the
+            // post removal center is then still a refused
+            // claim, which is the same gut with the husk on.
+            if (!isFollowupMode) {
+              const centralAfterRemoval = shortAnswerCentralClaim(answer);
+              let centralGutted = false;
+              let supportedStands = false;
+              try {
+                const sentencesNow = [];
+                for (const b of sectionizeAnswer(answerBodyBeforeBibliography(answer))) {
+                  for (const ln of (b.lines || [])) sentencesNow.push(...splitBodySentences(ln));
+                }
+                centralGutted = centralAfterRemoval === null
+                  ? rm.removed > 0
+                  : removalTargets.some((t) => claimNamesSentence(t.claim, centralAfterRemoval, t.sourceIndex));
+                const supportedClaims = (factCheckResult && Array.isArray(factCheckResult.claims) ? factCheckResult.claims : [])
+                  .filter((c) => c && c.status === "supported" && typeof c.claim === "string" && factCheckClaimCountable(c));
+                supportedStands = supportedClaims.some((c) =>
+                  sentencesNow.some((s) => claimNamesSentence(c.claim, s, c.sourceIndex)));
+              } catch { centralGutted = false; }
+              if (centralGutted && !supportedStands) {
+                degradeAnswerToExtractiveOrNoEvidence("a claim the claim check marked unsupported carried the answer's central claim");
+              }
+            }
           } catch { /* removal must never break the answer */ }
         }
       }
@@ -28382,12 +28986,16 @@ async function runSearchPipeline(pctx) {
       // (ok null, reason attached), never failures: an unchecked
       // answer is a confidence cap (buildConfidenceLine applies it),
       // not a pipeline fault, and must not mark the answer degraded.
-      const fcChecked = !!(
-        factCheckResult &&
-        Array.isArray(factCheckResult.claims) &&
-        factCheckResult.claims.length > 0 &&
-        factCheckResult.checked !== false
-      );
+      //
+      // WAVE SIXTEEN (item 4): the test reads the STAGE's own
+      // result, captured at this block's head before the flags
+      // merged (factCheckStageProducedResult). It used to read
+      // the merged panel, whose claims array is non empty
+      // whenever the mechanical integrity flags exist — so the
+      // skip branch never fired on exactly the runs the trace
+      // proves never landed a verdict, and the stage reported
+      // ok true with a panel of flags for company.
+      const fcChecked = factCheckStageProducedResult && factCheckStageCheckedFlag !== false;
       if (fcChecked) {
         stageHealth.push({ name: "fact-check", ok: true, ms: Date.now() - factCheckT0 });
       } else {
@@ -28473,79 +29081,72 @@ async function runSearchPipeline(pctx) {
             if (rm.removed > 0) answer = rm.text;
           }
           if (centralRefused) {
-            const gateDynZ = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
-              ? buildDynLookup(gResult._diag.llmExpanded)
-              : null;
-            const prunedZ = pruneExtractiveEvidence(evidencePapers, query, gateDynZ);
-            let fellToExtractive = false;
-            if (prunedZ.papers.length > 0) {
-              evidencePapers = prunedZ.papers;
-              sourceList = evidencePapers.map(toSourceEntry);
-              const extZ = buildExtractiveSynthesis(prunedZ.papers, prunedZ.papers, {
-                query: searchQuery,
-                queryAnalysis: analyzeQuery(searchQuery),
-                answerLength,
-                dynLookup: gateDynZ,
-                isNameSearch,
-                isFollowupMode,
-                sourcesQueried: publicSourcesQueried(),
-                relevanceGatedOut,
-                ambiguity,
-                aiGateReason: null,
-              });
-              if (extZ) {
-                answer = extZ;
-                answerTier = getLastExtractiveTier();
-                extractiveOK = true;
-                fellToExtractive = true;
-                // The shipped answer is extractive now: its check
-                // is the wording trace over the new text, exactly
-                // as the wave 4 extractive path computes it, so
-                // the body sentence and the confidence line below
-                // describe the shipped answer, not the discarded
-                // draft.
-                factCheckResult = null;
-                try {
-                  if (ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
-                    const alignZ = verifyExtractiveAlignment(answer, evidencePapers);
-                    if (alignZ && alignZ.checked) factCheckResult = alignZ;
-                  }
-                } catch { /* the trace is best effort */ }
-              }
-            }
-            if (!fellToExtractive) {
-              noResultsPayload = buildNoResultsPayload({
-                query: searchQuery,
-                sourcesQueried: publicSourcesQueried(),
-                rungsTried: retrievalStrategiesTried(gResult && gResult._diag),
-                gatedOut: relevanceGatedOut,
-                gatedExamples: gatedOutTitles,
-                filteredOut: evidenceFilteredOut,
-                filterLabel: evidenceFilterApplied,
-              });
-              answer = renderNoResultsAnswer(searchQuery, noResultsPayload);
-              responseKind = "no-results";
-              factCheckResult = null;
-            }
-            aiOK = false;
-            // The discarded draft's strip bookkeeping must not be
-            // consumed against the shipped answer (the wave 4 flip
-            // clears it the same way), and the synthesis stage
-            // record must not name a winning leg for an answer
-            // that did not ship (the wave 6 winner honesty rule).
-            unsupportedStripped = [];
-            conceptDemoted = [];
-            try {
-              const synthEntry = stageHealth.find((s) => s && s.name === "synthesis");
-              if (synthEntry) {
-                synthEntry.ok = false;
-                synthEntry.winner = null;
-                synthEntry.skipReason = "the claim check supported none of the checked claims";
-              }
-            } catch { /* the record amendment is best effort */ }
+            // Wave sixteen (item 2): the degrade body is the
+            // shared closure defined at the fact check section's
+            // head, called here with this serve's own reason.
+            // It replaces the inline copy this block used to
+            // carry, so the two serve rules can never degrade
+            // differently.
+            degradeAnswerToExtractiveOrNoEvidence("the claim check supported none of the checked claims");
           }
         }
       } catch { /* the degrade must never break the serve */ }
+    }
+
+    // ── WAVE SIXTEEN (2026-10-14, eighth panel, item 1): THE
+    // SUBJECT SERVE ──
+    // The last step, where the reader is decided: the final
+    // cited set is tested for subject engagement with the
+    // gate's own computation (citedSetEngagesSubject). When
+    // the test judges and no cited paper engages the subject,
+    // the run falls to the honest no evidence state with its
+    // existing honest copy, regardless of how large the
+    // gathered pool was — the grocery checkout run that cited
+    // a digital transformation review, the plain words
+    // creatine run that cited a hair oil trial, and the
+    // backwards shape (a thin presented list whose one paper
+    // is a word collision, declared no answer only by
+    // accident of pool accounting) all resolve here. Runs
+    // whose cited set engages the subject never reach the
+    // fall; runs the test cannot judge (no subject resolved)
+    // stand. Cached serves are out of scope by construction:
+    // their answers were gated when written.
+    let subjectServeDiag = null;
+    if ((aiOK || extractiveOK) && useEvidence && evidencePapers.length > 0 &&
+        !isNameSearch && !isFollowupMode) {
+      try {
+        const citedIdxServe = new Set();
+        for (const m of String(answer || "").matchAll(/\[(\d{1,3})\]/g)) {
+          const n = parseInt(m[1], 10);
+          if (Number.isInteger(n) && n >= 1 && n <= evidencePapers.length) citedIdxServe.add(n);
+        }
+        if (citedIdxServe.size > 0) {
+          const subjServe = citedSetEngagesSubject(evidencePapers, citedIdxServe, query, _dynForValidation);
+          if (subjServe.judged && !subjServe.engaged) {
+            subjectServeDiag = {
+              fired: true,
+              cited: citedIdxServe.size,
+              subject: subjServe.subjectTerm || null,
+            };
+            noResultsPayload = buildNoResultsPayload({
+              query: searchQuery,
+              sourcesQueried: publicSourcesQueried(),
+              rungsTried: retrievalStrategiesTried(gResult && gResult._diag),
+              gatedOut: relevanceGatedOut + citedIdxServe.size,
+              gatedExamples: [...citedIdxServe].slice(0, 3)
+                .map((i) => (evidencePapers[i - 1] && evidencePapers[i - 1].title) || "")
+                .filter(Boolean),
+              filteredOut: evidenceFilteredOut,
+              filterLabel: evidenceFilterApplied,
+            });
+            answer = renderNoResultsAnswer(searchQuery, noResultsPayload);
+            responseKind = "no-results";
+            factCheckResult = null;
+            aiOK = false;
+            extractiveOK = false;
+          }
+        }
+      } catch { /* the subject serve must never break the serve */ }
     }
 
     // The body's claim check sentence (2026-10-14, answer package
@@ -29174,6 +29775,11 @@ async function runSearchPipeline(pctx) {
       // emptied a gathered pool; see the serve gate block).
       minSupport: minSupportOutcome,
       gateAudit,
+      // Wave sixteen: the subject serve diagnostic (present
+      // only when the serve fell to the honest state on the
+      // cited set's subject engagement; see the subject serve
+      // block below).
+      subjectServe: subjectServeDiag,
       // Wave thirteen: the claim check's tier trace (or its
       // named non attempt cause), so the stored record answers
       // for a missing or failed check in named terms.

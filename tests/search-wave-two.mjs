@@ -640,7 +640,13 @@ await test("the cache schema carries the wave two bump", () => {
   // foundational lane gains founding form legs over the
   // unexpanded system name, and the record gains the
   // foundational near miss section.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v50"'), "CACHE_SCHEMA_VERSION must be v50");
+  // PIN UPDATED (2026-10-14, wave sixteen): v51, the serve
+  // side honesty wave (the subject serve, unsupported claim
+  // removal, the confidence line regeneration, the fact
+  // check stage honesty fix, the deep check's Gemini tier
+  // and the synthesis time reserve). The v50 entry stays as
+  // history above.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v51"'), "CACHE_SCHEMA_VERSION must be v51");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

@@ -291,17 +291,24 @@ await test("no wave or rescue roster references the removed list position", () =
 // ═══════════════════════════════════════════════════════════════════
 group("Workers AI tail — timeout caps and the reasoning completion budget");
 
-await test("the two flaky-slow legs get a 3s cap, others keep the wave timeout", () => {
+await test("the flaky-slow legs get a 3s cap, others keep the wave timeout", () => {
   // CORRECTED CONTRACT (2026-10-14, fifth panel, Job 4): the cap
   // was 6s when the pair held wave 1 seats; the fifth panel's
   // probes timed both out at exactly that 6,000 ms in every probe
   // and neither ever won, so wave six demoted them out of the
   // early waves into the final wave and cut the override to
   // 3,000 ms. The pin moves with the roster.
+  // PIN UPDATED (2026-10-14, wave sixteen, eighth panel
+  // Infrastructure defect 2): gpt-oss-20b joins the capped
+  // roster — it had no entry in either timeout map and burned
+  // 10,000 and 12,000 ms timeouts in wave 1 and the rescue
+  // wave. This pin used it as the unlisted example; the
+  // unlisted example is now a leg no map names.
   assert.equal(cfLegTimeoutMs("@cf/meta/llama-4-scout-17b-16e-instruct", 10000), 3000);
   assert.equal(cfLegTimeoutMs("@cf/mistralai/mistral-small-3.1-24b-instruct", 10000), 3000);
   assert.equal(cfLegTimeoutMs("@cf/meta/llama-4-scout-17b-16e-instruct", 2000), 2000, "never raises a smaller wave timeout");
-  assert.equal(cfLegTimeoutMs("@cf/openai/gpt-oss-20b", 10000), 10000, "unlisted legs keep the wave timeout");
+  assert.equal(cfLegTimeoutMs("@cf/openai/gpt-oss-20b", 10000), 3000, "gpt-oss-20b is capped after wave sixteen");
+  assert.equal(cfLegTimeoutMs("@cf/meta/llama-3.3-70b-instruct-fp8-fast", 10000), 10000, "unlisted legs keep the wave timeout");
 });
 
 await test("the demoted pair races in the final wave, not the early waves (Job 4)", () => {

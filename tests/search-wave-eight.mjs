@@ -595,8 +595,13 @@ await test("CACHE_SCHEMA_VERSION is v43 with the wave nine entry in its chain", 
   // (the foundational lane gains founding form legs over
   // the unexpanded system name, and the record gains the
   // foundational near miss section).
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v50";'),
-    "the cache schema version was not bumped to v50");
+  // Updated 2026-10-14 (wave sixteen): bumped to v51 (the
+  // serve side subject test, unsupported claim removal, the
+  // confidence line regeneration, the fact check stage
+  // honesty fix, and the deep check's quota diverse tiers
+  // with the synthesis time reserve).
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v51";'),
+    "the cache schema version was not bumped to v51");
   assert.ok(/v44 \(2026-10-14, wave ten\)/.test(src),
     "the v44 chain entry is missing its dated reason");
   assert.ok(/v43 \(2026-10-14, wave nine\)/.test(src),

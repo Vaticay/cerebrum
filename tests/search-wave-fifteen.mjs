@@ -300,8 +300,12 @@ await test("the founding form legs, the near miss wiring, and the record section
     "recordFunnelOf does not carry the founding query");
   assert.ok(src.includes("SUBREQUEST_FOUNDATIONAL_LANE_COST = 5"),
     "the lane's gate price changed; the founding legs were funded inside it, not by raising it");
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v50";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v50");
+  // PIN UPDATED (2026-10-14, wave sixteen): v51, the serve
+  // side honesty wave. The v50 entry stays as history below.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v51";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v51");
+  assert.ok(/\/\/ v51 \(2026-10-14, wave sixteen\)/.test(src),
+    "the v51 chain entry is missing its dated reason");
   assert.ok(/\/\/ v50 \(2026-10-14, wave fifteen\)/.test(src),
     "the v50 chain entry is missing its dated reason");
 });

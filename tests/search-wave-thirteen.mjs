@@ -566,7 +566,12 @@ await test("the trace summary names tier outcomes and skips stage entries", () =
 await test("the fallback tier keys on the rate limit outcome and the trace outcomes are wired in source", () => {
   assert.ok(src.includes('const OR_VALIDATE_FALLBACK = "google/gemma-4-26b-a4b-it:free";'),
     "the fallback validate model constant is missing");
-  assert.ok(src.includes('tier2Outcome === "http-429"'),
+  // PIN UPDATED (2026-10-14, wave sixteen): the outcome variable
+  // was renamed orTierOutcome when the Gemini tier took the
+  // lead slot and the OpenRouter tier became tier three; the
+  // contract it pins (the fallback fires on the OpenRouter
+  // tier's 429 outcome) is unchanged.
+  assert.ok(src.includes('orTierOutcome === "http-429"'),
     "the fallback tier does not key on the rate limit outcome");
   assert.ok(src.includes('note("openrouter-fallback", "ok")'),
     "the fallback tier does not record its outcome in the trace");

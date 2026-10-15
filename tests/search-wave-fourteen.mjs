@@ -501,8 +501,10 @@ await test("the six handler checkpoints, the restore, the record normalization, 
   // unexpanded system name, and the record gains the
   // foundational near miss section. The v49 entry stays as
   // history below.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v50";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v50");
+  // PIN UPDATED (2026-10-14, wave sixteen): v51, the serve
+  // side honesty wave. The v50 entry stays as history above.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v51";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v51");
   assert.ok(/\/\/ v49 \(2026-10-14, wave fourteen\)/.test(src),
     "the v49 chain entry is missing its dated reason");
 });
