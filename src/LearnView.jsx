@@ -11951,8 +11951,10 @@ async function searchForCourse(query) {
    The tour moved into NovaTour.jsx (2026-10-15, the cutscene
    redo): Nova speaks the script herself on stage while the
    lines type out. TOUR_STEPS lives there now. LearnHome still
-   owns when it opens (the `cerebrum-cortex-tour` key below),
-   the spotlight behind it, and the header replay button. */
+   owns when it opens (the `cerebrum-nova-tour-v2` key below,
+   versioned the same day: the old cortex key was already done
+   for every returning user, so the cutscene never presented
+   itself to them), and the header replay button. */
 
 /* ── first run onboarding (redesign, 2026-10-14) ───────────────────
    Three short questions, then straight into a first lesson. What
@@ -12115,11 +12117,21 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState("");
   const [soundOn, setSoundOn] = useState(() => loadJSON(SOUND_KEY, false));
+  /* The first visit trigger is this initializer and nothing
+     else: it runs once when the home mounts and reads the
+     key fresh, so the tour can only auto open on a genuine
+     first mount with the key absent, and any exit (which
+     writes the key in closeTour) retires it for good. There
+     is no effect that opens it, so a double effect pass can
+     never open it twice. The v2 key gives the cutscene its
+     own single first visit for everyone, returning users
+     included; the old cerebrum-cortex-tour key is left in
+     place as history and no longer read. */
   const [tourOpen, setTourOpen] = useState(() => {
-    try { return !localStorage.getItem("cerebrum-cortex-tour"); } catch { return false; }
+    try { return !localStorage.getItem("cerebrum-nova-tour-v2"); } catch { return false; }
   });
   const closeTour = () => {
-    try { localStorage.setItem("cerebrum-cortex-tour", "done"); } catch { /* private mode */ }
+    try { localStorage.setItem("cerebrum-nova-tour-v2", "done"); } catch { /* private mode */ }
     setTourOpen(false);
   };
   /* The cutscene's stage directions (2026-10-15): a stop can
@@ -12918,6 +12930,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     <div className="lv-home" style={{ maxWidth: 1120, margin: "0 auto", padding: "26px 24px 48px", fontFamily: "var(--cb-font)", color: P.ink, "--lv-accent": accent }}>
       <style>{CSS}</style>
       {tourOpen && <NovaTour P={P} accent={accent} at={at} onClose={finishTour} onSpotlight={spotlightTour} />}
+      {/* While the tour runs, the home's resident Novas stand
+          down (the header figure and the Today stage figure
+          below are not rendered): exactly one of her is alive
+          on the screen, hers, with no second runtime running
+          behind the scrim to compete or to read as a glitch.
+          They come back the moment the tour closes. */}
 
       {/* Zone 1, the header strip (wave 3, 2026-10-14): Nova's
           mark beside the serif wordmark, the tagline in gold sans
@@ -12931,7 +12949,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           screens keep this strip exactly as it was. */}
       <div className="lv-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, minHeight: 56 }}>
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", minWidth: 0 }}>
-          {homeTab !== "today" && (
+          {homeTab !== "today" && !tourOpen && (
             <>
               {/* No circle behind her (2026-10-14, the owner's
                   ruling): the bust stands on the page itself. */}
@@ -13005,7 +13023,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div data-tour-anchor="stage" style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 24, margin: "20px 0 20px" }}>
         <div style={{ display: "flex", gap: 28, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", maxWidth: "100%" }}>
-            <NovaLive state={novaMood} size={288} framing="full" />
+            {!tourOpen && <NovaLive state={novaMood} size={288} framing="full" />}
           </span>
           <div style={{ flex: "1 1 260px", minWidth: 0 }}>
             <h2 className="lv-stage-word" style={{ fontFamily: WORDMARK, fontWeight: 800, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h2>

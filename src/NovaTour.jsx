@@ -6,12 +6,35 @@
 
    - She stands large in full body framing on the canvas rig
      (NovaRive), never a static image and never the retired
-     SVG figure. Two framings alternate: a full stage panel
-     when the stop is about her, and a bottom band when the
-     stop points at the real screen behind her, which the
-     host has switched and scrolled into view through the
-     onSpotlight callback (the paths map, her stage and
-     shelf on Today).
+     SVG figure. The whole tour runs in ONE presentation, the
+     centered stage card, for all nine stops (owner's order,
+     2026-10-15: "the tour halfway turns into a big square, I
+     want the full thing to be that"). The first cut shipped
+     a bottom band for the stops that pointed at live screens
+     and the stage card for the rest, and the flip between
+     them destroyed and rebuilt her Rive runtime mid tour:
+     the figure unmounted with one branch and remounted with
+     the other, so she vanished, restarted from the state
+     machine's entry, and lost her inputs at the seam, on top
+     of the page scrolling its spotlight behind her and a
+     second full size Nova standing on Today behind the band.
+     One framing means one mount: the figure below is created
+     once when the tour opens and only ever receives new
+     inputs (quiz, app, talking, celebrate) as the stops
+     change. It never remounts, never resizes, and never
+     restarts between stops.
+   - The stops keep their tab and anchor fields as context,
+     but the stage presentation no longer stages the screen
+     behind her: the host is not asked to switch tabs or
+     scroll while she talks (the onSpotlight prop is still
+     accepted, the host's mount is unchanged, and it is
+     deliberately not driven). The card sits over the app
+     the way it always did for the stage stops.
+   - While the tour is open the host stands its resident
+     Novas down (LearnHome does not render them), so exactly
+     one of her is alive on the screen: no second runtime
+     competing behind the scrim, and nothing to mistake for
+     her glitching. They return when the tour closes.
    - The dialogue box is the house speech cream with her
      name on a gold plate. Each line is said through the
      unified speech controller (useNovaSpeech, source
@@ -24,11 +47,14 @@
      right arrow advances; mid line it completes the line
      first. The blinking caret marks a finished line. Skip
      and Escape leave at any point.
-   - Persistence is the host's, unchanged from the old
-     tour: LearnHome opens this on a first visit when the
-     cerebrum-cortex-tour key is absent, marks it done on
-     any exit, and the "How Nova works" header button
-     replays it. Closing returns the learner to the tab
+   - Persistence is the host's: LearnHome opens this on a
+     first visit when the cerebrum-nova-tour-v2 key is
+     absent, marks it done on any exit, and the "How Nova
+     works" header button replays it. The key is versioned
+     (2026-10-15): the old cerebrum-cortex-tour key is done
+     for every returning user, which silently retired the
+     new tour's first visit for exactly the people it was
+     rebuilt for. Closing returns the learner to the tab
      they were on.
    - Reduced motion: lines appear whole, the caret rests,
      and the rig receives reducedMotion so she stills.
@@ -64,14 +90,15 @@ const NT_GOLD = "#C4A35A";
 const NT_LINE = "rgba(26, 26, 26, 0.16)";
 const NT_FAINT = "#6E675C";
 
-/* The script. tab and anchor steer the host's spotlight:
-   tab names the Nova home tab to show behind the band,
-   anchor the data-tour-anchor element to scroll into view;
-   both null keeps the stop on her stage. quiz and app feed
-   the rig's state machine numbers (quizStateForSheet and
-   appStateForActivity speak the same numbers), celebrate
-   fires her celebrate trigger a beat after the stop opens
-   (the delayed rise in the step effect below). */
+/* The script. tab and anchor are retained context from the
+   band staging the first cut shipped (which home tab and
+   data-tour-anchor element a stop pointed at); the stage
+   presentation does not stage the screen behind her, so
+   nothing reads them now. quiz and app feed the rig's state
+   machine numbers (quizStateForSheet and appStateForActivity
+   speak the same numbers), celebrate fires her celebrate
+   trigger a beat after the stop opens (the delayed rise in
+   the step effect below). */
 export const TOUR_STEPS = [
   {
     title: "Start with a path",
@@ -167,7 +194,6 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
 
   const stop = TOUR_STEPS[step];
   const last = step === TOUR_STEPS.length - 1;
-  const band = !!stop.tab;
   const plan = useMemo(() => speechPlanFor(stop.body), [stop.body]);
   const lineDone = reduced || typedMs >= plan.speechEndMs;
   const visibleText = lineDone ? stop.body : stop.body.slice(0, tourVisibleChars(plan, stop.body.length, typedMs));
@@ -193,7 +219,6 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
     setTypedMs(reduced ? plan.speechEndMs : 0);
     speechRef.current.dismiss();
     speechRef.current.say({ text: stop.body, source: "lesson" });
-    if (onSpotlight) onSpotlight(stop.tab || null, stop.anchor || null);
     /* The celebrate rise is delayed a beat after the stop
        opens, the same shape NovaCelebrateFigure uses on the
        completion screens. The rise used to land synchronously
@@ -201,18 +226,19 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
        that lands before its trigger input binds: NovaCanvas
        records the new count in its bookkeeping whether or
        not the input exists yet, so the fire never comes. The
-       stop 9 rise was the exposed case (the figure remounts
-       when the layout flips from the band to the stage at
-       stop 7, so its instance is young), and a fast advance
-       through the band stops could beat the first bind at
-       stop 5 the same way. The cleanup keeps a fast advance
-       from firing a stale celebration into the next stop. */
+       exposed case is a brisk advance beating the first bind
+       after the tour opens (the shelf stop is five quick
+       clicks in), and the cleanup keeps a fast advance from
+       firing a stale celebration into the next stop. */
     let celebrateTimer = null;
     if (stop.celebrate) {
       celebrateTimer = window.setTimeout(() => setCelebrateN((n) => n + 1), 700);
     }
     // The stop index is the whole trigger: a new stop resets
-    // the typewriter, says the line, and aims the spotlight.
+    // the typewriter and says the line. Nothing stages the
+    // screen behind her anymore (see the header), so the
+    // host's spotlight callback goes undriven on purpose.
+    void onSpotlight;
     // eslint-disable-next-line react-hooks/exhaustive-deps
     return () => { if (celebrateTimer) window.clearTimeout(celebrateTimer); };
   }, [step]);
@@ -255,14 +281,18 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
   }, []);
 
   const narrow = winW < 600;
-  const figureSize = band ? (narrow ? 96 : 124) : (narrow ? 176 : 236);
+  /* One figure size for the whole tour (the narrow switch
+     is the only variation): her box never resizes between
+     stops, so the canvas never reattributes its drawing
+     surface mid tour either. */
+  const figureSize = narrow ? 176 : 236;
 
   const dots = (
     <div style={{ display: "flex", alignItems: "center", gap: 7 }} aria-hidden="true">
       {TOUR_STEPS.map((_, i) => (
         <span key={i} style={{
           width: i === step ? 20 : 7, height: 7, borderRadius: 999,
-          background: i === step ? accent : (band ? P.line : "rgba(255,255,255,0.28)"),
+          background: i === step ? accent : "rgba(255,255,255,0.28)",
           transition: "all .25s",
         }} />
       ))}
@@ -307,14 +337,14 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
       <span style={{ flex: 1 }} />
       <button
         onClick={(e) => { e.stopPropagation(); onClose(); }}
-        style={{ background: "none", border: "none", color: band ? P.ink2 : "rgba(255,255,255,0.75)", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44 }}
+        style={{ background: "none", border: "none", color: "rgba(255,255,255,0.75)", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44 }}
       >
         Skip the tour
       </button>
       {step > 0 && (
         <button
           onClick={(e) => { e.stopPropagation(); setStep(step - 1); }}
-          style={{ background: "transparent", border: "1px solid " + (band ? P.line : "rgba(255,255,255,0.35)"), color: band ? P.ink : "#FFFFFF", borderRadius: 999, padding: "10px 18px", fontSize: FONT_SIZES.body, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}
+          style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.35)", color: "#FFFFFF", borderRadius: 999, padding: "10px 18px", fontSize: FONT_SIZES.body, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}
         >
           Back
         </button>
@@ -328,6 +358,11 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
     </div>
   );
 
+  /* The one figure mount of the whole tour. It sits in the
+     same tree position at every stop, so React never takes
+     it down between stops: her runtime, her state machine,
+     and her blink cycle run uninterrupted from the first
+     stop to the last. */
   const figure = (
     <span style={{ flexShrink: 0, display: "flex", alignItems: "flex-end", justifyContent: "center", maxWidth: "100%" }}>
       <NovaRive
@@ -351,63 +386,41 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
       onClick={advance}
       style={{
         position: "fixed", inset: 0, zIndex: 260,
-        background: band ? "rgba(5,6,8,0.45)" : "rgba(5,6,8,0.82)",
+        background: "rgba(5,6,8,0.82)",
         display: "flex",
-        alignItems: band ? "flex-end" : "center",
+        alignItems: "center",
         justifyContent: "center",
         fontFamily: "var(--cb-font)",
       }}
     >
       <style>{".nt-caret { animation: ntCaretBlink 0.9s ease-in-out infinite; } @keyframes ntCaretBlink { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }"}</style>
-      {band ? (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            width: "100%", background: P.raised, borderTop: "1px solid " + P.line,
-            boxShadow: "0 -18px 50px rgba(0,0,0,0.45)",
-            padding: "16px 18px", paddingBottom: "max(16px, env(safe-area-inset-bottom))",
-          }}
-        >
-          <div style={{ maxWidth: 880, margin: "0 auto", display: "flex", gap: narrow ? 12 : 20, alignItems: "flex-end" }}>
-            {figure}
-            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink }}>
-                HOW NOVA WORKS · {step + 1} OF {TOUR_STEPS.length}
-              </div>
-              {dialogue}
-              {controls}
-            </div>
+      <div
+        className="lv-rise"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: P.raised, border: "1px solid " + P.line, borderRadius: 24,
+          maxWidth: 560, width: "100%", margin: 18, padding: "26px 26px 22px",
+          color: P.ink, boxShadow: "0 30px 80px rgba(0,0,0,0.5)",
+          maxHeight: "92vh", overflowY: "auto",
+          display: "flex", flexDirection: "column", gap: 18,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink }}>
+            HOW NOVA WORKS · {step + 1} OF {TOUR_STEPS.length}
           </div>
+          <button
+            aria-label="Skip the tour"
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+            style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 8, minWidth: 36, minHeight: 36 }}
+          >
+            ✕
+          </button>
         </div>
-      ) : (
-        <div
-          className="lv-rise"
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            background: P.raised, border: "1px solid " + P.line, borderRadius: 24,
-            maxWidth: 560, width: "100%", margin: 18, padding: "26px 26px 22px",
-            color: P.ink, boxShadow: "0 30px 80px rgba(0,0,0,0.5)",
-            maxHeight: "92vh", overflowY: "auto",
-            display: "flex", flexDirection: "column", gap: 18,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink }}>
-              HOW NOVA WORKS · {step + 1} OF {TOUR_STEPS.length}
-            </div>
-            <button
-              aria-label="Skip the tour"
-              onClick={(e) => { e.stopPropagation(); onClose(); }}
-              style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 8, minWidth: 36, minHeight: 36 }}
-            >
-              ✕
-            </button>
-          </div>
-          <div style={{ display: "flex", justifyContent: "center" }}>{figure}</div>
-          {dialogue}
-          {controls}
-        </div>
-      )}
+        <div style={{ display: "flex", justifyContent: "center" }}>{figure}</div>
+        {dialogue}
+        {controls}
+      </div>
     </div>
   );
 }

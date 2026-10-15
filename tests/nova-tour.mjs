@@ -107,7 +107,12 @@ await test("every stop carries stage directions the host can run", () => {
     assert.ok(Number.isInteger(s.quiz) && s.quiz >= 0 && s.quiz <= 5, `quiz state out of rig range on ${s.title}`);
     assert.ok(Number.isInteger(s.app) && s.app >= 0 && s.app <= 3, `app state out of rig range on ${s.title}`);
     assert.equal(typeof s.celebrate, "boolean", `celebrate flag missing on ${s.title}`);
-    if (s.tab) assert.ok(s.anchor, `a band stop needs its anchor: ${s.title}`);
+    // Pin updated 2026-10-15 to the single stage contract:
+    // tab and anchor used to aim the host's spotlight behind
+    // the old bottom band; the stage presentation stages
+    // nothing behind her, so the fields survive as context
+    // only and a stop no longer needs an anchor to be valid.
+    if (s.tab) assert.ok(s.tab === "paths" || s.tab === "today", `a stop's retained tab context is off: ${s.title}`);
   }
 });
 
@@ -170,8 +175,15 @@ await test("the tour writes no storage itself; the host owns the once and the re
   assert.ok(learnSrc.includes('import { NovaTour } from "./NovaTour.jsx";'), "LearnView does not import the cutscene");
   assert.ok(learnSrc.includes("<NovaTour P={P} accent={accent} at={at} onClose={finishTour} onSpotlight={spotlightTour} />"), "the cutscene is not mounted by the home");
   assert.ok(!learnSrc.includes("CortexTour"), "the old card tour survived in LearnView");
-  assert.ok(learnSrc.includes('localStorage.setItem("cerebrum-cortex-tour", "done")'), "the host no longer marks the tour done");
-  assert.ok(learnSrc.includes('localStorage.getItem("cerebrum-cortex-tour")'), "the host no longer checks the first visit key");
+  // Key pins updated 2026-10-15 to the versioned contract:
+  // the key is cerebrum-nova-tour-v2 now. Under the old
+  // cerebrum-cortex-tour key every returning user was
+  // already done, so the cutscene never auto opened for
+  // them; the v2 key gives it one first visit for everyone.
+  assert.ok(learnSrc.includes('localStorage.setItem("cerebrum-nova-tour-v2", "done")'), "the host no longer marks the tour done under the v2 key");
+  assert.ok(learnSrc.includes('localStorage.getItem("cerebrum-nova-tour-v2")'), "the host no longer checks the v2 first visit key");
+  assert.ok(!learnSrc.includes('localStorage.getItem("cerebrum-cortex-tour")'), "the host still reads the retired cortex key for the open decision");
+  assert.ok(!learnSrc.includes('localStorage.setItem("cerebrum-cortex-tour"'), "the host still writes the retired cortex key");
   assert.ok(learnSrc.includes("tourReturnRef.current = homeTab"), "the replay does not record where to return to");
   for (const anchor of ["paths", "stage", "shelf"]) {
     assert.ok(learnSrc.includes(`data-tour-anchor="${anchor}"`), `the ${anchor} spotlight anchor is missing`);
@@ -206,6 +218,29 @@ await test("the shelf and closing stops celebrate, and the rise is delayed past 
     tourSrc.includes("window.clearTimeout(celebrateTimer)"),
     "a pending celebrate rise is not cancelled when the stop changes",
   );
+});
+
+// ── The single stage pass (2026-10-15, owner framing order) ──
+group("One stage, one Nova, no restart (2026-10-15)");
+
+await test("the whole tour runs in the stage presentation; the bottom band is gone", () => {
+  assert.ok(!tourSrc.includes("const band"), "the band framing switch is back; the flip was the restart seam");
+  assert.ok(!tourSrc.includes('alignItems: band'), "the backdrop still flips its alignment by stop");
+  assert.ok(!tourSrc.includes("rgba(5,6,8,0.45)"), "the lighter band backdrop survived");
+  assert.ok(tourSrc.includes('background: "rgba(5,6,8,0.82)"'), "the stage backdrop is not the one presentation");
+  assert.ok(!tourSrc.includes("onSpotlight(stop"), "the tour still stages the screen behind her");
+  assert.ok(tourSrc.includes("const figureSize = narrow ? 176 : 236;"), "her size is not one fixed stage size per width");
+});
+
+await test("the figure mounts exactly once, so her runtime never restarts between stops", () => {
+  const mounts = tourSrc.split("<NovaRive").length - 1;
+  assert.equal(mounts, 1, `the tour renders ${mounts} rig mounts; a second mount point is a restart waiting at its seam`);
+  assert.ok(!tourSrc.includes("createPortal"), "the figure is portaled between homes; one framing needs no relocation");
+});
+
+await test("while the tour is open the host stands its resident Novas down", () => {
+  assert.ok(learnSrc.includes('homeTab !== "today" && !tourOpen'), "the header resident still renders under the tour");
+  assert.ok(learnSrc.includes('{!tourOpen && <NovaLive state={novaMood} size={288} framing="full" />}'), "the Today stage resident still renders under the tour");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
