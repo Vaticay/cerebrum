@@ -98,51 +98,61 @@ const NT_FAINT = "#6E675C";
    machine numbers (quizStateForSheet and appStateForActivity
    speak the same numbers), celebrate fires her celebrate
    trigger a beat after the stop opens (the delayed rise in
-   the step effect below). */
+   the step effect below).
+   Voice (2026-10-15): the spoken lines took the voice
+   overhaul last, once the restructure settled, so they are
+   written under the same contract as her banks: she talks
+   like a person, a dry mad scientist showing a new subject
+   around her facility, contractions and questions and
+   asides, varied lengths inside the tour's own register
+   band (the suite pins 60 to 220 characters a line), no
+   hype, and no dashes of any kind. Facts, order, titles,
+   tabs, states, and the celebrate flags are unchanged
+   from the first cut; only the wording moved. */
 export const TOUR_STEPS = [
   {
     title: "Start with a path",
-    body: "I'm Nova. An axolotl, a teacher, and hard to impress. These are learning paths: whole subjects taught in order, one short lesson at a time. Pick one and I teach it properly.",
+    body: "Welcome to the lab. I'm Nova: axolotl, teacher, and famously hard to impress. These are the learning paths, whole subjects taught in order, one short lesson at a time. Pick one, and I'll teach it properly.",
     tab: "paths", anchor: "paths", quiz: 0, app: 0, celebrate: false,
   },
   {
     title: "Lessons teach first, then check",
-    body: "Every lesson teaches an idea in plain words, and only then quizzes you on it. Nothing is asked that was not taught first. Get one wrong and the feedback tells you why.",
+    body: "Here's my method. A lesson teaches one idea in plain words first, and only then quizzes you on it. Nothing gets asked that wasn't taught. Miss one, and the feedback walks you through why.",
     tab: "paths", anchor: "paths", quiz: 1, app: 0, celebrate: false,
   },
   {
     title: "The catalog",
-    body: "The catalog holds twenty four topics, written for Nova from standard textbook material and taught the same way as the paths. A course built from a search works the same way.",
+    body: "The catalog holds twenty four topics, written for Nova from standard textbook material and taught exactly the way the paths are. A course built from a search? Same lessons, same standards, same me.",
     tab: "paths", anchor: "paths", quiz: 0, app: 0, celebrate: false,
   },
   {
     title: "Review brings it back",
-    body: "Finishing a lesson earns XP. Every answer you give goes on a review schedule, and daily practice brings the due ones back before they fade.",
+    body: "Finishing a lesson earns you XP, and every answer you give goes on my review schedule, so daily practice brings the due ones back before they fade. Forgetting is data leaving, and I don't allow leaks.",
     tab: "today", anchor: "stage", quiz: 0, app: 0, celebrate: false,
   },
   {
     title: "The shelf",
-    body: "Finish a whole path and one object from it lands on my shelf, on my stage, and stays there. Small proof that you finished, not just started.",
+    body: "Finish a whole path and an object from it goes on my shelf, up on my stage, permanently. I keep trophies of completed work. Proof you finished, not merely that you started.",
     tab: "today", anchor: "shelf", quiz: 3, app: 0, celebrate: true,
   },
   {
     title: "Streaks",
-    body: "Come back on consecutive days and your streak grows. A freeze bought with Sparks can cover one missed day. The second missed day is on you.",
+    body: "Come back day after day and your streak grows. A freeze bought with Sparks covers one missed day, because life happens. Miss a second one, though? That one's on you.",
     tab: "today", anchor: "stage", quiz: 5, app: 0, celebrate: false,
   },
   {
     title: "Nova remembers",
-    body: "I remember how you learn: what you finished, what faded, and how often you poke me. It changes how I greet you. Consider yourself observed.",
+    body: "A confession: I remember how you learn. What you finished, what faded, even how often you poke me, all of it goes in the record, and it changes how I greet you. Consider yourself observed.",
     tab: null, anchor: null, quiz: 0, app: 0, celebrate: false,
   },
   {
     title: "Search is the library",
-    body: "Nova is the school. The rest of Cerebrum is the library: ask it anything and it answers from real research, with the papers attached so you can check.",
+    body: "I'm the school; the rest of Cerebrum is the library. Ask it anything and it answers from real research, with the papers attached so you can check the work yourself. I insist on that part.",
     tab: null, anchor: null, quiz: 0, app: 1, celebrate: false,
   },
   {
     title: "Off you go",
-    body: "That is the whole place. Pick a path, finish the first lesson, and try to impress me. People say it cannot be done. People are often wrong.",
+    body: "That's the whole place. Pick a path, finish the first lesson, and try to impress me. People say it can't be done. People are often wrong, and I keep the data to prove it.",
     tab: null, anchor: null, quiz: 0, app: 0, celebrate: true,
   },
 ];
