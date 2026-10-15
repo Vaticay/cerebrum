@@ -1804,6 +1804,13 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const [gaze, setGaze] = useState(null);
   const [lift, setLift] = useState(false);
   const [lean, setLean] = useState({ x: 0, y: 0, r: 0 });
+  /* The parallax feed for her rig (2026-10-15, the depth pass):
+     the same proximity effect below fills this with the pointer
+     position on the contract's minus 100 to 100 joystick scale,
+     and NovaCanvas turns it into the rig's head turn and layered
+     parallax. Null whenever no fine pointer is near, which the
+     canvas reads as centered. */
+  const [pointer, setPointer] = useState(null);
   const [beat, setBeat] = useState(null);
   const [activityState, setActivityState] = useState(null);
   const [sleepStage, setSleepStage] = useState(() => (state === "asleep" ? 2 : state === "fading" ? 1 : 0));
@@ -1816,6 +1823,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const sleepStageRef = useRef(sleepStage);
   const wakeTimers = useRef([]);
   const proximityKey = useRef("");
+  const pointerKey = useRef("");
   /* The brain (2026-10-15): drives and memory in a ref, its
      current mood and chosen behavior in state where the
      wrapper's data attributes and the shown face read them,
@@ -2077,9 +2085,16 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     const el = wrapRef.current;
     if (!el || typeof window === "undefined") return;
     if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    /* The rig parallax feed only exists for a fine pointer
+       (2026-10-15): touch only devices never compute it, and
+       the reduced motion return above already keeps the feed
+       null there, which the rig reads as centered. */
+    const finePointer = !!(window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
     let raf = 0;
     const clear = () => {
       proximityKey.current = "";
+      pointerKey.current = "";
+      setPointer(null);
       setGaze(null);
       setLift(false);
       setLean({ x: 0, y: 0, r: 0 });
@@ -2099,6 +2114,16 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
         if (dist > range) {
           if (proximityKey.current) clear();
           return;
+        }
+        if (finePointer) {
+          const feed = quizPointerFor(e.clientX, e.clientY, r);
+          const fx = Math.round(feed.x / 5) * 5;
+          const fy = Math.round(feed.y / 5) * 5;
+          const fkey = fx + "," + fy;
+          if (fkey !== pointerKey.current) {
+            pointerKey.current = fkey;
+            setPointer({ x: fx, y: fy });
+          }
         }
         const nx = Math.max(-1, Math.min(1, dx / 150));
         const ny = Math.max(-1, Math.min(1, dy / 110));
@@ -2194,7 +2219,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
           this wrapper's private bubble used to occupy, and
           pulses her mouth from its talking flag. */}
       <NovaRive state={shownState} size={size} framing={framing} scanning={activityState === "thinking"} pushN={pushN} flutterN={flutterN} noticeN={noticeN}
-        appState={appStateForActivity(activityState)} sleepStage={sleepStage} pokeN={pokeCount}
+        appState={appStateForActivity(activityState)} sleepStage={sleepStage} pokeN={pokeCount} pointer={pointer}
         idleMs={Date.now() - lastActivity.current} speech={speech} reducedMotion={reducedRef.current} />
     </span>
   );
