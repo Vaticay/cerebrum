@@ -3306,6 +3306,139 @@ await test("Nova's brain: drives in, behavior out, and she never repeats herself
   assert.ok(learnSrc.includes("pointer-events: none; }") || learnSrc.includes("pointer-events: none"), "the halo could eat a tap");
 });
 
+await test("Nova's brain: a full tick simulation of an untouched page drifts on schedule", () => {
+  // Instrumented diagnosis (2026-10-15): the idle sleep drift
+  // failed to fire in the real browser twice, the second time
+  // with data attributes proving mood greeting, stage 0, and
+  // doing alternating watch and glance after about 80 seconds
+  // of claimed no input. The one shot pins above never modeled
+  // the live loop, so this test runs the loop itself: the
+  // shipped picker called every 2600ms exactly as NovaLive's
+  // tick calls it (same ctx fields, a realistic epoch so the
+  // calm flag computes the way production computes it, the
+  // chosen behavior applied to the stage the way applyBehavior
+  // applies it, the returned brain fed back in). Zero events:
+  // the idle span is the whole elapsed clock.
+  const T0 = 1760000000000;
+  const runTicks = ({ seconds = 120, hour = 14, base = "greeting", startStage = 0, seed = null, refreshEveryMs = 0 } = {}) => {
+    let brain = createNovaBrain(seed);
+    let stage = startStage;
+    let lastRefresh = T0;
+    const log = [];
+    for (let tick = 1; tick * 2600 <= seconds * 1000; tick++) {
+      const now = T0 + tick * 2600;
+      if (refreshEveryMs && now - lastRefresh >= refreshEveryMs) lastRefresh = now;
+      const idleMs = now - lastRefresh;
+      const out = novaBrainDecide(brain, {
+        now, hour, idleMs, stage, base,
+        busy: false, lineReady: false, afterThinking: false,
+        calm: now - 0 > 60000, rand: 0.5,
+      });
+      brain = out.brain;
+      if (out.behavior === "drift") stage = Math.min(2, stage + 1);
+      else if (out.behavior === "wake") stage = Math.max(base === "fading" ? 1 : 0, stage - 1);
+      log.push({ tick, t: tick * 2.6, idleMs, behavior: out.behavior, stage, attention: brain.attention });
+    }
+    return log;
+  };
+  // An untouched daytime page: nothing at all happens until
+  // the first tick past the 45 second drowsy threshold, which
+  // chooses drift (score about 0.83 against watch's 0.45) and
+  // takes her to stage 1; stage 2 follows at the first tick
+  // past 120 seconds.
+  const day = runTicks({ seconds: 150 });
+  assert.ok(day.filter((e) => e.t < 45).every((e) => e.stage === 0 && e.behavior !== "drift"),
+    "she drifted before the 45 second threshold");
+  const firstDrift = day.find((e) => e.behavior === "drift");
+  assert.equal(firstDrift.tick, 18, "the first tick past 45 idle seconds (tick 18, 46.8s in) must choose drift");
+  assert.equal(firstDrift.stage, 1, "one drift takes her from alert to fading");
+  assert.ok(day.filter((e) => e.tick > 18 && e.t < 120).every((e) => e.stage === 1),
+    "she left stage 1 before the two minute mark");
+  assert.equal(day.find((e) => e.stage === 2).tick, 47, "stage 2 lands at tick 47, the first past 120 idle seconds");
+  // The same on the evening hour the live probe ran at, with a
+  // persisted brain and a ready line: the drift is unchanged,
+  // because no persisted drive gates it (its floor score of
+  // 0.78 beats watch's 0.45 at any energy).
+  const evening = runTicks({
+    hour: 21,
+    seed: { energy: 0.9, curiosity: 0.6, attention: 0.5, patience: 0.6, moodBias: 0.1, lastBehavior: "glance", lastEnd: "ignored", cooldowns: {}, pokeTrend: 0.2, hours: [21] },
+  });
+  assert.equal(evening.find((e) => e.behavior === "drift").tick, 18, "a persisted brain drifts on the same tick");
+  // The other instances on the same page tick independently:
+  // the bench (a fading base, starting at stage 1) reaches
+  // asleep at the first tick past its 90 second threshold, and
+  // the header's schedule is untouched by their presence.
+  const bench = runTicks({ base: "fading", startStage: 1 });
+  assert.equal(bench.find((e) => e.stage === 2).tick, 35, "the fading bench drifts to asleep on its own schedule (tick 35, 91s in)");
+});
+
+await test("Nova's brain: the live failure shape is a fed idle clock, and only that", () => {
+  // The mirror of the live reading (2026-10-15 diagnosis). Two
+  // facts inside the shipped math turn the browser's report
+  // into evidence about its own environment. First, the
+  // glance is hard gated: at an idle span of 20 seconds or
+  // more its score is -1 and it can never be chosen, whatever
+  // the drives say. A probe that reads doing "glance" is
+  // therefore reading a tick whose idle span was under 20
+  // seconds. Second, a glance can only outscore watch when
+  // attention passes 0.7, and attention only climbs on ticks
+  // whose idle span is under 5 seconds (plus real observed
+  // events); a frozen clock crosses 5 seconds once, attention
+  // peaks at 0.48, and from 30 idle seconds it decays. So
+  // watch/glance alternation persisting past a claimed 80
+  // untouched seconds is unreachable with a frozen clock: the
+  // clock was being fed. The only writers of it are genuine
+  // window events (the five noteActivity paths), and nothing
+  // in the app synthesizes those events, so the feed came from
+  // the probing browser's own input channel, which the genuine
+  // only listeners correctly counted as use.
+  for (const attention of [0, 0.48, 0.9, 1]) {
+    for (const curiosity of [0, 0.5, 1]) {
+      const b = { ...createNovaBrain(null), attention, curiosity };
+      for (const idleMs of [20000, 45000, 80000, 130000]) {
+        const out = novaBrainDecide(b, { now: 1760000000000 + idleMs, hour: 21, idleMs, stage: 0, base: "greeting", busy: false, lineReady: true, afterThinking: false, calm: true, rand: 0.5 });
+        assert.notEqual(out.behavior, "glance", `glance won at a ${idleMs}ms idle span with attention ${attention}`);
+      }
+    }
+  }
+  // Reproduce the live signature by feeding the clock the way
+  // the probe environment did: a refresh every 10 seconds
+  // (well inside her listeners' definition of genuine use)
+  // holds the stage at 0 for a full two minutes, drift never
+  // fires, and once attention ratchets past 0.7 the decisions
+  // alternate watch and glance, the exact readings the probe
+  // reported.
+  const T0 = 1760000000000;
+  const runFed = (refreshEveryMs) => {
+    let brain = createNovaBrain(null);
+    let stage = 0;
+    let lastRefresh = T0;
+    const seen = new Set();
+    for (let tick = 1; tick * 2600 <= 120000; tick++) {
+      const now = T0 + tick * 2600;
+      if (now - lastRefresh >= refreshEveryMs) lastRefresh = now;
+      const out = novaBrainDecide(brain, {
+        now, hour: 21, idleMs: now - lastRefresh, stage, base: "greeting",
+        busy: false, lineReady: false, afterThinking: false, calm: true, rand: 0.5,
+      });
+      brain = out.brain;
+      seen.add(out.behavior);
+      if (out.behavior === "drift") stage = Math.min(2, stage + 1);
+    }
+    return { seen, stage, attention: brain.attention };
+  };
+  const fed = runFed(10000);
+  assert.equal(fed.stage, 0, "a fed clock holds her at stage 0, as the probe saw");
+  assert.ok(!fed.seen.has("drift"), "a fed clock never chooses drift, as the probe saw");
+  assert.ok(fed.seen.has("glance"), "a fed clock produces the probe's glance readings");
+  assert.ok(fed.attention > 0.7, "repeated sub 5 second idle spans ratchet her attention, as the alternation requires");
+  // The control: the identical loop with no feed drifts (the
+  // schedule itself is proven by the simulation test above),
+  // so the feed, not the picker, is the difference.
+  const unfed = runFed(Number.POSITIVE_INFINITY);
+  assert.ok(unfed.seen.has("drift"), "the same loop unfed chooses drift");
+});
+
 await test("novaMoodFor ranks streak risk over overdue review over the late night hours", () => {
   assert.equal(novaMoodFor({ streakAtRisk: true, reviewDue: true, hour: 2, returned: true }), "worried");
   assert.equal(novaMoodFor({ reviewDue: true, hour: 2 }), "fading");
