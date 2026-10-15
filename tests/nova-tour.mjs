@@ -13,9 +13,8 @@
  * motion, host persistence) is pinned against the sources.
  *
  * Run with: node tests/nova-tour.mjs
- * (Add "nova-tour.mjs" to the suite list in tests/run when
- * the wave owning that file lands; it is not listed yet
- * because tests/run is mid wave in the working tree.)
+ * (Listed in tests/run since the tour polish pass,
+ * 2026-10-15, once wave 16 had landed and freed that file.)
  */
 
 import { strict as assert } from "node:assert";
@@ -177,6 +176,36 @@ await test("the tour writes no storage itself; the host owns the once and the re
   for (const anchor of ["paths", "stage", "shelf"]) {
     assert.ok(learnSrc.includes(`data-tour-anchor="${anchor}"`), `the ${anchor} spotlight anchor is missing`);
   }
+});
+
+// ── The polish pass (2026-10-15, from the live playthrough) ──
+group("The playthrough polish");
+
+await test("the name plate is house gold, not the reader's accent", () => {
+  assert.ok(tourSrc.includes('const NT_GOLD = "#C4A35A";'), "the tour carries no house gold constant");
+  assert.ok(tourSrc.includes("background: NT_GOLD"), "the name plate does not render in house gold");
+  assert.ok(!tourSrc.includes("#8ba888") && !tourSrc.includes("#8BA888"), "the sage accent value leaked into the tour");
+  const plateAt = tourSrc.indexOf("background: NT_GOLD");
+  const plateSpan = tourSrc.slice(Math.max(0, plateAt - 400), plateAt + 400);
+  assert.ok(plateSpan.includes("NOVA"), "the gold background is not on the NOVA plate");
+  assert.ok(!plateSpan.includes("background: accent"), "the name plate still follows the reader's accent");
+});
+
+await test("the shelf and closing stops celebrate, and the rise is delayed past the bind", () => {
+  assert.equal(TOUR_STEPS[4].celebrate, true, "the shelf stop does not celebrate");
+  assert.equal(TOUR_STEPS[TOUR_STEPS.length - 1].celebrate, true, "the closing stop does not celebrate");
+  assert.ok(
+    tourSrc.includes("celebrateTimer = window.setTimeout(() => setCelebrateN((n) => n + 1), 700);"),
+    "the celebrate rise is not delayed 700ms past the stop opening",
+  );
+  assert.ok(
+    !tourSrc.includes("if (stop.celebrate) setCelebrateN((n) => n + 1);"),
+    "the synchronous celebrate rise is back; NovaCanvas swallows a rise that lands before the trigger input binds",
+  );
+  assert.ok(
+    tourSrc.includes("window.clearTimeout(celebrateTimer)"),
+    "a pending celebrate rise is not cancelled when the stop changes",
+  );
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

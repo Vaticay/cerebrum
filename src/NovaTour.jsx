@@ -54,6 +54,13 @@ const NT_WORDMARK = "'Orbitron', 'Inter Tight', ui-sans-serif, system-ui, sans-s
    bubble carries, so her voice looks identical everywhere. */
 const NT_CREAM = "#F5F0E8";
 const NT_INK = "#1A1A1A";
+/* The name plate is house gold, the site's plan gold
+   (designSystem COLOR.accent, ACCENTS.Amber, the share
+   card's GOLD): a brand mark, not reader chrome, so it does
+   not follow the reader's accent. On the default Sage
+   accent the plate used to render muted green (2026-10-15
+   playthrough catch); gold is what the spec calls for. */
+const NT_GOLD = "#C4A35A";
 const NT_LINE = "rgba(26, 26, 26, 0.16)";
 const NT_FAINT = "#6E675C";
 
@@ -63,7 +70,8 @@ const NT_FAINT = "#6E675C";
    both null keeps the stop on her stage. quiz and app feed
    the rig's state machine numbers (quizStateForSheet and
    appStateForActivity speak the same numbers), celebrate
-   fires her celebrate trigger as the stop opens. */
+   fires her celebrate trigger a beat after the stop opens
+   (the delayed rise in the step effect below). */
 export const TOUR_STEPS = [
   {
     title: "Start with a path",
@@ -185,11 +193,28 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
     setTypedMs(reduced ? plan.speechEndMs : 0);
     speechRef.current.dismiss();
     speechRef.current.say({ text: stop.body, source: "lesson" });
-    if (stop.celebrate) setCelebrateN((n) => n + 1);
     if (onSpotlight) onSpotlight(stop.tab || null, stop.anchor || null);
+    /* The celebrate rise is delayed a beat after the stop
+       opens, the same shape NovaCelebrateFigure uses on the
+       completion screens. The rise used to land synchronously
+       with the step change, and the canvas swallows a rise
+       that lands before its trigger input binds: NovaCanvas
+       records the new count in its bookkeeping whether or
+       not the input exists yet, so the fire never comes. The
+       stop 9 rise was the exposed case (the figure remounts
+       when the layout flips from the band to the stage at
+       stop 7, so its instance is young), and a fast advance
+       through the band stops could beat the first bind at
+       stop 5 the same way. The cleanup keeps a fast advance
+       from firing a stale celebration into the next stop. */
+    let celebrateTimer = null;
+    if (stop.celebrate) {
+      celebrateTimer = window.setTimeout(() => setCelebrateN((n) => n + 1), 700);
+    }
     // The stop index is the whole trigger: a new stop resets
     // the typewriter, says the line, and aims the spotlight.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { if (celebrateTimer) window.clearTimeout(celebrateTimer); };
   }, [step]);
 
   useEffect(() => () => { speechRef.current.dismiss(); }, []);
@@ -257,7 +282,7 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
       }}
     >
       <span style={{
-        position: "absolute", top: -13, left: 14, background: accent, color: onAccent,
+        position: "absolute", top: -13, left: 14, background: NT_GOLD, color: onAccent,
         fontFamily: NT_WORDMARK, fontWeight: 800, fontSize: 11, letterSpacing: "0.16em",
         padding: "5px 11px 4px", borderRadius: 6, lineHeight: 1,
       }}>
