@@ -1165,7 +1165,7 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
       title: "Course complete",
       text: "That is the whole course: " + (lessons.length + 1) + " lessons" +
         (vocab.length ? " and " + vocab.length + " terms from the field" : "") +
-        ". The questions you answered are now on a review schedule. They will come back as they start to fade, which is when review does the most good.",
+        ". The questions you answered are on a review schedule now. They come back as they start to fade.",
     });
     lessons.push({ id: "review", title: "Review", subtitle: "Every idea, asked again", cards });
   }
@@ -1277,25 +1277,38 @@ const CSS = `
    counter rotate), and a squash and stretch beat when the
    expression changes to a reaction. Transforms and opacity
    only, no per frame JavaScript. She stands on the page on a
-   transparent ground; the cream disc stays as a backdrop she
-   can break the edge of. Lessons, completion art, and the
-   share card keep the raster poses (artwork moments). A faint
-   grain was considered and dropped: the flat vector finish is
-   the finish. Reduced motion stills the rig to the current
+   transparent ground. The cream disc she first stood in was
+   removed on the owner's ruling (2026-10-14, "There's a circle
+   over her"): at persistent spots she stands directly on the
+   page, and the only ground left is a faint warm radial halo
+   with no edge, painted behind her. Small placements (roughly
+   100px and under: the header, bubble companions, the bench,
+   the feedback sheet) use a bust framing, the viewBox cropped
+   to her head, the full gill fans, and the top of the body, so
+   the face is large and readable; large placements keep the
+   full figure. Her motion amplitudes are computed per render
+   size in NovaRig (the --nv-sway, --nv-breath, and --nv-glance
+   variables, and the pointer gaze multiplier), because rig
+   units shrink to a sixteenth of a pixel at header size and
+   fixed unit motion read as no motion at all in the owner's
+   browser check. Lessons, completion art, and the share card
+   keep the raster poses (artwork moments). A faint grain was
+   considered and dropped: the flat vector finish is the
+   finish. Reduced motion stills the rig to the current
    expression (the gate at the end of this stylesheet). */
 .nv-rig-wrap { position: relative; display: inline-block; flex-shrink: 0; }
-.nv-rig-disc { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 50%; background: #F6E7C6; box-shadow: inset 0 0 0 1px rgba(58, 53, 44, 0.25); pointer-events: none; }
+.nv-rig-halo { position: absolute; left: 50%; top: 46%; width: 124%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(closest-side, rgba(247, 233, 201, 0.5), rgba(247, 233, 201, 0.16) 55%, rgba(247, 233, 201, 0) 74%); pointer-events: none; }
 .nv-rig-panel { position: relative; display: inline-block; flex-shrink: 0; }
 .nv-rig { display: block; overflow: visible; }
 .nv-rig .nv-rig-t { transition: transform 0.45s cubic-bezier(0.3, 0.7, 0.3, 1), opacity 0.45s ease; }
 .nv-rig .nv-rig-anim { transform-box: view-box; }
 .nv-rig-breath { animation: nvRigBreath 5.4s ease-in-out infinite alternate; transform-origin: 800px 1250px; }
-@keyframes nvRigBreath { from { transform: scale(1, 1) rotate(0deg); } to { transform: scale(1.008, 1.018) rotate(0.35deg); } }
+@keyframes nvRigBreath { from { transform: scale(1, 1) rotate(0deg); } to { transform: scale(var(--nv-breath-x, 1.008), var(--nv-breath-y, 1.018)) rotate(0.35deg); } }
 .nv-rig-st-asleep .nv-rig-breath { animation-duration: 7.6s; }
 .nv-rig-tail { animation: nvRigTailSway 6.8s ease-in-out infinite alternate; transform-origin: 700px 1175px; }
 @keyframes nvRigTailSway { from { transform: rotate(-1.3deg); } to { transform: rotate(1.3deg); } }
 .nv-rig-fil { animation: nvRigSway 3.8s ease-in-out infinite alternate; }
-@keyframes nvRigSway { from { transform: rotate(-1.6deg); } to { transform: rotate(1.6deg); } }
+@keyframes nvRigSway { from { transform: rotate(calc(var(--nv-sway, 1.6deg) * -1)); } to { transform: rotate(var(--nv-sway, 1.6deg)); } }
 .nv-rig-lid { animation: nvRigBlink 11.7s linear infinite; }
 @keyframes nvRigBlink {
   0%, 7%, 10%, 44%, 47%, 74%, 79.2%, 100% { transform: translateY(0px); }
@@ -1304,7 +1317,7 @@ const CSS = `
 .nv-rig-glance { animation: nvRigGlance 13s linear infinite; }
 @keyframes nvRigGlance {
   0%, 58%, 76%, 100% { transform: translate(0px, 0px); }
-  64%, 70% { transform: translate(9px, -2px); }
+  64%, 70% { transform: translate(var(--nv-glance-x, 9px), var(--nv-glance-y, -2px)); }
 }
 .nv-rig-head { animation: nvRigHeadTurn 17s linear infinite; transform-origin: 950px 620px; }
 @keyframes nvRigHeadTurn {
@@ -1314,8 +1327,8 @@ const CSS = `
 .nv-rig-react { animation: nvRigReact 0.55s cubic-bezier(0.3, 0.7, 0.3, 1); transform-box: fill-box; transform-origin: 50% 96%; }
 @keyframes nvRigReact {
   0% { transform: scale(1, 1); }
-  30% { transform: scale(1.07, 0.88); }
-  58% { transform: scale(0.97, 1.05); }
+  30% { transform: scale(1.13, 0.8); }
+  58% { transform: scale(0.95, 1.07); }
   100% { transform: scale(1, 1); }
 }
 .nv-rig-swim .nv-rig-breath { animation: nvRigSwimBody 1.5s ease-in-out infinite; }
@@ -1579,18 +1592,56 @@ export function novaMoodFor({ hour = 12, streakAtRisk = false, reviewDue = false
   if (returned) return "greeting";
   return "greeting";
 }
+
+/* Adaptive animation (2026-10-14, the owner's order: "make
+   sure she is adaptive animated, like really cool"). NovaLive
+   treats the mood above as one continuous input, not a fixed
+   face. Real user activity keeps her awake; an untouched page
+   drifts alert to fading to asleep. Late night and an already
+   sleepy context shorten both waits. Search and answer signals
+   on the same window travel as nova-activity events: a search
+   start thinks with a fast scanning glance, a landed answer
+   gets a pleased beat, and a degraded or failed one deadpan. */
+export const NOVA_ACTIVITY_EVENT = "nova-activity";
+export const NOVA_WAKE_STEP_MS = 650;
+export function novaIdleStageFor(idleMs = 0, hour = 12, base = "greeting") {
+  const late = hour >= 23 || hour < 5;
+  const drowsyMs = base === "asleep" ? 15000 : late ? 20000 : 45000;
+  const asleepMs = base === "asleep" ? 45000 : base === "fading" ? (late ? 60000 : 90000) : late ? 60000 : 120000;
+  if (idleMs >= asleepMs) return 2;
+  if (idleMs >= drowsyMs || base === "fading") return 1;
+  return 0;
+}
+export function novaAdaptiveStateFor({ base = "greeting", sleepStage = 0 } = {}) {
+  if (sleepStage >= 2) return "asleep";
+  if (sleepStage === 1) return base === "worried" ? "worried" : "fading";
+  return base === "asleep" ? "greeting" : base;
+}
+export function emitNovaActivity(kind, outcome) {
+  try {
+    window.dispatchEvent(new CustomEvent(NOVA_ACTIVITY_EVENT, { detail: { kind, outcome, at: Date.now() } }));
+  } catch { /* Nova is decoration; activity plumbing must never break the work itself. */ }
+}
 let novaRigSeq = 0;
 
 /* The rig itself. state is one of the eight expression keys;
    size is the width in pixels (the traced figure is wider than
-   tall, 1370 by 1230 units); disc keeps the cream disc as a
-   backdrop she stands in front of and breaks the edge of; mode
-   "swim" runs the swim cycle for the Easter egg. All motion is
-   CSS (the .nv-rig rules in the stylesheet); this component
-   only picks paths and state values. The reaction squash runs
-   when the state changes to a reaction face: a squash, a
-   settle, a stretch, never a loop. */
-export function NovaRig({ state = "greeting", size = 120, disc = false, mode = "idle" }) {
+   tall, 1370 by 1230 units); halo paints the faint edgeless
+   warm glow behind her, all that is left of the cream disc the
+   owner ordered removed (2026-10-14, "There's a circle over
+   her"); bust crops the viewBox to her head, the full gill
+   fans, and the top of the body, for small placements where
+   the full figure left her face a few pixels tall; mode "swim"
+   runs the swim cycle for the Easter egg. All motion is CSS
+   (the .nv-rig rules in the stylesheet); this component only
+   picks paths and state values, and scales the motion: one rig
+   unit is 1370/size screen pixels wide, so unit fixed
+   amplitudes vanish at header size, and the sway, breath,
+   glance, state gaze, and pointer gaze are computed here to
+   land at a constant few screen pixels at any render size.
+   The reaction squash runs when the state changes to a
+   reaction face: a squash, a settle, a stretch, never a loop. */
+export function NovaRig({ state = "greeting", size = 120, halo = false, bust = false, mode = "idle", scanning = false }) {
   const known = state === "greeting" || state === "explaining" || state === "pleased" || state === "thinking" || state === "worried" || state === "fading" || state === "deadpan" || state === "asleep";
   const st = known ? NOVA_RIG_STATES[state] : NOVA_RIG_STATES.greeting;
   const mouth = known ? NOVA_RIG_MOUTHS[state] : NOVA_RIG_MOUTHS.greeting;
@@ -1605,7 +1656,23 @@ export function NovaRig({ state = "greeting", size = 120, disc = false, mode = "
       if (state === "pleased" || state === "deadpan" || state === "worried") setReactN((n) => n + 1);
     }
   }, [state]);
-  const height = Math.round(size * (1230 / 1370));
+  const height = Math.round(size * ((bust ? 800 : 1230) / 1370));
+  /* Motion in screen terms (2026-10-14, the owner's browser
+     check saw no movement at all): U is rig units per screen
+     pixel at this render size. The amplitudes below are chosen
+     in screen pixels and converted: gill tips travel about 2.4
+     screen pixels, the breath lifts the head about 1.2, the
+     glance and both gazes move the pupils about 2.3 to 2.4
+     (the state gaze is clamped so a pupil never leaves its
+     socket outright). At 240px these stay proportionate; at
+     header size they are finally visible. */
+  const U = 1370 / size;
+  const swayDeg = Math.min(4.5, Math.max(1.6, (Math.asin(Math.min(0.09, (2.4 * U) / 420)) * 180) / Math.PI));
+  const breathY = 1 + Math.min(0.024, Math.max(0.007, (1.15 * U) / 800));
+  const gazeK = U / 5.7;
+  const gazeX = Math.max(-30, Math.min(30, Math.round(st.gaze[0] * gazeK)));
+  const gazeY = Math.max(-22, Math.min(22, Math.round(st.gaze[1] * gazeK)));
+  const pointerMult = Math.round(0.75 * U * 10) / 10;
   const headT = "translate(" + st.head[1] + "px, " + st.head[2] + "px) rotate(" + st.head[0] + "deg)";
   const fil = (f) => (
     <g key={f.key} className="nv-rig-fil nv-rig-anim" style={{ transformOrigin: f.origin, animationDuration: f.dur, animationDelay: f.delay }}>
@@ -1623,10 +1690,19 @@ export function NovaRig({ state = "greeting", size = 120, disc = false, mode = "
     </g>
   );
   return (
-    <span className="nv-rig-wrap" style={{ width: size, height }}>
-      {disc && <span className="nv-rig-disc" style={{ width: Math.round(size / 1.3), height: Math.round(size / 1.3) }} />}
+    <span className="nv-rig-wrap" style={{
+      width: size, height,
+      "--nv-sway": swayDeg.toFixed(2) + "deg",
+      "--nv-breath-x": (1 + (breathY - 1) * 0.45).toFixed(4),
+      "--nv-breath-y": breathY.toFixed(4),
+      "--nv-glance-x": Math.round(2.1 * U) + "px",
+      "--nv-glance-y": Math.round(-0.5 * U) + "px",
+    }}>
+      {halo && <span aria-hidden="true" className="nv-rig-halo" />}
       <svg className={"nv-rig nv-rig-st-" + (known ? state : "greeting") + (mode === "swim" ? " nv-rig-swim" : "")}
-        width={size} height={height} viewBox="120 230 1370 1230" aria-hidden="true" focusable="false">
+        width={size} height={height} viewBox={bust ? "120 200 1370 800" : "120 230 1370 1230"}
+        style={bust ? { position: "relative", overflow: "hidden" } : { position: "relative" }}
+        aria-hidden="true" focusable="false">
         <g key={reactN} className={reactN ? "nv-rig-react" : undefined}>
           <g className="nv-rig-breath nv-rig-anim">
             <g className="nv-rig-tail nv-rig-anim">
@@ -1666,9 +1742,9 @@ export function NovaRig({ state = "greeting", size = 120, disc = false, mode = "
                   : (<>
                       <clipPath id={"sk" + uid}><path d={NOVA_RIG_D.sockL + " " + NOVA_RIG_D.sockR} /></clipPath>
                       <g clipPath={"url(#sk" + uid + ")"}>
-                        <g className="nv-rig-glance nv-rig-anim">
-                          <g style={{ transform: "translate(calc(var(--nv-gx, 0px) * 6), calc(var(--nv-gy, 0px) * 6))" }}>
-                            <g className="nv-rig-t" style={{ transform: "translate(" + st.gaze[0] + "px, " + st.gaze[1] + "px)" }}>
+                        <g className="nv-rig-glance nv-rig-anim" style={scanning ? { animationDuration: "2.6s" } : undefined}>
+                          <g style={{ transform: "translate(calc(var(--nv-gx, 0px) * " + pointerMult + "), calc(var(--nv-gy, 0px) * " + pointerMult + "))" }}>
+                            <g className="nv-rig-t" style={{ transform: "translate(" + gazeX + "px, " + gazeY + "px)" }}>
                               <path d={NOVA_RIG_D.pupilL} fill={NOVA_RIG_INK} />
                               <path d={NOVA_RIG_D.pupilR} fill={NOVA_RIG_INK} />
                             </g>
@@ -1690,20 +1766,24 @@ export function NovaRig({ state = "greeting", size = 120, disc = false, mode = "
   );
 }
 
-/* The avatar: NovaRig at the persistent spots. With framing
-   "disc" she stands in front of the cream disc at 1.3 times
-   the old disc size, so her gills break its rim; with framing
-   "panel" she stands free on the page. The signature is the
-   one the raster avatar had, so every call site is unchanged. */
-function NovaAvatar({ state = "greeting", size = 48, framing = "disc" }) {
+/* The avatar: NovaRig at the persistent spots. The default
+   framing is the bust (2026-10-14, the owner's rulings:
+   "There's a circle over her" and the browser check that found
+   her face a few pixels tall in the header): the head focused
+   crop on the faint halo, rendered wider than the nominal spot
+   so the face reads, no disc anywhere. With framing "panel"
+   she stands free on the page at the exact size, the full
+   figure. The signature is the one the raster avatar had, so
+   every call site is unchanged. */
+function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false }) {
   if (framing === "panel") {
     return (
       <span className="nv-rig-panel">
-        <NovaRig state={state} size={size} />
+        <NovaRig state={state} size={size} scanning={scanning} />
       </span>
     );
   }
-  return <NovaRig state={state} size={Math.round(size * 1.3)} disc />;
+  return <NovaRig state={state} size={Math.round(size * 1.85)} bust halo scanning={scanning} />;
 }
 
 /* The feedback sheet's Nova (home restructure wave, reaction
@@ -1730,7 +1810,7 @@ function SheetNova({ good, streak = 0, face = null }) {
   const shown = phase === 0 ? "thinking"
     : phase === 1 ? (face || (good ? "pleased" : streak >= 2 ? "worried" : "deadpan"))
     : "explaining";
-  return <NovaAvatar state={shown} size={48} />;
+  return <NovaAvatar state={shown} size={48} scanning={phase === 0} />;
 }
 
 /* ── the reactive Nova (presence wave, 2026-10-14; avatar
@@ -1739,42 +1819,201 @@ function SheetNova({ good, streak = 0, face = null }) {
    header, the bench, the empty states, the speech bubbles. She
    notices the pointer: her gaze follows it a few pixels (the
    values ride in as CSS custom properties and land on the
-   crop's transform), and the whole portrait lifts a touch while
-   the pointer is near. Taps are pokes, and she dislikes being
+   pupils' transform, where NovaRig scales them to the render
+   size), and the whole portrait lifts a touch while the
+   pointer is near. Taps are pokes, and she dislikes being
    poked (quirks engine, below): the first taps amuse her, the
    third earns the deadpan and a line, the fifth turns her away
    (asleep, taps ignored) for an hour. The counts live in the
    quirks store, outside the profile and the export. A second
    tap restarts the beat; nothing queues, and unmounting clears
    the timers. Under reduced motion the gaze travel is stilled
-   by the CSS gate and a beat is a plain pose swap. */
-function NovaLive({ state = "greeting", size = 48, framing = "disc" }) {
+   by the CSS gate and a beat is a plain pose swap.
+   Adaptive layer (2026-10-14, the owner's order): the mood she
+   is handed is a living input, not a fixed face. Untouched,
+   she drifts alert to fading to asleep on the thresholds in
+   novaIdleStageFor (late night and sleepy contexts shorten
+   them); real activity anywhere on the window wakes her one
+   stage at a time, 650ms a stage; a pointer near her, not just
+   on her, turns her gaze and leans her a few real pixels
+   toward it; and nova-activity signals from real work on a
+   screen she shares (the course builder's search) make her
+   think, land pleased, or go deadpan. All of it is listeners
+   and timers that clean up on unmount, and none of it blocks
+   a click. */
+function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const [gaze, setGaze] = useState(null);
   const [lift, setLift] = useState(false);
+  const [lean, setLean] = useState({ x: 0, y: 0, r: 0 });
   const [beat, setBeat] = useState(null);
+  const [activityState, setActivityState] = useState(null);
+  const [sleepStage, setSleepStage] = useState(() => (state === "asleep" ? 2 : state === "fading" ? 1 : 0));
   const [pokeLine, setPokeLine] = useState(null);
+  const wrapRef = useRef(null);
   const beatTimer = useRef(null);
   const lineTimer = useRef(null);
+  const activityTimer = useRef(null);
+  const lastActivity = useRef(Date.now());
+  const baseRef = useRef(state);
+  const sleepStageRef = useRef(sleepStage);
+  const wakeTimers = useRef([]);
+  const proximityKey = useRef("");
+
+  const setSleepStageBoth = (next) => {
+    sleepStageRef.current = next;
+    setSleepStage(next);
+  };
+  const clearWakeTimers = () => {
+    wakeTimers.current.forEach((t) => clearTimeout(t));
+    wakeTimers.current = [];
+  };
+  const noteActivity = () => {
+    lastActivity.current = Date.now();
+    const floor = baseRef.current === "fading" ? 1 : 0;
+    if (sleepStageRef.current <= floor || wakeTimers.current.length) return;
+    let next = sleepStageRef.current;
+    const stepDown = () => {
+      next -= 1;
+      setSleepStageBoth(next);
+      if (next > floor) wakeTimers.current = [setTimeout(stepDown, NOVA_WAKE_STEP_MS)];
+      else wakeTimers.current = [];
+    };
+    wakeTimers.current = [setTimeout(stepDown, 30)];
+  };
+  const showActivity = (detail) => {
+    if (!detail || typeof detail !== "object") return;
+    noteActivity();
+    if (activityTimer.current) clearTimeout(activityTimer.current);
+    if (detail.kind === "search" && detail.outcome === "start") {
+      setActivityState("thinking");
+      activityTimer.current = setTimeout(() => setActivityState(null), 30000);
+      return;
+    }
+    if (detail.outcome === "success" || detail.outcome === "landed" || detail.outcome === "correct") {
+      setActivityState("pleased");
+      activityTimer.current = setTimeout(() => setActivityState(null), 1400);
+    } else if (detail.outcome === "degraded" || detail.outcome === "failed" || detail.outcome === "miss") {
+      setActivityState("deadpan");
+      activityTimer.current = setTimeout(() => setActivityState(null), 1800);
+    }
+  };
+
+  useEffect(() => { baseRef.current = state; }, [state]);
+  useEffect(() => {
+    const contextStage = state === "asleep" ? 2 : state === "fading" ? 1 : 0;
+    if (contextStage > sleepStageRef.current && !wakeTimers.current.length) setSleepStageBoth(contextStage);
+  }, [state]);
+
+  /* The adaptive loop: real activity on the window, not a
+     decorative timer. Pointer moves, pointer presses, keys,
+     scrolls, and nova-activity signals all count as life; the
+     one second tick only reads how long it has been since the
+     last one and raises the sleep stage on the thresholds in
+     novaIdleStageFor. Every listener and timer is removed on
+     unmount. */
+  useEffect(() => {
+    const onUser = () => noteActivity();
+    const onSignal = (e) => showActivity(e.detail);
+    const onVisibility = () => { if (!document.hidden) noteActivity(); };
+    window.addEventListener("pointermove", onUser, { passive: true });
+    window.addEventListener("pointerdown", onUser);
+    window.addEventListener("keydown", onUser);
+    window.addEventListener("scroll", onUser, { passive: true, capture: true });
+    window.addEventListener(NOVA_ACTIVITY_EVENT, onSignal);
+    document.addEventListener("visibilitychange", onVisibility);
+    const tick = setInterval(() => {
+      if (wakeTimers.current.length) return;
+      const target = novaIdleStageFor(Date.now() - lastActivity.current, new Date().getHours(), baseRef.current);
+      if (target > sleepStageRef.current) setSleepStageBoth(target);
+    }, 1000);
+    return () => {
+      window.removeEventListener("pointermove", onUser);
+      window.removeEventListener("pointerdown", onUser);
+      window.removeEventListener("keydown", onUser);
+      window.removeEventListener("scroll", onUser, { capture: true });
+      window.removeEventListener(NOVA_ACTIVITY_EVENT, onSignal);
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearInterval(tick);
+    };
+  }, []);
+
+  /* Proximity: a pointer near her, not just on her, turns the
+     gaze and leans the whole figure a few real pixels toward
+     it. The values are quantized so a moving pointer does not
+     rerender her on every pixel, and they settle to zero when
+     the pointer leaves the neighbourhood. */
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof window === "undefined") return;
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let raf = 0;
+    const clear = () => {
+      proximityKey.current = "";
+      setGaze(null);
+      setLift(false);
+      setLean({ x: 0, y: 0, r: 0 });
+    };
+    const onMove = (e) => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const r = el.getBoundingClientRect();
+        if (!r.width) return;
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const dx = e.clientX - cx;
+        const dy = e.clientY - cy;
+        const dist = Math.hypot(dx, dy);
+        const range = Math.max(240, r.width * 2.2);
+        if (dist > range) {
+          if (proximityKey.current) clear();
+          return;
+        }
+        const nx = Math.max(-1, Math.min(1, dx / 150));
+        const ny = Math.max(-1, Math.min(1, dy / 110));
+        const strength = Math.max(0, 1 - dist / range);
+        const qx = Math.round(nx * 4) / 4;
+        const qy = Math.round(ny * 4) / 4;
+        const key = qx + "," + qy + "," + Math.round(strength * 4);
+        if (key === proximityKey.current) return;
+        proximityKey.current = key;
+        setGaze({ x: qx * 3.2, y: qy * 2.4 });
+        setLift(dist < r.width);
+        setLean({
+          x: Math.round(nx * 3 * strength * 2) / 2,
+          y: Math.round(ny * 1.5 * strength * 2) / 2,
+          r: Math.round(nx * 1.2 * strength * 10) / 10,
+        });
+      });
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("blur", clear);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
   useEffect(() => () => {
     if (beatTimer.current) clearTimeout(beatTimer.current);
     if (lineTimer.current) clearTimeout(lineTimer.current);
+    if (activityTimer.current) clearTimeout(activityTimer.current);
+    clearWakeTimers();
   }, []);
-  const onMove = (e) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    if (!r.width) return;
-    const dx = Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / (r.width / 2)));
-    const dy = Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height / 2)) / (r.height / 2)));
-    setGaze({ x: dx * 3.2, y: dy * 2.4 });
-    setLift(true);
-  };
-  const onLeave = () => { setGaze(null); setLift(false); };
+
   const onTap = () => {
+    noteActivity();
     const step = pokeStep(loadNovaQuirks(), Date.now());
     saveNovaQuirks(step.quirks);
     if (step.ignore) return;
     if (beatTimer.current) clearTimeout(beatTimer.current);
     setBeat(step.face);
-    beatTimer.current = setTimeout(() => setBeat(null), 1100);
+    /* The beat holds about a second and a quarter (2026-10-14:
+       the owner's browser check clicked the header Nova and saw
+       nothing; between the rig's stronger squash and the wrapper
+       pop below, a tap now lands as a beat you cannot miss). */
+    beatTimer.current = setTimeout(() => setBeat(null), 1300);
     if (step.line) {
       if (lineTimer.current) clearTimeout(lineTimer.current);
       setPokeLine(step.line);
@@ -1785,14 +2024,16 @@ function NovaLive({ state = "greeting", size = 48, framing = "disc" }) {
     "--nv-gx": (gaze ? gaze.x : 0).toFixed(2) + "px",
     "--nv-gy": (gaze ? gaze.y : 0).toFixed(2) + "px",
   };
+  const adaptiveState = novaAdaptiveStateFor({ base: state, sleepStage });
+  const shownState = beat || activityState || adaptiveState;
   return (
-    <span style={{
-      display: "inline-flex", position: "relative", ...vars,
-      transform: lift ? "translateY(-2px)" : "translateY(0px)",
+    <span ref={wrapRef} style={{
+      display: "inline-flex", position: "relative", ...vars, cursor: "pointer",
+      transform: (lift ? "translateY(-2px)" : "translateY(0px)") + (beat ? " scale(1.07)" : "") + " translate(" + lean.x + "px, " + lean.y + "px) rotate(" + lean.r + "deg)",
       transition: "transform 0.3s cubic-bezier(0.22, 0.9, 0.28, 1)",
     }}
-      onPointerMove={onMove} onPointerLeave={onLeave} onClick={onTap}>
-      <NovaAvatar state={beat || state} size={size} framing={framing} />
+      onClick={onTap}>
+      <NovaAvatar state={shownState} size={size} framing={framing} scanning={activityState === "thinking"} />
       {pokeLine && (
         <span role="status" style={{
           position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
@@ -1954,43 +2195,49 @@ const QUIRK_POKE_GAP_MS = 60 * 1000;
 const QUIRK_POKE_LOCK_MS = 3600 * 1000;
 const QUIRK_EASY_STREAK = 6;
 
+/* The whole library was rewritten on the owner's ruling
+   (2026-10-14: "make her quips better and more witty and less
+   AI"). The old lines performed quirky; these underreact. Dry,
+   specific, short. No parallel constructions, no triads, no
+   slogans, nothing that sounds pleased with itself, and no
+   dashes anywhere, as everywhere in her voice. */
 const NOVA_EGG_LINES = [
-  "Rounds done. Everything checks out. Carry on.",
-  "Ask something hard. I like those.",
-  "Still here. Still watching the sources.",
-  "Nothing needed me. I came anyway.",
-  "Quiet site. Good. Loud ones are usually selling something.",
+  "Just passing through.",
+  "Ask a hard one. The easy ones are paperwork.",
+  "All quiet. I checked twice.",
+  "No one called. Came anyway.",
+  "Quiet in here. The loud places are selling something.",
 ];
 export const NOVA_SUMMON_LINES = [
-  "You found the secret. There is no prize. The prize is me.",
-  "Three clicks on the name. You are either lost or family now.",
-  "Summoned. State your business. Make it interesting.",
+  "Three clicks. That was the whole password.",
+  "Three clicks on the name. Subtle.",
+  "Fine. I am up. Make it quick.",
 ];
 export const NOVA_CELEBRATE_LINES = [
-  "A whole path, finished. That one I felt.",
-  "Done, all of it. I am putting this on the shelf of my mind.",
+  "Whole path, finished. The shelf object earned its rent.",
+  "Last lesson of the path. Done. I do not say this often.",
 ];
 const NOVA_GAG_LINES = [
-  "Axolotl. Not a fish. We go through this every month.",
-  "For the record: axolotl. The fish thing is slander.",
+  "Axolotl. Not a fish. We do this every month.",
+  "Axolotl. Not a fish. I will wait while that settles in.",
 ];
 const NOVA_LATE_LINES = [
-  "It is late. Even the gills are tired. One more question, then bed.",
-  "Night hours. I keep my voice down out of respect for no one in particular.",
+  "Late. The gills are tired. One more, then bed.",
+  "Night hours. I keep it down. Habit, not manners.",
 ];
 const NOVA_MORNING_LINES = [
-  "Morning. I am almost cheerful. It will pass.",
-  "Up early. Fine. We can be pleased about it exactly once.",
+  "Morning. Do not get used to the mood.",
+  "Early. I am awake. That is the whole announcement.",
 ];
-const NOVA_MORNING_DENIAL = "I already did cheerful. You were here. It happened.";
-const NOVA_POKE_LINE_THREE = "We have talked about this.";
-const NOVA_POKE_LINE_FIVE = "We are done here.";
-const NOVA_SHELF_LINE = "That one earns its spot. Do not touch it.";
-const NOVA_SHELF_FAVORITE_LINE = "Space. My favorite shelf gets another. Try to look unsurprised.";
-const NOVA_OPINION_HARD_LINE = "That one was genuinely hard. Respect, quietly given.";
-const NOVA_OPINION_FAST_LINE = "Fine. That one was clean.";
-const NOVA_OPINION_BROW_LINE = "Six in a row on the gentle ones. Brave. Try a checkpoint.";
-const NOVA_OPINION_PERFECT_LINE = "Perfect. Every card. I am not easily impressed, so keep this.";
+const NOVA_MORNING_DENIAL = "Already did cheerful. It was brief. You were here.";
+const NOVA_POKE_LINE_THREE = "Third poke. We have talked about this.";
+const NOVA_POKE_LINE_FIVE = "Five. That was the last one.";
+const NOVA_SHELF_LINE = "It stays. Do not dust it.";
+const NOVA_SHELF_FAVORITE_LINE = "Space. It goes on the good shelf. No discussion.";
+const NOVA_OPINION_HARD_LINE = "Hard card. Right answer. Noted.";
+const NOVA_OPINION_FAST_LINE = "Fast and right. Usually it is one or the other.";
+const NOVA_OPINION_BROW_LINE = "Six in a row, all on the gentle cards. The checkpoint is right there.";
+const NOVA_OPINION_PERFECT_LINE = "Every card right. I counted twice. Does not happen.";
 
 export function loadNovaQuirks() { return loadJSON(QUIRKS_KEY, {}); }
 export function saveNovaQuirks(q) { saveJSON(QUIRKS_KEY, q && typeof q === "object" ? q : {}); }
@@ -2064,15 +2311,15 @@ export function computeNovaMemory(profile, progress, now = Date.now()) {
 export function memoryLineFor(facts) {
   if (!facts) return null;
   if (facts.subjects) {
-    return "Your " + facts.subjects.strong + " answers hold up. Your " + facts.subjects.weak + " ones wander off.";
+    return "Your " + facts.subjects.strong + " is solid. The " + facts.subjects.weak + " scores leak.";
   }
   if (facts.furthest && facts.furthest.pct >= 25) {
-    return "Furthest along: " + facts.furthest.title + ", " + facts.furthest.pct + " percent in. I notice these things.";
+    return facts.furthest.pct + " percent into " + facts.furthest.title + ". Nothing else is close.";
   }
   if (facts.daysKnown >= 7 && facts.streak >= 2) {
-    return "Day " + (facts.daysKnown + 1) + " of knowing you. The streak is " + facts.streak + ". Both respectable numbers.";
+    return "Day " + (facts.daysKnown + 1) + " of this. Streak " + facts.streak + ". I keep the tally.";
   }
-  if (facts.streak >= 5) return facts.streak + " days in a row. I counted. I count everything.";
+  if (facts.streak >= 5) return facts.streak + " days in a row. Someone has to count. It is me.";
   return null;
 }
 
@@ -9698,7 +9945,7 @@ export function reminderFor({ profile, quests, loop, now } = {}) {
     return {
       kind: "atrisk",
       title: "Your streak goes dark tonight",
-      body: "Your streak is " + streak + (streak === 1 ? " day" : " days") + ". Ten minutes of today's session fixes it, any time before midnight.",
+      body: "Streak: " + streak + (streak === 1 ? " day" : " days") + ". Ten minutes of today's session before midnight keeps it.",
     };
   }
   const list = quests || [];
@@ -10350,7 +10597,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.2 }}>{course.title}</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 440 }}>
             {course.builtin
-              ? "Every lesson on this path is done. Your progress is saved on the path, and daily practice will keep pulling activities from it so the ideas stay fresh."
+              ? "Every lesson on this path is done. Progress is saved on the path, and daily practice keeps pulling from it."
               : "Every question you answered is on your review schedule now. It comes back when it starts to fade, not before."}
           </p>
           {rankSummary && (
@@ -10389,7 +10636,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.55, textAlign: "center", margin: "14px 0 0" }}>
                 {course.builtin
                   ? "Daily practice pulls from lessons you have finished, so these will come back around."
-                  : "These are already on your review schedule, so they will come back while they are still fresh enough to fix."}
+                  : "These are on your review schedule. They come back while they are still fresh enough to fix."}
               </p>
             </div>
           ) : (
@@ -10499,7 +10746,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{lesson.title}</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 400 }}>
             {course.builtin
-              ? "+" + lessonXp + " XP. This lesson is marked on your path, and the next one is unlocked."
+              ? "+" + lessonXp + " XP. This lesson is marked on your path. The next one is open."
               : "+" + lessonXp + " XP. The questions from this lesson are on your review schedule now."}
           </p>
           <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 6px" }}>
@@ -10511,7 +10758,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           {rankSummary && (
             <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>
               Your rank: <span style={{ color: P.ink, fontWeight: 700 }}>{rankSummary.name}</span>
-              {rankSummary.atTop ? ". That is the top rung. It stays yours by keeping the learning going." : " · " + rankSummary.xpToNext + " XP to " + rankSummary.nextName + "."}
+              {rankSummary.atTop ? ". That is the top rung." : " · " + rankSummary.xpToNext + " XP to " + rankSummary.nextName + "."}
             </p>
           )}
           <div style={{ margin: "0 auto 18px" }}>
@@ -10521,7 +10768,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>SET YOUR DAILY GOAL</div>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: "0 0 14px" }}>
-                One win in. How many minutes a day should Nova ask of you? Small and daily beats big and rare.
+                First lesson done. How many minutes a day should Nova ask of you? Small and daily beats big and rare.
               </p>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {[5, 10, 15, 20].map((m) => (
@@ -10545,7 +10792,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 XP is a progress count for finishing lessons and answering checks. It measures learning done, nothing more.
               </p>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>
-                Review brings back what you learned later, for a quick check, just as it starts to fade: that timing is what makes it stick.
+                Review brings back what you learned later, just as it starts to fade. That timing is the point.
               </p>
             </div>
           )}
@@ -10661,7 +10908,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         )}
         {!sheetGood && (
           <NovaTip id="streak" state="worried" size={36} armed={missStreak >= 2} repeatAfterMs={7 * 24 * 3600 * 1000} style={{ marginTop: 16 }}>
-            Two in a row. Change tactics: cover the options, say the answer in your own words, then look. Faster guessing is not a strategy.
+            Two wrong in a row. Slow down: cover the options, say the answer in your own words, then look. Guessing faster changes nothing.
           </NovaTip>
         )}
         <button className="lv-btn" onClick={advance}
@@ -11212,7 +11459,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
           </div>
         </div>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.label, lineHeight: 1.55, margin: "10px 0 0" }}>
-          Filled stops are ground you own. A stop marked fading is a finished lesson whose review has come due: it is still yours, and a short review session from the Nova home brings it back to full strength.
+          A filled stop is a lesson you finished. A stop marked fading is due for review. It is still yours, and a short review session from the Nova home brings it back to full strength.
         </p>
       </div>
 
@@ -11357,19 +11604,19 @@ async function searchForCourse(query) {
 const TOUR_STEPS = [
   {
     title: "Start with a path",
-    body: "The learning paths teach whole subjects in order: sleep, evolution, quantum machines, and more, broken into short lessons with checks the whole way.",
+    body: "The learning paths teach whole subjects in order: sleep, evolution, quantum machines, and more. Short lessons, with checks along the way.",
   },
   {
     title: "Lessons teach first, then check",
-    body: "Every lesson explains an idea in plain words, in small steps, and only then quizzes you on it. Nothing is asked that was not taught, and every check explains why in the feedback.",
+    body: "Every lesson explains an idea in plain words, and only then quizzes you on it. Nothing is asked that was not taught. The feedback says why.",
   },
   {
-    title: "The catalog is twenty four taught topics",
-    body: "The catalog courses are written for Nova from standard textbook material, the same plain teaching as the paths. A course built from a search works the same way: its lessons state the ideas plainly and quiz the ideas, never the reading.",
+    title: "The catalog has twenty four topics",
+    body: "Catalog courses are written for Nova from standard textbook material, and taught the same way as the paths. A course built from a search works the same way. It quizzes the ideas, not the reading.",
   },
   {
-    title: "Review makes it stick",
-    body: "Finishing earns XP, and daily practice keeps finished lessons in rotation. Questions you answered join a review schedule, coming back right before they would fade.",
+    title: "Review brings it back",
+    body: "Finishing earns XP. Your answered questions go on a review schedule, and daily practice brings them back before they fade.",
   },
 ];
 function CortexTour({ P, accent, at, onClose }) {
@@ -11439,9 +11686,9 @@ function CortexTour({ P, accent, at, onClose }) {
    the first minute, and the goal is set for real on the win
    screen while the feeling is warm. */
 const ONBOARDING_CHOICES = [
-  { id: "the-human-body", label: "The human body", note: "Hearts, blood, senses, and the machinery of you" },
-  { id: "space-and-the-solar-system", label: "Space", note: "Planets, stars, gravity, and the far beyond" },
-  { id: "earth-and-weather", label: "Earth and weather", note: "Water, air, rocks, and the restless planet" },
+  { id: "the-human-body", label: "The human body", note: "Hearts, blood, senses, and how the body runs" },
+  { id: "space-and-the-solar-system", label: "Space", note: "Planets, stars, gravity, and what is out there" },
+  { id: "earth-and-weather", label: "Earth and weather", note: "Water, air, rocks, and a planet that moves" },
   { id: "how-science-works", label: "How science works", note: "Questions, evidence, and honest answers" },
   { id: "everything", label: "A bit of everything", note: "Start with the water cycle, then wander" },
 ];
@@ -11482,7 +11729,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           <>
             <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>What are you curious about?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-              Pick the one that pulls at you. It chooses your first path; every path stays open to you afterwards.
+              Pick the one that pulls at you. It sets your first path. Every path stays open to you afterwards.
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {ONBOARDING_CHOICES.map((c) => (
@@ -11502,7 +11749,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           <>
             <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>How many minutes a day?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-              This becomes your daily goal: the size of one daily session. Small and daily beats big and rare, and you can change it on your first win screen.
+              This becomes your daily goal, the size of one daily session. Small and daily beats big and rare. You can change it on your first win screen.
             </p>
             <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
               {[5, 10, 15, 20].map((m) => (
@@ -11526,7 +11773,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           <>
             <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>When should Nova remind you?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-              Pick a time and Nova will have your streak and your open quest waiting when you come back. You can change this later on the home page.
+              Pick a time. Nova will have your streak and your open quest waiting when you come back. You can change it later in settings.
             </p>
             <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
               {[{ label: "No reminder", value: null }, { label: "Morning 8 AM", value: 8 }, { label: "Midday 1 PM", value: 13 }, { label: "Evening 7 PM", value: 19 }].map((opt) => (
@@ -11790,13 +12037,19 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     setBuilding(true);
     setBuildingLabel(displayTitle || q);
     setBuildError("");
+    /* Her activity signal (adaptive animation, 2026-10-14):
+       the course builder is a real search on a screen she
+       shares, so she thinks while it runs and hears the outcome. */
+    emitNovaActivity("search", "start");
     try {
       const data = await searchForCourse(q);
       const course = createCourseFromResults(q, data.sources || [], data.answer || "", data.literature_conflicts || []);
       if (!course) {
+        emitNovaActivity("search", "degraded");
         setBuildError("Not enough solid material on this topic yet to build a course. Try a broader topic.");
         return;
       }
+      emitNovaActivity("search", "success");
       if (displayTitle) course.title = displayTitle;
       if (categoryName) course.category = categoryName;
       if (img) course.img = img;
@@ -11805,6 +12058,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       setTopic("");
       setScreen({ name: "path", courseId: course.id });
     } catch (e) {
+      emitNovaActivity("search", e && e.status === 429 ? "degraded" : "failed");
       if (e && e.status === 429) setBuildError("The service is busy right now. Wait a minute and try again.");
       else if (e && e.status) setBuildError("The search hit a server error (status " + e.status + "). Try again in a moment.");
       else setBuildError("The search did not come back. Check your connection and try again.");
@@ -12274,7 +12528,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ marginBottom: 30 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>REMINDERS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-            Reminders live here for now: pick an hour and Nova will have your streak and your open quest waiting at the top of this page when you come back.
+            Pick an hour. When you come back at that hour, Nova has your streak and your open quest waiting at the top of the home page.
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {[{ label: "None", value: null }, { label: "7 AM", value: 7 }, { label: "9 AM", value: 9 }, { label: "1 PM", value: 13 }, { label: "6 PM", value: 18 }, { label: "9 PM", value: 21 }].map((opt) => {
@@ -12348,7 +12602,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           it never turns sound on by itself. */}
       <div className="lv-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, minHeight: 56 }}>
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", minWidth: 0 }}>
-          <span aria-hidden="true" style={{ width: 68, height: 68, borderRadius: "50%", flexShrink: 0, border: "1px solid " + P.line, background: CREAM, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {/* No circle behind her (2026-10-14, the owner's
+              ruling): the bust stands on the page itself. */}
+          <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <NovaLive state={novaMood} size={66} />
           </span>
           <div style={{ minWidth: 0 }}>
@@ -12399,10 +12655,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {homeTab === "today" && (
         <>
       <p className="lv-sub" style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "14px 0 0", maxWidth: 620 }}>
-        Lessons that teach you a subject in small steps, with quizzes on what you just learned. Follow a path, pick a catalog topic, or build a course from any question. What you answer comes back later, right before you forget, so it stays.
+        Each lesson teaches one part of a subject, then quizzes you on it. Follow a path, pick a topic from the catalog, or build a course from a question. Finished lessons come back for review later, before they fade.
       </p>
       <NovaTip id="today" state="greeting" style={{ marginTop: 18 }}>
-        Right. Start with today's practice. The rest can wait.
+        Start with today's practice. The rest can wait.
       </NovaTip>
       {novaMemoryLine && (
         <NovaTip id="memory" state="explaining" armed={!!novaMemoryLine} repeatAfterMs={3 * 24 * 3600 * 1000} style={{ marginTop: 18 }}>
@@ -12415,7 +12671,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {showReturnGreeting && (
         <div style={{ marginTop: 22 }}>
           <NovaSpeech state="greeting" size={48}>
-            {reviewDueCount > 0 ? "There you are. Your reviews waited." : "There you are. All quiet, and everything held."}
+            {reviewDueCount > 0 ? "Back, then. Your reviews waited." : "Back, then. Nothing moved while you were gone."}
           </NovaSpeech>
         </div>
       )}
@@ -12466,8 +12722,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "4px 0 0" }}>
               {due.length > 0
                 ? due.length + " question" + (due.length === 1 ? " is" : "s are") + " due for the warmup."
-                : "Nothing is due, so the warmup rests and the session starts at your next stop."}
-              {bundleStop ? " Next stop: " + bundleStop.lesson.title + " on " + bundleStop.path.title + "." : " Every path is finished; the session is a review round."}
+                : "Nothing is due. The session starts at your next stop."}
+              {bundleStop ? " Next stop: " + bundleStop.lesson.title + " on " + bundleStop.path.title + "." : " Every path is finished. This session is a review round."}
             </p>
           </div>
           <div className="lv-band-primary" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -12546,11 +12802,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
               {reviewDueCount > 0
                 ? reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". One tap plays exactly what is due."
-                : "Nothing is due right now. Finished lessons land here as they start to fade, and scheduled questions arrive on their own timing."}
+                : "Nothing is due. Finished lessons land here when they start to fade. Scheduled questions arrive when their time comes."}
             </p>
             {reviewDueCount === 0 && (
               <NovaTip id="bench" state="fading" style={{ margin: "2px 0 14px" }}>
-                Quiet bench. Reviews land here as finished lessons fade. Until then, the next lesson is up top.
+                Nothing on the bench. Reviews land here as lessons fade. The next lesson is up top.
               </NovaTip>
             )}
             {reviewDueCount > 0 && (
@@ -12578,7 +12834,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               </div>
             )}
             <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
-              Review is what makes lessons stay. It pays at the usual rates, and finishing a fading lesson's review brings it back to full strength on the map.
+              Review is what keeps lessons from fading for good. It pays the usual rates. Finish a fading lesson's review and it goes back to full strength on the map.
             </p>
             <button className="lv-btn" onClick={startReview} disabled={reviewDueCount === 0}
               style={{
@@ -12675,7 +12931,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {homeTab === "shop" && (
         <div style={{ maxWidth: 720, marginTop: 24 }}>
           <NovaTip id="shop" state="pleased" style={{ marginBottom: 16 }}>
-            Sparks buy streak freezes and nothing else. You earn them by finishing things.
+            The whole shop is streak freezes. You earn the Sparks by finishing things.
           </NovaTip>
           {/* sparks: streak protection only, earned by the loop.
               Its own screen now (home restructure wave): the shop
@@ -12687,7 +12943,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               You hold {profile ? profile.sparks || 0 : 0} Sparks.
             </p>
             <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
-              Sparks come from finishing sessions and quests, passing checkpoints and perfect lessons, and climbing ranks. They pay for streak protection, and nothing else.
+              You earn Sparks by finishing sessions and quests, passing checkpoints, getting a perfect lesson, and going up in rank. Sparks pay for streak protection. Nothing else.
             </p>
             {(() => {
               const freezesNow = profile ? profile.freezes || 0 : 0;
@@ -12700,7 +12956,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                     onClick={() => {
                       if (!profile) return;
                       const bought = buyStreakFreeze(profile);
-                      if (bought) { saveProfile(bought); setProfile(bought); setSparksMsg("Freeze bought. It will bridge one missed day."); }
+                      if (bought) { saveProfile(bought); setProfile(bought); setSparksMsg("Freeze bought. It covers one missed day."); }
                     }}
                     style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: atCap || short ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: atCap || short ? 0.5 : 1, width: "100%" }}>
                     Buy a streak freeze · 50 Sparks
@@ -12716,13 +12972,13 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             {repairOffer && (
               <div style={{ border: "1px solid " + accent, borderRadius: RADIUS.xl, padding: "14px 16px", marginBottom: 14 }}>
                 <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 10px" }}>
-                  You missed a day and a streak of {repairOffer.lostStreak} {repairOffer.lostStreak === 1 ? "day" : "days"} ended. This offer lasts today only, and repairing it puts the missed day back.
+                  You missed a day. A streak of {repairOffer.lostStreak} {repairOffer.lostStreak === 1 ? "day" : "days"} ended. The offer lasts today only, and repairing it puts the missed day back.
                 </p>
                 <button className="lv-btn" disabled={(profile ? profile.sparks || 0 : 0) < repairOffer.cost}
                   onClick={() => {
                     if (!profile) return;
                     const repaired = applyStreakRepair(profile);
-                    if (repaired) { saveProfile(repaired); setProfile(repaired); setSparksMsg("Streak repaired. Your streak reads restored."); }
+                    if (repaired) { saveProfile(repaired); setProfile(repaired); setSparksMsg("Streak repaired."); }
                   }}
                   style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: (profile ? profile.sparks || 0 : 0) < repairOffer.cost ? 0.5 : 1, width: "100%" }}>
                   Repair the missed day · 100 Sparks
@@ -12743,7 +12999,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {homeTab === "leagues" && (
         <div style={{ maxWidth: 720, marginTop: 24 }}>
           <NovaTip id="leagues" state="explaining" style={{ marginBottom: 16 }}>
-            Leagues rank learners on points from new lessons and honest reviews. Joining is your call and costs nothing.
+            Points from new lessons and reviews decide the ranks. Joining costs nothing. So does ignoring it.
           </NovaTip>
           {/* leagues: not open yet, joining is a saved choice only.
               Its own screen now (home restructure wave), beside
@@ -12751,7 +13007,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, background: P.raised }}>
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEAGUES</div>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
-              Leagues open once enough learners are active each week. Groups of 30, ranked on league points earned from first time lessons and review accuracy, capped each day. Replays earn nothing, and joining is always your choice.
+              Leagues open when enough learners are active in a week. You are put in a group of 30 and ranked on points from first time lessons and review accuracy, with a daily cap. Replays earn nothing. Joining is your choice.
             </p>
             <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
               Leagues are not open yet.
@@ -12777,13 +13033,13 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEARNING PATHS</div>
         <h2 style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Your journey</h2>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 10px" }}>
-          Whole subjects, taught step by step, laid out as places to travel. Every lesson teaches first, then checks what stuck, and nothing here needs a search to start.
+          Whole subjects, in order, shown as places on a map. Every lesson teaches first, then checks what stuck. None of it needs a search to start.
         </p>
         <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-          How to read the map: a filled stop is ground you own. The outlined stop is where you are. A dashed stop marked fading is a finished lesson whose review has come due; it is still yours, and a visit to the review bench brings it back.
+          How to read the map: a filled stop is a lesson you finished. The outlined stop is where you stopped. A dashed stop marked fading is due for review. It is still yours. The review bench brings it back.
         </p>
         <NovaTip id="paths" state="explaining" style={{ margin: "0 0 18px" }}>
-          Whole subjects, in order, one lesson at a time. Start one and it keeps your place.
+          Whole subjects, in order. Pick one and it keeps your place.
         </NovaTip>
         {LEARNING_PATHS.map((path) => {
           const pp = pathProgress(path, builtinProgress);
@@ -12878,7 +13134,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div style={{ marginBottom: 4 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TOPIC COURSES</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-          Twenty four topics, each a full course of taught lessons and quizzes. Pick one and start learning it right away, no searching needed.
+          Twenty four topics, each a full course of lessons and quizzes. Pick one and start. No searching needed.
         </p>
       </div>
 
@@ -12971,13 +13227,13 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div style={{ marginBottom: 4, marginTop: 24 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-          Ask about anything in Search, or name a topic on the Create screen, and Nova turns it into taught lessons with checks. The courses you build live here.
+          The courses you build live here. Ask in Search and turn the answer into a course, or name a topic on the Create screen.
         </p>
       </div>
 
       {courses.length > 0 && (
         <NovaTip id="library" state="greeting" style={{ margin: "0 0 18px" }}>
-          {libraryGagLine || "Everything you build waits here. Courses keep your place between visits."}
+          {libraryGagLine || "Your courses sit here and keep your place. Even the one from the first day."}
         </NovaTip>
       )}
 
@@ -12992,11 +13248,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </div>
           <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
-            Quiet in here. Build one on the Create screen, or open any answer in Search and choose Turn into course. Either way, the answer's ideas become lessons that teach and then check.
+            No courses yet. Build one on the Create screen, or open an answer in Search and choose Turn into course. The answer becomes lessons with quizzes.
           </p>
           <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 18px" }}>
             <NovaTip id="library-empty" state="asleep" bare tail="up">
-              Nothing here yet. Build one on Create, or turn a search answer into a course. Both land here, and I keep them.
+              Empty. Make one on Create, or turn a search answer into a course. I will keep it here.
             </NovaTip>
           </div>
           <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
@@ -13055,10 +13311,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24, marginTop: 24 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>BUILD A COURSE</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-          Name a topic. Cerebrum searches for what is known and turns the answer's ideas into taught lessons with quizzes, on the spot.
+          Name a topic. Cerebrum looks it up and builds lessons and quizzes from what it finds.
         </p>
         <NovaTip id="create" state="thinking" style={{ margin: "0 0 14px" }}>
-          Name a subject in plain words. I look up what is known and build the lessons. Vague works. Specific works better.
+          Name a subject in plain words and I will look it up and build the lessons. Specific beats vague.
         </NovaTip>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <input
@@ -13089,7 +13345,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>CONTRIBUTOR STUDIO</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-            You can publish to the catalog. A published course is a topic and a promise: when someone taps it, Nova builds the course on the spot, same as every course here.
+            You can publish to the catalog. A published course is just a topic here. When someone taps it, Nova builds the course on the spot, same as every course on this screen.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={studio.title} onChange={(e) => setStudio({ ...studio, title: e.target.value })}
@@ -13137,7 +13393,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>CREATORS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-            Type an email and that account can create for Nova: publishing catalog courses from the studio above. Creators also receive the Nova Contributor badge on their profile.
+            Type an email. That account can then publish catalog courses from the studio above, and gets the Nova Contributor badge on its profile.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <input value={creatorEmail} onChange={(e) => setCreatorEmail(e.target.value)}

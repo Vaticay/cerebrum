@@ -90,6 +90,7 @@ const WANTED = [
   "shareCardModel",
   "visitGapDays", "shelfGlyphFor", "shelfObjects", "SHELF_GLYPH_BY_PATH", "SHELF_GLYPH_BY_CATEGORY",
   "novaMoodFor", "tipEligible", "TIP_GAP_MS",
+  "NOVA_ACTIVITY_EVENT", "NOVA_WAKE_STEP_MS", "novaIdleStageFor", "novaAdaptiveStateFor", "emitNovaActivity",
   "CHARACTER_POSES", "NOVA_RIG_STATES", "NOVA_RIG_MOUTHS", "NOVA_RIG_D", "NOVA_RIG_FILAMENTS",
   "QUIRKS_KEY", "QUIRK_GAG_COOLDOWN_MS", "QUIRK_SHELF_COOLDOWN_MS",
   "QUIRK_FAST_MS", "QUIRK_FAST_COOLDOWN_MS", "QUIRK_HARD_COOLDOWN_MS",
@@ -162,6 +163,7 @@ const {
   shareCardModel,
   visitGapDays, shelfGlyphFor, shelfObjects,
   novaMoodFor, tipEligible, TIP_GAP_MS,
+  NOVA_ACTIVITY_EVENT, NOVA_WAKE_STEP_MS, novaIdleStageFor, novaAdaptiveStateFor, emitNovaActivity,
   CHARACTER_POSES, NOVA_RIG_STATES, NOVA_RIG_MOUTHS, NOVA_RIG_D, NOVA_RIG_FILAMENTS,
   QUIRKS_KEY, QUIRK_GAG_COOLDOWN_MS, QUIRK_SHELF_COOLDOWN_MS,
   QUIRK_FAST_MS, QUIRK_FAST_COOLDOWN_MS, QUIRK_HARD_COOLDOWN_MS,
@@ -2813,7 +2815,9 @@ await test("export and import round trip keeps sparks and the reminder hour", ()
 await test("the home carries quests, the Sparks shop, reminders, leagues, share cards, and the third onboarding step", () => {
   for (const needle of [
     "TODAY'S QUESTS", "SPARKS", "Buy a streak freeze · 50 Sparks", "Repair the missed day · 100 Sparks",
-    "REMINDERS", "Reminders live here for now", "LEAGUES", "Leagues are not open yet",
+    // Pin moved 2026-10-14 (owner's copy ruling): the reminders
+    // explanation was rewritten plainer; the surface is the same.
+    "REMINDERS", "Pick an hour. When you come back at that hour", "LEAGUES", "Leagues are not open yet",
     "You are in for opening day. Your place is saved.",
     "function ShareCardButton", "Share card", "shareCardModel(",
     "When should Nova remind you?", "OF 3", "onDone({ curiosity, minutes, reminderHour })",
@@ -2864,7 +2868,9 @@ await test("the wave 3 home carries its zones, its settings surface, and Nova's 
   // presence is the raster art now, and the 120px empty state
   // carries the full figure panel framing.
   for (const needle of [
-    "NOVA'S SHELF", "Nothing on the shelf yet", "There you are. Your reviews waited.",
+    // Pin moved 2026-10-14 (owner's voice ruling): the return
+    // greeting was rewritten drier; see the lines library note.
+    "NOVA'S SHELF", "Nothing on the shelf yet", "Back, then. Your reviews waited.",
     "Due for review", "Nova settings", "lv-nova-live", "lv-band", "lv-status", "lv-cols",
     'const CREAM = "#F5F0E8"', "Progress stays in this browser. Export to keep a copy.",
     'NovaLive state="asleep" size={120} framing="panel"', "Start daily practice", "LAST_VISIT_KEY",
@@ -3009,7 +3015,12 @@ await test("the home is six focused screens behind one tablist, and Today holds 
    different strings for a traced character, not the rejected
    freehand drawing come back. */
 await test("Nova is a traced, articulated rig at the avatar spots (2026-10-15)", () => {
-  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "disc" })'),
+  // Pin moved 2026-10-14 (owner's disc and bust rulings): the
+  // default framing is no longer "disc"; it is the head focused
+  // bust on a faint halo. The signature shape is unchanged.
+  // Pin moved again the same night (adaptive animation): the
+  // avatar also takes the scanning flag for a thinking rig.
+  assert.ok(learnSrc.includes('function NovaAvatar({ state = "greeting", size = 48, framing = "bust", scanning = false })'),
     "NovaAvatar keeps its signature; the rig lives inside it");
   assert.ok(learnSrc.includes("export function NovaRig("), "NovaRig is exported for the Easter egg");
   // The traced parts exist as path data: body and tail with
@@ -3055,16 +3066,33 @@ await test("Nova is a traced, articulated rig at the avatar spots (2026-10-15)",
   // The articulation is CSS on the traced parts: blink, sway,
   // breath, glance, head follow, tail sway, swim cycle, and
   // the reaction squash, all transform-boxed to the viewBox.
-  for (const css of [".nv-rig-disc", ".nv-rig-panel", "@keyframes nvRigBlink", "@keyframes nvRigSway",
+  // Pin moved 2026-10-14 (owner's ruling, "There's a circle
+  // over her"): the hard edged cream disc is gone; the only
+  // ground is the edgeless radial halo.
+  for (const css of [".nv-rig-halo", ".nv-rig-panel", "@keyframes nvRigBlink", "@keyframes nvRigSway",
     "@keyframes nvRigBreath", "@keyframes nvRigGlance", "@keyframes nvRigHeadTurn",
     "@keyframes nvRigTailSway", "@keyframes nvRigSwimTail", "@keyframes nvRigSwimBody",
     "@keyframes nvRigReact", "transform-box: view-box"]) {
     assert.ok(learnSrc.includes(css), "rig CSS " + css);
   }
+  assert.ok(!learnSrc.includes(".nv-rig-disc"), "the cream disc class is gone");
+  assert.ok(learnSrc.includes("radial-gradient(closest-side"), "the halo is a soft radial falloff, never a hard edge");
   assert.ok(learnSrc.includes("nvRigBlink 11.7s"), "the blink runs on the irregular 11.7s cycle");
   assert.ok(learnSrc.includes("translateY(58px)"), "the lid slab travels far enough to close the eye");
   assert.ok(learnSrc.includes('className="nv-rig-lid nv-rig-anim"'), "eyelid slabs render");
-  assert.ok(learnSrc.includes("calc(var(--nv-gx, 0px) * 6)"), "NovaLive's pointer gaze still moves the pupils");
+  // Pins added 2026-10-14 (the owner's browser check saw no
+  // motion at real size): the bust viewBox crops to the head,
+  // the full fans, and the top of the body, and the motion
+  // amplitudes are computed per render size (the --nv
+  // variables) instead of fixed rig units.
+  assert.ok(learnSrc.includes('"120 200 1370 800"'), "the bust viewBox exists for small placements");
+  assert.ok(learnSrc.includes('"--nv-sway"') && learnSrc.includes('"--nv-glance-x"') && learnSrc.includes('"--nv-breath-y"'),
+    "the rig computes its motion amplitudes per render size");
+  // Pin moved 2026-10-14: the pointer gaze multiplier is no
+  // longer a fixed 6 rig units (sub pixel at header size); it
+  // is computed from the render size so the pupils travel a
+  // constant few screen pixels.
+  assert.ok(learnSrc.includes("calc(var(--nv-gx, 0px) * \" + pointerMult"), "NovaLive's pointer gaze still moves the pupils, scaled to the render size");
   // The raster avatar machinery is gone, and the flat finish
   // goes with it: no pose source, no crops, no print filter,
   // no grain, no raster breath or crossfade.
@@ -3096,12 +3124,59 @@ await test("the raster Nova stands at the persistent spots and the raster art ke
   // Library empty state's 120px presence shows the full figure
   // in its cream panel instead of a disc crop.
   assert.ok(learnSrc.includes("<NovaLive state={novaMood} size={66} />"), "the header does not render the mood driven live Nova");
-  assert.ok(learnSrc.includes("width: 68, height: 68"), "the header circle did not grow with its Nova");
+  // Pin removed 2026-10-14 (owner's ruling, "There's a circle
+  // over her"): the 68px cream circle that wrapped the header
+  // Nova is gone; she stands on the page. The absence is the pin.
+  assert.ok(!learnSrc.includes("width: 68, height: 68"), "the header circle came back");
   assert.ok(learnSrc.includes("<SheetNova good={sheetGood}"), "the feedback sheet lost its timed Nova reaction");
   assert.ok(learnSrc.includes('state="fading" size={54}'), "the review bench greeter is not the bigger fading live Nova");
   assert.ok(learnSrc.includes('state="asleep" size={120} framing="panel"'), "the library empty state does not show the full figure panel");
   assert.ok(learnSrc.includes('pose="greeting" size={128}'), "the lesson intro lost its raster artwork");
   assert.ok(learnSrc.includes("CHARACTER_POSES[model.pose]"), "the share card no longer reads the raster pose set");
+});
+
+await test("adaptive animation: idle drift stages, late night compounding, and the wake resolver", () => {
+  // Adaptive animation (2026-10-14, the owner's order). The
+  // stage math is pure: an untouched page drifts alert (0) to
+  // fading (1) to asleep (2) on the user's clock, late night
+  // shortens both waits, and a sleepy context shortens them
+  // further. The wake itself is staged in NovaLive, one stage
+  // per NOVA_WAKE_STEP_MS.
+  assert.equal(NOVA_ACTIVITY_EVENT, "nova-activity");
+  assert.equal(NOVA_WAKE_STEP_MS, 650);
+  assert.equal(novaIdleStageFor(0, 14, "greeting"), 0);
+  assert.equal(novaIdleStageFor(44999, 14, "greeting"), 0);
+  assert.equal(novaIdleStageFor(45000, 14, "greeting"), 1, "45 quiet seconds should make her fading");
+  assert.equal(novaIdleStageFor(119999, 14, "greeting"), 1);
+  assert.equal(novaIdleStageFor(120000, 14, "greeting"), 2, "two quiet minutes should put her asleep");
+  assert.equal(novaIdleStageFor(20000, 23, "greeting"), 1, "late night drowsiness comes sooner");
+  assert.equal(novaIdleStageFor(60000, 2, "greeting"), 2, "late night sleep comes sooner");
+  assert.equal(novaIdleStageFor(15000, 14, "asleep"), 1, "a sleepy context re-drifts fast after a wake");
+  assert.equal(novaIdleStageFor(45000, 14, "asleep"), 2);
+  assert.equal(novaIdleStageFor(0, 14, "fading"), 1, "a fading context starts at stage one");
+  assert.equal(novaIdleStageFor(90000, 14, "fading"), 2);
+  // The resolver: stages win over the handed mood, except a
+  // worried streak risk, which stays worried at stage one; a
+  // woken night Nova greets until the drift takes her again.
+  assert.equal(novaAdaptiveStateFor({ base: "greeting", sleepStage: 0 }), "greeting");
+  assert.equal(novaAdaptiveStateFor({ base: "greeting", sleepStage: 1 }), "fading");
+  assert.equal(novaAdaptiveStateFor({ base: "greeting", sleepStage: 2 }), "asleep");
+  assert.equal(novaAdaptiveStateFor({ base: "worried", sleepStage: 1 }), "worried");
+  assert.equal(novaAdaptiveStateFor({ base: "worried", sleepStage: 2 }), "asleep");
+  assert.equal(novaAdaptiveStateFor({ base: "asleep", sleepStage: 0 }), "greeting");
+  assert.equal(novaAdaptiveStateFor({ base: "fading", sleepStage: 0 }), "fading");
+  assert.equal(typeof emitNovaActivity, "function");
+  // The wiring: NovaLive listens on the window and cleans up,
+  // and the course builder emits the real search signals.
+  assert.ok(learnSrc.includes('window.addEventListener("pointermove", onUser, { passive: true })'), "NovaLive does not hear pointer activity");
+  assert.ok(learnSrc.includes('window.addEventListener("keydown", onUser)'), "NovaLive does not hear keys");
+  assert.ok(learnSrc.includes('window.addEventListener("scroll", onUser, { passive: true, capture: true })'), "NovaLive does not hear scrolls");
+  assert.ok(learnSrc.includes("window.addEventListener(NOVA_ACTIVITY_EVENT, onSignal)"), "NovaLive does not hear activity signals");
+  assert.ok(learnSrc.includes('removeEventListener("pointermove", onUser)'), "NovaLive's listeners do not clean up");
+  assert.ok(learnSrc.includes('emitNovaActivity("search", "start")'), "the course builder does not announce its search");
+  assert.ok(learnSrc.includes('emitNovaActivity("search", "success")'), "the course builder does not announce a landed course");
+  assert.ok(learnSrc.includes('emitNovaActivity("search", "degraded")'), "the course builder does not announce a thin result");
+  assert.ok(learnSrc.includes('scanning={activityState === "thinking"}'), "a running search does not set the scanning glance");
 });
 
 await test("novaMoodFor ranks streak risk over overdue review over the late night hours", () => {
@@ -3122,8 +3197,15 @@ await test("the presence wave: Nova is live where she stands, and her tips obey 
   // separate gills to rotate), and the tap beat is the quirks
   // engine's poke ladder rather than the old context setBeat:
   // she dislikes being poked, on a schedule, in pokeStep.
-  assert.ok(learnSrc.includes('function NovaLive({ state = "greeting", size = 48, framing = "disc" })'), "the reactive Nova wrapper is missing");
-  assert.ok(learnSrc.includes('transform: lift ? "translateY(-2px)" : "translateY(0px)"'), "the hover lift does not ride in on the wrapper");
+  // Pin moved 2026-10-14 (owner's disc ruling): the wrapper's
+  // default framing is the bust, not the disc.
+  assert.ok(learnSrc.includes('function NovaLive({ state = "greeting", size = 48, framing = "bust" })'), "the reactive Nova wrapper is missing");
+  // Pin moved 2026-10-14 (the owner's browser check clicked the
+  // header Nova and saw nothing): the tap beat now also pops
+  // the wrapper scale, composed with the hover lift.
+  // Pin moved again the same night (adaptive animation): the
+  // proximity lean rides in on the same wrapper transform.
+  assert.ok(learnSrc.includes('(lift ? "translateY(-2px)" : "translateY(0px)") + (beat ? " scale(1.07)" : "") + " translate(" + lean.x + "px, " + lean.y + "px) rotate(" + lean.r + "deg)"'), "the hover lift, tap pop, and proximity lean do not ride in on the wrapper");
   assert.ok(learnSrc.includes("pokeStep(loadNovaQuirks(), Date.now())"), "a tap does not run the poke ladder");
   assert.ok(learnSrc.includes("saveNovaQuirks(step.quirks)"), "the poke ladder's state is not stored");
   assert.ok(learnSrc.includes('const SEEN_TIPS_KEY = "cerebrum-learn2-seentips";'), "the seen tips store is not its own key");
@@ -3171,8 +3253,10 @@ await test("computeNovaMemory reads real progress: the weak subject computes, an
   assert.ok(facts.subjects, "two worked subjects should produce a reading");
   assert.equal(facts.subjects.strong, "Space and Physics");
   assert.equal(facts.subjects.weak, "Matter and Energy");
+  // Expectation moved 2026-10-14 (owner's voice ruling): the
+  // memory templates were rewritten; the data slots are the same.
   assert.equal(memoryLineFor(facts),
-    "Your Space and Physics answers hold up. Your Matter and Energy ones wander off.",
+    "Your Space and Physics is solid. The Matter and Energy scores leak.",
     "the memory line should name the strong and weak subjects the progress proves");
   // Thin data: a brand new learner earns silence, not a guess.
   const thin = computeNovaMemory(cortexEmptyProfile(), cortexEmptyBuiltinProgress(), nowMs);
@@ -3197,12 +3281,14 @@ await test("memoryLineFor falls to the furthest path when no subject reading exi
   const facts = computeNovaMemory(cortexEmptyProfile(), progress, nowMs);
   assert.ok(facts.furthest, "a partly walked path should be the furthest fact");
   assert.ok(facts.furthest.pct >= 25, `the furthest fact should clear the speaking bar, got ${facts.furthest.pct}`);
+  // Expectations moved 2026-10-14 (owner's voice ruling), same
+  // templates' data as above.
   assert.equal(memoryLineFor(facts),
-    `Furthest along: ${facts.furthest.title}, ${facts.furthest.pct} percent in. I notice these things.`);
+    `${facts.furthest.pct} percent into ${facts.furthest.title}. Nothing else is close.`);
   // The streak and days line: a week known and a live streak.
   const known = { ...cortexEmptyProfile(), days: ["2026-10-01"], streak: 3 };
   const knownFacts = computeNovaMemory(known, cortexEmptyBuiltinProgress(), nowMs);
-  assert.equal(memoryLineFor(knownFacts), "Day 14 of knowing you. The streak is 3. Both respectable numbers.");
+  assert.equal(memoryLineFor(knownFacts), "Day 14 of this. Streak 3. I keep the tally.");
 });
 
 await test("opinionForEvent fires in priority order and each opinion rests on its own cooldown", () => {
@@ -3321,7 +3407,9 @@ await test("pickEggLine routes hours, memory, and the gag, and the morning denia
   // Memory outranks the plain set when the facts support a line.
   const facts = { daysKnown: 3, streak: 0, furthest: { title: "The Human Body", pct: 40 }, subjects: null };
   const mem = pickEggLine({ hour: 14, allowGag: false, seed: 3, facts }, {}, t);
-  assert.equal(mem.line, "Furthest along: The Human Body, 40 percent in. I notice these things.");
+  // Expectation moved 2026-10-14 (owner's voice ruling): the
+  // furthest along template was rewritten.
+  assert.equal(mem.line, "40 percent into The Human Body. Nothing else is close.");
   // Otherwise the plain set, and what she said is remembered.
   const plain = pickEggLine({ hour: 14, allowGag: false, seed: 2, facts: null }, {}, t);
   assert.ok(NOVA_EGG_LINES.includes(plain.line));
