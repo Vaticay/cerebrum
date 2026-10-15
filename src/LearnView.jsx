@@ -12798,6 +12798,66 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     setScreen({ name: "home" });
   };
 
+  /* Every hook in this component runs above the screen returns
+     (crash fix, 2026-10-15). The five hooks in the block below
+     used to sit under the player, bpath, and path returns (they
+     arrived with the quirks wave, after those returns already
+     existed), so any render that took an early return skipped
+     them and the next render changed this component's hook
+     count: opening a lesson threw React error #300, "rendered
+     fewer hooks than expected", on the player's first render.
+     The block now runs on every render, in the same relative
+     order those hooks ran on the home before, and the screen
+     returns below it only choose the screen. The two derivations
+     the shelf effect reads move up with it; both are pure reads
+     of state the top of the component already holds, so screens
+     that return early simply compute them unused. */
+  const allBuiltinSets = [...LEARNING_PATHS, ...TOPIC_COURSES];
+  const shelf = shelfObjects(allBuiltinSets, builtinProgress);
+
+  /* Nova remembers, out loud (quirks wave, 2026-10-14): the
+     memory facts are computed from this learner's real profile
+     and progress, and the line she speaks on Today comes from
+     them. Thin data earns silence. */
+  const novaFacts = useMemo(() => computeNovaMemory(profile, builtinProgress), [profile, builtinProgress]);
+  const novaMemoryLine = memoryLineFor(novaFacts);
+
+  /* Her shelf commentary (quirks wave): the shelf is hers, so
+     when a new object has landed since she last looked, she
+     comments on it once, through the tip gate, on her own long
+     cooldown. The seen mark lands whether or not the gate has
+     room to show the comment. */
+  const [shelfLine, setShelfLine] = useState(null);
+  useEffect(() => {
+    const q0 = loadNovaQuirks();
+    const seenIds = Array.isArray(q0.shelfSeen) ? q0.shelfSeen : [];
+    const unseen = shelf.find((o) => !seenIds.includes(o.pathId));
+    if (!unseen) return;
+    const path = allBuiltinSets.find((p) => p.id === unseen.pathId);
+    const res = shelfCommentFor({ ...unseen, category: path ? path.category : "" }, q0, Date.now());
+    if (res) {
+      saveNovaQuirks(res.quirks);
+      if (res.line) setShelfLine(res.line);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shelf]);
+
+  /* The Library rotation carries her running gag (quirks wave):
+     when the gag's long cooldown is up, the library tip tells it
+     instead of the standard line. The telling is recorded either
+     way, so the gag stays rare even when the gate is busy. */
+  const [libraryGagLine, setLibraryGagLine] = useState(null);
+  useEffect(() => {
+    if (homeTab !== "library") return;
+    const q = loadNovaQuirks();
+    if (gagDue(q, Date.now())) {
+      setLibraryGagLine(pickNovaLine(NOVA_GAG_LINES, Date.now()));
+      saveNovaQuirks(recordGag(q, Date.now()));
+    } else {
+      setLibraryGagLine(null);
+    }
+  }, [homeTab]);
+
   if (screen.name === "player") {
     return (
       <Player
@@ -12870,7 +12930,6 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const totalPathLessons = LEARNING_PATHS.reduce((n, p) => n + flattenPathLessons(p).length, 0);
   const totalPathDone = LEARNING_PATHS.reduce((n, p) => n + pathProgress(p, builtinProgress).done, 0);
   const progressStore = builtinProgress.lessons || {};
-  const allBuiltinSets = [...LEARNING_PATHS, ...TOPIC_COURSES];
   const fadingAll = fadingLessons(allBuiltinSets, builtinProgress);
   const reviewDueCount = due.length + fadingAll.length;
   const bundleStop = nextBundleStop();
@@ -12887,50 +12946,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
      the last path touched, else an unfinished search course,
      else the first path as an invitation. All three read state
      the home already holds; nothing new is stored. */
-  const shelf = shelfObjects(allBuiltinSets, builtinProgress);
 
-  /* Nova remembers, out loud (quirks wave, 2026-10-14): the
-     memory facts are computed from this learner's real profile
-     and progress, and the line she speaks on Today comes from
-     them. Thin data earns silence. */
-  const novaFacts = useMemo(() => computeNovaMemory(profile, builtinProgress), [profile, builtinProgress]);
-  const novaMemoryLine = memoryLineFor(novaFacts);
-
-  /* Her shelf commentary (quirks wave): the shelf is hers, so
-     when a new object has landed since she last looked, she
-     comments on it once, through the tip gate, on her own long
-     cooldown. The seen mark lands whether or not the gate has
-     room to show the comment. */
-  const [shelfLine, setShelfLine] = useState(null);
-  useEffect(() => {
-    const q0 = loadNovaQuirks();
-    const seenIds = Array.isArray(q0.shelfSeen) ? q0.shelfSeen : [];
-    const unseen = shelf.find((o) => !seenIds.includes(o.pathId));
-    if (!unseen) return;
-    const path = allBuiltinSets.find((p) => p.id === unseen.pathId);
-    const res = shelfCommentFor({ ...unseen, category: path ? path.category : "" }, q0, Date.now());
-    if (res) {
-      saveNovaQuirks(res.quirks);
-      if (res.line) setShelfLine(res.line);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shelf]);
-
-  /* The Library rotation carries her running gag (quirks wave):
-     when the gag's long cooldown is up, the library tip tells it
-     instead of the standard line. The telling is recorded either
-     way, so the gag stays rare even when the gate is busy. */
-  const [libraryGagLine, setLibraryGagLine] = useState(null);
-  useEffect(() => {
-    if (homeTab !== "library") return;
-    const q = loadNovaQuirks();
-    if (gagDue(q, Date.now())) {
-      setLibraryGagLine(pickNovaLine(NOVA_GAG_LINES, Date.now()));
-      saveNovaQuirks(recordGag(q, Date.now()));
-    } else {
-      setLibraryGagLine(null);
-    }
-  }, [homeTab]);
   const bandPath = lastPath || null;
   const bandCourse = !bandPath ? nextCourse : null;
   const bandList = bandPath ? flattenPathLessons(bandPath)

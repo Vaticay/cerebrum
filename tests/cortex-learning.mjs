@@ -19,7 +19,7 @@
 import { strict as assert } from "node:assert";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import vm from "node:vm";
 import { parse } from "@babel/parser";
 import { transformSync } from "esbuild";
@@ -3823,6 +3823,267 @@ await test("the share card sets the name as the serif wordmark with the tagline 
     learnSrc.indexOf('ctx.fillText("Nova", 540, 138)') < learnSrc.indexOf("ctx.fillText(CORTEX_TAGLINE, 540, 188)"),
     "the tagline does not sit under the name on the share card"
   );
+});
+
+// ══════════════════════════════════════════════════════════════════
+group("Hooks discipline: no hook after a return or inside a branch");
+
+/* Crash fix pin (2026-10-15). LearnView kept five hooks (a useMemo,
+   two useState, two useEffect) BELOW its player/path/bpath screen
+   returns: they arrived with the quirks wave, after the returns
+   already existed. Any render that took an early return skipped
+   them, so opening a lesson changed the component's hook count
+   and React threw error #300, "rendered fewer hooks than
+   expected", on the player's first render. A second instance of
+   the class sat in CerebrumApp's VideoFrame, where
+   useReducedMotion() was the right operand of || and was skipped
+   whenever the OS signal was already true. Both are fixed by
+   calling every hook unconditionally; this scan keeps the class
+   out of src for good.
+   What it catches, per component or custom hook scope: a hook
+   call positioned after any return the render path can take
+   first (including returns inside if/switch/try/loop statements),
+   a hook call inside a conditional branch, a loop, a try block, a
+   ternary, or a logical (&&/||) expression, and a hook call
+   inside a nested plain function or callback (effect callbacks,
+   event handlers) within the scope.
+   What it cannot catch: hooks reached through a differently
+   named alias (the callee must spell useX or React.useX), a
+   component assigned to a lowercase variable and rendered as a
+   component, hooks violations that only exist at runtime across
+   a higher order wrapper defined elsewhere, and hook calls in
+   files outside src. Those remain code review territory. */
+const HOOK_NAME_RE = /^use[A-Z0-9]/;
+function hookCalleeName(node) {
+  if (!node || node.type !== "CallExpression") return null;
+  const c = node.callee;
+  if (c.type === "Identifier" && HOOK_NAME_RE.test(c.name)) return c.name;
+  if (c.type === "MemberExpression" && c.object.type === "Identifier" && c.object.name === "React"
+    && c.property.type === "Identifier" && HOOK_NAME_RE.test(c.property.name)) return "React." + c.property.name;
+  return null;
+}
+function hooksScanFile(filePath, srcText, stats) {
+  const tree = parse(srcText, { sourceType: "module", plugins: ["jsx"], loc: true });
+  const out = [];
+  const label = filePath.split("/src/")[1] || filePath;
+  const report = (node, hook, scope, flags) =>
+    out.push(`${label}:${node.loc.start.line} ${hook} in ${scope} [${flags.join(",")}]`);
+  const fnNameOf = (node, parent) => {
+    if (node.id && node.id.name) return node.id.name;
+    if (parent && parent.type === "VariableDeclarator" && parent.id.type === "Identifier") return parent.id.name;
+    if (parent && parent.type === "AssignmentExpression" && parent.left.type === "Identifier") return parent.left.name;
+    if (parent && parent.type === "ObjectProperty" && parent.key.type === "Identifier") return parent.key.name;
+    return "(anonymous)";
+  };
+  const isScopeName = (name) => /^[A-Z]/.test(name) || HOOK_NAME_RE.test(name);
+  function stmtHasReturn(node) {
+    if (!["IfStatement", "SwitchStatement", "TryStatement", "ForStatement", "WhileStatement",
+      "DoWhileStatement", "ForInStatement", "ForOfStatement"].includes(node.type)) return false;
+    let found = false;
+    const visit = (n) => {
+      if (!n || typeof n.type !== "string" || found) return;
+      if (n.type === "ReturnStatement") { found = true; return; }
+      if (/Function|Class/.test(n.type)) return;
+      for (const k of Object.keys(n)) {
+        const v = n[k];
+        if (Array.isArray(v)) v.forEach(visit);
+        else if (v && typeof v === "object") visit(v);
+      }
+    };
+    visit(node);
+    return found;
+  }
+  function scanPlain(node, ctx, scopeName) {
+    if (!node || typeof node.type !== "string") return;
+    const hk = hookCalleeName(node);
+    if (hk) {
+      stats.hooksSeen++;
+      report(node, hk, scopeName, ["IN_NESTED_FN(" + scopeName + ")"]);
+    }
+    if (/Function/.test(node.type) && node.type !== "CallExpression") return;
+    const c2 = { ...ctx };
+    if (node.type === "IfStatement" || node.type === "ConditionalExpression" || node.type === "LogicalExpression") c2.conditional = true;
+    for (const k of Object.keys(node)) {
+      if (k === "loc" || k === "range") continue;
+      const v = node[k];
+      if (Array.isArray(v)) v.forEach((x) => scanPlain(x, c2, scopeName));
+      else if (v && typeof v === "object") scanPlain(v, c2, scopeName);
+    }
+  }
+  function nestedFn(fn, name, ctx, scopeName) {
+    if (isScopeName(name)) { analyzeScope(fn, name); return; }
+    if (fn.body && fn.body.type === "BlockStatement") for (const s of fn.body.body) scanPlain(s, ctx, name);
+    else if (fn.body) scanPlain(fn.body, ctx, name);
+  }
+  function walkExpr(expr, ctx, scopeName) {
+    if (!expr || typeof expr.type !== "string") return;
+    const hk = hookCalleeName(expr);
+    if (hk) {
+      stats.hooksSeen++;
+      const flags = [];
+      if (ctx.conditional) flags.push("IN_CONDITIONAL");
+      if (ctx.loop) flags.push("IN_LOOP");
+      if (ctx.afterReturn) flags.push("AFTER_RETURN");
+      if (ctx.inTry) flags.push("IN_TRY");
+      if (flags.length) report(expr, hk, scopeName, flags);
+      for (const arg of expr.arguments) {
+        if (arg.type === "ArrowFunctionExpression" || arg.type === "FunctionExpression") nestedFn(arg, "(callback of " + hk + ")", ctx, scopeName);
+        else walkExpr(arg, ctx, scopeName);
+      }
+      return;
+    }
+    if (expr.type === "ArrowFunctionExpression" || expr.type === "FunctionExpression") { nestedFn(expr, fnNameOf(expr, null), ctx, scopeName); return; }
+    if (expr.type === "ConditionalExpression") {
+      const c2 = { ...ctx, conditional: true };
+      walkExpr(expr.test, ctx, scopeName);
+      walkExpr(expr.consequent, c2, scopeName);
+      walkExpr(expr.alternate, c2, scopeName);
+      return;
+    }
+    if (expr.type === "LogicalExpression") {
+      const c2 = { ...ctx, conditional: true };
+      walkExpr(expr.left, ctx, scopeName);
+      walkExpr(expr.right, c2, scopeName);
+      return;
+    }
+    for (const k of Object.keys(expr)) {
+      if (k === "loc" || k === "range") continue;
+      const v = expr[k];
+      if (Array.isArray(v)) v.forEach((x) => { if (x && typeof x.type === "string") walkAny(x, ctx, scopeName); });
+      else if (v && typeof v === "object" && typeof v.type === "string") walkAny(v, ctx, scopeName);
+    }
+  }
+  function walkStmt(stmt, ctx, scopeName) {
+    switch (stmt.type) {
+      case "ReturnStatement":
+        if (stmt.argument) walkExpr(stmt.argument, ctx, scopeName);
+        break;
+      case "ExpressionStatement":
+        walkExpr(stmt.expression, ctx, scopeName);
+        break;
+      case "VariableDeclaration":
+        for (const d of stmt.declarations) {
+          if (!d.init) continue;
+          if (d.init.type === "ArrowFunctionExpression" || d.init.type === "FunctionExpression") {
+            nestedFn(d.init, d.id.type === "Identifier" ? d.id.name : "(anon)", ctx, scopeName);
+          } else walkExpr(d.init, ctx, scopeName);
+        }
+        break;
+      case "IfStatement": {
+        walkExpr(stmt.test, ctx, scopeName);
+        const c2 = { ...ctx, conditional: true };
+        if (stmt.consequent) walkAny(stmt.consequent, c2, scopeName);
+        if (stmt.alternate) walkAny(stmt.alternate, c2, scopeName);
+        break;
+      }
+      case "ForStatement": case "ForInStatement": case "ForOfStatement": case "WhileStatement": case "DoWhileStatement": {
+        const c2 = { ...ctx, loop: true, conditional: true };
+        if (stmt.type === "ForStatement") {
+          if (stmt.init) walkAny(stmt.init, c2, scopeName);
+          if (stmt.test) walkExpr(stmt.test, c2, scopeName);
+          if (stmt.update) walkExpr(stmt.update, c2, scopeName);
+        }
+        if (stmt.type === "WhileStatement" || stmt.type === "DoWhileStatement") walkExpr(stmt.test, c2, scopeName);
+        if (stmt.type === "ForInStatement" || stmt.type === "ForOfStatement") { walkAny(stmt.left, c2, scopeName); walkExpr(stmt.right, c2, scopeName); }
+        walkAny(stmt.body, c2, scopeName);
+        break;
+      }
+      case "TryStatement": {
+        const c2 = { ...ctx, inTry: true, conditional: true };
+        walkBlock(stmt.block, c2, scopeName);
+        if (stmt.handler) walkBlock(stmt.handler.body, c2, scopeName);
+        if (stmt.finalizer) walkBlock(stmt.finalizer, ctx, scopeName);
+        break;
+      }
+      case "SwitchStatement": {
+        walkExpr(stmt.discriminant, ctx, scopeName);
+        const c2 = { ...ctx, conditional: true };
+        for (const cs of stmt.cases) for (const s of cs.consequent) walkStmt(s, c2, scopeName);
+        break;
+      }
+      case "BlockStatement":
+        walkBlock(stmt, ctx, scopeName);
+        break;
+      case "FunctionDeclaration":
+        nestedFn(stmt, stmt.id ? stmt.id.name : "(anon)", ctx, scopeName);
+        break;
+      default:
+        if (stmt.type !== "ThrowStatement" && !/^(Break|Continue|Empty|Debugger)Statement$/.test(stmt.type)) walkAny(stmt, ctx, scopeName);
+    }
+  }
+  function walkBlock(block, ctx, scopeName) {
+    let local = { ...ctx };
+    for (const stmt of block.body) {
+      walkStmt(stmt, local, scopeName);
+      if (stmt.type === "ReturnStatement" || stmtHasReturn(stmt)) local = { ...local, afterReturn: true };
+    }
+  }
+  function walkAny(node, ctx, scopeName) {
+    if (!node) return;
+    if (node.type === "BlockStatement") return walkBlock(node, ctx, scopeName);
+    if (node.type && node.type.endsWith("Statement")) return walkStmt(node, ctx, scopeName);
+    return walkExpr(node, ctx, scopeName);
+  }
+  function analyzeScope(fn, name) {
+    stats.scopesSeen++;
+    if (!fn.body) return;
+    if (fn.body.type !== "BlockStatement") { walkExpr(fn.body, {}, name); return; }
+    walkBlock(fn.body, {}, name);
+  }
+  const visit = (node, parent) => {
+    if (!node || typeof node.type !== "string") return;
+    if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") {
+      const name = fnNameOf(node, parent);
+      if (isScopeName(name)) { analyzeScope(node, name); return; }
+    }
+    for (const k of Object.keys(node)) {
+      if (k === "loc" || k === "range") continue;
+      const v = node[k];
+      if (Array.isArray(v)) v.forEach((x) => visit(x, node));
+      else if (v && typeof v === "object") visit(v, node);
+    }
+  };
+  visit(tree.program, null);
+  return out;
+}
+function srcClientFiles(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...srcClientFiles(p));
+    else if (/\.jsx?$/.test(entry.name)) out.push(p);
+  }
+  return out.sort();
+}
+
+await test("no hook in src sits after an early return, in a branch or loop, in a logical operand, or in a nested plain function", () => {
+  const stats = { hooksSeen: 0, scopesSeen: 0 };
+  const findings = [];
+  for (const file of srcClientFiles(join(root, "src"))) {
+    findings.push(...hooksScanFile(file, readFileSync(file, "utf8"), stats));
+  }
+  /* The floors keep the pin honest: if the scan ever silently
+     stops seeing the codebase (a parser change, a walker bug),
+     these fail instead of the scan passing on nothing. */
+  assert.ok(stats.scopesSeen > 100, `scan saw only ${stats.scopesSeen} component or hook scopes`);
+  assert.ok(stats.hooksSeen > 400, `scan saw only ${stats.hooksSeen} hook calls`);
+  assert.deepEqual(findings, [], "hooks discipline violations:\n" + findings.join("\n"));
+});
+
+await test("LearnView's screen returns all sit below its last hook", () => {
+  /* The named regression, pinned by position as well as by the
+     class scan above: the player return that crashed must stay
+     under every hook the component calls. */
+  const learnFnStart = learnSrc.indexOf("export default function LearnView");
+  const region = learnSrc.slice(learnFnStart);
+  const playerReturn = region.indexOf('if (screen.name === "player")');
+  assert.ok(playerReturn > 0, "player screen return missing");
+  const hookIdx = [...region.matchAll(/\buse(State|Effect|Memo|Ref|Callback|Context)\s*\(/g)]
+    .map((m) => m.index);
+  const lastHookBeforeReturn = Math.max(...hookIdx.filter((i) => i < playerReturn));
+  assert.ok(lastHookBeforeReturn > 0, "no hooks found before the player return");
+  assert.ok(!/\buse(State|Effect|Memo|Ref|Callback|Context)\s*\(/.test(region.slice(playerReturn, region.indexOf('if (screen.name === "payoff")'))),
+    "a hook still sits between the player return and the payoff return");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

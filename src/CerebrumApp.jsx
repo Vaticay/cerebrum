@@ -11055,7 +11055,14 @@ function VideoFrame({ v, n, P, accent, onOpen }) {
      The literal usePrefersReducedMotion() line above stays verbatim —
      tests/answer-experience.mjs pins this call site — so `still` is the
      effective flag the component actually branches on. */
-  const still = reduced || useReducedMotion();
+  /* useReducedMotion is itself a hook, so it is called on every
+     render and only its result joins the flag (crash fix,
+     2026-10-15): as the right operand of || it was skipped
+     whenever the OS signal was already true, so this component's
+     hook count changed with the OS reduced motion setting and
+     React could throw error #300. */
+  const appReduced = useReducedMotion();
+  const still = reduced || appReduced;
   const finePointer = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(pointer: fine)").matches;
   // Immediate poster: derive hqdefault from the YouTube id when the video
   // carries one (the backend already sends them) — the poster is on screen
