@@ -29,7 +29,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Icon, STATUS, FONT_SIZES, RADIUS, withAlpha, accentText } from "./designSystem.jsx";
-import { accentInk } from "./appUtils.js";
+import { accentInk, useWindowWidth } from "./appUtils.js";
 import { NovaRive, appStateForActivity, quizStateForSheet, quizPointerFor, quizCategoryForState, searchCategoryForState } from "./NovaRive.jsx";
 import { useNovaSpeech, NovaBubble } from "./NovaSpeech.jsx";
 import { NovaTour } from "./NovaTour.jsx";
@@ -12553,15 +12553,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   /* The Today stage figure size (layout audit finding 12,
      2026-10-16): at 288 her box is wider than the stage content
      at 360px and squeezes sideways, so phone widths stand her
-     at 264 instead. */
-  const [stageNarrow, setStageNarrow] = useState(() => {
-    try { return typeof window !== "undefined" && window.innerWidth <= 430; } catch { return false; }
-  });
-  useEffect(() => {
-    const onResize = () => { try { setStageNarrow(window.innerWidth <= 430); } catch { /* width is a layout hint only */ } };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+     at 264 instead. The width comes from the shared
+     useWindowWidth hook in appUtils, the one place viewport
+     width reads may live (core identity). */
+  const stageWinW = useWindowWidth();
+  const stageNarrow = stageWinW <= 430;
 
   const migrateStoredLearning = () => {
     const rawCourses = loadJSON(COURSES_KEY, []);

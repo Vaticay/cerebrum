@@ -4021,7 +4021,8 @@ await test("the home's accent text runs through the shell's accentInk correction
   // to 2.61 to 1 on Light palette grounds. The home's tagline,
   // section labels, and action labels now take ink, the corrected
   // value; fills and borders keep the raw accent.
-  assert.ok(learnSrc.includes('import { accentInk } from "./appUtils.js";'), "LearnView does not import the shell correction");
+  // Pin updated 2026-10-16 (layout audit finding 12 landing): the import line now also brings useWindowWidth for the phone aware stage size; the shell correction import itself is unchanged.
+  assert.ok(learnSrc.includes('import { accentInk, useWindowWidth } from "./appUtils.js";'), "LearnView does not import the shell correction");
   // Two derivations remain in LearnView (2026-10-15): the tour
   // moved into NovaTour.jsx with the cutscene redo and derives
   // its own ink there, from the same shell correction.
