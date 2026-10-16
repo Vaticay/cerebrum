@@ -456,9 +456,22 @@ export const DELAYED_RESCUE_MIN_WAIT_MS = 5000;
  * the stage) leaves every earlier stage free to spend the
  * window the gate then pretends exists; reserving up front
  * is the shape that keeps the total handler time bounded by
- * the same request deadline as before. 5,000 ms: the gate's
- * 4,000 ms floor plus the post synthesis text passes that
- * run between the synthesis deadline and the stage. */
+ * the same request deadline as before. 5,000 ms: the stage's
+ * budget plus the post synthesis text passes that run between
+ * the synthesis deadline and the stage.
+ * ONE NUMBER FOR THE WHOLE STAGE (2026-10-16, finding 11):
+ * this constant is now the stage budget in all three places
+ * that spend it — the reserve (synthesis holds it back), the
+ * admission gate (the stage fires only while more than this
+ * remains), and the deadline handed to deepFactCheck, which
+ * checks it before every tier and caps each tier's own timer
+ * at what remains. Before this, the gate admitted on a
+ * 4,000 ms floor while the tiers' own caps summed to roughly
+ * 14,500 ms (3,000 + 3,500 + 4,000 + 4,000), so an admitted
+ * check could hold the response seconds past the request
+ * ceiling; with the deadline enforced inside the check, the
+ * tier caps can no longer stack past the one budget the gate
+ * and the reserve are both sized from. */
 export const FACT_CHECK_RESERVE_MS = 5000;
 
 /* synthesisDeadlineFor(nowMs, requestDeadlineMs, factCheckOn):
@@ -9793,13 +9806,27 @@ export function factCheckTraceSummary(trace) {
     .slice(0, 160);
 }
 
-export async function deepFactCheck(answer, papers, env, ledger = null, trace = null) {
+export async function deepFactCheck(answer, papers, env, ledger = null, trace = null, stageDeadlineMs = null) {
   if (!answer || !papers || papers.length === 0) return null;
   const note = (tier, outcome, detail) => {
     if (!Array.isArray(trace)) return;
     const entry = { tier, outcome };
     if (detail) entry.detail = String(detail).slice(0, 160);
     trace.push(entry);
+  };
+  // Stage deadline (2026-10-16, finding 11): when the caller
+  // hands one in, it bounds the WHOLE stage. It is checked
+  // before every tier, and each tier's own timer is capped at
+  // what remains, so the tiers' individual caps (3,000 +
+  // 3,500 + 4,000 + 4,000 ms) can never stack past it. A tier
+  // the deadline has already passed is skipped with a named
+  // trace outcome, exactly like a budget spent tier.
+  const stageLeftMs = () => (stageDeadlineMs == null ? Infinity : stageDeadlineMs - Date.now());
+  const tierCapMs = (cap) => Math.max(0, Math.min(cap, stageLeftMs()));
+  const stageExpired = (tier) => {
+    if (stageLeftMs() > 0) return false;
+    note(tier, "no-time", "the fact check stage deadline passed before this tier could fire");
+    return true;
   };
   const sourceBlock = buildFactCheckSourceBlock(papers);
   const userContent =
@@ -9834,11 +9861,13 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   if (geminiKey) {
     if (ledger && ledger.remaining() <= 0) {
       note("gemini", "budget", "the subrequest ledger was spent before this tier");
+    } else if (stageExpired("gemini")) {
+      // Skipped: the stage deadline passed (noted in the trace).
     } else {
       const cg = new AbortController();
       let tg = null;
       try {
-        tg = setTimeout(() => cg.abort(), 3000);
+        tg = setTimeout(() => cg.abort(), tierCapMs(3000));
         if (ledger) ledger.spend();
         const rg = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
           method: "POST",
@@ -9880,13 +9909,15 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   // still falls back to the free zero-network verifyAnswerAgainstSources()
   // heuristic, so a faster miss costs nuance, not correctness.
   if (env.AI && typeof env.AI.run === "function") {
-    try {
+    if (stageExpired("workers-ai")) {
+      // Skipped: the stage deadline passed (noted in the trace).
+    } else try {
       // A Workers AI run spends a subrequest like any bound service
       // call; the first version of the ledger left this one free.
       if (ledger) ledger.spendBinding("factcheck", 1);
       const out = await Promise.race([
         env.AI.run("@cf/meta/llama-3.3-70b-instruct-fp8-fast", { messages, max_tokens: 1900 }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 3500)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), tierCapMs(3500))),
       ]);
       const claims = parseDeepFactCheckJSON((out && out.response) || "");
       if (claims) { note("workers-ai", "ok"); return claims; }
@@ -9919,6 +9950,8 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   } else if (ledger && ledger.remaining() <= 0) {
     note("openrouter", "budget", "the subrequest ledger was spent before this tier");
     orTierOutcome = "budget";
+  } else if (stageExpired("openrouter")) {
+    orTierOutcome = "no-time";
   } else {
     const c = new AbortController();
     // Wave twelve (item 1): the timer is declared OUTSIDE the try.
@@ -9933,7 +9966,7 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
     // live "claim check supports 0 of 5" on a correct answer.
     let t = null;
     try {
-      t = setTimeout(() => c.abort(), 4000);
+      t = setTimeout(() => c.abort(), tierCapMs(4000));
       if (ledger) ledger.spend();
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
@@ -9989,11 +10022,11 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   // five asked) is labeled by its actual counts downstream, and
   // anything under two usable claims is no check, as before.
   if (orTierOutcome === "http-429" && openRouterKey(env) &&
-      !(ledger && ledger.remaining() <= 0)) {
+      !(ledger && ledger.remaining() <= 0) && !stageExpired("openrouter-fallback")) {
     const c3 = new AbortController();
     let t3 = null;
     try {
-      t3 = setTimeout(() => c3.abort(), 4000);
+      t3 = setTimeout(() => c3.abort(), tierCapMs(4000));
       if (ledger) ledger.spend();
       const r3 = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
@@ -17003,7 +17036,11 @@ export function unpackAnswerCachePayload(raw) {
  * no retrieval at all . the funnel's retrieval counts are null and
  * the record's retrieval detail is null. The later path passes this
  * request's own diag, databases, and funnel, because that retrieval
- * genuinely ran and produced the served source list.
+ * genuinely ran — but the served source list on BOTH paths is the
+ * stored payload's own (2026-10-16, finding 5): the stored answer's
+ * markers were written against that list's ordering, so the current
+ * run's list feeds only the funnel counts that describe this run's
+ * retrieval, never the pairing the cited flags derive from.
  *
  * The record's identity follows the same rule: a cached serve's
  * record is recomputed on serve and is NOT stored, so it is built
@@ -23259,11 +23296,17 @@ async function runSearchPipeline(pctx) {
   // error rate is honest.
   let apiKeyIdentity = null;
   let apiKeyRequestErrored = false;
+  // Carried for the top-level catch: the pipeline's degraded response
+  // needs the query even when the throw happened before/around parsing.
+  // Declared outside the try beside apiKeyIdentity (2026-10-16,
+  // finding 1): a let inside the try is out of scope in the sibling
+  // catch, so both catch reads threw ReferenceError and the catch
+  // shipped its bare fallbacks (an empty no results payload and the
+  // hardcoded fallback answer) instead of the payload and answer
+  // built from the real query.
+  let catchQuery = "";
 
   try {
-    // Carried for the top-level catch: the pipeline's degraded response
-    // needs the query even when the throw happened before/around parsing.
-    let catchQuery = "";
     // Bounded body: the search payload carries history, settings, and an
     // optional attached image . cap it well above any legitimate request
     // but far below what could exhaust worker memory.
@@ -23603,7 +23646,14 @@ async function runSearchPipeline(pctx) {
         );
       }
       const personaText = await answerConversationally(query, body.history, env, ledger);
-      await meterAiAnswer();
+      // Meter only when text actually came back (2026-10-16,
+      // finding 6): answerConversationally returns null when no
+      // key is configured and again when every leg fails, and on
+      // those runs the canned fallback sentence below ships —
+      // charging for it billed an AI answer the caller never
+      // received. The resolver driven conversational branch in
+      // this same file already meters under exactly this guard.
+      if (personaText) await meterAiAnswer();
       return new Response(
         JSON.stringify({
           answer: personaText || "I'm better at science questions than small talk. Try me.",
@@ -23693,6 +23743,13 @@ async function runSearchPipeline(pctx) {
 
     const settings = body.settings || {};
     const answerLength = settings.answerLength || "medium";
+    // Commit 83 . the instrument's operations. See MODE_STRUCTURES.
+    // Anything unrecognized falls back to the default synthesis, so an old
+    // client or a hand-rolled request behaves exactly as before.
+    // (Parsed above the key version since 2026-10-16: the mode is
+    // part of the key fold below, so it must exist before the key.)
+    const ALLOWED_MODES = ["explain", "verify", "compare", "map", "readinglist"];
+    const mode = ALLOWED_MODES.includes(body.mode) ? body.mode : "explain";
     // The answer cache key carries the depth (CACHE_SCHEMA_VERSION
     // v31): an answer is a product of the depth that produced it,
     // and the three depths must never serve each other's rows.
@@ -23706,12 +23763,52 @@ async function runSearchPipeline(pctx) {
     // shapes actually retires the rows cached under the old
     // contract. Before this the key was a hardcoded "v9-" string
     // and every dated bump in the chain above retired nothing.
-    const answerKeyVersion = CACHE_SCHEMA_VERSION + "-" + answerLength;
-    // Commit 83 . the instrument's operations. See MODE_STRUCTURES.
-    // Anything unrecognized falls back to the default synthesis, so an old
-    // client or a hand-rolled request behaves exactly as before.
-    const ALLOWED_MODES = ["explain", "verify", "compare", "map", "readinglist"];
-    const mode = ALLOWED_MODES.includes(body.mode) ? body.mode : "explain";
+    // SETTINGS FOLD (2026-10-16, finding 4): the key also carries
+    // every request setting that changes what answer is correct —
+    // the mode, the evidence filter, the stress filter, the stress
+    // exclusion set, and a scoped source marker. Before this fold
+    // the key was schema version plus depth only, and the early
+    // serve below returns before any of those settings are applied
+    // (the mode shapes the prompt much later, the evidence filter
+    // filters papers at the evidence stage, the stress and scoped
+    // settings filter at the stress stage), so a repeat query sent
+    // as a reading list or a comparison, or under the systematic
+    // review filter, or scoped to one source, could be served the
+    // plain stored answer from a default run. Only settings that
+    // actually change the answer fold in, validated exactly as
+    // their application sites validate them, and only when they
+    // differ from the default — so a default request's key is
+    // byte for byte the key it has always been, and rows written
+    // for default requests stay servable. The exclusion set folds
+    // as a short digest of its sorted normalized URLs, never the
+    // URLs themselves: the version string rides in the derived
+    // key's prefix, where raw URLs would be readable.
+    const evidenceFilterForKey = ["systematic-review", "rct", "in-vivo-vitro"]
+      .includes(String(settings.evidenceFilter || "").trim().toLowerCase())
+      ? String(settings.evidenceFilter).trim().toLowerCase() : null;
+    const stressFilterForKey = ["human", "direct"].includes(body.stressFilter) ? body.stressFilter : null;
+    const stressExcludeForKey = Array.isArray(body.stressExclude)
+      ? body.stressExclude.map((u) => String(u || "").trim().toLowerCase()).filter(Boolean).sort()
+      : [];
+    let stressExcludeDigest = "";
+    if (stressExcludeForKey.length > 0) {
+      let h = 0x811c9dc5;
+      const joined = stressExcludeForKey.join("\n");
+      for (let i = 0; i < joined.length; i++) { h ^= joined.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+      stressExcludeDigest = (h >>> 0).toString(16);
+    }
+    const scopedForKey = body.scopedSource
+      ? (typeof body.scopedSource === "string"
+          ? (body.scopedSource.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40) || "scoped")
+          : "scoped")
+      : null;
+    const answerSettingsKeyPart =
+      (mode !== "explain" ? "-m:" + mode : "") +
+      (evidenceFilterForKey ? "-ef:" + evidenceFilterForKey : "") +
+      (stressFilterForKey ? "-sf:" + stressFilterForKey : "") +
+      (stressExcludeDigest ? "-sx:" + stressExcludeDigest : "") +
+      (scopedForKey ? "-ss:" + scopedForKey : "");
+    const answerKeyVersion = CACHE_SCHEMA_VERSION + "-" + answerLength + answerSettingsKeyPart;
     // Bumped from 800/1500/3000: the four-section STRUCTURE format (Core
     // Synthesis + Evidence & Mechanisms + Divergent Findings & Gaps +
     // Methodological Confidence) plus per-claim citations routinely ran past
@@ -26489,27 +26586,36 @@ async function runSearchPipeline(pctx) {
       // confidence line is bound to the recomputed level, exactly
       // as a fresh serve binds it (see buildCachedServeTrust).
       // Here retrieval
-      // DID run for this response (the served source list is this
-      // run's), so the funnel, the record, and the stage health are
-      // this run's real values, computed against the SERVED pair
-      // (the stored answer read against this run's sources): the
-      // cited flags the funnel and coverage count come from the
-      // stored answer's markers against this list, the derivation
-      // the main assembly performs. Synthesis model is null . the
-      // cache does not store which model wrote the answer.
+      // DID run for this response, so the funnel, the record, and
+      // the stage health are this run's real values — but the
+      // SERVED pair is the stored answer read against the STORED
+      // payload's own source list (2026-10-16, finding 5): the
+      // stored text's citation markers were written against that
+      // list's ordering, and fresh retrieval is not deterministic
+      // in ordering or selection, so pairing the stored text with
+      // this run's list marked the wrong papers as cited. This
+      // run's list now feeds only the funnel counts below, which
+      // describe this run's retrieval. Synthesis model is null .
+      // the cache does not store which model wrote the answer.
       // The stored payload's trust signals (wave eight round two)
       // come from the envelope in the row's sources column — the
-      // served source list is this run's, but the fact check, the
-      // recorded mode, and the verdict are the ORIGINAL run's and
-      // ride its payload, exactly as on the early path above. A
-      // pre envelope row unpacks to no signals.
-      const laterTrustSignals = unpackAnswerCachePayload(cachedAnswer.sources).trust;
+      // fact check, the recorded mode, and the verdict are the
+      // ORIGINAL run's and ride its payload, exactly as on the
+      // early path above. A pre envelope row unpacks to no
+      // signals.
+      const laterPayload = unpackAnswerCachePayload(cachedAnswer.sources);
+      const laterTrustSignals = laterPayload.trust;
+      // The stored payload's own source list (2026-10-16, finding
+      // 5): this, not this run's sourceList, is what the trust
+      // builder pairs the stored answer with, exactly as the
+      // early serve pairs its stored list.
+      const storedLateSources = laterPayload.sources;
       const laterDiag = (gResult && gResult._diag) || {};
       const laterF = laterDiag.funnel;
       const laterNonEng = Array.isArray(laterDiag.nonEnglish) ? laterDiag.nonEnglish.length : 0;
       const laterTrust = buildCachedServeTrust({
         answer: cachedAnswer.answer,
-        sources: sourceList,
+        sources: storedLateSources,
         question: query,
         askedAt: new Date(),
         diag: gResult && gResult._diag,
@@ -27126,10 +27232,18 @@ async function runSearchPipeline(pctx) {
     // ternary inside wave 1 evaluates raceEntry() immediately when a
     // preferred model exists, so this must not sit in its temporal dead
     // zone.
-    const raceEntry = (wave, label, p) => {
+    const raceEntry = (wave, label, p, raceState) => {
       const t0 = Date.now();
       return p.then(
         (r) => {
+          // Closed race (2026-10-16, finding 12): when a planned
+          // retry race's close window has expired, the request has
+          // discarded this leg's outcome — it must not write the
+          // attempt trail or the leg health store, or a discarded
+          // result could park or promote a leg for later requests
+          // in this isolate. The value still settles the (already
+          // closed) race exactly as it would have.
+          if (raceState && raceState.closed) return r;
           // Provider-error text must never WIN a race: a 200 whose body is
           // "API key … reached its budget" is a failure, not an answer. It
           // becomes a recorded failed attempt so the next wave still fires.
@@ -27145,6 +27259,10 @@ async function runSearchPipeline(pctx) {
           return r;
         },
         (e) => {
+          // Closed race (2026-10-16, finding 12): same drop as the
+          // success branch above — a discarded failure writes no
+          // trail entry and no leg outcome.
+          if (raceState && raceState.closed) throw e;
           // A leg the ledger refused (the invocation total cap,
           // 2026-10-14 fourth panel) never made a platform call:
           // it is a budget trim, recorded with the same
@@ -27170,7 +27288,7 @@ async function runSearchPipeline(pctx) {
     // raced failure and stays out of failedLegs), and the leg burns no
     // subrequest and no deadline. Returns null for a parked leg;
     // callers filter nulls.
-    const guardedRaceEntry = (wave, label, makeCall) => {
+    const guardedRaceEntry = (wave, label, makeCall, raceState) => {
       const park = legParkInfo(label);
       if (park) {
         aiAttempts.push({ wave, model: label, ok: false, ms: 0, parked: true, error: "parked (" + park.reason + ")" });
@@ -27205,7 +27323,7 @@ async function runSearchPipeline(pctx) {
       } catch (e) {
         p = Promise.reject(e);
       }
-      return raceEntry(wave, label, p);
+      return raceEntry(wave, label, p, raceState);
     };
 
     // Subrequest budget (2026-10-13): waves are built as leg
@@ -27241,7 +27359,7 @@ async function runSearchPipeline(pctx) {
     // left. A leg skipped after the floor is genuine scarcity,
     // and is stamped with the exhausted reason like the rescue
     // planners stamp theirs, never the reserve reason.
-    const fireWaveLegs = (descriptors, { keepTailReserve = true } = {}) => {
+    const fireWaveLegs = (descriptors, { keepTailReserve = true, raceState = null } = {}) => {
       const remaining = ledger.remaining();
       const legCost = (d) => Math.max(0, Math.floor(Number(d && d.fetchCost) || 0));
       const waveCost = descriptors.reduce((n, d) => n + legCost(d), 0);
@@ -27262,7 +27380,7 @@ async function runSearchPipeline(pctx) {
         aiAttempts.push({ wave: d.wave, model: d.label, ok: false, ms: 0, budgetSkipped: true, plannedSkip: true, error: SUBREQUEST_EXHAUSTED_REASON });
       }
       return selected
-        .map((d) => guardedRaceEntry(d.wave, d.label, d.fire))
+        .map((d) => guardedRaceEntry(d.wave, d.label, d.fire, raceState))
         .filter(Boolean);
     };
 
@@ -27271,14 +27389,18 @@ async function runSearchPipeline(pctx) {
     // anything else is an OpenRouter model name (which may itself
     // contain a colon, ":free" . the provider match is checked first
     // precisely so those names fall through to callOR).
-    const callForLegLabel = (label, msgs, maxTok, timeoutMs) => {
+    const callForLegLabel = (label, msgs, maxTok, timeoutMs, waveSignal) => {
+      // The Workers AI branch takes no signal: env.AI.run cannot
+      // be cancelled (2026-10-16, finding 12). Its outcome is
+      // still dropped by the closed race bookkeeping when its
+      // race has closed; only the fetch legs abort in flight.
       if (label.startsWith("@cf/")) return callCF(label, msgs, maxTok, timeoutMs);
       const sep = label.indexOf(":");
       if (sep > 0) {
         const p = activeProviders.find((x) => x.id === label.slice(0, sep));
-        if (p) return callCompat(p)(label.slice(sep + 1), msgs, maxTok, timeoutMs);
+        if (p) return callCompat(p)(label.slice(sep + 1), msgs, maxTok, timeoutMs, waveSignal);
       }
-      return callOR(label, msgs, maxTok, timeoutMs);
+      return callOR(label, msgs, maxTok, timeoutMs, waveSignal);
     };
 
     /* PLANNED RETRY RACE (2026-10-14, wave ten, item 15): the
@@ -27301,6 +27423,18 @@ async function runSearchPipeline(pctx) {
       if (token) labels.push(OR_FREE_MODELS[2]);
       if (activeProviders.some((p) => p.id === "gemini")) labels.push("gemini:gemini-3.8-flash");
       if (activeProviders.some((p) => p.id === "mistral")) labels.push("mistral:mistral-small-latest");
+      // Per retry abort + closed flag (2026-10-16, finding 12):
+      // the legs below race with 12,000 ms timeouts against a
+      // 5,000 ms close window, so a closed race's legs used to
+      // keep generating for up to 7,000 ms more and then write
+      // their outcomes into the attempt trail and the leg health
+      // store. The controller is threaded into the leg adapters
+      // (the fetch legs abort in flight on window close), and
+      // the flag makes raceEntry drop the bookkeeping for any
+      // leg that settles after the close, including the Workers
+      // AI legs no signal can cancel.
+      const retryAbort = new AbortController();
+      const retryRaceState = { closed: false };
       const descriptors = labels
         .filter((label) => !excludeLabels.includes(label))
         .map((label) => ({
@@ -27308,16 +27442,24 @@ async function runSearchPipeline(pctx) {
           bucket: synthesisBucketForLabel(label),
           fetchCost: 1,
           wave,
-          fire: () => callForLegLabel(label, msgs, maxTok, timeoutMs),
+          fire: () => callForLegLabel(label, msgs, maxTok, timeoutMs, retryAbort.signal),
         }));
-      const legs = fireWaveLegs(descriptors, { keepTailReserve: true });
+      const legs = fireWaveLegs(descriptors, { keepTailReserve: true, raceState: retryRaceState });
       if (legs.length === 0) return null;
       // Wave sixteen (item 5): the race closes after a short
       // window (see raceWithCloseWindow). A retry exists to
       // rescue a defective draft, not to hold the stage open
       // to its deadline; on closure the caller keeps the
       // draft it already has.
-      return raceWithCloseWindow(raceBest(legs, query, 500), RETRY_RACE_CLOSE_MS);
+      const retryResult = await raceWithCloseWindow(raceBest(legs, query, 500), RETRY_RACE_CLOSE_MS);
+      if (retryResult === "closed") {
+        // Flag FIRST, so any leg settling from this point on
+        // drops its bookkeeping, then abort the legs the
+        // adapters can cancel.
+        retryRaceState.closed = true;
+        retryAbort.abort();
+      }
+      return retryResult;
     };
 
     // fastpathCalls moved INTO the wave-1 block (2026-09-14): it must be
@@ -27729,6 +27871,17 @@ async function runSearchPipeline(pctx) {
       // Pro depth: same longer-runway treatment as wave 1. Detailed
       // requests ride along for the same reason.
       const wave2Timeout = clampLegTimeout(isProSearch || answerLength === "long" ? 12000 : 8000);
+      // Wave 2 abort (2026-10-16, finding 12): the same one
+      // controller per wave discipline as wave 1. Wave 2 used to
+      // pass an undefined signal to its compat descriptors and no
+      // signal at all to its OpenRouter legs, and its deadline
+      // race had no abort in the catch or finally — so when the
+      // deadline rejected, the orphaned race kept running and
+      // could still fire its judge against stages that had
+      // already started. The Workers AI legs take no signal and
+      // cannot be cancelled; every fetch leg now aborts the
+      // moment the wave is decided.
+      const w2Abort = new AbortController();
       const wave2Calls = fireWaveLegs([
         // WAVE TEN (item 15): wave 2's array leads with the
         // compat and Workers AI legs and puts OpenRouter last.
@@ -27744,9 +27897,9 @@ async function runSearchPipeline(pctx) {
         // by the per-leg health store: a capped or sick Groq model is
         // parked and skipped, so each of Groq's per-model pools gets
         // its real shot in this wave.
-        ...compatLegDescriptors(2, "w2", wave2Messages, maxTokens, wave2Timeout, undefined),
+        ...compatLegDescriptors(2, "w2", wave2Messages, maxTokens, wave2Timeout, w2Abort.signal),
         ...(cfBound ? CF_WAVE2.map((m) => ({ label: m, bucket: "workers-ai", fetchCost: 1, wave: 2, fire: () => callCF(m, wave2Messages, maxTokens, wave2Timeout) })) : []),
-        ...(token ? OR_WAVE2.map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 2, fire: () => callOR(m, wave2Messages, maxTokens, wave2Timeout) })) : []),
+        ...(token ? OR_WAVE2.map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 2, fire: () => callOR(m, wave2Messages, maxTokens, wave2Timeout, w2Abort.signal) })) : []),
       ]);
       if (wave2Calls.length > 0) {
         try {
@@ -27765,6 +27918,10 @@ async function runSearchPipeline(pctx) {
           recordWin(winner.model);
         } catch (agg) {
           aiAttempts.push({ wave: 2, ok: false, attempted: wave2Calls.length, summary: errMsgs(agg) });
+        } finally {
+          // Losing and deadline orphaned legs abort here, the
+          // wave 1 discipline (2026-10-16, finding 12).
+          w2Abort.abort();
         }
       }
     }
@@ -27860,13 +28017,20 @@ async function runSearchPipeline(pctx) {
       // 2026-09-12: legs clamped to the remaining budget (6s wanted, not
       // 24s/18s) and the tier raced against the synthesis deadline.
       const bpTimeout = clampLegTimeout(6000);
+      // Wave 3 abort (2026-10-16, finding 12): same controller
+      // and finally abort as waves 1 and 2. This tier's legs
+      // previously received no wave signal at all, so a decided
+      // or deadline orphaned race left every fetch leg running.
+      // The Workers AI legs take no signal and cannot be
+      // cancelled, as on every wave.
+      const w3Abort = new AbortController();
       const bulletproofLegs = fireWaveLegs([
         // Commit 86 . waves 1 and 2 failing together used to mean the
         // OpenRouter bucket was throttled and this tier had almost nothing
         // structurally different left to try. With independent providers
         // configured it does: each one below is a quota that had nothing to
         // do with whatever just failed.
-        ...compatLegDescriptors(3, "w1", bulletproofMessages, bulletproofMaxTok, bpTimeout),
+        ...compatLegDescriptors(3, "w1", bulletproofMessages, bulletproofMaxTok, bpTimeout, w3Abort.signal),
         // Wave six (Job 4): the two demoted legs (llama-4-scout,
         // mistral-small-3.1) race HERE, in the final wave, at
         // their cut 3,000 ms override — cfLegTimeoutMs applies
@@ -27886,7 +28050,7 @@ async function runSearchPipeline(pctx) {
         // in case the wave 1-2 throttle has cleared by now. (Was four and
         // two until 2026-10-14: the fourth Pro seat and the second regular
         // seat were the restricted inkling-small leg, now out of the list.)
-        ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3]] : [OR_FREE_MODELS[3]]).map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 3, fire: () => callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout) })) : []),
+        ...(token ? (isProSearch ? [OR_FREE_MODELS[2], OR_FREE_MODELS[3]] : [OR_FREE_MODELS[3]]).map((m) => ({ label: m, bucket: "openrouter", fetchCost: 1, wave: 3, fire: () => callOR(m, bulletproofMessages, bulletproofMaxTok, bpTimeout, w3Abort.signal) })) : []),
       ]);
       try {
         // raceBest with a short grace: this is the last-resort tier so speed
@@ -27904,6 +28068,10 @@ async function runSearchPipeline(pctx) {
         recordWin(winner.model);
       } catch (agg) {
         aiAttempts.push({ wave: 3, ok: false, bulletproof: true, summary: errMsgs(agg) });
+      } finally {
+        // Losing and deadline orphaned legs abort here, the
+        // wave 1 discipline (2026-10-16, finding 12).
+        w3Abort.abort();
       }
     }
 
@@ -28066,12 +28234,16 @@ async function runSearchPipeline(pctx) {
       }
     }
 
-    // PRO TIER . charge the AI answer against the caller's monthly bucket.
-    // Free/Lite are capped; Pro is unlimited but still counted (the Usage
-    // page shows real numbers for Pro members — transparency, not a cap).
-    // Best-effort by design: a failed increment must never fail the search
-    // itself.
-    if (aiOK) await meterAiAnswer();
+    // PRO TIER metering used to happen HERE, at the wave win
+    // (2026-10-16, finding 6): the caller was charged the moment
+    // aiOK first turned true, but the ship gates below can still
+    // discard that draft — the uncited answer flip, the zero
+    // support degrade, the subject serve rebuild and its no
+    // results replacement — and ship an extractive or no results
+    // response whose synthesisMode honestly reports no AI answer
+    // was received. The charge now happens once, at the ship
+    // point at response assembly below, gated on the final
+    // shipped mode being AI. See the ship point below.
 
     // Nuance #33 . token spend accounting, once per search. The budget was
     // authorized before the waves (not per leg . a race must not multiply
@@ -28839,9 +29011,9 @@ async function runSearchPipeline(pctx) {
     if (!settings.factCheck) {
       factCheckSkipCause = "fact check off for this request";
       factCheckTrace.push({ tier: "stage", outcome: "off", detail: "the request carried no factCheck setting (or set it false); the stage never attempted" });
-    } else if (useEvidence && evidencePapers.length > 0 && aiOK && !(msLeft() > 4000)) {
-      factCheckSkipCause = "fact check skipped: under 4 seconds left in the request";
-      factCheckTrace.push({ tier: "stage", outcome: "no-time", detail: "the stage needs more than 4 seconds of request budget and less remained" });
+    } else if (useEvidence && evidencePapers.length > 0 && aiOK && !(msLeft() > FACT_CHECK_RESERVE_MS)) {
+      factCheckSkipCause = "fact check skipped: under the fact check stage budget left in the request";
+      factCheckTrace.push({ tier: "stage", outcome: "no-time", detail: "the stage needs more than its stage budget (FACT_CHECK_RESERVE_MS) of request budget and less remained" });
     }
     // WAVE SIXTEEN (2026-10-14, eighth panel, item 2): the
     // degrade the serve rules share. When a claim the pipeline
@@ -28950,11 +29122,11 @@ async function runSearchPipeline(pctx) {
     // invocation allowance is spent it does not fire at all; the
     // zero network heuristic below still runs, and the stage record
     // names the budget as the reason (factCheckBudgetSkipped below).
-    if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > 4000 && ledger.remaining() <= 0) {
+    if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > FACT_CHECK_RESERVE_MS && ledger.remaining() <= 0) {
       factCheckBudgetSkipped = true;
       factCheckTrace.push({ tier: "stage", outcome: "budget", detail: "the subrequest ledger was spent before the stage could fire" });
     }
-    if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > 4000 && !factCheckBudgetSkipped) {
+    if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > FACT_CHECK_RESERVE_MS && !factCheckBudgetSkipped) {
       factCheckAttempted = true;
       ledger.setStage("fact-check");
       // v34: the deep, claim-by-claim pass is tried first . see deepFactCheck()
@@ -28964,7 +29136,7 @@ async function runSearchPipeline(pctx) {
       // from the specific source it's supposed to come from and a real
       // methodological justification, which is what the FactCheck panel's
       // copy ("relevance/fact-check") always implied it was doing.
-      const deepClaims = await deepFactCheck(answer, evidencePapers, env, ledger, factCheckTrace).catch(() => null);
+      const deepClaims = await deepFactCheck(answer, evidencePapers, env, ledger, factCheckTrace, Date.now() + FACT_CHECK_RESERVE_MS).catch(() => null);
       if (deepClaims) {
         // Wave twelve (item 1): a verdict is a check only when it
         // is bound to a source in the set the checker was given.
@@ -30146,6 +30318,27 @@ async function runSearchPipeline(pctx) {
      * true keeps the permalink, stored false withdraws it, so no
      * surface presents a link that is not there. The record's data
      * ships in this response either way. */
+    // PRO TIER . charge the AI answer against the caller's bucket,
+    // HERE at the ship point (2026-10-16, finding 6): after the
+    // last gate that can replace the answer (the uncited answer
+    // flip, the zero support degrade, the subject serve rebuild
+    // and its no results replacement all stand above this point;
+    // nothing between here and the return can change which mode
+    // ships), gated on the final shipped mode being AI — the same
+    // predicate the response below ships as synthesisMode
+    // (extractiveOK ? "extractive" : aiOK ? "ai" : "none") — and
+    // before the assembly snapshot below, so the shipped ledger
+    // counts the charge like every other stage and the response's
+    // aiQuota payload, built from the same aiGate, reports the
+    // post charge count. Metering at the wave win charged
+    // callers for drafts those gates later discarded. Free/Lite
+    // are capped; Pro is unlimited but still counted (the Usage
+    // page shows real numbers for Pro members — transparency,
+    // not a cap). Best-effort by design: a failed increment must
+    // never fail the search itself (meterAiAnswer swallows its
+    // own failures).
+    if (aiOK && !extractiveOK) await meterAiAnswer();
+
     /* The invocation's subrequest spend, snapshotted ONCE here at
      * response assembly (synthesis has resolved; every stage that
      * will ever report has reported) and shared by the response
