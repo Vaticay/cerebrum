@@ -436,6 +436,15 @@ await test("a muted thread cannot ring: incoming-calls and the call push both ga
   assert.ok(!pushBlock.includes("sendPushToUsers(env, calleeIds"), "the call push still sends to the unfiltered callee list");
 });
 
+await test("call signal inserts enforce the per thread and per sender ceilings first (finding 25, 2026-10-16)", () => {
+  const ceilingAt = callsignalSrc.indexOf("signalCeilingExceeded(stats, payloadStr.length)");
+  assert.ok(ceilingAt > -1, "the call signal handler never checks the storage ceilings");
+  const insertAt = callsignalSrc.indexOf("INSERT INTO call_signals", ceilingAt);
+  assert.ok(insertAt > ceilingAt, "the storage ceiling check does not run before the insert");
+  assert.ok(callsignalSrc.includes("MAX_SIGNAL_ROWS_PER_THREAD = 500"), "per thread row ceiling missing");
+  assert.ok(callsignalSrc.includes("MAX_SIGNAL_ROWS_PER_SENDER = 250"), "per sender row ceiling missing");
+});
+
 await test("a muted conversation stays silent on the open thread poll too", () => {
   // The fifth audit panel: the list poll guarded its notifications
   // with the muted flag, but the open thread poll's arrival path fired
@@ -834,7 +843,11 @@ await test("the app shell notifier is mute guarded, like both inbox polls", () =
   ins("INSERT INTO thread_participants (thread_id, user_id, muted) VALUES ('th_mute', 'usr_b', 1)");
   ins("INSERT INTO thread_participants (thread_id, user_id, muted) VALUES ('th_open', 'usr_a', 0)");
   ins("INSERT INTO thread_participants (thread_id, user_id, muted) VALUES ('th_open', 'usr_b', 0)");
-  ins("INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, created_at) VALUES ('usr_b', 'https://push.example.com/sub-b', ?, ?, ?)",
+  // Updated 2026-10-16 (audit finding 24): the seeded endpoint now uses
+  // a real push service host. The old push.example.com host is rejected
+  // by the send time endpoint allowlist in webpush.js, so it could no
+  // longer prove a push left.
+  ins("INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, created_at) VALUES ('usr_b', 'https://fcm.googleapis.com/fcm/send/sub-b', ?, ?, ?)",
     b64u(subPubRaw), b64u(Uint8Array.from({ length: 16 }, () => 7)), now);
 
   const fetchHits = [];
@@ -856,7 +869,7 @@ await test("the app shell notifier is mute guarded, like both inbox polls", () =
       assert.equal(await ring("th_mute"), 200);
       assert.deepEqual(fetchHits, [], "a callee who muted the thread still got a call push");
       assert.equal(await ring("th_open"), 200);
-      assert.deepEqual(fetchHits, ["https://push.example.com/sub-b"], "an unmuted callee got no call push");
+      assert.deepEqual(fetchHits, ["https://fcm.googleapis.com/fcm/send/sub-b"], "an unmuted callee got no call push");
     });
   } finally {
     globalThis.fetch = realFetch;

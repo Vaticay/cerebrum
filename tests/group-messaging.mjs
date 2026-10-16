@@ -146,6 +146,40 @@ await test("add-group-members validates invitees like creation", async () => {
   srcHas(block, "already_member", "already-a-member rejection");
 });
 
+// ── Finding 23 (2026-10-16): every new pairing, plus message policy ──
+
+await test("group creation checks blocks between invitees themselves", async () => {
+  const idx = dataJs.indexOf('action === "start-group-thread"');
+  const end = dataJs.indexOf('action === "add-group-members"');
+  const block = dataJs.slice(idx, end);
+  srcHas(block, "isBlockedPair(env, memberIds[i], memberIds[j])", "invitee to invitee block check in creation");
+});
+
+await test("group creation applies the invitee message policy", async () => {
+  const idx = dataJs.indexOf('action === "start-group-thread"');
+  const end = dataJs.indexOf('action === "add-group-members"');
+  const block = dataJs.slice(idx, end);
+  srcHas(block, "mayStartConversation(env, user.id, mid)", "message policy check in creation");
+  srcHas(block, "dm_not_allowed", "dm_not_allowed error code in creation");
+});
+
+await test("add-group-members checks blocks against existing members and among added people", async () => {
+  const idx = dataJs.indexOf('action === "add-group-members"');
+  const end = dataJs.indexOf('action === "remove-group-member"');
+  const block = dataJs.slice(idx, end);
+  srcHas(block, "SELECT user_id FROM thread_participants WHERE thread_id = ?", "existing member roster fetch");
+  srcHas(block, "isBlockedPair(env, mid, existingId)", "added to existing member block check");
+  srcHas(block, "isBlockedPair(env, memberIds[i], memberIds[j])", "added to added block check");
+});
+
+await test("add-group-members applies the added person message policy", async () => {
+  const idx = dataJs.indexOf('action === "add-group-members"');
+  const end = dataJs.indexOf('action === "remove-group-member"');
+  const block = dataJs.slice(idx, end);
+  srcHas(block, "mayStartConversation(env, user.id, mid)", "message policy check in add");
+  srcHas(block, "dm_not_allowed", "dm_not_allowed error code in add");
+});
+
 await test("add-group-members enforces the 50-person cap", async () => {
   const idx = dataJs.indexOf('action === "add-group-members"');
   const block = dataJs.slice(idx, idx + 5000);

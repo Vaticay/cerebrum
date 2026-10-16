@@ -9,6 +9,8 @@ import {
   validatePushSubscription,
   buildMessagePushPayload,
   sendPushMessage,
+  isAllowedPushEndpoint,
+  storePushSubscription,
 } from "../functions/lib/webpush.js";
 import {
   getPushDisplayName,
@@ -73,6 +75,65 @@ await test("validatePushSubscription rejects malformed auth", () => {
     validatePushSubscription({ endpoint: VALID_SUB.endpoint, keys: { p256dh: VALID_SUB.keys.p256dh, auth: "aGVsbG8=" } });
   } catch (e) { threw = true; }
   assert(threw, "bad auth rejected");
+});
+
+// Finding 24 (2026-10-16): endpoint host allowlist. Only real browser
+// push services may be stored or fetched, at validate, store and send.
+await test("validatePushSubscription accepts the real push service hosts", () => {
+  for (const endpoint of [
+    "https://fcm.googleapis.com/fcm/send/abc123",
+    "https://updates.push.services.mozilla.com/wpush/v2/abc",
+    "https://web.push.apple.com/abc",
+    "https://wns2-by3p.notify.windows.com/w/abc",
+  ]) {
+    const out = validatePushSubscription({ endpoint, keys: VALID_SUB.keys });
+    assert(out.endpoint === endpoint, "endpoint preserved for " + endpoint);
+    assert(isAllowedPushEndpoint(endpoint), "allowlist accepts " + endpoint);
+  }
+});
+
+await test("validatePushSubscription rejects arbitrary and lookalike https hosts", () => {
+  for (const endpoint of [
+    "https://evil.example/push",
+    "https://example.com/push",
+    "https://169.254.169.254/latest/meta-data",
+    "https://127.0.0.1/push",
+    "https://fcm.googleapis.com.evil.example/push",
+    "https://evilfcm.googleapis.com/push",
+    "https://web.push.apple.com.evil.example/push",
+    "https://user:pass@fcm.googleapis.com/push",
+    "https://fcm.googleapis.com:8443/push",
+  ]) {
+    let threw = false;
+    try {
+      validatePushSubscription({ endpoint, keys: VALID_SUB.keys });
+    } catch (e) { threw = /known push service/.test(e.message); }
+    assert(threw, "endpoint not rejected: " + endpoint);
+    assert(!isAllowedPushEndpoint(endpoint), "allowlist accepts " + endpoint);
+  }
+});
+
+await test("storePushSubscription refuses a non allowlisted endpoint before touching the DB", async () => {
+  let dbTouched = false;
+  const db = { prepare: () => { dbTouched = true; throw new Error("db should not be touched"); } };
+  let threw = false;
+  try {
+    await storePushSubscription(db, "u1", { endpoint: "https://evil.example/push", p256dh: "x", auth: "y" });
+  } catch (e) { threw = /known push service/.test(e.message); }
+  assert(threw, "store accepted a non allowlisted endpoint");
+  assert(!dbTouched, "store touched the DB for a rejected endpoint");
+});
+
+await test("sendPushMessage refuses a non allowlisted stored endpoint at send time", async () => {
+  // Dummy non empty keys pass the vapid_not_configured gate, so the
+  // refusal below can only be the send time host recheck, which runs
+  // before any encryption or fetch.
+  const res = await sendPushMessage(
+    { VAPID_PUBLIC_KEY: "x", VAPID_PRIVATE_KEY: "y" },
+    { endpoint: "https://evil.example/push", p256dh: "x", auth: "y" },
+    new Uint8Array([1])
+  );
+  assert(res.ok === false && res.error === "endpoint_not_allowed", "send not refused, got: " + JSON.stringify(res));
 });
 
 await test("buildMessagePushPayload never leaks content for encrypted threads", () => {

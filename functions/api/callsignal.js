@@ -57,7 +57,44 @@ const ALLOWED_TYPES = new Set(["hello", "offer", "answer", "ice", "bye", "ring"]
 // Real Chrome video SDPs run well past 8 KB once every codec and
 // extension line is counted. The old 8 KB cap rejected genuine offers
 // with a 413 the caller never saw, so calls rang and never connected.
-const MAX_PAYLOAD_JSON_LEN = 100000; // SDP blobs; ICE candidates are tiny
+// 2026-10-16, audit finding 25: the 100000 char cap is now reserved for
+// the two SDP bearing types, offer and answer. ICE candidates get 4096
+// (a candidate JSON blob runs well under 1000 chars in practice) and
+// the tiny control types hello, ring and bye get 1024 each. One shared
+// cap let a caller store 100000 chars of ring heartbeats.
+export const SIGNAL_PAYLOAD_CAPS = {
+  offer: 100000,
+  answer: 100000,
+  ice: 4096,
+  hello: 1024,
+  ring: 1024,
+  bye: 1024,
+};
+const MAX_PAYLOAD_JSON_LEN = 100000; // largest per type cap, for offer and answer
+// Storage ceilings inside the 10 minute signal window below, enforced
+// at insert time (2026-10-16, finding 25). A real call setup posts a
+// handful of signals and a ring heartbeat every few seconds, so 500
+// rows and 4 MB per thread, and 250 rows and 2 MB per sender in that
+// thread, sit far above real use while ending the old shape where the
+// 240 per minute post limit alone allowed roughly 24 MB of 100 KB rows
+// per minute into the shared table, all of it returnable in 200 row
+// polls by the other participant.
+export const MAX_SIGNAL_ROWS_PER_THREAD = 500;
+export const MAX_SIGNAL_ROWS_PER_SENDER = 250;
+export const MAX_SIGNAL_BYTES_PER_THREAD = 4000000;
+export const MAX_SIGNAL_BYTES_PER_SENDER = 2000000;
+
+/* Pure ceiling decision, exported for tests. `stats` are the counts and
+ * payload byte totals already stored inside the live window for this
+ * thread and for this sender in it; `payloadBytes` is the new row. */
+export function signalCeilingExceeded(stats, payloadBytes) {
+  if (!stats) return false;
+  if (stats.threadRows >= MAX_SIGNAL_ROWS_PER_THREAD) return true;
+  if (stats.senderRows >= MAX_SIGNAL_ROWS_PER_SENDER) return true;
+  if (stats.threadBytes + payloadBytes > MAX_SIGNAL_BYTES_PER_THREAD) return true;
+  if (stats.senderBytes + payloadBytes > MAX_SIGNAL_BYTES_PER_SENDER) return true;
+  return false;
+}
 const MAX_CLIENT_ID_LEN = 100;
 // Thread ids are server-minted short strings; an unbounded one is either a
 // bug or a probe, and it is interpolated into SQL binds everywhere below.
@@ -95,7 +132,8 @@ export function validateSignalPost(body) {
   } catch {
     return { ok: false, code: "invalid_payload", message: "Invalid payload." };
   }
-  if (payloadStr.length > MAX_PAYLOAD_JSON_LEN) {
+  const payloadCap = SIGNAL_PAYLOAD_CAPS[type] ?? MAX_PAYLOAD_JSON_LEN;
+  if (payloadStr.length > payloadCap) {
     return { ok: false, code: "payload_too_large", message: "Payload too large." };
   }
   return { ok: true, threadId, clientId, type, payloadStr };
@@ -212,6 +250,33 @@ export async function onRequest(context) {
         return new Response(JSON.stringify({ error: "Not authorized for this call." }), { status: 403, headers: cors });
       }
       const now = Date.now();
+      // Per thread and per sender ceilings (2026-10-16, finding 25),
+      // counted over the live window only, which is the same window the
+      // cleanup below expires. Checked before the insert, so a refused
+      // signal stores nothing.
+      try {
+        const statsRow = await env.DB.prepare(
+          `SELECT COUNT(*) AS thread_rows,
+                  COALESCE(SUM(LENGTH(payload)), 0) AS thread_bytes,
+                  COALESCE(SUM(CASE WHEN sender_id = ? THEN 1 ELSE 0 END), 0) AS sender_rows,
+                  COALESCE(SUM(CASE WHEN sender_id = ? THEN LENGTH(payload) ELSE 0 END), 0) AS sender_bytes
+           FROM call_signals WHERE thread_id = ? AND created_at > ?`
+        ).bind(user.id, user.id, threadId, now - SIGNAL_TTL_MS).first();
+        const stats = {
+          threadRows: Number(statsRow?.thread_rows || 0),
+          threadBytes: Number(statsRow?.thread_bytes || 0),
+          senderRows: Number(statsRow?.sender_rows || 0),
+          senderBytes: Number(statsRow?.sender_bytes || 0),
+        };
+        if (signalCeilingExceeded(stats, payloadStr.length)) {
+          return new Response(JSON.stringify({ error: "Too many call signals for this call. Please try again shortly." }), { status: 429, headers: { ...cors, "Retry-After": "10" } });
+        }
+      } catch (e) {
+        console.error("call-signal ceiling check failed:", e);
+        return new Response(JSON.stringify({
+          error: "Couldn't record the call signal. Please try again.",
+        }), { status: 500, headers: cors });
+      }
       try {
         await env.DB.prepare(
           "INSERT INTO call_signals (thread_id, sender_id, client_id, type, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)"

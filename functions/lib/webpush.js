@@ -272,6 +272,41 @@ export async function encryptPushPayload(subscription, plaintext) {
 
 /* ── Sending ───────────────────────────────────────────────────────── */
 
+/* Push endpoint host allowlist (2026-10-16, audit finding 24).
+ * A subscription endpoint is a server side fetch target: delivery POSTs
+ * to it with a signed VAPID header, so accepting any https host turned
+ * delivery into a request to an attacker chosen address. Only the real
+ * browser push services are legitimate targets:
+ *   - Google FCM (Chrome, Edge, Android): fcm.googleapis.com (exact)
+ *   - Mozilla autopush (Firefox): any *.push.services.mozilla.com host
+ *     (in practice updates.push.services.mozilla.com)
+ *   - Apple Push (Safari): any *.push.apple.com host
+ *     (in practice web.push.apple.com)
+ *   - Microsoft WNS (Edge): any *.notify.windows.com or
+ *     *.wns.windows.com host
+ * Matching is on the parsed hostname with a dot boundary for suffixes,
+ * so fcm.googleapis.com.evil.example and evilfcm.googleapis.com both
+ * fail. Credentials and non default ports are rejected too: no real
+ * push service uses either. */
+export const PUSH_ENDPOINT_EXACT_HOSTS = ["fcm.googleapis.com"];
+export const PUSH_ENDPOINT_HOST_SUFFIXES = [
+  ".push.services.mozilla.com",
+  ".push.apple.com",
+  ".notify.windows.com",
+  ".wns.windows.com",
+];
+
+export function isAllowedPushEndpoint(endpoint) {
+  let url;
+  try { url = new URL(String(endpoint || "")); } catch { return false; }
+  if (url.protocol !== "https:") return false;
+  if (url.username || url.password) return false;
+  if (url.port && url.port !== "443") return false;
+  const host = url.hostname.toLowerCase();
+  if (PUSH_ENDPOINT_EXACT_HOSTS.includes(host)) return true;
+  return PUSH_ENDPOINT_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
+}
+
 /**
  * Validate a client-supplied push subscription. Returns the normalized
  * { endpoint, p256dh, auth } or throws with a human-safe reason.
@@ -285,6 +320,7 @@ export function validatePushSubscription(sub) {
   // Push endpoints are always https. Accepting http would leak the
   // encrypted payload (and the VAPID JWT) to a network attacker.
   if (url.protocol !== "https:") throw new Error("endpoint must be https");
+  if (!isAllowedPushEndpoint(url.toString())) throw new Error("endpoint host is not a known push service");
   if (!keys || typeof keys !== "object") throw new Error("missing keys");
   const p256dh = b64uDecode(String(keys.p256dh || ""));
   if (p256dh.length !== 65 || p256dh[0] !== 0x04) throw new Error("bad p256dh key");
@@ -303,6 +339,12 @@ export async function sendPushMessage(env, subscription, payloadBytes, opts = {}
   const privateKey = (env.VAPID_PRIVATE_KEY || "").trim();
   if (!publicKey || !privateKey) {
     return { ok: false, status: 0, gone: false, error: "vapid_not_configured" };
+  }
+  // Send time recheck (2026-10-16, finding 24): rows stored before the
+  // allowlist, or written by any path that skipped validation, must
+  // never make the worker fetch an arbitrary host.
+  if (!subscription || !isAllowedPushEndpoint(subscription.endpoint)) {
+    return { ok: false, status: 0, gone: false, error: "endpoint_not_allowed" };
   }
   const body = await encryptPushPayload(subscription, payloadBytes);
   const { authorization, cryptoKey } = await vapidHeaders(
@@ -355,6 +397,12 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);`.trim();
 
 export async function storePushSubscription(db, userId, sub) {
+  // Store time recheck (2026-10-16, finding 24): validatePushSubscription
+  // is the normal gate, but no caller of this writer should be able to
+  // persist a non push service endpoint by skipping it.
+  if (!sub || !isAllowedPushEndpoint(sub.endpoint)) {
+    throw new Error("endpoint host is not a known push service");
+  }
   const now = Date.now();
   await db.prepare(
     `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, created_at)

@@ -3001,9 +3001,10 @@ export async function onRequest(context) {
 
     // Group messaging — creation. Groups are plaintext (no E2EE: multiparty
     // Olm sessions are a separate project). The creator is always a member.
-    // Every invited member must be a real, discoverable account with no
-    // block in either direction with the creator — a group is not a way
-    // around someone's block.
+    // Every invited member must be a real, discoverable account, with no
+    // block on any pairing the group creates and with a message policy
+    // that lets the creator reach them. A group is not a way around a
+    // block or a message policy.
     if (action === "start-group-thread") {
       const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
       const rawIds = Array.isArray(body.member_ids) ? body.member_ids : [];
@@ -3019,6 +3020,22 @@ export async function onRequest(context) {
         }
         if (await isBlockedPair(env, user.id, mid)) {
           return errRes("One of the people you added can't be messaged.", 403, "forbidden", cors);
+        }
+        // 2026-10-16, audit finding 23: placing someone in a group is
+        // unsolicited contact, so the invitee message policy that gates
+        // a new DM (mayStartConversation) gates group placement too.
+        if (!(await mayStartConversation(env, user.id, mid))) {
+          return errRes("One of the people you added only accepts messages from people they follow.", 403, "dm_not_allowed", cors);
+        }
+      }
+      // 2026-10-16, finding 23: the insert also creates pairings between
+      // the invitees themselves. A block in either direction on any of
+      // those pairings stops the creation, same as a creator pairing.
+      for (let i = 0; i < memberIds.length; i++) {
+        for (let j = i + 1; j < memberIds.length; j++) {
+          if (await isBlockedPair(env, memberIds[i], memberIds[j])) {
+            return errRes("One of the people you added can't be messaged.", 403, "forbidden", cors);
+          }
         }
       }
       const threadId = newId("thr");
@@ -3075,6 +3092,33 @@ export async function onRequest(context) {
           "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
         ).bind(threadId, mid).first();
         if (already) return errRes("One of those people is already in the group.", 409, "already_member", cors);
+        // 2026-10-16, audit finding 23: the added person message policy
+        // gates unsolicited group placement, as it does a new DM.
+        if (!(await mayStartConversation(env, user.id, mid))) {
+          return errRes("One of the people you added only accepts messages from people they follow.", 403, "dm_not_allowed", cors);
+        }
+      }
+      // 2026-10-16, finding 23: the insert creates pairings between each
+      // added person and every existing member, and between the added
+      // people themselves. Check every one for a block before inserting.
+      const existingRows = await env.DB.prepare(
+        "SELECT user_id FROM thread_participants WHERE thread_id = ?"
+      ).bind(threadId).all();
+      const existingIds = (existingRows.results || []).map((r) => r.user_id);
+      for (const mid of memberIds) {
+        for (const existingId of existingIds) {
+          if (existingId === user.id || existingId === mid) continue;
+          if (await isBlockedPair(env, mid, existingId)) {
+            return errRes("One of the people you added can't be messaged.", 403, "forbidden", cors);
+          }
+        }
+      }
+      for (let i = 0; i < memberIds.length; i++) {
+        for (let j = i + 1; j < memberIds.length; j++) {
+          if (await isBlockedPair(env, memberIds[i], memberIds[j])) {
+            return errRes("One of the people you added can't be messaged.", 403, "forbidden", cors);
+          }
+        }
       }
       // Same 50-person cap as creation.
       const countRow = await env.DB.prepare("SELECT COUNT(*) AS cnt FROM thread_participants WHERE thread_id = ?").bind(threadId).first();

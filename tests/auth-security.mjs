@@ -342,7 +342,7 @@ await test("buildConfigReport: binding presence is reported, bindings are not", 
 group("Input validation — vote, call signaling, reports");
 
 const { validateVote, voteDelta } = await import(join(root, "functions/api/vote.js"));
-const { validateSignalGet, validateSignalPost } = await import(
+const { validateSignalGet, validateSignalPost, SIGNAL_PAYLOAD_CAPS, signalCeilingExceeded, MAX_SIGNAL_ROWS_PER_THREAD, MAX_SIGNAL_ROWS_PER_SENDER, MAX_SIGNAL_BYTES_PER_THREAD, MAX_SIGNAL_BYTES_PER_SENDER } = await import(
   join(root, "functions/api/callsignal.js")
 );
 const { validateReport, reportDedupeHash } = await import(join(root, "functions/api/report.js"));
@@ -413,6 +413,41 @@ await test("validateSignalPost: rejects unknown types, missing ids, and oversize
     false,
     "overlong threadId accepted"
   );
+});
+
+// Finding 25 (2026-10-16): per type payload caps. The 100000 char cap
+// is reserved for offer and answer; ice gets 4096 and the tiny control
+// types hello, ring and bye get 1024 each.
+await test("validateSignalPost: per type payload caps pin the finding 25 numbers", () => {
+  assert.deepEqual(SIGNAL_PAYLOAD_CAPS, { offer: 100000, answer: 100000, ice: 4096, hello: 1024, ring: 1024, bye: 1024 });
+  for (const type of ["hello", "ring", "bye"]) {
+    const big = validateSignalPost({ threadId: "t1", clientId: "c1", type, payload: { note: "x".repeat(2000) } });
+    assert.equal(big.ok, false, `oversized ${type} payload accepted`);
+    assert.equal(big.code, "payload_too_large");
+    const small = validateSignalPost({ threadId: "t1", clientId: "c1", type, payload: {} });
+    assert.equal(small.ok, true, `empty ${type} payload rejected`);
+  }
+  const bigIce = validateSignalPost({ threadId: "t1", clientId: "c1", type: "ice", payload: { candidate: "x".repeat(5000) } });
+  assert.equal(bigIce.ok, false, "oversized ice payload accepted");
+  assert.equal(bigIce.code, "payload_too_large");
+  const okIce = validateSignalPost({ threadId: "t1", clientId: "c1", type: "ice", payload: { candidate: "x".repeat(1000) } });
+  assert.equal(okIce.ok, true, "ordinary ice candidate rejected");
+  const bigAnswer = validateSignalPost({ threadId: "t1", clientId: "c1", type: "answer", payload: { sdp: "x".repeat(20000) } });
+  assert.equal(bigAnswer.ok, true, "realistic large answer SDP rejected");
+});
+
+await test("signalCeilingExceeded: per thread and per sender row and byte ceilings", () => {
+  assert.equal(MAX_SIGNAL_ROWS_PER_THREAD, 500);
+  assert.equal(MAX_SIGNAL_ROWS_PER_SENDER, 250);
+  assert.equal(MAX_SIGNAL_BYTES_PER_THREAD, 4000000);
+  assert.equal(MAX_SIGNAL_BYTES_PER_SENDER, 2000000);
+  const base = { threadRows: 0, threadBytes: 0, senderRows: 0, senderBytes: 0 };
+  assert.equal(signalCeilingExceeded(base, 100), false, "empty window refused");
+  assert.equal(signalCeilingExceeded({ ...base, threadRows: 500 }, 100), true, "thread row ceiling not enforced");
+  assert.equal(signalCeilingExceeded({ ...base, senderRows: 250 }, 100), true, "sender row ceiling not enforced");
+  assert.equal(signalCeilingExceeded({ ...base, threadBytes: 3999950 }, 100), true, "thread byte ceiling not enforced");
+  assert.equal(signalCeilingExceeded({ ...base, senderBytes: 1999950 }, 100), true, "sender byte ceiling not enforced");
+  assert.equal(signalCeilingExceeded({ ...base, threadBytes: 1000, senderBytes: 1000 }, 100), false, "ordinary signal refused");
 });
 
 await test("validateReport: requires a description, sanitises the rest", () => {
