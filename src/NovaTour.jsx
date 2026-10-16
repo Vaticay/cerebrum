@@ -294,8 +294,11 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
   /* One figure size for the whole tour (the narrow switch
      is the only variation): her box never resizes between
      stops, so the canvas never reattributes its drawing
-     surface mid tour either. */
-  const figureSize = narrow ? 176 : 236;
+     surface mid tour either. The narrow size dropped from
+     176 to 144 on 2026-10-16 (layout audit finding 14): at
+     phone widths the panel ran taller than the visible area
+     and its controls could sit below it. */
+  const figureSize = narrow ? 144 : 236;
 
   const dots = (
     <div style={{ display: "flex", alignItems: "center", gap: 7 }} aria-hidden="true">
@@ -341,30 +344,41 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
     </div>
   );
 
+  /* Two fixed rows (2026-10-16, layout audit finding 14):
+     the old single row needed about 386px on one line and
+     wrapped at phone widths, which could push Next and Back
+     below the visible area. Row one is the dots and Skip,
+     row two is Back and Next; neither row wraps, and each
+     fits the narrowest panel content width. */
   const controls = (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-      {dots}
-      <span style={{ flex: 1 }} />
-      <button
-        onClick={(e) => { e.stopPropagation(); onClose(); }}
-        style={{ background: "none", border: "none", color: "rgba(255,255,255,0.75)", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44 }}
-      >
-        Skip the tour
-      </button>
-      {step > 0 && (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {dots}
+        <span style={{ flex: 1 }} />
         <button
-          onClick={(e) => { e.stopPropagation(); setStep(step - 1); }}
-          style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.35)", color: "#FFFFFF", borderRadius: 999, padding: "10px 18px", fontSize: FONT_SIZES.body, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          style={{ background: "none", border: "none", color: "rgba(255,255,255,0.75)", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44 }}
         >
-          Back
+          Skip the tour
         </button>
-      )}
-      <button
-        onClick={(e) => { e.stopPropagation(); advance(); }}
-        style={{ background: accent, color: onAccent, border: "none", borderRadius: 999, padding: "10px 22px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}
-      >
-        {last ? "Start learning" : "Next"}
-      </button>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ flex: 1 }} />
+        {step > 0 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setStep(step - 1); }}
+            style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.35)", color: "#FFFFFF", borderRadius: 999, padding: "10px 18px", fontSize: FONT_SIZES.body, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}
+          >
+            Back
+          </button>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); advance(); }}
+          style={{ background: accent, color: onAccent, border: "none", borderRadius: 999, padding: "10px 22px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}
+        >
+          {last ? "Start learning" : "Next"}
+        </button>
+      </div>
     </div>
   );
 
@@ -419,10 +433,11 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink }}>
             HOW NOVA WORKS · {step + 1} OF {TOUR_STEPS.length}
           </div>
+          {/* 44px hit area (2026-10-16, layout audit finding 20); the glyph size is unchanged. */}
           <button
             aria-label="Skip the tour"
             onClick={(e) => { e.stopPropagation(); onClose(); }}
-            style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 8, minWidth: 36, minHeight: 36 }}
+            style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 8, minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
           >
             ✕
           </button>

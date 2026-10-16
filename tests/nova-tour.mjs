@@ -239,7 +239,10 @@ await test("the whole tour runs in the stage presentation; the bottom band is go
   assert.ok(!tourSrc.includes("rgba(5,6,8,0.45)"), "the lighter band backdrop survived");
   assert.ok(tourSrc.includes('background: "rgba(5,6,8,0.82)"'), "the stage backdrop is not the one presentation");
   assert.ok(!tourSrc.includes("onSpotlight(stop"), "the tour still stages the screen behind her");
-  assert.ok(tourSrc.includes("const figureSize = narrow ? 176 : 236;"), "her size is not one fixed stage size per width");
+  // Pin updated 2026-10-16 (layout audit finding 14): the narrow
+  // figure shrank from 176 to 144 so the tour panel fits a phone's
+  // visible area with its controls stacked in two fixed rows.
+  assert.ok(tourSrc.includes("const figureSize = narrow ? 144 : 236;"), "her size is not one fixed stage size per width");
 });
 
 await test("the figure mounts exactly once, so her runtime never restarts between stops", () => {
@@ -251,6 +254,15 @@ await test("the figure mounts exactly once, so her runtime never restarts betwee
 await test("while the tour is open the host stands its resident Novas down", () => {
   assert.ok(learnSrc.includes('homeTab !== "today" && !tourOpen'), "the header resident still renders under the tour");
   assert.ok(learnSrc.includes('{!tourOpen && <NovaLive state={novaMood} size={288} framing="full" />}'), "the Today stage resident still renders under the tour");
+});
+
+// ── The phone fit pass (2026-10-16, layout audit findings 14 and 20) ──
+group("Phone fit (2026-10-16)");
+
+await test("the controls stack in two fixed rows and the close hit area is 44px", () => {
+  assert.ok(tourSrc.includes('flexDirection: "column", gap: 10'), "the controls are not stacked in fixed rows");
+  assert.ok(!tourSrc.includes('flexWrap: "wrap"'), "the control row wraps again; Next and Back can fall below the visible area");
+  assert.ok(tourSrc.includes("minWidth: 44, minHeight: 44"), "the tour close hit area is under the 44px tap floor");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

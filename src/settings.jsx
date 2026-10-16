@@ -310,6 +310,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
 }
 
 function ApiKeyPanel({ P, accent, at, Section, Row }) {
+  const isMobile = useIsMobile();
   const [keys, setKeys] = useState(null);
   const [usage, setUsage] = useState(null); // per-key usage dashboard
   const [name, setName] = useState("");
@@ -375,6 +376,21 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
 
   const fmtDate = (ts) => ts ? new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "n/a";
 
+  /* The new key control, shared by both row shapes below. On
+     mobile the input flexes to fill its line instead of holding
+     the fixed 170px that crushed the row label (2026-10-16,
+     layout audit finding 17). */
+  const keyNameControl = (
+    <div style={{ display: "flex", gap: 8, width: isMobile ? "100%" : undefined }}>
+      <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") create(); }}
+        placeholder="Key name, e.g. my script" autoComplete="off" aria-label="API key name"
+        style={{ padding: "8px 12px", fontSize: 16, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, fontFamily: "var(--cb-font)", width: isMobile ? undefined : 170, flex: isMobile ? "1 1 auto" : undefined, minWidth: 0 }} />
+      <UIButton P={P} accent={accent} at={at} variant="ghost" onClick={create} disabled={busy || (keys && keys.length >= 5)} style={{ minHeight: 44, flexShrink: 0 }}>
+        {busy ? "…" : "Create key"}
+      </UIButton>
+    </div>
+  );
+
   return (
     <Section title="API access" footer="Pro members can call /api/search with an API key instead of a browser session. Keys inherit your Pro quota (unlimited) and stop working if Pro lapses. Never share a key. It acts as you.">
       {newKey && (
@@ -397,20 +413,25 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
           </div>
         </div>
       )}
-      <Row
-        label="New API key"
-        desc="Up to 5 active keys. 60 requests per minute per key."
-        control={
-          <div style={{ display: "flex", gap: 8 }}>
-            <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") create(); }}
-              placeholder="Key name, e.g. my script" autoComplete="off" aria-label="API key name"
-              style={{ padding: "8px 12px", fontSize: 16, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, fontFamily: "var(--cb-font)", width: 170 }} />
-            <UIButton P={P} accent={accent} at={at} variant="ghost" onClick={create} disabled={busy || (keys && keys.length >= 5)} style={{ minHeight: 44, flexShrink: 0 }}>
-              {busy ? "…" : "Create key"}
-            </UIButton>
-          </div>
-        }
-        last={!(keys && keys.length)} />
+      {isMobile ? (
+        /* Mobile shape (2026-10-16, layout audit finding 17): the
+           shared Row never shrinks its control, so the fixed width
+           input and button crushed the label into a sliver. Here
+           the label and description take the full width and the
+           input and button sit on their own full width line under
+           them, in the Row's own padding and type. */
+        <div style={{ padding: "9px 2px", minHeight: 44, borderBottom: (keys && keys.length) ? `1px solid ${P.line}` : "none" }}>
+          <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>New API key</div>
+          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: P.faint, lineHeight: 1.5, marginTop: 2 }}>Up to 5 active keys. 60 requests per minute per key.</div>
+          <div style={{ marginTop: 10 }}>{keyNameControl}</div>
+        </div>
+      ) : (
+        <Row
+          label="New API key"
+          desc="Up to 5 active keys. 60 requests per minute per key."
+          control={keyNameControl}
+          last={!(keys && keys.length)} />
+      )}
       {msg && (
         <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.small, color: msg.tone === "good" ? "#3fb96c" : "#e5484d", fontFamily: "var(--cb-font)" }}>{msg.text}</div>
       )}
@@ -532,6 +553,7 @@ function RestorePhrasePanel({ P, accent, backups, restoreDeviceId, setRestoreDev
 }
 
 function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
+  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(true);
   const [setUp, setSetUp] = useState(false);
   const [deviceId, setDeviceId] = useState(null);
@@ -759,7 +781,10 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
 
   const phraseGrid = phrase && words.length === 24 && (
     <div style={{ padding: "16px 16px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", borderTop: `1px solid ${P.line}` }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
+      {/* Two columns on mobile (2026-10-16, layout audit finding 24):
+          at three columns a long word had about 42px and spilled into
+          the next cell; two columns give each word about 92px. */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
         {words.map((w, i) => (
           <div key={i} style={{
             display: "flex", alignItems: "baseline", gap: 8, padding: "8px 12px",
@@ -1972,7 +1997,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     // would make "reset" quietly set a NEW value rather than restore the
     // original, which is worse than having no reset at all.
     setPaletteName("Sage");          // cb_pal
-    setAccentName("Sage");          // cb_accent
+    setAccentName("Amber");         // cb_accent, the App initializer default (corrected 2026-10-16, bug audit finding 9; this said Sage)
     setCustomAccent("");            // cb_ca
     setAnswerLength("medium");      // cb_len
     setFactCheck(true);             // cb_fc !== "0"
@@ -1990,7 +2015,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setReadingProfile("none");       // cb_fh !== "1"
     setCitationStyle("vancouver");  // cb_cite
     setDataDensity("comfortable");  // cb_density
-    setTypewriter(true);            // cb_tw !== "0"
+    setTypewriter(false);           // cb_tw === "1", the App initializer default (corrected 2026-10-16, bug audit finding 9; this said true)
     const allOn = { call: true, message: true, watch: true };
     setNotify(allOn); setNotifyPref(allOn);
     try { localStorage.removeItem("cb_tts_voice"); } catch (cbErr) { console.error("[Cerebrum] settings.jsx: localStorage.removeItem('cb_tts_voice'); }:", cbErr); } // TTS voice lives in localStorage, not a cookie

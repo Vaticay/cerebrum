@@ -123,7 +123,7 @@
    that lands.
    ──────────────────────────────────────────────────────────── */
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   NOVA_QUIP_BANK,
   QUIP_CATEGORY_COOLDOWN_MS,
@@ -660,10 +660,54 @@ const SPEECH_BUBBLE_INK = "#1A1A1A";
 const SPEECH_BUBBLE_LINE = "rgba(26, 26, 26, 0.16)";
 const SPEECH_BUBBLE_FAINT = "#6E675C";
 
+/* The header bubble clamp (2026-10-16, layout audit finding
+   3): the header variant hangs centered on its figure, up to
+   250px wide, so on the small header and sheet figures its
+   center sits near the left edge of a phone screen and half
+   the bubble ran off it. The chosen fix shape is the clamp,
+   not in flow rendering: the bubble keeps its floating
+   desktop look, its width caps at the viewport minus the
+   margins, and its horizontal shift is measured from the
+   anchor figure and clamped so neither edge crosses the
+   margin. This pure helper computes that shift: how far the
+   centered bubble must move so it fits, 0 when it already
+   does. */
+export const SPEECH_BUBBLE_VIEWPORT_MARGIN = 8;
+export function speechBubbleShiftFor(anchorCenterX, bubbleWidth, viewportWidth, margin = SPEECH_BUBBLE_VIEWPORT_MARGIN) {
+  if (!(bubbleWidth > 0) || !(viewportWidth > 0)) return 0;
+  const half = bubbleWidth / 2;
+  if (anchorCenterX - half < margin) return margin - (anchorCenterX - half);
+  if (anchorCenterX + half > viewportWidth - margin) return (viewportWidth - margin) - (anchorCenterX + half);
+  return 0;
+}
+
 export function NovaBubble({ text, children, variant = "header", tail = null, onDismiss, style }) {
   const content = children != null ? children : text;
-  if (content == null || content === "") return null;
   const v = variant === "stage" || variant === "sheet" ? variant : "header";
+  /* The header clamp measurement: read the anchor figure's
+     on screen center (the bubble's offsetParent, the relative
+     span NovaRive wraps the figure in) and the bubble's own
+     layout width, then shift the bubble the amount the pure
+     helper allows. Runs on mount, on line change, and on
+     resize or rotation. */
+  const bubbleRef = useRef(null);
+  const [clampShift, setClampShift] = useState(0);
+  useLayoutEffect(() => {
+    if (v !== "header") return undefined;
+    const measure = () => {
+      const el = bubbleRef.current;
+      if (!el || typeof window === "undefined") return;
+      const anchor = el.offsetParent;
+      if (!anchor) return;
+      const a = anchor.getBoundingClientRect();
+      const shift = speechBubbleShiftFor(a.left + a.width / 2, el.offsetWidth, window.innerWidth);
+      setClampShift((prev) => (prev === shift ? prev : shift));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [v, content]);
+  if (content == null || content === "") return null;
   const tailSide = tail || (v === "stage" ? "down" : v === "header" ? "up" : "left");
   const base = {
     background: SPEECH_BUBBLE_CREAM, color: SPEECH_BUBBLE_INK,
@@ -683,20 +727,23 @@ export function NovaBubble({ text, children, variant = "header", tail = null, on
           lineHeight: 1.55, maxWidth: 470,
         }
       : {
-          position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
+          position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(calc(-50% + " + clampShift + "px))",
           borderRadius: 10, padding: "7px 11px", lineHeight: 1.35,
-          width: "max-content", maxWidth: 250, cursor: "pointer",
+          width: "max-content", maxWidth: "min(250px, calc(100vw - 16px))", cursor: "pointer",
           boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
         };
   const tailStyle = tailSide === "down"
     ? { bottom: -7, left: "50%", marginLeft: -7, borderRight: "1px solid " + SPEECH_BUBBLE_LINE, borderBottom: "1px solid " + SPEECH_BUBBLE_LINE }
     : tailSide === "up"
-      ? { top: -7, left: "50%", marginLeft: -7, borderTop: "1px solid " + SPEECH_BUBBLE_LINE, borderLeft: "1px solid " + SPEECH_BUBBLE_LINE }
+      /* A clamped bubble moves, its tail does not: the tail
+         counter shifts by the same amount so it keeps
+         pointing at the figure's center. */
+      ? { top: -7, left: "calc(50% - " + clampShift + "px)", marginLeft: -7, borderTop: "1px solid " + SPEECH_BUBBLE_LINE, borderLeft: "1px solid " + SPEECH_BUBBLE_LINE }
       : tailSide === "left"
         ? { left: -7, top: 17, borderLeft: "1px solid " + SPEECH_BUBBLE_LINE, borderBottom: "1px solid " + SPEECH_BUBBLE_LINE }
         : null;
   return (
-    <span role="status" title={v === "sheet" ? undefined : "Dismiss"} onClick={v === "sheet" ? undefined : onDismiss}
+    <span ref={bubbleRef} role="status" title={v === "sheet" ? undefined : "Dismiss"} onClick={v === "sheet" ? undefined : onDismiss}
       style={{ ...base, ...variantStyle, ...(style || {}) }}>
       {tailStyle && (
         <span aria-hidden="true" style={{
@@ -708,7 +755,9 @@ export function NovaBubble({ text, children, variant = "header", tail = null, on
       {v === "sheet" && onDismiss && (
         <button type="button" aria-label="Dismiss" onClick={onDismiss}
           style={{
-            position: "absolute", top: 4, right: 4, width: 32, height: 32,
+            /* 44px hit area (2026-10-16, layout audit finding
+               20); the glyph size below is unchanged. */
+            position: "absolute", top: 4, right: 4, width: 44, height: 44,
             background: "none", border: "none", color: SPEECH_BUBBLE_FAINT, cursor: "pointer",
             fontSize: 13, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center",
           }}>

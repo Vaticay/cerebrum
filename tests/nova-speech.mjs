@@ -63,6 +63,7 @@ const WANTED = [
   "SPEECH_EXCITED_MIN_CHARS", "SPEECH_EXCITED_FACTOR", "speechCadenceFor",
   "speechSourceForCategory", "speechDurationFor", "speechPlanFor", "speechTalkingAt", "pickSpeechLine",
   "createSpeechState", "speechIsCaused", "speechShow", "speechOffer", "speechAdvance", "speechDismiss",
+  "SPEECH_BUBBLE_VIEWPORT_MARGIN", "speechBubbleShiftFor",
 ];
 function declFor(ast, name) {
   for (const node of ast.program.body) {
@@ -93,6 +94,7 @@ const {
   SPEECH_EXCITED_MIN_CHARS, speechCadenceFor,
   speechSourceForCategory, speechDurationFor, speechPlanFor, speechTalkingAt, pickSpeechLine,
   createSpeechState, speechOffer, speechAdvance, speechDismiss,
+  SPEECH_BUBBLE_VIEWPORT_MARGIN, speechBubbleShiftFor,
 } = context.__x;
 
 // ── Extract the real quip tables from NovaRive.jsx, so the
@@ -426,6 +428,26 @@ await test("the integration contract is written at the top of the module", () =>
   assert.ok(speechSrc.includes("INTEGRATION CONTRACT"), "the contract comment must exist");
   assert.ok(speechSrc.includes("useNovaQuips"), "the contract must name what NovaRive gives up");
   assert.ok(speechSrc.includes("NovaTip"), "the contract must cover the tip gate");
+});
+
+// ── The header bubble viewport clamp (2026-10-16, layout
+// audit findings 3 and 20) ──
+group("The header bubble clamp (2026-10-16)");
+
+await test("speechBubbleShiftFor keeps a fitting bubble unshifted and clamps both edges", () => {
+  assert.equal(SPEECH_BUBBLE_VIEWPORT_MARGIN, 8);
+  assert.equal(speechBubbleShiftFor(500, 250, 1000), 0, "a centered bubble on a wide screen must not move");
+  // The header figure case from the audit: center at 77px, a
+  // 250px bubble on a 360px screen starts 48px off the left
+  // edge; the shift puts its left edge on the 8px margin.
+  assert.equal(speechBubbleShiftFor(77, 250, 360), 56, "the header figure bubble is not clamped onto the screen");
+  assert.equal(speechBubbleShiftFor(330, 250, 390), -73, "a bubble past the right margin is not pulled back");
+  assert.equal(speechBubbleShiftFor(0, 0, 360), 0, "degenerate sizes read as no shift");
+});
+
+await test("the bubble caps its width at the viewport and the sheet dismiss is 44px", () => {
+  assert.ok(speechSrc.includes('maxWidth: "min(250px, calc(100vw - 16px))"'), "the header bubble width is not capped at the viewport");
+  assert.ok(speechSrc.includes("width: 44, height: 44"), "the sheet dismiss hit area is under the 44px tap floor");
 });
 
 console.log(`\nnova-speech: ${passed} passed, ${failures.length} failed`);

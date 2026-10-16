@@ -2020,10 +2020,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     )}
                     {/* E2EE Phase 1.4 — the badge renders ONLY when the server
                         says this thread is encrypted. No badge on plaintext
-                        threads, ever: a badge is a promise. */}
+                        threads, ever: a badge is a promise. On mobile the
+                        badge is the lock alone (2026-10-16, layout audit
+                        finding 15): the full badge would not shrink and
+                        crushed the person name to nothing at phone widths.
+                        The word stays available as the label. */}
                     {activeThread.encrypted && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: RADIUS.viewport, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>
-                        <Icon name="lock" size={11} /> Encrypted
+                      <span aria-label={isMobile ? "Encrypted" : undefined} title={isMobile ? "Encrypted" : undefined} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 700, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: RADIUS.viewport, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>
+                        <Icon name="lock" size={11} />{isMobile ? null : " Encrypted"}
                       </span>
                     )}
                   </div>

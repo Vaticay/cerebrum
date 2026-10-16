@@ -153,14 +153,15 @@ const POP_CSS = `
 @keyframes nspFadeIn { from { opacity: 0; } to { opacity: 1; } }
 .nsp-still.nsp-ph-exit { animation: nspFadeOut 0.45s ease both; }
 @keyframes nspFadeOut { from { opacity: 1; } to { opacity: 0; } }
-.nsp-bubble { position: absolute; width: max-content; max-width: 290px; background: #F5F0E8; color: #1A1A1A; border: 1px solid rgba(26, 26, 26, 0.16); border-radius: 14px; padding: 11px 34px 11px 14px; font-size: ${FONT_SIZES.body}px; line-height: 1.5; pointer-events: auto; box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25); animation: nspBubbleIn 0.35s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
+.nsp-bubble { position: absolute; width: max-content; max-width: 290px; background: #F5F0E8; color: #1A1A1A; border: 1px solid rgba(26, 26, 26, 0.16); border-radius: 14px; padding: 11px 50px 11px 14px; font-size: ${FONT_SIZES.body}px; line-height: 1.5; pointer-events: auto; box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25); animation: nspBubbleIn 0.35s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
 @keyframes nspBubbleIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .nsp-bubble-d { left: calc(100% + 10px); top: 2px; }
 .nsp-bubble-m { bottom: calc(100% + 10px); left: 0; }
 .nsp-bubble-tail { position: absolute; width: 13px; height: 13px; background: #F5F0E8; transform: rotate(45deg); }
 .nsp-bubble-d .nsp-bubble-tail { left: -7px; top: 17px; border-left: 1px solid rgba(26, 26, 26, 0.16); border-bottom: 1px solid rgba(26, 26, 26, 0.16); }
 .nsp-bubble-m .nsp-bubble-tail { bottom: -7px; left: 38px; border-right: 1px solid rgba(26, 26, 26, 0.16); border-bottom: 1px solid rgba(26, 26, 26, 0.16); }
-.nsp-bubble-x { position: absolute; top: 3px; right: 3px; width: 28px; height: 28px; background: none; border: none; color: #6E675C; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+/* 44px hit area (2026-10-16, layout audit finding 20); the glyph size is unchanged, and the bubble padding above reserves the wider box. */
+.nsp-bubble-x { position: absolute; top: 3px; right: 3px; width: 44px; height: 44px; background: none; border: none; color: #6E675C; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 @media (prefers-reduced-motion: reduce) {
   .nsp-fig, .nsp-bubble { animation: none !important; }
 }
