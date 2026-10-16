@@ -8191,10 +8191,31 @@ function JumpRail({ items, P, accent, onJump, isMobile, onFollowUp = null }) {
                   )}
                 </button>
               ))}
+              {/* 2026-10-16 layout fix (finding 8): on mobile the follow
+                  up action lives in this menu instead of as a rail item.
+                  The rail row summed to about 390px against 320px
+                  available at 360px and the action fell off the right
+                  edge, clipped by the page. A sideways scroll was the
+                  other option and it was rejected here because an
+                  overflow container on the rail would clip this very
+                  menu, which is why the rail keeps overflow visible. */}
+              {isMobile && onFollowUp && (
+                <button type="button" role="menuitem"
+                  onClick={() => { setMoreOpen(false); onFollowUp(); }}
+                  style={{ minHeight: 44,
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    width: "100%", padding: "12px 12px", background: "none", border: "none",
+                    borderRadius: RADIUS.md, cursor: "pointer", textAlign: "left",
+                    fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 700,
+                    letterSpacing: TYPE.heading.letterSpacing, color: accent,
+                  }}>
+                  <span>Ask a follow up</span>
+                </button>
+              )}
             </div>
           )}
         </div>
-        {onFollowUp && (
+        {onFollowUp && !isMobile && (
           <button type="button" onClick={onFollowUp}
             style={{ minHeight: 44, marginLeft: "auto", display: "inline-flex", alignItems: "center", padding: "12px 12px", background: "none", border: "none", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 700, letterSpacing: TYPE.heading.letterSpacing, color: accent }}>
             Ask a follow up
@@ -10646,7 +10667,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
     );
   }
   return (
-    <Dialog label="Collections" onClose={close} zIndex={200} width={880}
+    <Dialog label="Collections" onClose={close} zIndex={Z.dialog} width={880}
       /* Escape in the rename input cancels the rename (the input's own
          stopPropagation can no longer beat the primitive's capture-phase
          listener); anywhere else it closes the dialog, as before. */
@@ -10690,7 +10711,7 @@ function CompareModal({ P, accent, at, S, history, close }) {
     </div>
   );
   return (
-    <Dialog label="Compare investigations" onClose={close} zIndex={200} width={1100}
+    <Dialog label="Compare investigations" onClose={close} zIndex={Z.dialog} width={1100}
       panelStyle={{
         background: P.bg, borderRadius: RADIUS.md, height: "85dvh", display: "flex",
         flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
@@ -11195,7 +11216,7 @@ function EvidenceTableModal({ P, accent, at, sources, close }) {
   const td = { padding: "12px 0", fontSize: FONT_SIZES.caption, color: P.ink, verticalAlign: "top", fontFamily: "var(--cb-font)", borderTop: `1px solid ${P.line}` };
 
   return (
-    <Dialog label="The evidence, side by side" onClose={close} zIndex={200} width={880}
+    <Dialog label="The evidence, side by side" onClose={close} zIndex={Z.dialog} width={880}
       panelStyle={{
         background: P.bg, borderRadius: RADIUS.lg, maxHeight: "86dvh", display: "flex",
         flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
@@ -12166,7 +12187,7 @@ function cbQuotaResetsAt(now = Date.now()) {
   return (Math.floor(now / QUOTA_PERIOD_MS) + 1) * QUOTA_PERIOD_MS;
 }
 
-function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
+function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth, isMobile = false }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000);
@@ -12210,7 +12231,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
 
   if (!user) {
     return (
-      <div style={{ maxWidth: 640, margin: "0 auto", padding: "48px 24px", textAlign: "center" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "64px 24px" : "48px 24px", textAlign: "center" }}>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</div>
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
           Sign in to see your meters: AI answers, document reads, and flowcharts, with exact refill times.
@@ -12229,7 +12250,7 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
      no tier, cap, or refill claim is made until the status arrives. */
   if (!proStatus) {
     return (
-      <div style={{ maxWidth: 640, margin: "0 auto", padding: "48px 24px", textAlign: "center" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "64px 24px" : "48px 24px", textAlign: "center" }}>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</div>
         <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
           Loading your plan details. Your meters appear here as soon as your plan status arrives.
@@ -12323,8 +12344,11 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
     );
   };
 
+  /* 2026-10-16 layout fix (finding 16): mobile top padding is 64px in
+     every Usage state, signed in, signed out, and loading. The old 32px
+     and 48px tops put the header row under the fixed 56px top bar. */
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px 64px" }}>
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: isMobile ? "64px 24px 64px" : "32px 24px 64px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         {/* The resident header Nova (2026-10-15), same mount as
             every other tab: 66px, left of the title, idle brain. */}
@@ -14663,7 +14687,11 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
       {status === "ready" && (
         <div style={{
           position: "absolute", bottom: isMobile ? 20 : 32, left: "50%", transform: "translateX(-50%)",
-          display: "flex", alignItems: "center", gap: 14, padding: 10, borderRadius: RADIUS.viewport,
+          /* 2026-10-16 layout fix (finding 5): on mobile the gap drops to
+             8 and the padding to 8, so the row sums to 352px instead of
+             386px and fits a 360px screen without clipping the mic and
+             end call buttons. */
+          display: "flex", alignItems: "center", gap: isMobile ? 8 : 14, padding: isMobile ? 8 : 10, borderRadius: RADIUS.viewport,
           background: "#141418",
           border: "1px solid rgba(255,255,255,0.14)", boxShadow: "0 14px 40px rgba(0,0,0,0.45)",
         }}>
@@ -19453,8 +19481,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     /* ── Scroll area ── */
     // No longer a scroll container itself (see `page` note above) — the
     // real document scrolls now. `flex: 1` still lets it fill remaining
-    // height below the sticky header on short pages, and the bottom padding
-    // still clears the floating mobile "Sources" FAB.
+    // height below the sticky header on short pages.
+    // 2026-10-16 layout fix (finding 18): this wrapper no longer adds a
+    // mobile bottom padding of its own. The bottom nav clearance now
+    // lives in one place only, the mobile body rule in App (72px plus
+    // inset), which is also the only clearance the non search views get.
     scroll: {
       flex: 1, display: "flex", flexDirection: "column",
       /* Sticky-footer fix: this wrapper used to be a plain block with
@@ -19466,7 +19497,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          deterministically fills the viewport height and S.foot's
          marginTop:auto pins it to the bottom. Long pages are unaffected:
          the container just grows. */
-      paddingBottom: isMobile ? 88 : 0,
+      paddingBottom: 0,
     },
     container: { width: "100%", maxWidth: 1200, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", flex: 1, display: "flex", flexDirection: "column" },
 
@@ -19678,7 +19709,15 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // itself (rather than the FAB or some wrapper) guarantees real content
     // never lands in that reserved strip regardless of how long the answer
     // runs. Desktop keeps the old, smaller value — there's no floating FAB there.
-    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: isMobile ? "calc(152px + env(safe-area-inset-bottom, 0px))" : 48, flex: 1, maxWidth: LAYOUT.answer, margin: "0 auto", width: "100%" },
+    /* 2026-10-16 layout fix (finding 18): the mobile paddingBottom is
+       back to 48, the same ordinary bottom padding desktop uses, with no
+       safe area inset added. The old mobile value of 152px plus inset was
+       a second nav clearance stacked on the scroll wrapper and the body
+       rule. The nav clearance now lives in the body rule alone. The v34
+       note above still holds in one respect: 48px of container padding
+       plus the body clearance keeps final answer lines out of the fixed
+       chrome at the bottom of the phone. */
+    workspace: { display: "flex", flexDirection: "column", gap: 0, padding: isMobile ? "32px 0" : "72px 0 48px", paddingBottom: 48, flex: 1, maxWidth: LAYOUT.answer, margin: "0 auto", width: "100%" },
     workspaceMobile: { maxWidth: "100%" },
     // v5: on anything wide enough to spare the room, sources shouldn't live
     // behind a FAB the whole session — that was true on a phone (no room for
@@ -19864,7 +19903,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        Solid background, no backdrop blur: a 52px blur over playing video
        is per-frame compositor work for zero legibility gain at this size. */
     mobSrcBtn: {
-      position: "fixed", bottom: "calc(20px + env(safe-area-inset-bottom, 0px))", right: "max(16px, env(safe-area-inset-right, 0px))",
+      /* 2026-10-16 layout fix (finding 1): bottom 88px plus inset, not
+         20px. At 20px the 52px button sat inside the 64px bottom nav
+         band and only an 8px sliver showed above it. 88px is the offset
+         the started back to top button already used. */
+      position: "fixed", bottom: "calc(88px + env(safe-area-inset-bottom, 0px))", right: "max(16px, env(safe-area-inset-right, 0px))",
       width: 52, height: 52, borderRadius: "50%",
       background: accent, color: at, border: "none", cursor: "pointer",
       boxShadow: `0 8px 28px ${withAlpha(accent, 0.45)}, 0 2px 8px rgba(0,0,0,0.25)`,
@@ -19989,7 +20032,7 @@ function CommandPalette({ open, onClose, P, accent, query, setQuery, groups, act
 }
 
 
-function ToastHost({ P, accent }) {
+function ToastHost({ P, accent, isMobile = false }) {
   const [toasts, setToasts] = useState([]);
   useEffect(() => {
     const onToast = (e) => {
@@ -20006,7 +20049,7 @@ function ToastHost({ P, accent }) {
     // failures) updated only visually — a screen-reader user got zero
     // announcement for any of them. role="status" + aria-live="polite"
     // makes assistive tech announce new toasts as they appear.
-    <div role="status" aria-live="polite" style={{ position: "fixed", bottom: "max(24px, env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: Z.toast, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
+    <div role="status" aria-live="polite" style={{ position: "fixed", bottom: isMobile ? "calc(88px + env(safe-area-inset-bottom, 0px))" : "max(24px, env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", zIndex: Z.toast, display: "flex", flexDirection: "column", gap: 8, alignItems: "center", pointerEvents: "none" }}>
       {toasts.map((t) => (
         <div key={t.id} className="cb-toast-pop" style={{
           background: "#121420", color: "#fff", padding: "12px 16px", borderRadius: RADIUS.md,
@@ -20209,7 +20252,16 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     <nav ref={navRevealRef} aria-label="Main"
       onMouseEnter={() => { if (!isMobile && railCollapsed) setRailHover(true); }}
       onMouseLeave={() => setRailHover(false)}
-      style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), width: railW, transition: "width 280ms cubic-bezier(0.16, 1, 0.3, 1), transform 280ms cubic-bezier(0.16, 1, 0.3, 1)", overflowX: "hidden", ...(railCollapsed && railHover && !isMobile ? { boxShadow: "12px 0 40px rgba(0,0,0,0.35)" } : {}) }}>
+      /* 2026-10-16 layout fix (finding 22): a closed mobile drawer is
+         hidden and inert, not just translated off screen. Without this
+         its buttons stayed in keyboard and screen reader order while
+         invisible. The visibility transition is delayed by the slide
+         duration when closing, so the drawer still slides out instead
+         of vanishing, and it applies with no delay when opening.
+         Desktop is unaffected: the spread and the inert attribute only
+         apply on mobile while closed. */
+      {...(isMobile && !mobileOpen ? { inert: "" } : {})}
+      style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), width: railW, transition: "width 280ms cubic-bezier(0.16, 1, 0.3, 1), transform 280ms cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear " + (isMobile && !mobileOpen ? "280ms" : "0s"), overflowX: "hidden", visibility: isMobile && !mobileOpen ? "hidden" : "visible", ...(railCollapsed && railHover && !isMobile ? { boxShadow: "12px 0 40px rgba(0,0,0,0.35)" } : {}) }}>
       {/* Explicit close button for the mobile drawer. */}
       {isMobile && mobileOpen && (
         <UIButton P={P} variant="ghost"
@@ -20582,10 +20634,13 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
    and writes the same SHA to public/version.json at build time. App polls
    /version.json every 10 minutes; when the SHAs differ, a newer deploy is
    live. The banner surfaces only while idle — never mid-search. */
-function VersionBanner({ P, accent, onRefresh, onDismiss }) {
+function VersionBanner({ P, accent, onRefresh, onDismiss, isMobile = false }) {
   return (
     <div style={{
-      position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)",
+      /* 2026-10-16 layout fix (finding 7): on mobile the banner drops to
+         top 68 so it sits below the 56px fixed header instead of covering
+         it and its Inbox button. Desktop keeps top 12. */
+      position: "fixed", top: isMobile ? 68 : 12, left: "50%", transform: "translateX(-50%)",
       zIndex: Z.banner, display: "flex", alignItems: "center", gap: 10,
       background: P.bg, border: `1px solid ${withAlpha(accent, 0.4)}`,
       borderRadius: RADIUS.viewport, padding: "8px 8px 8px 16px",
@@ -23935,7 +23990,7 @@ function App() {
       <div style={S.grain} />
       {filmCreditsOpen && <FilmCreditsDialog accent={accent} onClose={() => setFilmCreditsOpen(false)} />}
 
-      {updateReady && <VersionBanner P={P} accent={accent} onRefresh={() => window.location.reload()} onDismiss={() => setUpdateReady(false)} />}
+      {updateReady && <VersionBanner P={P} accent={accent} isMobile={isMobile} onRefresh={() => window.location.reload()} onDismiss={() => setUpdateReady(false)} />}
       {opening && <InvestigationOpening accent={accent} animationMode={animationMode} />}
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {/* Back to top. Two mobile fixes: it sat at 10% white over the page,
@@ -23945,7 +24000,7 @@ function App() {
           edge of a card is its quiet side. Opaque, shadowed, and on the
           right on mobile — desktop keeps the left, where nothing collides
           and the right is the sources panel's territory. */}
-      {showScrollTop && <UIButton P={P} variant="ghost" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? (started ? "calc(88px + env(safe-area-inset-bottom, 0px))" : "calc(24px + env(safe-area-inset-bottom, 0px))") /* clears the 52px Sources FAB only when it exists */ : 24, [isMobile ? "right" : "left"]: isMobile ? "max(16px, env(safe-area-inset-right, 0px))" : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: Z.fab, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</UIButton>}
+      {showScrollTop && <UIButton P={P} variant="ghost" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? "calc(88px + env(safe-area-inset-bottom, 0px))" /* 2026-10-16 layout fix (finding 2): 88px plus inset in every state. The unstarted 24px state sat inside the bottom nav band with only a 4px sliver showing. */ : 24, [isMobile ? "right" : "left"]: isMobile ? "max(16px, env(safe-area-inset-right, 0px))" : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: Z.fab, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "0 4px 16px rgba(0,0,0,0.5)" : "0 4px 16px rgba(0,0,0,0.14)", fontSize: FONT_SIZES.subhead }}>↑</UIButton>}
       <Sidebar
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
@@ -23983,6 +24038,13 @@ function App() {
           bell with unread dot | account avatar. Tab bar: Home, Library,
           Create, Inbox, Account — five thumb-reachable targets. Pull down
           on the header opens the command palette. */}
+      {/* 2026-10-16 layout fix (finding 18): this body rule is the one
+          surviving bottom nav clearance. It applies to every view, which
+          is why it survives over the search only workspace and scroll
+          wrapper additions that were removed: WorkspacePage bottom
+          padding is 56px on mobile and Usage bottom padding is 64px
+          with no inset, so non search views depend on this rule to
+          clear the 64px nav plus inset. */}
       {isMobile && <style>{`body{padding-bottom:calc(72px + env(safe-area-inset-bottom)) !important;}`}</style>}
       {isMobile && (() => {
         const VIEW_TITLES = { search: "Search", document: "Document Reader", studio: "Diagram Studio", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile", learn: "Nova" };
@@ -24481,7 +24543,7 @@ function App() {
         <Reveal style={S.pageView} deps={[view]}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} onAsk={(q) => { setView("search"); ask(q); }} /></Reveal>
       )}
       {view === "usage" && (
-        <Reveal style={S.pageView} deps={[view]}><UsageView P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={openPro} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} /></Reveal>
+        <Reveal style={S.pageView} deps={[view]}><UsageView P={P} accent={accent} at={at} user={user} proStatus={proStatus} isMobile={isMobile} onOpenPro={openPro} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} /></Reveal>
       )}
       {/* Commit 99 — Document Mode, as a destination. See NotebookMode's own
           comment for why it stopped being an overlay. */}
@@ -25202,7 +25264,7 @@ function App() {
         </button>
       )}
       {started && isMobile && mobilePanel && (
-        <Dialog label="Sources" onClose={() => setMobilePanel(false)} zIndex={30} drawer={true}
+        <Dialog label="Sources" onClose={() => setMobilePanel(false)} zIndex={Z.drawer} drawer={true}
           panelStyle={{ width: "min(400px, 88vw)", background: P.dark ? "#0f111a" : "#ffffff", border: `1px solid ${P.line}`, padding: "24px", boxShadow: "-8px 0 40px rgba(0,0,0,0.5)" }}
         >
           <button style={{ ...S.ghostBtn, marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => setMobilePanel(false)}><Icon name="close" size={13} /> Close</button>{SourcesInner}
@@ -25377,12 +25439,15 @@ function App() {
           what "off" means. */}
       {animationMode !== "off" && <div className="cb-grain" aria-hidden="true" />}
       {animationMode !== "off" && <div className="cb-vignette" aria-hidden="true" />}
-      <ToastHost P={P} accent={accent} />
+      <ToastHost P={P} accent={accent} isMobile={isMobile} />
       {/* Passkey graduation: one quiet line after sign-in, never a modal.
           Dismisses itself on setup or "Not now", and never asks again. */}
       {passkeyOffer && user && (
         <div role="status" style={{
-          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          /* 2026-10-16 layout fix (finding 11): on mobile the passkey card
+             and the toast host both anchor at 88px plus inset, clearing
+             the bottom nav and each other. Desktop keeps bottom 24. */
+          position: "fixed", bottom: isMobile ? "calc(88px + env(safe-area-inset-bottom, 0px))" : 24, left: "50%", transform: "translateX(-50%)",
           zIndex: Z.toast, maxWidth: "min(440px, calc(100vw - 32px))",
           background: P.raised, border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg,
           boxShadow: P.shadow, padding: "14px 16px",
@@ -25572,8 +25637,11 @@ button:not(.cb-cite):not(.cb-anchor),
 [role="button"],
 [role="tab"],
 .cb-mode, .cb-pill, .cb-starter-item {
-  min-height: 44px;
-  min-width: 44px;
+  /* 2026-10-16 layout fix (finding 20): the important flag is what makes
+     this a floor. Without it, later class rules with smaller sizes
+     outranked it and the 44px minimum failed in practice. */
+  min-height: 44px !important;
+  min-width: 44px !important;
 }
 /* iOS Safari zooms any control under 16px on focus: the floor stays global.
    Per-control refinements above it are additive, never a replacement. */
@@ -26321,7 +26389,10 @@ summary::-webkit-details-marker { display: none; }
   border-radius: 50%; flex-shrink: 0;
 }
 .cb-ask--stage .cb-ask-go--round {
-  width: 36px; height: 36px; min-height: 36px; padding: 0; margin-left: 6px;
+  /* 2026-10-16 layout fix (finding 20): 44px, matching the plain round
+     submit rule above. The 36px stage rule outranked the global tap
+     floor because its two class selector is more specific. */
+  width: 44px; height: 44px; min-height: 44px; padding: 0; margin-left: 6px;
   border-radius: 2px; flex-shrink: 0;
   background: var(--cb-acc); border: 1px solid transparent;
   color: var(--cb-ask-stage-ink, #121110);
@@ -27896,7 +27967,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .cb-grain {
   position: fixed;
   inset: 0;
-  z-index: ${Z.toast};
+  /* 2026-10-16 layout fix (finding 9): the grain slot, not the toast
+     value. Both texture layers now sit under dialogScrim, matching the
+     render comment that they belong above the page and below modals. */
+  z-index: ${Z.grain};
   pointer-events: none;
   opacity: 0.03;
   contain: strict;
@@ -27907,7 +27981,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .cb-vignette {
   position: fixed;
   inset: 0;
-  z-index: ${Z.toast};
+  z-index: ${Z.grain};
   pointer-events: none;
   contain: strict;
   /* Commit 82 — was 0.28, which crushed the corners hard enough that the
@@ -28093,9 +28167,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
     padding: 0 !important;
   }
 
-  /* 9 · Document Mode reader tabs: four tabs never fit 360px side by
-     side, so the tab row scrolls horizontally instead of clipping. */
-  .cb-doc-tabs .cb-seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  /* 9 · Document Mode reader tabs: the tabs wrap onto two lines at phone
+     widths instead of scrolling sideways.
+     2026-10-16 layout fix (finding 25): the sideways scroll hid its
+     scrollbar, so when a second document added the Compare tab it sat
+     off the right edge with no cue that it existed. Wrapping keeps
+     every tab visible. */
+  .cb-doc-tabs .cb-seg { max-width: 100%; flex-wrap: wrap; overflow-x: visible; scrollbar-width: none; }
   .cb-doc-tabs .cb-seg::-webkit-scrollbar { display: none; }
 
   /* 10 · Usage tiers: the four-column comparison table becomes three

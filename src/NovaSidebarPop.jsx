@@ -160,8 +160,8 @@ const POP_CSS = `
 .nsp-bubble-tail { position: absolute; width: 13px; height: 13px; background: #F5F0E8; transform: rotate(45deg); }
 .nsp-bubble-d .nsp-bubble-tail { left: -7px; top: 17px; border-left: 1px solid rgba(26, 26, 26, 0.16); border-bottom: 1px solid rgba(26, 26, 26, 0.16); }
 .nsp-bubble-m .nsp-bubble-tail { bottom: -7px; left: 38px; border-right: 1px solid rgba(26, 26, 26, 0.16); border-bottom: 1px solid rgba(26, 26, 26, 0.16); }
-/* 44px hit area (2026-10-16, layout audit finding 20); the glyph size is unchanged, and the bubble padding above reserves the wider box. */
-.nsp-bubble-x { position: absolute; top: 3px; right: 3px; width: 44px; height: 44px; background: none; border: none; color: #6E675C; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+/* 44px hit area (2026-10-16, layout audit finding 20); the glyph size is unchanged and its center stays 17px from each edge, where it sat in the old 28px box; the bubble padding above reserves the wider box. */
+.nsp-bubble-x { position: absolute; top: -5px; right: -5px; width: 44px; height: 44px; min-width: 44px; min-height: 44px; background: none; border: none; color: #6E675C; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 @media (prefers-reduced-motion: reduce) {
   .nsp-fig, .nsp-bubble { animation: none !important; }
 }
