@@ -142,6 +142,7 @@ import {
   pickNovaLine,
 } from "./LearnView.jsx";
 import { FONT_SIZES, RADIUS } from "./designSystem.jsx";
+import { useWindowWidth } from "./appUtils.js";
 
 /* The line banks, consumable from here. The quip bank is the
    one in NovaRive.jsx, re exported untouched: her wording is
@@ -688,25 +689,25 @@ export function NovaBubble({ text, children, variant = "header", tail = null, on
      on screen center (the bubble's offsetParent, the relative
      span NovaRive wraps the figure in) and the bubble's own
      layout width, then shift the bubble the amount the pure
-     helper allows. Runs on mount, on line change, and on
-     resize or rotation. */
+     helper allows. Runs on mount and on line change; the
+     viewport width comes from the shared useWindowWidth hook
+     (appUtils is the one place a direct width read may live,
+     and the hook follows resizes, so a rotation remeasures
+     through the winW dependency). */
+  const winW = useWindowWidth();
   const bubbleRef = useRef(null);
   const [clampShift, setClampShift] = useState(0);
   useLayoutEffect(() => {
     if (v !== "header") return undefined;
-    const measure = () => {
-      const el = bubbleRef.current;
-      if (!el || typeof window === "undefined") return;
-      const anchor = el.offsetParent;
-      if (!anchor) return;
-      const a = anchor.getBoundingClientRect();
-      const shift = speechBubbleShiftFor(a.left + a.width / 2, el.offsetWidth, window.innerWidth);
-      setClampShift((prev) => (prev === shift ? prev : shift));
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [v, content]);
+    const el = bubbleRef.current;
+    if (!el) return undefined;
+    const anchor = el.offsetParent;
+    if (!anchor) return undefined;
+    const a = anchor.getBoundingClientRect();
+    const shift = speechBubbleShiftFor(a.left + a.width / 2, el.offsetWidth, winW);
+    setClampShift((prev) => (prev === shift ? prev : shift));
+    return undefined;
+  }, [v, content, winW]);
   if (content == null || content === "") return null;
   const tailSide = tail || (v === "stage" ? "down" : v === "header" ? "up" : "left");
   const base = {
