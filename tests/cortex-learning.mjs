@@ -3001,6 +3001,31 @@ await test("the share card draws the wave 3 layout: cream circle, gold glow, two
   assert.ok(!learnSrc.includes("Nova · askcerebrum.org"), "the old share card footer survived");
 });
 
+await test("the share card carries the Cerebrum lockup top left and a footer nothing can collide with", () => {
+  // 2026-10-15, owner photo: the lesson card's course subline
+  // printed on top of the footer brand line (both landed at the
+  // same baseline under a two line title) and the card carried
+  // no Cerebrum branding of its own. The lockup and the budgeted
+  // stack below are the corrected contract.
+  assert.ok(learnSrc.includes("SHARE_CARD_BRAIN_L"), "the share card lost its brain mark paths");
+  assert.ok(learnSrc.includes("SHARE_CARD_BRAIN_R"), "the share card lost its brain mark paths");
+  assert.ok(learnSrc.includes("M9.5 2A2.5 2.5 0 0 1 12 4.5v15"), "the lockup brain is not the favicon geometry");
+  assert.ok(learnSrc.includes("ctx.stroke(new Path2D(SHARE_CARD_BRAIN_L))"), "the lockup brain is not stroked");
+  assert.ok(learnSrc.includes('ctx.fillText("Cerebrum", 110, 92)'), "the lockup name is not beside the mark");
+  assert.ok(learnSrc.includes('ctx.fillText("© 2026 Cerebrum", 56, 128)'), "the lockup copyright line is missing");
+  // The stack is budgeted: the title shrinks until title plus
+  // subline plus pills end above STACK_LIMIT with every title
+  // word drawn, stepping the whole block up for the longest
+  // titles, and the footer keeps its own fixed baseline below
+  // that limit.
+  assert.ok(learnSrc.includes("const STACK_LIMIT = 968"), "the share card stack lost its budget limit");
+  assert.ok(learnSrc.includes("stackFits(titleTop, drawnTitle)"), "the title no longer shrinks to fit the stack");
+  assert.ok(learnSrc.includes("titleTop = 784"), "the stepped up second pass for long titles is gone");
+  assert.ok(learnSrc.includes("drawn.length >= wrapped.length"), "a fitting layout may again drop title words");
+  assert.ok(learnSrc.includes('ctx.fillText("Cerebrum · askcerebrum.org", 540, 1016)'), "the footer brand line lost its own fixed line");
+  assert.ok(!learnSrc.includes("belowY"), "the old marching baseline that caused the footer collision survived");
+});
+
 // ══════════════════════════════════════════════════════════════════
 group("Nova content wave: the fifth path, at the flagship standard");
 

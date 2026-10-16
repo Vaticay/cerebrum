@@ -10430,6 +10430,13 @@ export function shareCardModel(kind, data = {}) {
    the rest of the old model. The model's pose field survives
    as data; it no longer selects art, there is one Nova now. */
 const SHARE_CARD_NOVA_SRC = "/nova/nova-model-sheet.svg";
+/* The Cerebrum brain for the card's brand lockup: the two path
+   strings of public/favicon.svg (the same geometry CerebrumApp
+   keeps as FAVICON_BRAIN_L and FAVICON_BRAIN_R and the og card
+   strokes in scripts/build-og-image.mjs), drawn here with
+   Path2D the way the favicon animation draws them. */
+const SHARE_CARD_BRAIN_L = "M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 7.5 11a2.5 2.5 0 0 1 0-4.12A2.5 2.5 0 0 1 9.5 2Z";
+const SHARE_CARD_BRAIN_R = "M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 16.5 11a2.5 2.5 0 0 0 0-4.12A2.5 2.5 0 0 0 14.5 2Z";
 function ShareCardButton({ model, P, accent }) {
   const [msg, setMsg] = useState("");
   if (!model) return null;
@@ -10484,15 +10491,43 @@ function ShareCardButton({ model, P, accent }) {
           ctx.restore();
         } catch { /* the cream circle stands on its own */ }
       }
-      /* kind line */
-      ctx.fillStyle = GOLD;
-      ctx.font = "600 27px 'Inter Tight', 'Segoe UI', sans-serif";
-      const eyebrow = String(model.eyebrow || "");
-      try { ctx.letterSpacing = "6px"; } catch { /* older canvas */ }
-      ctx.fillText(eyebrow, 540, 742);
-      try { ctx.letterSpacing = "0px"; } catch { /* older canvas */ }
-      /* the title, serif, shrunk to fit two lines at most */
+      /* Cerebrum brand lockup, top left (owner ask, 2026-10-15):
+         the brain mark stroked in the house gold, the name
+         beside it, and the copyright small under the mark. It
+         sits quiet in the corner on purpose: the Nova wordmark
+         owns the top centre and nothing here competes with it.
+         Drawn after the glow so it stays crisp. */
+      ctx.save();
+      ctx.translate(56, 52);
+      ctx.scale(2, 2);
+      ctx.strokeStyle = GOLD;
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.stroke(new Path2D(SHARE_CARD_BRAIN_L));
+      ctx.stroke(new Path2D(SHARE_CARD_BRAIN_R));
+      ctx.restore();
+      ctx.textAlign = "left";
       ctx.fillStyle = INK;
+      ctx.font = "600 33px 'Inter Tight', 'Segoe UI', sans-serif";
+      ctx.fillText("Cerebrum", 110, 92);
+      ctx.fillStyle = "rgba(232, 228, 220, 0.45)";
+      ctx.font = "400 20px 'Inter Tight', 'Segoe UI', sans-serif";
+      ctx.fillText("© 2026 Cerebrum", 56, 128);
+      ctx.textAlign = "center";
+      /* The lower stack, laid out on a budget before anything
+         below the circle is drawn (owner photo, 2026-10-15: the
+         old fixed baselines marched one line height past the
+         title no matter what, so a two line title put its
+         course subline at the footer's own baseline and its
+         pills off the bottom edge, all three printing on top
+         of each other). A layout counts as fitting only when
+         the whole stack, title plus subline plus pills, ends
+         above the footer with air to spare AND no title word
+         is left undrawn. */
+      const extra = (model.lines || []).slice(2).map(String).filter(Boolean);
+      const stats = (model.lines || []).slice(0, 2).map(String).filter(Boolean);
+      const STACK_LIMIT = 968;
       let titleSize = 84;
       const wrapTitle = (size) => {
         ctx.font = "600 " + size + "px Georgia, 'Times New Roman', serif";
@@ -10507,28 +10542,87 @@ function ShareCardButton({ model, P, accent }) {
         return lines;
       };
       let wrapped = wrapTitle(titleSize);
-      while (wrapped.length > 2 && titleSize > 44) { titleSize -= 8; wrapped = wrapTitle(titleSize); }
-      wrapped.slice(0, 2).forEach((ln, i) => ctx.fillText(ln, 540, 812 + i * (titleSize + 14)));
-      let belowY = 812 + wrapped.slice(0, 2).length * (titleSize + 14);
+      const widestTitleLine = () => wrapped.reduce((m, ln) => Math.max(m, ctx.measureText(ln).width), 0);
+      /* Where the stack's pieces land for a title block whose
+         first baseline is `top`: the baselines and the lowest
+         point any of it reaches. */
+      const stackFor = (top, drawn) => {
+        const lastBaseline = top + Math.max(0, drawn.length - 1) * (titleSize + 14);
+        let bottom = lastBaseline + 12;
+        let extraBaseline = 0;
+        if (extra.length) { extraBaseline = lastBaseline + 48; bottom = extraBaseline + 12; }
+        let pillsTop = 0;
+        if (stats.length) { pillsTop = (extra.length ? extraBaseline : lastBaseline) + 26; bottom = pillsTop + 58; }
+        return { lastBaseline, extraBaseline, pillsTop, bottom };
+      };
+      const stackFits = (top, drawn) =>
+        drawn.length >= wrapped.length && widestTitleLine() <= 940 && stackFor(top, drawn).bottom <= STACK_LIMIT;
+      /* First pass at the spec's own geometry, two lines at
+         most, shrinking from full size. Nearly every real
+         title lands here and keeps the wave 3 look exactly. */
+      let titleTop = 812;
+      let drawnTitle = wrapped.slice(0, 2);
+      while (!stackFits(titleTop, drawnTitle) && titleSize > 38) {
+        titleSize = Math.max(38, titleSize - 4);
+        wrapped = wrapTitle(titleSize);
+        drawnTitle = wrapped.slice(0, 2);
+      }
+      /* The tail the first pass cannot seat (proof render,
+         2026-10-15: a 74 character title in the widest serif
+         still wrapped to three lines at the floor, and the old
+         two line cap would have dropped its last word whole):
+         the lower block steps up, the eyebrow with it, and the
+         title may take a third line, shrinking further, before
+         any word is given up. */
+      if (!stackFits(titleTop, drawnTitle)) {
+        titleTop = 784;
+        drawnTitle = wrapped.slice(0, 3);
+        while (!stackFits(titleTop, drawnTitle) && titleSize > 30) {
+          titleSize = Math.max(30, titleSize - 2);
+          wrapped = wrapTitle(titleSize);
+          drawnTitle = wrapped.slice(0, 3);
+        }
+      }
+      const stack = stackFor(titleTop, drawnTitle);
+      /* kind line, riding 70 above the title block wherever
+         the layout put it */
+      ctx.fillStyle = GOLD;
+      ctx.font = "600 27px 'Inter Tight', 'Segoe UI', sans-serif";
+      const eyebrow = String(model.eyebrow || "");
+      try { ctx.letterSpacing = "6px"; } catch { /* older canvas */ }
+      ctx.fillText(eyebrow, 540, titleTop - 70);
+      try { ctx.letterSpacing = "0px"; } catch { /* older canvas */ }
+      /* the title itself */
+      ctx.fillStyle = INK;
+      drawnTitle.forEach((ln, i) => ctx.fillText(ln, 540, titleTop + i * (titleSize + 14)));
       /* any further model lines belong to the title block as one
-         quiet subline (a lesson share names its course here) */
-      const extra = (model.lines || []).slice(2).map(String).filter(Boolean);
+         quiet subline (a lesson share names its course here),
+         shrunk until it fits the card's width */
       if (extra.length) {
         ctx.fillStyle = "rgba(232, 228, 220, 0.66)";
-        ctx.font = "400 30px Georgia, 'Times New Roman', serif";
-        ctx.fillText(extra.join(" · "), 540, belowY + 6);
-        belowY += 48;
+        let subSize = 30;
+        ctx.font = "400 " + subSize + "px Georgia, 'Times New Roman', serif";
+        const subText = extra.join(" · ");
+        while (ctx.measureText(subText).width > 940 && subSize > 20) { subSize -= 2; ctx.font = "400 " + subSize + "px Georgia, 'Times New Roman', serif"; }
+        ctx.fillText(subText, 540, stack.extraBaseline);
       }
-      /* two stats, cream pills side by side */
-      const stats = (model.lines || []).slice(0, 2).map(String).filter(Boolean);
+      /* two stats, cream pills side by side, shrunk as a pair
+         if their text would run past the card's edges */
       if (stats.length) {
-        ctx.font = "500 30px 'Inter Tight', 'Segoe UI', sans-serif";
-        const widths = stats.map((s) => ctx.measureText(s).width + 56);
-        const total = widths.reduce((a, b) => a + b, 0) + (stats.length - 1) * 20;
+        let statSize = 30;
+        ctx.font = "500 " + statSize + "px 'Inter Tight', 'Segoe UI', sans-serif";
+        let widths = stats.map((s) => ctx.measureText(s).width + 56);
+        let total = widths.reduce((a, b) => a + b, 0) + (stats.length - 1) * 20;
+        while (total > 1000 && statSize > 22) {
+          statSize -= 2;
+          ctx.font = "500 " + statSize + "px 'Inter Tight', 'Segoe UI', sans-serif";
+          widths = stats.map((s) => ctx.measureText(s).width + 56);
+          total = widths.reduce((a, b) => a + b, 0) + (stats.length - 1) * 20;
+        }
         let px = 540 - total / 2;
         stats.forEach((s, i) => {
           const w = widths[i];
-          const rx = px, ry = belowY + 18, rw = w, rh = 58, rr = 29;
+          const rx = px, ry = stack.pillsTop, rw = w, rh = 58, rr = 29;
           ctx.beginPath();
           ctx.moveTo(rx + rr, ry);
           ctx.lineTo(rx + rw - rr, ry);
@@ -10542,10 +10636,13 @@ function ShareCardButton({ model, P, accent }) {
           ctx.closePath();
           ctx.fillStyle = CREAM; ctx.fill();
           ctx.fillStyle = CREAM_INK;
-          ctx.fillText(s, px + w / 2, belowY + 57);
+          ctx.fillText(s, px + w / 2, stack.pillsTop + 39);
           px += w + 20;
         });
       }
+      /* the footer brand line, always on its own line at the
+         same baseline: the stack above is budgeted to end well
+         clear of it */
       ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
       ctx.font = "400 25px 'Inter Tight', 'Segoe UI', sans-serif";
       ctx.fillText("Cerebrum · askcerebrum.org", 540, 1016);
