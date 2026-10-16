@@ -255,6 +255,9 @@ function cortexCourseProblem(course) {
     if (lesson.title != null && typeof lesson.title !== "string") return "That file's courses section holds a lesson whose title is not readable. Nothing was imported.";
     if (lesson.subtitle != null && typeof lesson.subtitle !== "string") return "That file's courses section holds a lesson whose subtitle is not readable. Nothing was imported.";
     if (!Array.isArray(lesson.cards)) return "That file's courses section holds a lesson with no cards list. Nothing was imported.";
+    /* An empty cards list renders a blank Player with no on screen
+       exit, so it is rejected here (bug audit finding 8, 2026-10-16). */
+    if (lesson.cards.length === 0) return "That file's courses section holds a lesson with no cards. Nothing was imported.";
     for (const card of lesson.cards) {
       if (!cortexIsPlainObject(card) || typeof card.kind !== "string") return "That file's courses section holds a card with no kind. Nothing was imported.";
       if ((card.kind === "quiz" || card.kind === "cloze" || card.kind === "visualq" || card.kind === "predict")
@@ -262,13 +265,34 @@ function cortexCourseProblem(course) {
           || !Number.isInteger(card.correct) || card.correct < 0 || card.correct >= card.options.length)) {
         return "That file's courses section holds a question card whose answers are not readable. Nothing was imported.";
       }
-      if (card.kind === "match" && !Array.isArray(card.pairs)) return "That file's courses section holds a matching card with no pairs list. Nothing was imported.";
-      if ((card.kind === "order" || card.kind === "build") && !Array.isArray(card.items)) return "That file's courses section holds an ordering card with no items list. Nothing was imported.";
-      if (card.kind === "spoterror" && (!Array.isArray(card.parts)
+      /* The floors below mirror validateCurriculum (bug audit
+         finding 8, 2026-10-16): a match, order, or build card below
+         its floor, or with a repeated side or item, can never be
+         completed in the Player, because placed and matched entries
+         are stored by value. */
+      if (card.kind === "match" && (!Array.isArray(card.pairs) || card.pairs.length < 3 || card.pairs.length > 6
+        || card.pairs.some((p) => !cortexIsPlainObject(p) || !p.left || !p.right)
+        || new Set(card.pairs.map((p) => p.left)).size !== card.pairs.length
+        || new Set(card.pairs.map((p) => p.right)).size !== card.pairs.length)) {
+        return "That file's courses section holds a matching card whose pairs are not readable. Nothing was imported.";
+      }
+      if ((card.kind === "order" || card.kind === "build") && (!Array.isArray(card.items) || card.items.length < 3 || card.items.length > 6
+        || new Set(card.items).size !== card.items.length)) {
+        return "That file's courses section holds an ordering card whose items are not readable. Nothing was imported.";
+      }
+      if (card.kind === "spoterror" && (!Array.isArray(card.parts) || card.parts.length < 3 || card.parts.length > 6
         || !Number.isInteger(card.wrong) || card.wrong < 0 || card.wrong >= card.parts.length)) {
         return "That file's courses section holds a spot the error card whose pieces are not readable. Nothing was imported.";
       }
-      if (card.kind === "truefalse" && typeof card.answer !== "boolean") return "That file's courses section holds a true or false card with no answer. Nothing was imported.";
+      /* True or false consistency, the authored validator's rule:
+         the correct index must agree with the boolean answer, and
+         the options the Player shuffles and checks against must be
+         present, or the right answer can never score. */
+      if (card.kind === "truefalse" && (typeof card.answer !== "boolean"
+        || !Array.isArray(card.options) || card.options.length !== 2
+        || !Number.isInteger(card.correct) || card.correct !== (card.answer ? 0 : 1))) {
+        return "That file's courses section holds a true or false card with no answer. Nothing was imported.";
+      }
     }
   }
   if (course.doneLessons != null && !cortexIsStringArray(course.doneLessons)) return "That file's courses section holds a course whose finished lessons list is not readable. Nothing was imported.";
@@ -1215,6 +1239,13 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
   for (const lesson of lessons) {
     for (const card of lesson.cards) {
       if (card.claimId && (card.kind === "quiz" || card.kind === "cloze")) {
+        /* Claim ids regenerate identically in a new page session
+           (the module counter restarts), so an id already owned by
+           another course keeps that course's entry and schedule
+           (bug audit finding 15, 2026-10-16: skip registration when
+           an entry exists and belongs to another course). */
+        const existingClaim = claimsStore[card.claimId];
+        if (existingClaim && existingClaim.courseId && existingClaim.courseId !== course.id) continue;
         claimsStore[card.claimId] = {
           id: card.claimId, courseId: course.id, courseTitle: course.title,
           card: { kind: card.kind, question: card.question, prompt: card.prompt, options: card.options, correct: card.correct, why: card.why },
@@ -1334,12 +1365,23 @@ const CSS = `
   .lv-wordmark { font-size: 27px !important; }
   .lv-sub { font-size: 14.5px !important; }
   .lv-status { grid-template-columns: 1fr; }
-  .lv-band-primary { position: sticky; bottom: 10px; z-index: 5; }
+  /* Sticky offset clears the 72px mobile bottom bar plus the safe
+     area inset (layout audit finding 13, 2026-10-16); at 10px the
+     primary action stuck inside the bar zone, out of tap reach. */
+  .lv-band-primary { position: sticky; bottom: calc(82px + env(safe-area-inset-bottom, 0px)); z-index: 5; }
   .lv-catalog { grid-template-columns: 1fr 1fr; gap: 12px; }
   .lv-hero-title { font-size: 21px !important; }
 }
+/* Vocabulary and match grids (layout audit finding 23,
+   2026-10-16): two columns at every width squeezed their text at
+   phone widths, so both switch to one column under 430px. The
+   grid display lives here, not inline, so this rule can win. */
+.lv-vocab-grid { display: grid; grid-template-columns: 1fr 1fr; }
+.lv-match-grid { display: grid; grid-template-columns: 1fr 1fr; }
 @media (max-width: 430px) {
   .lv-catalog { grid-template-columns: 1fr; }
+  .lv-vocab-grid { grid-template-columns: 1fr; }
+  .lv-match-grid { grid-template-columns: 1fr; }
 }
 `;
 
@@ -10738,6 +10780,16 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const [orderResult, setOrderResult] = useState(null);
   const [announce, setAnnounce] = useState({ n: 0, text: "" });
   const xpAtLessonStart = useRef(0);
+  /* Per lesson score snapshots (bug audit finding 7, 2026-10-16):
+     answered and right are session cumulative, so the finish
+     percentage is computed from the difference against these
+     snapshots, taken wherever xpAtLessonStart is taken. */
+  const answeredAtLessonStart = useRef(0);
+  const rightAtLessonStart = useRef(0);
+  /* The finish guard (bug audit finding 14, 2026-10-16): the id of
+     the lesson already finished in this mount, so a fast double
+     activation of finishLesson cannot pay or count it twice. */
+  const finishedLessonRef = useRef(null);
   const claimsRef = useRef(null);
   if (!claimsRef.current) claimsRef.current = loadClaims();
 
@@ -11025,6 +11077,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   const finishLesson = (markDone) => {
     if (markDone) {
+      if (lesson && finishedLessonRef.current === lesson.id) return;
+      if (lesson) finishedLessonRef.current = lesson.id;
       /* The first lesson this learner ever finishes in this course
          carries the two one line explanations of XP and review, so
          the mechanics are explained once, where they first appear,
@@ -11042,7 +11096,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         xpCompletionsRef.current[activeLessonId] = (xpCompletionsRef.current[activeLessonId] || 0) + 1;
       }
       say("Lesson complete. Plus " + bonus + " XP for finishing.");
-      const pct = answered ? Math.round((right / answered) * 100) : 100;
+      const lessonAnswered = answered - answeredAtLessonStart.current;
+      const lessonRight = right - rightAtLessonStart.current;
+      const pct = lessonAnswered ? Math.round((lessonRight / lessonAnswered) * 100) : 100;
       if (pct === 100) {
         const res = opinionForEvent({ perfectLesson: true }, loadNovaQuirks(), Date.now());
         if (res) { saveNovaQuirks(res.quirks); setPerfectLine(res.line); }
@@ -11090,6 +11146,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     resetCardState();
     if (lessonIdx < course.lessons.length - 1) {
       xpAtLessonStart.current = sessionXp;
+      answeredAtLessonStart.current = answered;
+      rightAtLessonStart.current = right;
       setLessonIdx(lessonIdx + 1); setCardIdx(0); setShowIntro(true);
     } else {
       setFinished(true);
@@ -11284,7 +11342,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             </div>
           )}
           <button className="lv-btn lv-btn-primary" style={{ ...btnPrimary, width: "100%", maxWidth: 340 }}
-            onClick={() => { xpAtLessonStart.current = sessionXp; setShowIntro(false); }}>
+            onClick={() => { xpAtLessonStart.current = sessionXp; answeredAtLessonStart.current = answered; rightAtLessonStart.current = right; setShowIntro(false); }}>
             Start lesson
           </button>
         </div>
@@ -11295,6 +11353,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   /* Lesson complete interstitial. */
   if (showLessonDone) {
     const lessonXp = sessionXp - xpAtLessonStart.current;
+    /* This lesson's own accuracy, not the session totals (bug
+       audit finding 7, 2026-10-16). */
+    const lessonAnswered = answered - answeredAtLessonStart.current;
+    const lessonRight = right - rightAtLessonStart.current;
     /* Her completion line (audit fix, 2026-10-15): picked by
        lesson, so the same lesson earns the same line. The
        perfect lesson line outranks it and replaces it at 100
@@ -11335,7 +11397,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             </p>
           )}
           <div style={{ margin: "0 auto 18px" }}>
-            <ShareCardButton P={P} accent={accent} model={shareCardModel("lesson", { title: lesson.title, courseTitle: course.title, accuracy: answered ? Math.round((right / answered) * 100) : 100, xp: lessonXp })} />
+            <ShareCardButton P={P} accent={accent} model={shareCardModel("lesson", { title: lesson.title, courseTitle: course.title, accuracy: lessonAnswered ? Math.round((lessonRight / lessonAnswered) * 100) : 100, xp: lessonXp })} />
           </div>
           {goalPicker && (
             <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
@@ -11499,8 +11561,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       backgroundImage: "linear-gradient(" + (sheetGood ? goodWash : badWash) + ", " + (sheetGood ? goodWash : badWash) + ")",
       borderTop: "2px solid " + (sheetGood ? toneGood : toneBad),
       borderRadius: "20px 20px 0 0", padding: "20px 22px 24px", color: P.ink,
+      /* The sheet is capped and its content scrolls, with Continue
+         outside the scroll area (layout audit finding 6,
+         2026-10-16): uncapped, a long WHY on a miss pushed the
+         sheet past the viewport and its top out of view. */
+      maxHeight: "85dvh", display: "flex", flexDirection: "column", boxSizing: "border-box",
     }}>
-      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+        <div className="lv-sheet-scroll" style={{ overflowY: "auto", minHeight: 0 }}>
         <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
           <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} teach={sheetTeach} />
         </div>
@@ -11565,6 +11633,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             Two in a row now. Slow the experiment down: cover the options, say the answer in your own words, then look. Guessing faster has never once improved the data.
           </NovaTip>
         )}
+        </div>
         <button className="lv-btn" onClick={advance}
           style={{
             marginTop: 18, width: "100%", background: sheetGood ? toneGood : P.raised, color: sheetGood ? accentText(toneGood) : P.ink,
@@ -11694,8 +11763,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.6, margin: 0 }}><RichText text={card.prompt} /></p>
                 </div>
               )}
-              <div style={card.vocab
-                ? { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 18 }
+              <div className={card.vocab ? "lv-vocab-grid" : undefined} style={card.vocab
+                ? { gap: 10, marginTop: 18 }
                 : { display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
                 {(displayOptions || []).map((opt, i) => {
                   /* Cream answer cards (wave 3): cream in every state,
@@ -11798,7 +11867,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>MATCH THE PAIRS</div>
               <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
               <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: "0 0 4px", lineHeight: 1.55 }}>Tap a word on the left, then tap the meaning it belongs with on the right.</p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 18 }}>
+              <div className="lv-match-grid" style={{ gap: 10, marginTop: 18 }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {card.pairs.map((pair, i) => {
                     const donePair = matchDone.includes(i);
@@ -12196,11 +12265,20 @@ async function searchForCourse(query) {
   // Settings picker labels it Standard); "standard" is not a value
   // the search accepts, and it silently fell back. Fixed 2026-10-14.
   const body = { query, settings: { answerLength: "medium", factCheck: true } };
+  /* A generous deadline for the whole search, streamed attempt and
+     fallback together (bug audit finding 17, 2026-10-16): without
+     it a stalled stream never settles, buildCourseFrom's finally
+     never runs, and every build control stays dead until a reload.
+     The abort surfaces through that caller's existing catch path,
+     which reports the failure and clears building. */
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const deadline = controller ? setTimeout(() => { try { controller.abort(); } catch { /* already settled */ } }, 120000) : null;
   try {
     const res = await fetch("/api/search?stream=1", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: controller ? controller.signal : undefined,
     });
     if (!res.ok) { const e = new Error("http"); e.status = res.status; throw e; }
     const ctype = res.headers.get("content-type") || "";
@@ -12232,13 +12310,19 @@ async function searchForCourse(query) {
     return JSON.parse(doneData);
   } catch (e) {
     if (e && e.status) throw e;
+    /* The deadline already fired: do not start a second, equally
+       stalled fetch. The error propagates to the builder's catch. */
+    if (controller && controller.signal.aborted) throw e;
     const res = await fetch("/api/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: controller ? controller.signal : undefined,
     });
     if (!res.ok) { const e2 = new Error("http"); e2.status = res.status; throw e2; }
     return res.json();
+  } finally {
+    if (deadline) clearTimeout(deadline);
   }
 }
 
@@ -12466,6 +12550,18 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   const [questCheer, setQuestCheer] = useState([]);
   const [sparksMsg, setSparksMsg] = useState("");
   const [lastGapDays, setLastGapDays] = useState(0);
+  /* The Today stage figure size (layout audit finding 12,
+     2026-10-16): at 288 her box is wider than the stage content
+     at 360px and squeezes sideways, so phone widths stand her
+     at 264 instead. */
+  const [stageNarrow, setStageNarrow] = useState(() => {
+    try { return typeof window !== "undefined" && window.innerWidth <= 430; } catch { return false; }
+  });
+  useEffect(() => {
+    const onResize = () => { try { setStageNarrow(window.innerWidth <= 430); } catch { /* width is a layout hint only */ } };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const migrateStoredLearning = () => {
     const rawCourses = loadJSON(COURSES_KEY, []);
@@ -12639,7 +12735,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           for (const id of doneLessons) {
             if (!before.has(id)) found.xpCompletions[id] = (found.xpCompletions[id] || 0) + 1;
           }
-          found.doneLessons = doneLessons;
+          /* The incoming list is built from the Player's opening
+             snapshot, so assigning it outright erases a lesson
+             finished earlier in the same sitting (bug audit
+             finding 2, 2026-10-16). Store the union instead. */
+          found.doneLessons = [...new Set([...(found.doneLessons || []), ...(doneLessons || [])])];
         }
         saveJSON(COURSES_KEY, all);
         setCourses(all);
@@ -13319,7 +13419,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div data-tour-anchor="stage" style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 24, margin: "20px 0 20px" }}>
         <div style={{ display: "flex", gap: 28, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", maxWidth: "100%" }}>
-            {!tourOpen && <NovaLive state={novaMood} size={288} framing="full" />}
+            {!tourOpen && <NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" />}
           </span>
           <div style={{ flex: "1 1 260px", minWidth: 0 }}>
             <h2 className="lv-stage-word" style={{ fontFamily: WORDMARK, fontWeight: 800, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h2>

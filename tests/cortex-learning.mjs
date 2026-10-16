@@ -943,8 +943,11 @@ await test("raw numeric fontSize literals stay at the named one offs", () => {
 
 group("Progress export and import: the record can leave this browser as a file");
 
+// Fixture updated 2026-10-16 (bug audit finding 8): import now
+// rejects a lesson with an empty cards list, so this fixture's
+// lesson carries one valid quiz card instead of no cards.
 const cortexFixtureState = {
-  courses: [{ id: "course-1", title: "Sleep science", lessons: [{ id: "l1", cards: [] }], doneLessons: ["l1"], xpEarned: 40 }],
+  courses: [{ id: "course-1", title: "Sleep science", lessons: [{ id: "l1", cards: [{ kind: "quiz", question: "Q?", options: ["a", "b"], correct: 0, why: "w" }] }], doneLessons: ["l1"], xpEarned: 40 }],
   claims: { "claim-1": { id: "claim-1", reps: 3, lapses: 0, stability: 2.4, last: 1760000000000, due: 1760200000000, card: { kind: "quiz", question: "Q?" } } },
   profile: { xp: 120, days: ["2026-10-11", "2026-10-12", "2026-10-13"], bridged: [], freezes: 1, freezeMilestone: 0, streak: 3 },
   builtinProgress: { lessons: { "sci-questions": { done: true, bestPct: 100 } }, lastPathId: "how-science-works", lastLessonId: "sci-questions" },
@@ -1040,12 +1043,15 @@ await test("export and import controls render in the Nova settings progress surf
 // ─═════════════════════════════════════════════════════════════════
 group("Import validation: deep shapes, not top level types");
 
+// Fixture updated 2026-10-16 (bug audit finding 8): import now
+// enforces the authored match floor of 3 pairs, so this fixture's
+// match card carries three pairs instead of one.
 const deepDoc = () => buildCortexExport({
   courses: [{
     id: "course-9", title: "Gut science", sourceCount: 2, doneLessons: [], xpEarned: 0,
     lessons: [{ id: "l1", title: "Start", subtitle: "s", cards: [
       { kind: "quiz", question: "Q?", options: ["a", "b"], correct: 1, why: "w" },
-      { kind: "match", prompt: "m", pairs: [{ left: "a", right: "1" }] },
+      { kind: "match", prompt: "m", pairs: [{ left: "a", right: "1" }, { left: "b", right: "2" }, { left: "c", right: "3" }] },
       { kind: "note", kicker: "k", title: "t", text: "x" },
     ] }],
   }],
@@ -4391,7 +4397,10 @@ await test("the Rive runtime wasm is self hosted, never fetched from a CDN", () 
    consumer method, resizeDrawingSurfaceToCanvas, is what
    records it). These pins hold all three parts. */
 await test("her stage: full body framing on Today, a DPR synced canvas, the shelf on the stage", () => {
-  assert.ok(learnSrc.includes('<NovaLive state={novaMood} size={288} framing="full" />'), "the Today stage does not mount her large and full body");
+  // Pin updated 2026-10-16 (layout audit finding 12): the stage
+  // size is now phone aware, 264 at widths up to 430px where 288
+  // squeezed sideways, and 288 above them.
+  assert.ok(learnSrc.includes('<NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" />'), "the Today stage does not mount her large and full body");
   assert.ok(learnSrc.indexOf("NOVA'S SHELF") < learnSrc.indexOf("Due for review"), "the shelf is not on the stage above the review bench");
   assert.ok(riveSrc.includes('framing === "full" || framing === "panel"'), "the canvas has no full body framing");
   assert.ok(riveSrc.includes("Math.round(size * 1.85)"), "the bust box changed under the small spots");
