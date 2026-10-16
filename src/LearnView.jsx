@@ -2091,13 +2091,39 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
        null there, which the rig reads as centered. */
     const finePointer = !!(window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
     let raf = 0;
+    let settleRaf = 0;
+    let feedNow = null;
+    /* When the pointer leaves, her gaze settles back to centre
+       instead of snapping (2026-10-15): the feed walks to zero
+       over a few frames, then lets go entirely. */
+    const settle = () => {
+      settleRaf = 0;
+      if (!feedNow) return;
+      const nx = Math.round(feedNow.x * 0.72);
+      const ny = Math.round(feedNow.y * 0.72);
+      if (Math.abs(nx) <= 2 && Math.abs(ny) <= 2) {
+        feedNow = null;
+        pointerKey.current = "";
+        setPointer(null);
+        return;
+      }
+      feedNow = { x: nx, y: ny };
+      pointerKey.current = nx + "," + ny;
+      setPointer(feedNow);
+      settleRaf = requestAnimationFrame(settle);
+    };
     const clear = () => {
       proximityKey.current = "";
-      pointerKey.current = "";
-      setPointer(null);
       setGaze(null);
       setLift(false);
       setLean({ x: 0, y: 0, r: 0 });
+      if (feedNow && (feedNow.x !== 0 || feedNow.y !== 0)) {
+        if (!settleRaf) settleRaf = requestAnimationFrame(settle);
+      } else {
+        feedNow = null;
+        pointerKey.current = "";
+        setPointer(null);
+      }
     };
     const onMove = (e) => {
       if (raf) return;
@@ -2116,13 +2142,15 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
           return;
         }
         if (finePointer) {
+          if (settleRaf) { cancelAnimationFrame(settleRaf); settleRaf = 0; }
           const feed = quizPointerFor(e.clientX, e.clientY, r);
           const fx = Math.round(feed.x / 5) * 5;
           const fy = Math.round(feed.y / 5) * 5;
           const fkey = fx + "," + fy;
           if (fkey !== pointerKey.current) {
             pointerKey.current = fkey;
-            setPointer({ x: fx, y: fy });
+            feedNow = { x: fx, y: fy };
+            setPointer(feedNow);
           }
         }
         const nx = Math.max(-1, Math.min(1, dx / 150));
@@ -2148,6 +2176,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("blur", clear);
       if (raf) cancelAnimationFrame(raf);
+      if (settleRaf) cancelAnimationFrame(settleRaf);
     };
   }, []);
 
