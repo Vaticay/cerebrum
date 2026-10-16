@@ -42,6 +42,20 @@
  * Continue heading, recents engagement, deck) pin CerebrumApp.jsx
  * behaviour that this restoration did not change.
  *
+ * 2026-10-16 (Dusty's directive): the film door is retired. His
+ * verdict was that it looked AI generated and did not match the app,
+ * and he ordered the intro rebuilt in the app's own design language.
+ * The door is now a flat page of the app: the caller's palette for
+ * ground, cards, and ink; the search stage masthead's lockup;
+ * specimen claims on the app's card treatment; the way in as the
+ * app's flat primary button. Gone from the door: the reel, the
+ * atmosphere fields, the grain, the fanned glass cards, the tracked
+ * caps wordmark. The reel component is untouched and still serves
+ * the workspace. Pins that asserted the film door's furniture were
+ * updated to the new contract the same day, marked at their sites;
+ * the door rule, the specimens, the rotation, the proof line, and
+ * the returning and reduced behavior stand as pinned before.
+ *
  * Run with: node tests/intro-title-card.mjs
  */
 
@@ -173,13 +187,22 @@ await test("the old worked-example section is gone — the specimen is the examp
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("The film door — cinema under calmed atmosphere (restored)");
+group("The door in the app language (rebuilt 2026-10-16)");
 
-await test("the door mounts the intro film reel, gated on motion", () => {
-  assert.ok(introFn.includes("<CinematicFilm"), "intro does not mount the film reel");
-  assert.ok(introFn.includes('reel="intro"'), "the door does not run the intro reel");
+await test("the door mounts no film: it is a flat page of the app", () => {
+  // 2026-10-16: this pin replaces the film mount pin of the restored
+  // door. The rebuilt door mounts no reel, no atmosphere, and no
+  // grain; its ground is the palette's flat background and it renders
+  // in the caller's palette, so the cinema cannot creep back onto
+  // the first screen. (The reel component itself is untouched and
+  // still serves the workspace; see the media truth test below and
+  // core-identity.)
+  assert.ok(!introFn.includes("<CinematicFilm"), "the door mounts the film reel again");
+  assert.ok(!introFn.includes("cb-intro-atmosphere"), "the door's atmosphere fields are back");
+  assert.ok(!introFn.includes("cb-intro-grain"), "the door's grain layer is back");
   assert.ok(introFn.includes("const animate = animationMode !== \"off\" && !reduced;"), "motion gate changed");
-  assert.ok(introFn.includes("{animate && ("), "the film is not gated on the motion state");
+  assert.ok(introFn.includes("background: pal.bg"), "the door ground is not the palette background");
+  assert.ok(introFn.includes("const pal = P || PALETTES.Dark;"), "the door does not render in the caller's palette");
 });
 
 await test("CinematicFilm keeps its media-event truth for the workspace", () => {
@@ -236,11 +259,18 @@ await test("appUtils carries the height hook in the same style as the width hook
     "useWindowHeight is not exported from appUtils");
 });
 
-await test("the calm air is present: atmosphere and grain over the film", () => {
-  assert.ok(introFn.includes("cb-intro-atmosphere"), "atmosphere layer missing");
-  assert.ok(introFn.includes("cb-atmo-a") && introFn.includes("cb-atmo-well"), "atmosphere fields missing");
-  assert.ok(introFn.includes("cb-intro-grain"), "grain missing");
-  assert.ok(introFn.includes('filter: "brightness(0.42) saturate(0.72)"'), "the film is not graded dark and quiet");
+await test("the door's surfaces are the app's card treatment", () => {
+  // 2026-10-16: this pin replaces the calm air pin. The specimen
+  // cards carry the UICard expressions from designSystem.jsx (the
+  // palette surface with the dark palette override, a 1px border,
+  // the plan radius), and nothing on the door paints a gradient or
+  // casts a shadow.
+  assert.ok(introFn.includes("background: surface"), "specimen cards are not on the palette surface");
+  assert.ok(introFn.includes("const surface = pal.dark ? COLOR.surface1 : pal.surface;"), "the card surface is not the UICard expression");
+  assert.ok(introFn.includes('border: "1px solid " + cardLine'), "specimen cards lost the 1px border treatment");
+  assert.ok(introFn.includes("borderRadius: RADIUS.lg"), "specimen cards are not on the plan radius");
+  assert.ok(!introFn.includes("radial-gradient") && !introFn.includes("linear-gradient"), "a gradient is painted on the door");
+  assert.ok(!/boxShadow: (?!\"none\")/.test(introFn), "a shadow is cast on the door");
 });
 
 await test("the film guard stands: the intro reel is the frame checked pair", () => {
@@ -306,7 +336,7 @@ await test("plateHead and DotField stay exported; the dead PlateFrame is gone", 
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Quiet sci-fi — focus-pull entrance, small type, whisper CTA");
+group("Entrance and type discipline");
 
 await test("focus-pull keyframes exist and resolve blur to sharp", () => {
   assert.ok(cssSrc.includes("@keyframes cbFocusIn"), "cbFocusIn not defined");
@@ -325,8 +355,12 @@ await test("old fade-and-rise entrance is fully gone", () => {
 });
 
 await test("the door header is the wordmark and quiet links", () => {
-  assert.ok(introFn.includes("<Mark size={19}"), "wordmark glyph missing from the header");
-  assert.ok(introFn.includes(">CEREBRUM</span>"), "tracked wordmark missing");
+  // 2026-10-16: the lockup is the search stage masthead's pairing
+  // (Mark at 22 in the accent, "Cerebrum" in Inter 500, title case),
+  // replacing the film door's small glyph and tracked caps wordmark,
+  // which read as a different product from the app behind the door.
+  assert.ok(introFn.includes("<Mark size={22}"), "wordmark glyph missing from the header");
+  assert.ok(introFn.includes(">Cerebrum</span>"), "stage wordmark missing from the header");
   assert.ok(introFn.includes('["About", "Privacy", "Contact"]'), "quiet header links missing");
 });
 
@@ -378,11 +412,12 @@ await test("repeat visits in a session collapse the ceremony", () => {
 });
 
 await test("reduced motion is one still, composed frame", () => {
-  // No film (the animate gate above), no rotation (the effect's early
-  // return above), and the wrap takes the still class whose CSS
-  // freezes the atmosphere and resolves the chrome in a single fade.
+  // No entrance choreography (the gate above), no rotation (the
+  // effect's early return above), and the wrap takes the still class
+  // whose CSS resolves the chrome in a single fade. 2026-10-16: the
+  // atmosphere freeze assertion went with the atmosphere itself;
+  // there is nothing left on the door to freeze.
   assert.ok(introFn.includes('"cb-intro-still"'), "still class never applied");
-  assert.ok(cssSrc.includes(".cb-intro-still .cb-intro-atmosphere > div { animation: none; }"), "the still frame does not freeze the atmosphere");
   assert.ok(cssSrc.includes(".cb-intro-still .cb-intro-chrome { animation: cbIntroStillIn"), "the still frame has no composed entrance");
 });
 

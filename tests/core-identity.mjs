@@ -55,14 +55,16 @@ await test("workspace CinematicFilm mount exists, darker than before", () => {
   // 2026-10-13 plate redesign superseded the intro mount for a day: the
   // door was the DotField, so two mounts remained. Dusty's directive the
   // same day ("Bring back the old intro page just make it better")
-  // restored the film door, so the intro mount is back and three mounts
-  // stand again (intro reel on the door, calm reel on the search
-  // backdrop, workspace backdrop). The component itself is unchanged.
+  // restored the film door, so the intro mount came back and three
+  // mounts stood again. 2026-10-16: Dusty ordered the intro rebuilt in
+  // the app's design language (the film door read as AI generated and
+  // off product), so the door mounts no reel again and two mounts
+  // stand: the calm reel on the search backdrop and the workspace
+  // backdrop. The component itself is unchanged.
   const mounts = (appSrc.match(/<CinematicFilm/g) || []).concat(introSrc.match(/<CinematicFilm/g) || []);
-  assert.strictEqual(mounts.length, 3, `expected intro+calm+workspace mounts, found ${mounts.length}`);
+  assert.strictEqual(mounts.length, 2, `expected calm+workspace mounts, found ${mounts.length}`);
   const introFn = introSrc.slice(introSrc.indexOf("function Intro({"), introSrc.indexOf("function CerebrumFieldCanvas"));
-  assert.ok(introFn.includes("<CinematicFilm"), "the restored intro no longer mounts the film reel");
-  assert.ok(introFn.includes('reel="intro"'), "the door does not run the intro reel");
+  assert.ok(!introFn.includes("<CinematicFilm"), "the rebuilt intro mounts the film reel again");
   assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
   assert.match(appSrc, /brightness\(0\.72\)/, "extra CSS grade missing on the workspace reel wrapper");
 });

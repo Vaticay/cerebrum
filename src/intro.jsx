@@ -9,9 +9,10 @@
  */
 import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import {
-  FONT_SIZES, STATUS, accentText, relLuminance, withAlpha, Icon,
+  FONT_SIZES, STATUS, COLOR, accentText, relLuminance, withAlpha, Icon,
   TYPE, SP, SHADOW, UIButton, UICard, RADIUS, Z, TRACKING,
 } from "./designSystem.jsx";
+import { PALETTES } from "./palettes.js";
 import {
   setCookie, getCookie, APP_VERSION_LABEL, useIsMobile, useWindowWidth, useWindowHeight,
 } from "./appUtils.js";
@@ -851,32 +852,59 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
    film reel still serves the workspace; it no longer plays the door.
    ════════════════════════════════════════════════════════════════════ */
 /* ════════════════════════════════════════════════════════════════════
-   Intro — the film door, restored and improved (2026-10-13).
+   Intro — the door in the app's own design language (2026-10-16).
 
-   Dusty's directive the day the plate shipped: "Bring back the old
-   intro page just make it better." The base is the door as it stood at
-   eb500f7, the last pre plate version: the cinematic film reel under
-   calmed atmosphere, three verified claims on placards rotating as a
-   set, "Traced to a direct finding", and the single way in, "Start
-   researching". The plate door (PlateFrame running head, DotField,
-   one claim stepped by hand) is superseded; PlateFrame and plateHead
-   stay exported for the stage and the consent plate, and DotField
-   stays exported with them.
+   History, short form: the door was a calibration chamber over film
+   (2026-10-08), a specimen plate for a day (2026-10-13), then the
+   restored film door the same day on Dusty's directive ("Bring back
+   the old intro page just make it better"). On 2026-10-16 Dusty's
+   verdict on that door was that it looked AI generated and did not
+   match the app behind it, and he ordered it rebuilt to match. This
+   is that rebuild. What the film door carried is retired FROM THE
+   DOOR ONLY: the cinematic reel, the blurred atmosphere fields, the
+   grain, the fanned glass specimen cards with their gradients, glow
+   shadows, sheen sweep and pulsing dot, and the tracked caps
+   wordmark. The reel itself is untouched — it still serves the
+   workspace — and FILM_CLIPS_INTRO stays as the record of the pair
+   the door used to play.
 
-   Layered on the restored door, from the plate round and the standing
-   product calls:
-   - Consent timing: the gate appears on the way in (app shell), never
-     covering this door on load. The door never summons it.
-   - An honest proof line under each claim: the real indexes count
-     (SCHOLARLY_SOURCES.length) and the paper one tap away, as above.
+   The language the door now speaks is the shell's, taken from the
+   code that renders the app (designSystem.jsx, palettes.js, the
+   search home stage):
+   - Palette from the caller's P, exactly like every other surface:
+     ground P.bg, cards P.surface (dark palettes take COLOR.surface1
+     #1C1B19, the UICard expression), ink P.ink, secondary P.ink2,
+     faint P.faint, hairlines P.line / P.line2. Fresh visitors get
+     the Sage default, so the door and the stage behind it are one
+     product in one theme.
+   - Type: Inter (var(--cb-font)) for interface text, Source Serif 4
+     (var(--cb-serif)) for the claims, the reading face. Plan scale
+     only: display 32, section 22, body 15, label 13, caption 12;
+     weights 400 and 500. The wordmark is the stage masthead's
+     pairing: the brain Mark at 22 in the accent, "Cerebrum" in
+     Inter 500, title case, no tracking.
+   - Shape: radius 2 everywhere (the plan cap), borders carry the
+     depth, shadows none. Spacing on the 4px grid; the page column
+     is the stage's 1160 measure.
+   - Accent: the brand accent the caller passes (introAccent keeps
+     its sage fallback), used the way the shell uses it: the mark,
+     the primary button's flat fill with its contrast ink, links,
+     the small traced square. No glow anywhere.
+
+   What did NOT change, because it is product, not art direction:
+   - The door rule: ceremonial, a single way in ("Start
+     researching"), NO composer on the landing screen.
+   - SPECIMENS: the same verified claims, three at a time, rotating
+     as a set on the same timer with the same pauses (hold, dialog,
+     reduced motion), stepped by the same full set steppers.
+   - The honest proof line under each claim and "Traced to a direct
+     finding", the paper one tap away, the count from the real
+     SCHOLARLY_SOURCES list.
+   - Consent timing: the gate appears on the way in (app shell),
+     never covering this door on load.
    - Returning visitors (sessionStorage cerebrum-entered): composed
      entry, no entrance choreography, the way in autofocused.
-   - Reduced motion: no rotation, no film, one still composed frame.
-   - Contrast: the traced line and the footer were lifted from 0.45
-     and 0.42 alpha to 0.58, the plate's discipline, so small text
-     clears 4.5 to 1 on the door's darkest surfaces.
-   The film guard stands: no clip ships without a pulled frame being
-   looked at (scripts/check.mjs section 8; the burning book lesson).
+   - Reduced motion: no rotation, one still composed frame.
    ════════════════════════════════════════════════════════════════════ */
 function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   const isMobile = useIsMobile();
@@ -947,23 +975,36 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   };
 
   const animate = animationMode !== "off" && !reduced;
-  /* The ceremony is the entrance choreography. Returning visitors skip
-     it: chrome renders composed, the wrap takes the still class (one
-     quiet fade, atmosphere at rest), and only the film and the
-     rotation run, as they do for everyone. */
+  /* The ceremony is now a single quiet fade of the main column on a
+     first visit. Returning visitors skip it: chrome renders composed
+     and the wrap takes the still class, and only the rotation runs,
+     as it does for everyone. */
   const ceremony = animate && !enteredBefore;
-  const serif = "var(--cb-font)";
-  const ink = "#eef1ee";
-  const faint = "rgba(238,241,238,0.52)";
-  const hairline = "rgba(255,255,255,0.08)";
+  /* The door renders in the caller's palette, the way every app
+     surface does: pal is the theme, surface and cardLine are the
+     UICard expressions (designSystem.jsx) so a door card and an app
+     card are the same object in the same theme. */
+  const pal = P || PALETTES.Dark;
+  const surface = pal.dark ? COLOR.surface1 : pal.surface;
+  const cardLine = pal.dark ? COLOR.line : pal.line2;
+  const ink = pal.ink;
+  const hairline = pal.line;
+  /* Contrast floor for the door's text (layout audit, 2026-10-16):
+     nothing on the door sits over imagery anymore, and the smallest
+     text (the proof line, the footer) is set in pal.ink2 rather than
+     pal.faint, because faint falls under 4.5 to 1 on the Dark
+     palette's ground. ink2 clears 4.5 to 1 on every palette, on the
+     ground and on the card surface. Link text takes the accent on
+     dark palettes; on light palettes the accent is mixed halfway
+     into the ink so it also clears 4.5 to 1 on the paper surface. */
+  const linkInk = pal.dark ? introAccent : "color-mix(in srgb, " + introAccent + " 50%, " + pal.ink + ")";
 
   const navLink = {
-    fontFamily: serif, fontSize: 13, letterSpacing: "normal",
-    color: "rgba(238,241,238,0.72)", textDecoration: "none",
+    fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, letterSpacing: "normal",
+    color: pal.ink2, textDecoration: "none",
     fontWeight: 500, padding: "10px 6px", whiteSpace: "nowrap",
   };
 
-  const cls = ["cb-intro-chrome"];
   const wrapCls = [leaving ? "cb-intro-leaving" : "", (reduced || enteredBefore) && !leaving ? "cb-intro-still" : ""]
     .filter(Boolean).join(" ") || undefined;
 
@@ -971,56 +1012,34 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     <div id="cb-intro-wrap" className={wrapCls} style={{
       minHeight: "100dvh", position: "relative", overflowX: "clip",
       display: "flex", flexDirection: "column",
-      fontFamily: "var(--cb-font)", background: "#05070a", color: ink,
+      fontFamily: "var(--cb-font)", background: pal.bg, color: ink,
     }}>
-      {/* Cinematic film reel: dramatic clips for the ceremonial door.
-          Restored per Dusty 2026-10-09 ("bring back the videos on intro").
-          Runs under the atmosphere at low intensity. */}
-      {animate && (
-        <div aria-hidden="true" style={{
-          position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-          filter: "brightness(0.42) saturate(0.72)",
-        }}>
-          <CinematicFilm
-            reel="intro"
-            animationMode={animationMode}
-            intensity={0.55}
-            onAutoplayBlocked={() => {}}
-            onPlaybackChange={() => {}}
-          />
-        </div>
-      )}
-      {/* Atmosphere: the cinematic feel, calmed. Three vast, heavily
-          blurred light fields drifting on 90s+ cycles — barely perceptible,
-          very dark. The room has air.
-          Under reduced motion (or animation off) this is a single still
-          frame: the blobs sit at rest, no movement. */}
-      <div aria-hidden="true" className="cb-intro-atmosphere" style={{
-        filter: doorHover ? "brightness(1.15)" : "brightness(1)",
-        transition: "filter 600ms ease",
-      }}>
-        <div className="cb-atmo-a" />
-        <div className="cb-atmo-b" />
-        <div className="cb-atmo-c" />
-        <div className="cb-atmo-well" />
-      </div>
-      {/* Grain without the jitter: texture, not weather. */}
-      <div aria-hidden="true" className="cb-intro-grain" style={{ animation: "none" }} />
+      {/* The ground is the app's ground: the flat palette background,
+          nothing layered over it. The film reel, the atmosphere
+          fields, and the grain that used to sit here were the old
+          door's cinema; the 2026-10-16 rebuild retired them from the
+          door so the first screen is a page of the app itself. The
+          reel still serves the workspace, unchanged. */}
 
-      {/* ── Header: the wordmark and quiet links. No instrument chrome. */}
-      <header className={ceremony ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
+      {/* ── Header: the masthead lockup and quiet links, on the
+          stage's own measure. The lockup is the search home stage's
+          pairing (Mark at 22 in the accent, the name in Inter 500,
+          title case), so the door opens with the same nameplate the
+          app carries inside. */}
+      <header className="cb-intro-chrome" style={{
         position: "relative", zIndex: 30,
+        borderBottom: "1px solid " + hairline,
       }}>
         <div style={{
-          maxWidth: 1440, margin: "0 auto", padding: "13px 26px",
+          maxWidth: 1160, margin: "0 auto", padding: "14px 24px",
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-            <Mark size={19} accent={introAccent} glow />
-            <span style={{
-              fontFamily: serif, fontSize: 13, fontWeight: 600,
-              letterSpacing: "0.1em", color: "#ffffff",
-            }}>CEREBRUM</span>
+            <Mark size={22} accent={introAccent} />
+            <span className="cb-stage-wordmark" style={{
+              fontFamily: "var(--cb-font)", fontWeight: 500,
+              fontSize: FONT_SIZES.section, color: ink, lineHeight: 1,
+            }}>Cerebrum</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 22 }}>
             {!isMobile && ["About", "Privacy", "Contact"].map((item) => (
@@ -1029,7 +1048,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             {isMobile && (
               <button type="button" onClick={() => setNavOpen((v) => !v)}
                 aria-expanded={navOpen} aria-controls="cb-intro-navmenu"
-                style={{ ...navLink, background: "none", border: "1px solid " + hairline, borderRadius: 3, cursor: "pointer" }}>
+                style={{ ...navLink, background: "none", border: "1px solid " + cardLine, borderRadius: RADIUS.md, cursor: "pointer" }}>
                 MORE
               </button>
             )}
@@ -1037,231 +1056,215 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         </div>
         {isMobile && navOpen && (
           <div id="cb-intro-navmenu" style={{
-            maxWidth: 1440, margin: "0 auto", padding: "0 26px 14px",
+            maxWidth: 1160, margin: "0 auto", padding: "0 24px 14px",
             display: "flex", gap: 4, flexWrap: "wrap",
           }}>
             {["About", "Privacy", "Contact"].map((item) => (
-              <a key={item} href={"/" + item.toLowerCase()} style={{ ...navLink, border: "1px solid " + hairline, borderRadius: 3 }}>{item}</a>
+              <a key={item} href={"/" + item.toLowerCase()} style={{ ...navLink, border: "1px solid " + cardLine, borderRadius: RADIUS.md }}>{item}</a>
             ))}
           </div>
         )}
       </header>
 
-      {/* ── The specimen placard ──
-          One verified claim on a museum placard: solid matte plate, left
-          aligned, accession number stamped top right. No glass, no corner
-          ticks, no tab wall. */}
+      {/* ── The claims, on app cards ──
+          Three verified claims at a time, carried the way the app
+          carries evidence: the palette surface, a 1px border, radius
+          2, no shadow, no tilt, no fan. Equal cards in a row on
+          desktop, stacked on mobile. The set crossfades every 9s
+          (desktop) / 12s (mobile); hover and focus pause it. Inside,
+          the claim is set in the reading serif, and the citation and
+          proof line in the interface face, the way an answer card
+          inside the app carries its sources. */}
       <main className="cb-intro-chrome" style={{
         position: "relative", zIndex: 20, flex: 1,
         display: "flex", flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        padding: isMobile ? "40px 20px 36px" : "56px 26px 48px",
+        padding: isMobile ? "28px 20px 40px" : "72px 24px 56px",
+        animation: ceremony ? "cbIntroStillIn 0.7s ease both" : undefined,
       }}>
-        {/* Three claims on a reading table: fanned cards, center hero.
-            No counters, no accession numbers. The set crossfades every
-            9s (desktop) / 12s (mobile). Hover pauses. */}
+        {/* One plain line about what this is: the search home stage's
+            own sentence, then the evidence, then the way in. */}
+        <p style={{
+          margin: 0, maxWidth: "62ch", textAlign: "center",
+          fontSize: FONT_SIZES.body, lineHeight: 1.55, color: pal.ink2,
+        }}>
+          Ask a question and get an answer from the research papers, with the sources attached.
+        </p>
         <div
-          className={ceremony ? "cb-focus-in" : undefined}
           onMouseEnter={() => setSpecimenHeld(true)}
           onMouseLeave={() => setSpecimenHeld(false)}
           onFocus={() => setSpecimenHeld(true)}
           onBlur={() => setSpecimenHeld(false)}
           style={{
-            width: "100%", maxWidth: 1120,
+            width: "100%", maxWidth: 1160, marginTop: isMobile ? 32 : 44,
             display: "flex",
             flexDirection: isMobile ? "column" : "row",
-            alignItems: isMobile ? "stretch" : "center",
+            alignItems: "stretch",
             justifyContent: "center",
-            gap: isMobile ? 14 : 26,
+            gap: isMobile ? 14 : 20,
+            /* Phone order (layout audit, 2026-10-16): the stacked set
+               runs long, so on phones the way in (order 1, below)
+               leads and the claims follow as the evidence under it.
+               The enter control sits inside the first screenful at
+               360 by 667 instead of hundreds of pixels under the
+               fold, and nothing on the door exceeds the viewport
+               width. Desktop keeps evidence first, then the way in. */
+            order: isMobile ? 2 : undefined,
           }}>
-          {specimenSet.map((spec, k) => {
-            const isHero = !isMobile && k === 1;
-            const isFlank = !isMobile && k !== 1;
-            return (
-              <div
-                key={specimenIdx + "-" + k}
-                className={animate ? "cb-specimen-in" : undefined}
-                style={{
-                  position: "relative",
-                  overflow: "hidden",
-                  flex: isMobile ? "1 1 auto" : isHero ? "1 1 470px" : "1 1 330px",
-                  maxWidth: isMobile ? 560 : isHero ? 490 : 350,
-                  width: isMobile ? "100%" : undefined,
-                  margin: isMobile ? "0 auto" : undefined,
-                  padding: isMobile ? "26px 24px 24px" : isHero ? "40px 44px 36px" : "30px 30px 28px",
-                  background:
-                    "radial-gradient(130% 95% at 16% 0%, " + accentA(isHero ? 0.14 : 0.08) + " 0%, rgba(255,255,255,0.02) 46%, rgba(0,0,0,0) 72%), " +
-                    "linear-gradient(165deg, #141610 0%, #0b0d0c 56%, #07080a 100%)",
-                  border: "1px solid rgba(255,255,255,0.11)",
-                  borderRadius: 18,
-                  boxShadow: isHero
-                    ? "0 34px 70px rgba(0,0,0,0.62), 0 6px 18px rgba(0,0,0,0.45), 0 0 90px " + accentA(0.10) + ", inset 0 1px 0 rgba(255,255,255,0.10)"
-                    : "0 22px 48px rgba(0,0,0,0.55), 0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.07)",
-                  opacity: isMobile ? 1 : isFlank ? (k === 0 ? 0.58 : 0.5) : 1,
-                  transform: isMobile
-                    ? "translateX(" + (k * 12) + "px) rotate(" + (k === 1 ? -0.4 : k === 2 ? 0.5 : 0) + "deg)"
-                    : isFlank
-                      ? "scale(" + (k === 0 ? 0.82 : 0.79) + ") translateY(" + (k === 0 ? -18 : 31) + "px) rotate(" + (k === 0 ? -0.7 : 0.5) + "deg)"
-                      : "rotate(-0.2deg)",
-                  transition: "opacity 500ms ease, transform 500ms ease",
-                }}
-              >
-                {animate && <div className="cb-spec-sheen" style={{ animationDelay: (k * 0.9) + "s" }} aria-hidden="true" />}
-                <div
-                  className={animate ? "cb-spec-rise" : undefined}
-                  style={{ position: "relative", animationDelay: (0.08 + k * 0.12) + "s" }}
-                >
-                <p style={{
-                  fontFamily: serif,
-                  fontSize: isMobile
-                    ? "clamp(20px, 5.6vw, 26px)"
-                    : isHero
-                      ? "clamp(24px, 2.8vw, 33px)"
-                      : "clamp(17px, 1.8vw, 21px)",
-                  fontWeight: 500, letterSpacing: "-0.01em", lineHeight: 1.32,
-                  color: "#ffffff", margin: 0, maxWidth: "28ch",
-                  textAlign: "left",
+          {specimenSet.map((spec, k) => (
+            <div
+              key={specimenIdx + "-" + k}
+              className={animate ? "cb-specimen-in" : undefined}
+              style={{
+                flex: "1 1 0",
+                width: isMobile ? "100%" : undefined,
+                padding: isMobile ? "22px 22px 20px" : "24px 26px 22px",
+                background: surface,
+                border: "1px solid " + cardLine,
+                borderRadius: RADIUS.lg,
+                animationDelay: (0.08 + k * 0.12) + "s",
+              }}
+            >
+              <p style={{
+                fontFamily: "var(--cb-serif)",
+                fontSize: isMobile ? 20 : 21,
+                fontWeight: 500, lineHeight: 1.42,
+                color: ink, margin: 0,
+                textAlign: "left",
+              }}>
+                &ldquo;{spec.claim}&rdquo;
+              </p>
+              <div style={{
+                marginTop: 18, display: "flex", alignItems: "center",
+                justifyContent: "flex-start", gap: 9,
+              }}>
+                <span aria-hidden="true" style={{
+                  width: 7, height: 7, flex: "0 0 auto",
+                  background: introAccent,
+                }} />
+                <span style={{
+                  fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500,
+                  color: pal.ink2,
                 }}>
-                  &ldquo;{spec.claim}&rdquo;
-                </p>
-                <div
-                  className={animate ? "cb-spec-rule" : undefined}
-                  aria-hidden="true"
-                  style={{
-                    marginTop: isHero ? 22 : 17, width: 44, height: 2, borderRadius: 2,
-                    background: "linear-gradient(90deg, " + introAccent + ", " + accentA(0) + ")",
-                  }}
-                />
-                <div style={{
-                  marginTop: 13, display: "flex", alignItems: "center",
-                  justifyContent: "flex-start", gap: 9,
-                }}>
-                  <span
-                    className={animate ? "cb-spec-dot" : undefined}
-                    aria-hidden="true"
-                    style={{
-                      width: 7, height: 7, borderRadius: "50%", flex: "0 0 auto",
-                      background: introAccent, ["--cb-spec-dot"]: introAccent,
-                    }}
-                  />
-                  <span style={{
-                    fontFamily: serif, fontSize: 11, fontWeight: 500,
-                    letterSpacing: "normal",
-                    textTransform: "none", color: "rgba(238,241,238,0.58)",
-                  }}>
-                    Traced to a direct finding
-                  </span>
-                </div>
-                <p style={{
-                  margin: "16px 0 0", maxWidth: "62ch",
-                  fontSize: isMobile ? 13 : isHero ? 14 : 12.5, lineHeight: 1.65,
-                  color: "rgba(238,241,238,0.66)", textAlign: "left",
-                }}>
-                  {spec.paper}{" "}
-                  <a href={spec.doi} target="_blank" rel="noopener noreferrer"
-                    style={{
-                      display: "inline-flex", alignItems: "center", gap: 5,
-                      marginLeft: 6, padding: "5px 12px", borderRadius: 999,
-                      border: "1px solid " + accentA(0.38), background: accentA(0.09),
-                      color: introAccent, fontSize: 12, fontWeight: 600,
-                      textDecoration: "none", whiteSpace: "nowrap", verticalAlign: "middle",
-                    }}>
-                    Open the paper &#8599;
-                  </a>
-                </p>
-                {/* The honest proof, in the door's own quiet voice: the
-                    claim traces to the real paper linked above, and the
-                    index count is the product's real source list, the
-                    same SCHOLARLY_SOURCES the workspace searches. */}
-                <p style={{
-                  margin: "10px 0 0", fontSize: 11.5, lineHeight: 1.5,
-                  color: "rgba(238,241,238,0.58)", textAlign: "left",
-                }}>
-                  Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes
-                </p>
-                </div>
+                  Traced to a direct finding
+                </span>
               </div>
-            );
-          })}
+              <p style={{
+                margin: "16px 0 0", paddingTop: 14,
+                borderTop: "1px solid " + hairline,
+                fontSize: FONT_SIZES.label, lineHeight: 1.6,
+                color: pal.ink2, textAlign: "left",
+              }}>
+                {spec.paper}{" "}
+                <a href={spec.doi} target="_blank" rel="noopener noreferrer"
+                  style={{
+                    color: linkInk, fontWeight: 500,
+                    textDecoration: "none", whiteSpace: "nowrap",
+                    borderBottom: "1px solid " + accentA(0.4),
+                  }}>
+                  Open the paper &#8599;
+                </a>
+              </p>
+              {/* The honest proof, in the door's own quiet voice: the
+                  claim traces to the real paper linked above, and the
+                  index count is the product's real source list, the
+                  same SCHOLARLY_SOURCES the workspace searches. */}
+              <p style={{
+                margin: "10px 0 0", fontSize: FONT_SIZES.caption, lineHeight: 1.5,
+                color: pal.ink2, textAlign: "left",
+              }}>
+                Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes
+              </p>
+            </div>
+          ))}
         </div>
 
-        {/* Stepper: moves by a full set of three. Desktop only. */}
+        {/* Stepper: moves by a full set of three. Desktop only.
+            Square ghost buttons, the shape the plan radius gives
+            every control in the app. */}
         {!isMobile && (
           <div style={{
-            marginTop: 30, display: "flex", alignItems: "center", justifyContent: "center",
+            marginTop: 24, display: "flex", alignItems: "center", justifyContent: "center",
             gap: 8,
           }}>
             <button type="button" aria-label="Previous three claims"
               onClick={() => setSpecimenIdx((i) => (i - setSize + specimenCount) % specimenCount)}
               style={{
-                width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
+                width: 44, height: 44, borderRadius: RADIUS.md, cursor: "pointer",
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                fontFamily: serif, fontSize: 17,
-                color: "rgba(238,241,238,0.62)",
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.14)",
-                transition: "background 200ms ease, color 200ms ease, transform 200ms ease",
+                fontFamily: "var(--cb-font)", fontSize: 17,
+                color: pal.ink2,
+                background: "transparent",
+                border: "1px solid " + cardLine,
               }}>
               &#8592;
             </button>
             <button type="button" aria-label="Next three claims"
               onClick={() => setSpecimenIdx((i) => (i + setSize) % specimenCount)}
               style={{
-                width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
+                width: 44, height: 44, borderRadius: RADIUS.md, cursor: "pointer",
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                fontFamily: serif, fontSize: 17,
-                color: "rgba(238,241,238,0.62)",
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.14)",
-                transition: "background 200ms ease, color 200ms ease, transform 200ms ease",
+                fontFamily: "var(--cb-font)", fontSize: 17,
+                color: pal.ink2,
+                background: "transparent",
+                border: "1px solid " + cardLine,
               }}>
               &#8594;
             </button>
           </div>
         )}
 
-        {/* The single way in. */}
-        <div className={ceremony ? cls.concat("cb-focus-in").join(" ") : cls.join(" ")}
->
+        {/* The single way in: the app's primary button, the flat
+            accent fill with its contrast ink (the UIButton primary
+            treatment), nothing else on the door competes with it. */}
+        <div className="cb-intro-chrome" style={{ textAlign: "center", order: isMobile ? 1 : undefined }}>
           <button type="button" onClick={() => go("", false)} className="cb-intro-go"
             autoFocus={enteredBefore || undefined}
             onMouseEnter={() => setDoorHover(true)}
             onMouseLeave={() => setDoorHover(false)}
             style={{
-            marginTop: 42, cursor: "pointer", color: "#f2f4f2",
-            padding: isMobile ? "15px 34px" : "16px 52px",
-            fontSize: 15, fontWeight: 600, fontFamily: "var(--cb-font)",
-            letterSpacing: "normal",
-            textTransform: "none", whiteSpace: "nowrap",
+            marginTop: isMobile ? 28 : 44, cursor: "pointer",
+            textTransform: "none", whiteSpace: "nowrap", letterSpacing: "normal",
+            background: doorHover
+              ? "color-mix(in srgb, " + introAccent + " 86%, " + (pal.dark ? "#ffffff" : "#000000") + ")"
+              : introAccent,
+            color: accentText(introAccent),
+            border: "1px solid transparent", borderRadius: RADIUS.md,
+            boxShadow: "none",
+            padding: isMobile ? "14px 34px" : "14px 44px", minHeight: 48,
+            fontSize: FONT_SIZES.body, fontWeight: 500, fontFamily: "var(--cb-font)",
+            transition: "background-color 150ms ease-out",
           }}>Start researching</button>
           <div style={{ marginTop: 20 }}>
             <button type="button" onClick={() => setHowOpen(true)} style={{
               background: "none", border: "none", cursor: "pointer",
-              fontFamily: serif, fontSize: 13, letterSpacing: "normal",
-              color: faint, textDecoration: "underline", textUnderlineOffset: 5,
+              fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, letterSpacing: "normal",
+              color: pal.ink2, textDecoration: "underline", textUnderlineOffset: 5,
               textTransform: "none", padding: "10px 8px",
             }}>How it works</button>
           </div>
         </div>
       </main>
 
-      {/* ── Footer: one quiet line. */}
-      <footer className={ceremony ? "cb-intro-chrome cb-focus-in" : "cb-intro-chrome"} style={{
+      {/* ── Footer: one quiet line, closed by the same hairline the
+          header opened with. */}
+      <footer className="cb-intro-chrome" style={{
         position: "relative", zIndex: 20,
+        borderTop: "1px solid " + hairline,
         paddingBottom: "max(16px, env(safe-area-inset-bottom))",
       }}>
         <div style={{
-          maxWidth: 1440, margin: "0 auto", padding: "16px 26px 0",
+          maxWidth: 1160, margin: "0 auto", padding: "16px 24px 0",
           display: "flex", alignItems: "center", flexWrap: "wrap",
           gap: "10px 22px",
-          fontFamily: serif, fontSize: 12, letterSpacing: "normal",
-          color: "rgba(238,241,238,0.58)",
+          fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, letterSpacing: "normal",
+          color: pal.ink2,
         }}>
           <span style={{ flex: 1 }} />
           {["About", "Privacy", "Terms", "Contact"].map((item) => (
             <a key={item} href={"/" + item.toLowerCase()} style={{
-              color: "rgba(238,241,238,0.58)", textDecoration: "none", padding: "10px 0",
+              color: pal.ink2, textDecoration: "none", padding: "10px 0",
               textTransform: "none",
             }}>{item}</a>
           ))}

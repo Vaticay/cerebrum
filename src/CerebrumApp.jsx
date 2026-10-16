@@ -25749,12 +25749,13 @@ summary::-webkit-details-marker { display: none; }
   animation: cbFocusIn 1.15s var(--cb-ease-out) both;
 }
 /* Specimen change: the outgoing claim is gone with the key swap; the
-   incoming one resolves from a soft blur and a 14px rise — the same
-   focus-pull language as the entrance, quicker (0.7s) so rotation feels
-   like turning a page, not a scene change. Transform + opacity only. */
+   incoming one arrives on a plain opacity fade (0.7s), so rotation
+   feels like turning a page, not a scene change. 2026-10-16: the
+   blur resolve from the film door era is retired with that door;
+   the fade is the only entrance the app language allows here. */
 @keyframes cbSpecimenIn {
-  from { opacity: 0; filter: blur(10px); }
-  to   { opacity: 1; filter: none; }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .cb-specimen-in {
   animation: cbSpecimenIn 0.7s var(--cb-ease-out) both;
@@ -25856,21 +25857,22 @@ summary::-webkit-details-marker { display: none; }
   pointer-events: none;
   will-change: clip-path;
 }
-/* Primary CTA: a whisper, not a pill — a thin tracked-caps outline that
-   brightens on hover. Monumental through restraint. 2026-10-08: sharp
-   3px instrument corners replace the pill radius for the calibration
-   chamber; still an outline, never a glow. */
+/* Primary CTA (2026-10-16 door rebuild): the door's single way in is
+   the app's primary button — a flat accent fill with its contrast
+   ink, set inline from the palette like every UIButton primary. The
+   class only carries the shared chrome: the plan radius, no shadow,
+   and the gold focus outline. The old whisper outline treatment
+   (transparent ground, pale border, inner top edge) belonged to the
+   film door and went with it. The scoped hover rule below exists
+   because a legacy grouped rule further down gives .cb-intro-go a
+   shadow and a 1px lift on hover with !important; the flat primary
+   must not lift. */
 .cb-intro-go {
-  background: transparent;
-  border: 1px solid rgba(242,244,242,0.30);
-  border-radius: 3px;
-  color: #f2f4f2;
-  /* Material, not luminous: a top inner edge, never an outer glow. */
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.10);
-  transition: border-color 280ms var(--cb-ease), background-color 280ms var(--cb-ease);
+  border-radius: 2px;
+  box-shadow: none;
+  transition: background-color 150ms ease-out;
 }
-.cb-intro-go:hover { border-color: rgba(242,244,242,0.65); background: rgba(255,255,255,0.06); }
-.cb-intro-go:active { background: rgba(255,255,255,0.10); }
+#cb-intro-wrap .cb-intro-go:hover { box-shadow: none !important; transform: none !important; }
 .cb-intro-go:focus-visible { outline: 2px solid rgba(217,164,65,0.85); outline-offset: 3px; }
 /* ── Intro, quiet sci-fi pass ──
    Restraint: the type choreography is blur/opacity only, on the one shared
@@ -27188,7 +27190,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    whole trick: it is what separates a control you can press from a shape
    that happens to be rounded. */
 .cb-intro-navlink { transition: background 280ms var(--cb-ease), color 280ms var(--cb-ease); }
-.cb-intro-navlink:hover { background: rgba(255,255,255,0.09); color: #f2f4f2 !important; }
+.cb-intro-navlink:hover { background: color-mix(in srgb, currentColor 9%, transparent); border-radius: 2px; }
 
 
 .cb-intro-sourcelink { transition: color 280ms var(--cb-ease); }
