@@ -194,7 +194,13 @@ await test("every wave leg is constructed through guardedRaceEntry", () => {
   // guardedRaceEntry call sites no longer measures the contract).
   // Waves 1, 2 and 3 fire through the planner; the rescue waves map
   // their planned legs through guardedRaceEntry directly.
-  assert.ok(src.includes("guardedRaceEntry(d.wave, d.label, d.fire)"),
+  // PIN UPDATED (2026-10-16, finding 12): fireWaveLegs now also
+  // forwards the race state (the closed flag a planned retry race
+  // sets when its close window expires, so discarded outcomes
+  // drop their bookkeeping) as a fourth argument. The funnel
+  // contract this pin protects — every selected leg passes the
+  // single guardedRaceEntry call — is unchanged.
+  assert.ok(src.includes("guardedRaceEntry(d.wave, d.label, d.fire, raceState)"),
     "fireWaveLegs does not funnel selected legs through guardedRaceEntry");
   const planned = src.match(/fireWaveLegs\(\[/g) || [];
   assert.ok(planned.length >= 3, `expected waves 1 to 3 to fire through fireWaveLegs, found ${planned.length}`);

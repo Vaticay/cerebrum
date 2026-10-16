@@ -690,7 +690,14 @@ await test("CACHE_SCHEMA_VERSION is v43 with a dated wave nine chain entry", () 
   assert.ok(/\/\/ v47 \(2026-10-14, wave twelve\)/.test(src), "the v47 chain entry is missing");
   assert.ok(/\/\/ v48 \(2026-10-14, wave thirteen\)/.test(src), "the v48 chain entry is missing");
   assert.ok(/\/\/ v49 \(2026-10-14, wave fourteen\)/.test(src), "the v49 chain entry is missing");
-  assert.ok(src.includes("const answerKeyVersion = CACHE_SCHEMA_VERSION + \"-\" + answerLength;"),
+  // PIN UPDATED (2026-10-16, finding 4): the key version now
+  // appends answerSettingsKeyPart — the fold of the request
+  // settings that change what answer is correct (mode, evidence
+  // filter, stress filter and exclusion digest, scoped source
+  // marker), empty for a default request so the default key is
+  // unchanged. The derivation from CACHE_SCHEMA_VERSION plus the
+  // depth, which this pin exists to protect, is unchanged.
+  assert.ok(src.includes("const answerKeyVersion = CACHE_SCHEMA_VERSION + \"-\" + answerLength + answerSettingsKeyPart;"),
     "the answer cache key must derive from CACHE_SCHEMA_VERSION (wave ten)");
 });
 

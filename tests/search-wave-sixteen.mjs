@@ -922,6 +922,36 @@ await test("without a Gemini key the tier is absent, not a failed attempt", asyn
   assert.equal(trace[0].tier, "workers-ai", "the established order shifted: " + JSON.stringify(trace));
 });
 
+await test("an expired stage deadline skips every deep check tier without firing (2026-10-16, finding 11)", async () => {
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => { calls.push(String(url)); return jsonRes({}); };
+  try {
+    const ledger = createSubrequestLedger();
+    const trace = [];
+    const claims = await deepFactCheck(
+      DEEP_ANSWER_16, DEEP_PAPERS_16,
+      { GEMINI_KEY: "w16-gemini-key", OPENROUTER_KEY: "w16-or-key" },
+      ledger, trace, Date.now() - 1
+    );
+    assert.equal(claims, null, "an expired stage still produced a verdict");
+    assert.equal(calls.length, 0, "a tier fired after the stage deadline: " + JSON.stringify(calls));
+    assert.ok(trace.some((t) => t.tier === "gemini" && t.outcome === "no-time"),
+      "the Gemini tier's skip is not traced as no-time: " + JSON.stringify(trace));
+    assert.ok(trace.some((t) => t.tier === "openrouter" && t.outcome === "no-time"),
+      "the OpenRouter tier's skip is not traced as no-time: " + JSON.stringify(trace));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+await test("the handler admits the fact check on the reserve constant, the same number it reserves (2026-10-16, finding 11)", () => {
+  assert.ok(src.includes("msLeft() > FACT_CHECK_RESERVE_MS && !factCheckBudgetSkipped"),
+    "the admission gate does not read the reserve constant");
+  assert.ok(src.includes("deepFactCheck(answer, evidencePapers, env, ledger, factCheckTrace, Date.now() + FACT_CHECK_RESERVE_MS)"),
+    "the handler does not hand deepFactCheck a deadline sized from the reserve");
+});
+
 await test("the fact check window is reserved before synthesis (the reserve arithmetic)", () => {
   assert.equal(FACT_CHECK_RESERVE_MS, 5000);
   const now = 1000000;

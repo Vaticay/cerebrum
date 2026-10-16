@@ -64,6 +64,83 @@ try {
     );
   });
 
+  // Finding 1 (2026-10-16): the top-level catch reads catchQuery, but
+  // the declaration sat INSIDE the try, so the binding is out of
+  // scope in the catch and both reads throw ReferenceError. Both
+  // reads sit inside their own try/catch fallbacks, so the degraded
+  // 200 still ships — but as the bare fallback: an EMPTY no-results
+  // payload (no what-was-tried, no reasons, no reformulations) and
+  // the hardcoded fallback answer, instead of the payload and the
+  // rendered answer derived from the caller's actual question. This
+  // drives a throw PAST the pipeline's internal fallbacks: the
+  // query key secret is an object whose string conversion throws, so
+  // the first unguarded derived-cache-key call (the query
+  // intelligence key, after the early cache stage) throws straight
+  // into the top-level catch. The catch must build its payload and
+  // its answer from the real query.
+  const bombEnv = () => ({
+    QUERY_KEY_SECRET: {
+      toString() { throw new Error("smoke-test: forced pipeline failure"); },
+    },
+  });
+
+  await test("a throw past the internal fallbacks ships the degraded 200 no-results shape (the catch reads catchQuery)", async () => {
+    const request = new Request("https://askcerebrum.org/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "how does photosynthesis capture light energy" }),
+    });
+    const res = await onRequest({ request, env: bombEnv(), waitUntil: () => {}, data: {} });
+    assert.equal(res.status, 200, "the degraded response is a 200, not a throw");
+    const data = await res.json();
+    assert.equal(data.degraded, true, "the degraded flag ships");
+    assert.equal(data.responseKind, "no-results", "the no-results shape ships");
+    assert.equal(data.synthesisMode, "none", "no synthesis is claimed");
+    assert.deepEqual(data.sources, [], "no sources are claimed");
+    assert.ok(typeof data.answer === "string" && data.answer.length > 0, "a reader-facing answer ships");
+    assert.ok(Array.isArray(data.stageHealth) && data.stageHealth[0] && data.stageHealth[0].name === "request" && data.stageHealth[0].ok === false,
+      "the stage record names the total failure");
+    // The discriminating assertions for the scope defect: with
+    // catchQuery readable, the payload is BUILT from the query (its
+    // what-was-tried and reasons are populated, and the errored
+    // reason names the pipeline failure) and the answer is RENDERED
+    // from it, naming the question that was searched for. With the
+    // binding out of scope, both reads throw and the bare fallbacks
+    // ship instead: empty payload arrays and the hardcoded
+    // internal-error answer.
+    assert.ok(data.noResults && Array.isArray(data.noResults.whatWasTried) && data.noResults.whatWasTried.length > 0,
+      "the no-results payload was built from the query, not the empty fallback: " + JSON.stringify(data.noResults));
+    assert.ok(Array.isArray(data.noResults.likelyReasons) && data.noResults.likelyReasons.some((r) => /pipeline itself failed/.test(r)),
+      "the payload's reasons name the pipeline failure: " + JSON.stringify(data.noResults.likelyReasons));
+    assert.ok(data.answer.includes("how does photosynthesis capture light energy"),
+      "the rendered answer names the searched question: " + data.answer.slice(0, 200));
+    assert.ok(!data.answer.includes("hit an internal error"),
+      "the hardcoded fallback answer did not ship");
+  });
+
+  await test("the same forced throw on the stream path terminates with a done frame carrying the degraded payload", async () => {
+    const request = new Request("https://askcerebrum.org/api/search?stream=1", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "how does photosynthesis capture light energy" }),
+    });
+    const res = await onRequest({ request, env: bombEnv(), waitUntil: () => {}, data: {} });
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    const frames = text.split("\n\n");
+    const doneFrame = frames.find((f) => /(^|\n)event: done(\n|$)/.test(f));
+    assert.ok(doneFrame, "stream terminates with a done frame, not a stream-failed frame");
+    const dataLine = doneFrame.split("\n").find((l) => l.startsWith("data:"));
+    const payload = JSON.parse(dataLine.slice(5));
+    assert.equal(payload.degraded, true, "the done payload is the degraded shape");
+    assert.equal(payload.responseKind, "no-results");
+    assert.equal(payload.synthesisMode, "none");
+    assert.ok(payload.noResults && Array.isArray(payload.noResults.whatWasTried) && payload.noResults.whatWasTried.length > 0,
+      "the done payload's no-results block was built from the query, not the empty fallback");
+    assert.ok(typeof payload.answer === "string" && payload.answer.includes("how does photosynthesis capture light energy"),
+      "the done payload's answer names the searched question");
+  });
+
   await test("the stream path (?stream=1) emits a done frame with the final answer", async () => {
     const request = new Request("https://askcerebrum.org/api/search?stream=1", {
       method: "POST",

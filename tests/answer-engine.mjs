@@ -511,7 +511,16 @@ test("synthesis layer re-applies the gate after validation (supplementary fetche
 
 test("withheld count is reported in the answer envelope", () => {
   assert.ok(searchSrc.includes("relevanceGatedOut"), "relevanceGatedOut missing from search.js");
-  const envIdx = searchSrc.indexOf("sources: sourceList,");
+  // PIN UPDATED (2026-10-16, finding 5): the anchor was the late
+  // cache serve's trust builder call ("sources: sourceList,") —
+  // the only occurrence in the file, used as a proxy for the
+  // envelope below it. The late serve now pairs the stored
+  // answer with its own stored source list (the builder takes
+  // storedLateSources; the envelope ships
+  // laterTrust.labeledSources), so the anchor moves to the
+  // envelope itself. The contract — the withheld count ships in
+  // the response — is unchanged.
+  const envIdx = searchSrc.indexOf("sources: laterTrust.labeledSources,");
   assert.ok(envIdx > 0 && searchSrc.indexOf("relevanceGatedOut", envIdx) > 0,
     "relevanceGatedOut not in the response envelope");
 });
@@ -1244,7 +1253,9 @@ test("synthesis deadline is derived from the global request budget", () => {
   const fpBlock = apiSrc.slice(fpIdx, fpIdx + 800);
   assert.ok(fpBlock.includes("wave: 0"), "fastpath descriptor should carry wave 0");
   assert.ok(fpBlock.includes("w1Abort.signal"), "fastpath descriptor should fire with the wave 1 abort signal");
-  assert.ok(apiSrc.includes("guardedRaceEntry(d.wave, d.label, d.fire)"), "fireWaveLegs should funnel legs through guardedRaceEntry");
+  // PIN UPDATED (2026-10-16, finding 12): fireWaveLegs forwards
+  // the race state as a fourth argument (see fleet-hardening).
+  assert.ok(apiSrc.includes("guardedRaceEntry(d.wave, d.label, d.fire, raceState)"), "fireWaveLegs should funnel legs through guardedRaceEntry");
   // Wave 1 must include the fastpath descriptor in its race.
   assert.ok(apiSrc.includes("const wave1Calls = fireWaveLegs(["), "wave 1 should race through the budget planner");
   // Waves 2/3 must be budget-gated.

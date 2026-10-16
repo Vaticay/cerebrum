@@ -500,5 +500,152 @@ await test("a legacy row serves with null check, null verdict, and the extractiv
     "the legacy serve's unchecked cap changed: " + JSON.stringify(served.confidence));
 });
 
+// ═══════════════════════════════════════════════════════════════════
+group("D — non default request settings never serve the default row (2026-10-16, finding 4)");
+
+await test("a different mode, evidence filter, or stress filter misses the default key", async () => {
+  const query = "can wood frogs survive being frozen solid";
+  const key = await cacheKey(query, {}, "v52-medium");
+  const seedSources = [
+    { title: "Freeze tolerance in the wood frog", authors: "Storey KB, Storey JM", journal: "Journal of Experimental Biology", year: 2021, relevance: 92, abstract: "Wood frogs tolerate the freezing of up to two thirds of their body water, with ice confined to extracellular spaces.", url: "https://doi.org/10.1000/cwd1" },
+    { title: "Glucose as a cryoprotectant in a freeze tolerant frog", authors: "Costanzo JP", journal: "Cryobiology", year: 2019, relevance: 88, abstract: "Glucose accumulates in the tissues of frozen frogs and acts as a colligative cryoprotectant during thaw recovery.", url: "https://doi.org/10.1000/cwd2" },
+  ];
+  const seedAnswer =
+    "A wood frog can survive being frozen solid for weeks at a time, with ice forming only in the spaces outside its cells [1]. " +
+    "Its heart stops completely while it is frozen and starts beating again after the thaw [2].";
+  const seedRows = () => {
+    const rows = new Map();
+    rows.set(key, {
+      query_key: key,
+      answer_id: "seed-d",
+      answer: seedAnswer,
+      sources: JSON.stringify(seedSources),
+      score: 3,
+      created_at: Date.now(),
+    });
+    return rows;
+  };
+  // Control: the plain repeat DOES serve the seeded row, proving
+  // the seed sits under the key a default request derives.
+  const control = await runSearch({ rows: seedRows(), ai: scenarioAAi(), fetchImpl: noNetwork, body: { query } });
+  assert.equal(control._cached, true, "control: the default repeat did not serve the seeded row");
+  // Each non default setting derives a different key, so the
+  // default run's stored answer can never serve against it: the
+  // request falls through to a fresh pipeline run instead.
+  const byMode = await runSearch({ rows: seedRows(), ai: scenarioAAi(), fetchImpl: noNetwork, body: { query, mode: "compare" } });
+  assert.notEqual(byMode._cached, true, "a comparison request served the default mode answer");
+  const byFilter = await runSearch({ rows: seedRows(), ai: scenarioAAi(), fetchImpl: noNetwork, body: { query, settings: { evidenceFilter: "rct" } } });
+  assert.notEqual(byFilter._cached, true, "an evidence filtered request served the unfiltered answer");
+  const byStress = await runSearch({ rows: seedRows(), ai: scenarioAAi(), fetchImpl: noNetwork, body: { query, stressFilter: "human" } });
+  assert.notEqual(byStress._cached, true, "a stress filtered request served the unstressed answer");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("E — the late serve pairs the stored answer with its own stored sources (2026-10-16, finding 5)");
+
+// A DB stub shaped to reach the LATE serve: the batched preflight
+// answers with no rows (so the early serve cannot fire), while
+// the late read — a plain prepare/first against the score >= 0
+// query — returns the seeded row. Retrieval (scenario A's fetch)
+// genuinely runs and returns the magnesium papers, a different
+// list from the stored frog list, so the pairing is observable.
+function lateServeDb(row) {
+  const stmt = (sql) => {
+    let binds = [];
+    const s = {
+      _sql: sql,
+      _binds: () => binds,
+      bind: (...args) => { binds = args; return s; },
+      first: async () => {
+        if (sql.includes("FROM answer_cache") && sql.includes("score >= 0")) return row;
+        if (/CASE WHEN search_slots\.expires_at/.test(sql)) return { n: 1 };
+        return null;
+      },
+      all: async () => {
+        if (/sqlite_master/.test(sql)) {
+          return { results: [
+            { name: "pro_usage", sql: "CREATE TABLE pro_usage (user_id TEXT NOT NULL, month TEXT NOT NULL, ai_answers INTEGER NOT NULL DEFAULT 0, doc_reads INTEGER NOT NULL DEFAULT 0, flowcharts INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, month))" },
+            { name: "stripe_events", sql: "CREATE TABLE stripe_events (event_id TEXT PRIMARY KEY, received_at INTEGER NOT NULL)" },
+            { name: "student_verifications", sql: "CREATE TABLE student_verifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL)" },
+          ] };
+        }
+        return { results: [] };
+      },
+      run: async () => ({ success: true, meta: { changes: 1 } }),
+    };
+    return s;
+  };
+  return {
+    prepare: (sql) => stmt(String(sql)),
+    batch: async (arr) => (arr || []).map(() => ({ results: [] })),
+    exec: async () => ({ results: [] }),
+  };
+}
+
+async function runLateSearch({ row, body }) {
+  const realFetch = globalThis.fetch;
+  const realCaches = globalThis.caches;
+  const realRandom = Math.random;
+  globalThis.caches = {
+    default: { match: async () => undefined, put: async () => {}, delete: async () => false },
+  };
+  Math.random = () => 0.99;
+  globalThis.fetch = scenarioAFetch;
+  const pending = [];
+  try {
+    const ledger = createSubrequestLedger(160);
+    const env = { DB: lateServeDb(row), AI: scenarioAAi() };
+    const request = new Request("https://askcerebrum.org/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const res = await onRequest({
+      request, env,
+      waitUntil: (p) => { pending.push(Promise.resolve(p).catch(() => {})); },
+      data: { ledger },
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    await Promise.all(pending);
+    await new Promise((r) => setTimeout(r, 150));
+    return data;
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.caches = realCaches;
+    Math.random = realRandom;
+  }
+}
+
+await test("the late serve ships the stored list its markers were written against, not this run's list", async () => {
+  const storedSources = [
+    { title: "Freeze tolerance in the wood frog", authors: "Storey KB, Storey JM", journal: "Journal of Experimental Biology", year: 2021, relevance: 92, abstract: "Wood frogs tolerate the freezing of up to two thirds of their body water, with ice confined to extracellular spaces.", url: "https://doi.org/10.1000/cwe1" },
+    { title: "Glucose as a cryoprotectant in a freeze tolerant frog", authors: "Costanzo JP", journal: "Cryobiology", year: 2019, relevance: 88, abstract: "Glucose accumulates in the tissues of frozen frogs and acts as a colligative cryoprotectant during thaw recovery.", url: "https://doi.org/10.1000/cwe2" },
+  ];
+  const storedAnswer =
+    "A wood frog can survive being frozen solid for weeks at a time, with ice forming only in the spaces outside its cells [1]. " +
+    "Its heart stops completely while it is frozen and starts beating again after the thaw [2].";
+  const row = {
+    answer: storedAnswer,
+    sources: packAnswerCachePayload(storedSources, { factCheck: null, synthesisMode: "ai", disagreementVerdict: null }),
+    score: 3,
+    created_at: Date.now(),
+  };
+  const served = await runLateSearch({ row, body: { query: "does magnesium help you sleep better at night", settings: { factCheck: true } } });
+  assert.equal(served._cached, true, "the run was not a cache serve: " + JSON.stringify(served).slice(0, 200));
+  assert.equal(served.source, "Cached (verified)");
+  // The stage health proves this was the LATE serve (retrieval ran),
+  // not the early one (whose only stage is the cache stage).
+  assert.ok(Array.isArray(served.stageHealth) && served.stageHealth.length > 1,
+    "the serve did not come through the late path: " + JSON.stringify(served.stageHealth));
+  const titles = (served.sources || []).map((s) => String(s.title || ""));
+  assert.ok(titles.some((t) => t.includes("Freeze tolerance in the wood frog")),
+    "the stored source list did not ship: " + JSON.stringify(titles));
+  assert.ok(!titles.some((t) => /magnesium/i.test(t)),
+    "this run's freshly retrieved list was paired with the stored answer: " + JSON.stringify(titles));
+  assert.ok((served.sources || []).every((s) => !s.uncited),
+    "both stored sources are cited by the stored answer's markers: " + JSON.stringify(served.sources));
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

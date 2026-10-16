@@ -726,15 +726,24 @@ await test("the leaves question is outside both old shapes, yet the single sourc
     "the ledger does not close at its limit with the retry spent: " + JSON.stringify(data._ledger));
 });
 
-await test("at the production limit a spent tail refuses the retry and the record still labels the outcome", async () => {
-  // The same run at the true 50: this harness's fixed overhead
-  // leaves the tail reserve spent by the time the minimum
-  // support block reads it, so the retry must refuse on budget
-  // — and the outcome must still be recorded, labeled single
-  // source, never hidden. (On a run whose tail is not spent
-  // the same block fires instead; the pin here is that the
-  // record tells the truth either way, and this harness's
-  // spend deterministically lands on the budget side.)
+await test("at the production limit the retry fires on the tail the ship point meter freed, and the record labels the recovery", async () => {
+  // PIN UPDATED (2026-10-16, finding 6): this scenario used to
+  // land on the budget refusal — the harness's fixed overhead
+  // left the tail reserve spent by the time the minimum support
+  // block read it. The AI answer meter then moved from the wave
+  // win to the ship point (a caller is now charged only when an
+  // AI answer actually ships, after every gate that can discard
+  // the draft), so the unit the mid pipeline meter used to spend
+  // no longer eats the tail before the retry gate: the same
+  // harness spend now deterministically lands on the firing
+  // side. The retry fires, recovers the answer to two cited
+  // sources, the shipped mode is AI (and is metered at the ship
+  // point — the usage spend is in the ledger below), the record
+  // labels the outcome recovered rather than single source, and
+  // the ledger still closes at exactly 50. The contract this
+  // pin protects — the record tells the truth about the retry
+  // outcome and the ledger closes — is unchanged; which side of
+  // the gate this harness lands on moved with the meter.
   scenPapers = LEAF_POOL;
   scenLaneEpmc = []; scenLaneOpenAlex = []; scenLaneS2 = [];
   scenAnswer = LEAF_ANSWER_ONE;
@@ -744,12 +753,14 @@ await test("at the production limit a spent tail refuses the retry and the recor
   const ms = data._record && data._record.minSupport;
   assert.ok(ms, "the record carries no minimum cited support outcome at the production limit");
   assert.equal(ms.citedBefore, 1, "the run did not land on exactly one cited source: " + JSON.stringify(ms));
-  assert.equal(ms.retried, false, "the retry fired with the tail reserve spent");
-  assert.equal(ms.reason, "budget", "the refusal is not recorded as a budget refusal: " + JSON.stringify(ms));
-  assert.equal(ms.singleSource, true, "the shipped single source outcome is not labeled in the record");
+  assert.equal(ms.retried, true, "the retry did not fire on the freed tail: " + JSON.stringify(ms));
+  assert.equal(ms.citedAfter, 2, "the retry did not recover the answer to two cited sources: " + JSON.stringify(ms));
+  assert.equal(ms.reason, "recovered", "the outcome is not recorded as a recovery: " + JSON.stringify(ms));
+  assert.equal(ms.singleSource, false, "the recovered outcome is mislabeled single source in the record");
+  assert.equal(data.synthesisMode, "ai", "the recovered answer did not ship as AI");
   assert.ok(data._ledger && data._ledger.used <= 50 &&
     data._ledger.used + data._ledger.remaining === data._ledger.limit,
-    "the ledger does not close at exactly 50 on the refused run: " + JSON.stringify(data._ledger));
+    "the ledger does not close at exactly 50 on the recovered run: " + JSON.stringify(data._ledger));
 });
 
 // ═══════════════════════════════════════════════════════════════
