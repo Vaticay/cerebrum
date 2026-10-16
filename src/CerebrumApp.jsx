@@ -12222,9 +12222,28 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
     );
   }
 
+  /* 2026-10-16 (audit finding 19): proStatus is null until the first
+     fetch lands, and refreshPro stores null again when a fetch throws.
+     Rendering the gauges in that state read every absent bucket cap as
+     unlimited while the header said Free. Show a loading state instead;
+     no tier, cap, or refill claim is made until the status arrives. */
+  if (!proStatus) {
+    return (
+      <div style={{ maxWidth: 640, margin: "0 auto", padding: "48px 24px", textAlign: "center" }}>
+        <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</div>
+        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
+          Loading your plan details. Your meters appear here as soon as your plan status arrives.
+        </div>
+      </div>
+    );
+  }
+
   const tier = proStatus?.tier || "free";
-  const isPro = tier === "pro";
-  const isLite = tier === "lite";
+  /* 2026-10-16 (audit finding 19): Pro derives the way Profile and the
+     account menu derive it, with the user Pro flag as a backstop, so a
+     proStatus payload that lags a grant cannot demote a Pro user. */
+  const isPro = tier === "pro" || !!user?.isPro;
+  const isLite = !isPro && (tier === "lite" || !!proStatus?.isLite);
   const plans = proStatus?.plans || {};
   const q = proStatus?.quota;
   const dq = proStatus?.docReads;
@@ -12325,15 +12344,20 @@ function UsageView({ P, accent, at, user, proStatus, onOpenPro, onOpenAuth }) {
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <Gauge label="AI ANSWERS" used={q?.used || 0} cap={isPro ? null : q?.cap}
+        {/* 2026-10-16 (audit finding 19): a metered tier whose bucket is
+            absent falls back to that tier's known cap (Free 50 / 3 / 1,
+            Lite 500 / 30 / 10, per the tier table below) instead of
+            passing undefined into the Gauge, which reads it as
+            unlimited. Only Pro passes null. */}
+        <Gauge label="AI ANSWERS" used={q?.used || 0} cap={isPro ? null : (q?.cap ?? (isLite ? 500 : 50))}
           sub={isPro ? null : isLite ? "Pro removes this limit." : "Lite gives 500 answers per 5 days."}
           upgrade={isLite ? "Go Pro: unlimited answers" : "Get Lite: 500 answers per 5 days"}
           upgradePlan={isLite ? "annual" : "lite-monthly"} />
-        <Gauge label="DOCUMENT READS" used={dq?.used || 0} cap={isPro ? null : dq?.cap}
+        <Gauge label="DOCUMENT READS" used={dq?.used || 0} cap={isPro ? null : (dq?.cap ?? (isLite ? 30 : 3))}
           sub={isPro ? null : isLite ? "Pro removes this limit." : "Lite gives 30 reads per 5 days."}
           upgrade={isLite ? "Go Pro: unlimited reads" : "Get Lite: 30 reads per 5 days"}
           upgradePlan={isLite ? "annual" : "lite-monthly"} />
-        <Gauge label="FLOWCHARTS" used={fq?.used || 0} cap={isPro ? null : fq?.cap}
+        <Gauge label="FLOWCHARTS" used={fq?.used || 0} cap={isPro ? null : (fq?.cap ?? (isLite ? 10 : 1))}
           sub={isPro ? null : isLite ? "Pro removes this limit." : "Lite gives 10 flowcharts per 5 days."}
           upgrade={isLite ? "Go Pro: unlimited flowcharts" : "Get Lite: 10 flowcharts per 5 days"}
           upgradePlan={isLite ? "annual" : "lite-monthly"} />
@@ -17257,6 +17281,14 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const [evictedNote, setEvictedNote] = useState("");
   const [storeReady, setStoreReady] = useState(false);
   const saveTimer = useRef(null);
+  /* 2026-10-16 (audit finding 21): the latest pending save, held in
+     refs so the unmount flush below can run it with current state
+     after the debounced save effect's own cleanup clears its timer.
+     scrollSaveTick exists only to give a pure scroll a way to mark
+     itself for the next save; see the throttled scroll listener. */
+  const docSaveFnRef = useRef(null);
+  const docSavePendingRef = useRef(false);
+  const [scrollSaveTick, setScrollSaveTick] = useState(0);
   const readBodyRef = useRef(null);
   const docBFileRef = useRef(null);
   const compareAbort = useRef(null);
@@ -17465,8 +17497,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
      document can never show a read of its earlier version as its own. */
   useEffect(() => {
     if (!storeReady) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
+    const runSave = () => {
+      docSavePendingRef.current = false;
       try {
         const text = documentText.trim();
         const store = loadDocStore();
@@ -17524,9 +17556,42 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             .sort((a, b) => b.updatedAt - a.updatedAt)
         );
       } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx:", e); }
-    }, 800);
+    };
+    docSaveFnRef.current = runSave;
+    docSavePendingRef.current = true;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(runSave, 800);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [storeReady, documentText, summary, qaHistory, rightTab, highlights, docB, compareResult, customTitle, analysisText, marksText, comparePair]);
+  }, [storeReady, documentText, summary, qaHistory, rightTab, highlights, docB, compareResult, customTitle, analysisText, marksText, comparePair, scrollSaveTick]);
+
+  /* 2026-10-16 (audit finding 21): flush the pending save on unmount.
+     The debounced effect above clears its timer in its cleanup, which
+     used to drop any change made inside the last 800 ms when the
+     reader closed. This separate empty deps effect cleans up only on
+     unmount, and runs the ref held latest save synchronously when one
+     is still pending. */
+  useEffect(() => () => {
+    if (docSavePendingRef.current && docSaveFnRef.current) {
+      try { docSaveFnRef.current(); } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx doc save flush:", e); }
+    }
+  }, []);
+
+  /* 2026-10-16 (audit finding 21): the save payload reads the window
+     scroll position, but scrolling alone was never a save trigger, so
+     a reading position reached by scroll only was lost. This throttled
+     listener marks the position by bumping scrollSaveTick, a dep of
+     the save effect above. */
+  useEffect(() => {
+    let lastMark = 0;
+    const onScroll = () => {
+      const nowMs = Date.now();
+      if (nowMs - lastMark < 1500) return;
+      lastMark = nowMs;
+      setScrollSaveTick((t) => t + 1);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   const onDrop = (e) => {
     e.preventDefault();
     setDragActive(false);
@@ -20900,6 +20965,13 @@ function App() {
     const refresh = () => {
       apiDataGet("inbox").then((data) => {
         if (cancelled || !data?.items) return;
+        /* 2026-10-16 (audit finding 20): write the fetched list into
+           threads state. The header count and the favicon count both
+           derive from threads, and before this they only refreshed
+           while the Inbox view was mounted, so arrivals on any other
+           screen never moved either count. The seeding logic below
+           still owns this poll's notifications, unchanged. */
+        setThreads(data.items);
         if (seeded) {
           for (const t of data.items) {
             const lm = t.lastMessage;
@@ -22114,7 +22186,11 @@ function App() {
      time React re-rendered would flicker while you type. */
   const [composerPrompt] = useState(() => COMPOSER_PROMPTS[Math.floor(Math.random() * COMPOSER_PROMPTS.length)]);
   const [settingsInitialTab, setSettingsInitialTab] = useState("answers");
-  const [drawerSource, setDrawerSource] = useState(null);
+  /* 2026-10-16 (audit finding 3): the PaperDrawer component no longer
+     exists anywhere in the tree, so its state is gone too. Source cards
+     and the answer paper openers used to set it, and it fed
+     anyOverlayOpen, so a click froze the page behind a drawer that
+     never rendered. Its setters are removed until a drawer returns. */
   const [focusedSourceIdx, setFocusedSourceIdx] = useState(-1);
   const [evidenceFilter, setEvidenceFilter] = useState("all");
   /* Pass 3 (2026-09-17): the provenance line's dialog — the full wired
@@ -22721,10 +22797,12 @@ function App() {
      looking at the top of it. */
   useEffect(() => { if (entered && !isMobile && !cmdOpen) inputRef.current?.focus({ preventScroll: true }); }, [entered, isMobile, cmdOpen]);
 
-  // Keyboard navigation: J/K steps through source cards, Enter opens
-  // PaperDrawer for the focused card, Escape closes it. Only active when
+  // Keyboard navigation: J/K steps through source cards. Only active when
   // no modal/overlay is open and no input is focused — so it never
   // conflicts with typing in the search bar or the command palette.
+  // (2026-10-16: Enter used to open the PaperDrawer for the focused card
+  // and Escape closed it; that component is gone, so both branches went
+  // with it. See the note at the focusedSourceIdx state.)
   useEffect(() => {
     const onNav = (e) => {
       const tag = document.activeElement?.tagName;
@@ -22737,19 +22815,11 @@ function App() {
       } else if (e.key === "k" || e.key === "K") {
         e.preventDefault();
         setFocusedSourceIdx((prev) => Math.max(prev - 1, 0));
-      } else if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
-        if (focusedSourceIdx >= 0 && focusedSourceIdx < srcCount && !drawerSource) {
-          e.preventDefault();
-          setDrawerSource(allSources[focusedSourceIdx]);
-        }
-      } else if (e.key === "Escape" && drawerSource) {
-        e.preventDefault();
-        setDrawerSource(null);
       }
     };
     window.addEventListener("keydown", onNav);
     return () => window.removeEventListener("keydown", onNav);
-  }, [allSources, focusedSourceIdx, drawerSource, view, cmdOpen, authOpen]);
+  }, [allSources, focusedSourceIdx, view, cmdOpen, authOpen]);
 
   // Auto-attribution clipboard: when text containing citation brackets
   // [N] is copied from an answer card, append full references to the
@@ -22907,7 +22977,7 @@ function App() {
   // happens once when the first overlay opens and the restore happens once
   // when the last one closes, with the scroll offset from the first open.
   const anyOverlayOpen = cmdOpen || mobilePanel || sidebarMobileOpen
-    || authOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt || !!drawerSource
+    || authOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt
     // The consent gate must lock body scroll too — otherwise a first-time
     // visitor (or anyone whose legal cookie expired) gets a fixed overlay
     // over a scrollable page, and the body can be left overflow:hidden
@@ -23013,6 +23083,11 @@ function App() {
   useEffect(() => { setCookie("cb_df", dyslexicFont ? "1" : "0"); }, [dyslexicFont]);
   useEffect(() => { setCookie("cb_ls", lineSpacing); }, [lineSpacing]);
   useEffect(() => { setCookie("cb_fh", focusHighlight ? "1" : "0"); }, [focusHighlight]);
+  /* 2026-10-16 (audit finding 9): the reading profile cookie had a
+     reader (the state initializer above and the sign in roaming apply)
+     but no writer, so a profile chosen in Settings never survived a
+     reload from the cookie. Mirrors every other preference effect. */
+  useEffect(() => { setCookie("cb_rp", readingProfile); }, [readingProfile]);
   // Private Vault: with the vault on (or locked), the browser must not keep
   // a plaintext copy of the library — the encrypted sync is the store.
   // Actively remove the key so a stale plaintext copy can't linger.
@@ -23235,22 +23310,34 @@ function App() {
     if (mode === "unlocked") {
       const session = zkSessionRef.current;
       if (!session) { zkVaultLockedToast(); return; }
+      /* 2026-10-16 (audit finding 18): snapshot before the optimistic
+         rename so a failed vault write restores the old name locally
+         instead of leaving this device diverged from the server. */
+      const prevCollections = collections;
+      const existing = collections.find((x) => x.id === id);
       setCollections((c) => c.map((x) => x.id === id ? { ...x, name: cleanName } : x));
       const rev = zkNextRev(id);
       try {
-        const existing = collections.find((x) => x.id === id);
         await session.pushItems([{ id, kind: "collection-meta", collectionId: null, payload: { name: cleanName, createdAt: (existing && (existing.created_at || existing.createdAt)) || Date.now() }, rev }]);
         setCollections((c) => c.map((x) => x.id === id ? { ...x, zkRev: rev } : x));
-      } catch (e) { toast(zkErrorMessage(e, "Couldn't rename that collection."), { tone: "error" }); }
+      } catch (e) { setCollections(prevCollections); toast(zkErrorMessage(e, "Couldn't rename that collection."), { tone: "error" }); }
       return;
     }
+    const prevCollections = collections;
     setCollections((c) => c.map((x) => x.id === id ? { ...x, name: cleanName } : x));
-    try { await apiDataPost("collections", { action: "rename", id, name: cleanName }); } catch (e) { toast(e.message || "Couldn't rename that collection.", { tone: "error" }); }
+    try { await apiDataPost("collections", { action: "rename", id, name: cleanName }); } catch (e) { setCollections(prevCollections); toast(e.message || "Couldn't rename that collection.", { tone: "error" }); }
   }
   async function deleteCollection(id) {
     if (vaultLocalOnlyRef.current) { toast("Readable syncing is paused. Resume it in Settings to change collections.", { tone: "error" }); return; }
     const mode = vaultModeRef.current;
     if (mode === "locked" || vaultTransitionRef.current) { zkVaultLockedToast(); return; }
+    /* 2026-10-16 (audit finding 18): snapshot the collection list and
+       the saved rows before the optimistic delete. On a failed server
+       write both are restored, so the debounced saved sync re-pushes
+       the papers as filed under a collection that still exists server
+       side, instead of stripping them from it permanently. */
+    const prevCollections = collections;
+    const prevSaved = saved;
     if (mode === "unlocked") {
       const session = zkSessionRef.current;
       if (!session) { zkVaultLockedToast(); return; }
@@ -23258,12 +23345,12 @@ function App() {
       setSaved((prev) => prev.map((s) => s.collectionId === id ? { ...s, collectionId: null } : s));
       // The debounced saved push re-uploads the unfiled papers as
       // encrypted rows; the collection-meta row itself is deleted now.
-      try { await session.deleteItem(id); } catch (e) { toast(zkErrorMessage(e, "Couldn't delete that collection."), { tone: "error" }); }
+      try { await session.deleteItem(id); } catch (e) { setCollections(prevCollections); setSaved(prevSaved); toast(zkErrorMessage(e, "Couldn't delete that collection."), { tone: "error" }); }
       return;
     }
     setCollections((c) => c.filter((x) => x.id !== id));
     setSaved((prev) => prev.map((s) => s.collectionId === id ? { ...s, collectionId: null } : s));
-    try { await apiDataPost("collections", { action: "delete", id }); } catch (e) { toast(e.message || "Couldn't delete that collection.", { tone: "error" }); }
+    try { await apiDataPost("collections", { action: "delete", id }); } catch (e) { setCollections(prevCollections); setSaved(prevSaved); toast(e.message || "Couldn't delete that collection.", { tone: "error" }); }
   }
   function moveSourceToCollection(source, collectionId) {
     setSaved((prev) => prev.map((s) => sourceKey(s) === sourceKey(source) ? { ...s, collectionId } : s));
@@ -23622,8 +23709,7 @@ function App() {
         : undefined,
       boxShadow: "none",
       transform: "none",
-      cursor: "pointer",
-    }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")} onClick={() => setDrawerSource(s)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDrawerSource(s); } }}>
+    }} onMouseEnter={() => setHover("src" + i)} onMouseLeave={() => setHover("")}>
       <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5, flexWrap: "wrap" }}>
         {/* Pass 5: badges become mono text metadata — the tint stays as a
             text color (it carries the tier signal), the pill shell goes. */}
@@ -24250,7 +24336,7 @@ function App() {
                   return (
                     <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
                       onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
-                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onOpenPaper={(turn, n) => { const s = turn.sources && turn.sources[n - 1]; if (s) setDrawerSource(s); }} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
                     </div>
                   );
                 })}
@@ -24388,7 +24474,7 @@ function App() {
       )}
       {view === "settings" && (
         <Reveal deps={[view]} style={S.pageView}>
-        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: openPro, onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, onRegisterPasskey: registerPasskey }} />
+        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: openPro, onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, onRegisterPasskey: registerPasskey }} />
         </Reveal>
       )}
       {view === "trending" && (
@@ -25245,8 +25331,11 @@ function App() {
           onClose={() => setFlowchartOpen(null)}
         />
       )}
-      {/* PaperDrawer temporarily disabled - component was removed in parallel workstream */}
-      {/* {drawerSource && <PaperDrawer P={P} accent={accent} at={at} S={S} source={drawerSource} onAskScoped={(q) => ask(q)} close={() => setDrawerSource(null)} />} */}
+      {/* 2026-10-16 (audit finding 3): the PaperDrawer render used to sit
+          here, commented out after the component was removed from the
+          tree. Its state and setters are gone too, so nothing can freeze
+          the page behind a drawer that never renders. Restore all three
+          together if the drawer ever returns. */}
       {/* Commit 47: rendered here, at the app root, specifically so it's not
           a child of the "inbox" view branch above — a component instance
           only exists in the DOM while its parent renders it, so nesting this
