@@ -2136,6 +2136,52 @@ await test("the correct option's length rank stays near chance in both authored 
   }
 });
 
+await test("the correct option's length rank stays near chance for shortest in both authored sets", () => {
+  // The mirror tell, measured 2026-10-16: Panel 8 and Panel 9
+  // found the correct option uniquely shortest in 111 of 216
+  // topic cards across quiz, visualq, and predict kinds (51.4
+  // percent against 25 percent chance), while learning paths sat
+  // near chance on the same measure. Picking the shortest option
+  // named the answer in the topic courses, so length alone leaked
+  // it from the other direction than the longest pin above
+  // guards. The wave of 2026-10-16 rebalanced the topic options,
+  // and this pin holds the fix. The population is wider than the
+  // longest pin: every authored card of kinds quiz, visualq, and
+  // predict (truefalse is excluded), grouped per set and
+  // combined, with the same ceilings: unique shortest at most 35
+  // percent, shortest or tied at most 45 percent.
+  const SHORTABLE_KINDS = new Set(["quiz", "visualq", "predict"]);
+  const shortestStats = (sets) => {
+    let n = 0, uniq = 0, tied = 0;
+    for (const p of sets) {
+      for (const lesson of flattenPathLessons(p)) {
+        for (const card of lesson.cards) {
+          if (!SHORTABLE_KINDS.has(card.kind)) continue;
+          n++;
+          const lens = card.options.map((o) => o.length);
+          const min = Math.min(...lens);
+          if (lens[card.correct] === min) {
+            tied++;
+            if (lens.filter((l) => l === min).length === 1) uniq++;
+          }
+        }
+      }
+    }
+    return { n, uniq, tied };
+  };
+  const groups = [
+    ["learning paths", LEARNING_PATHS, 258],
+    ["topic courses", TOPIC_COURSES, 216],
+    ["both sets", [...LEARNING_PATHS, ...TOPIC_COURSES], 474],
+  ];
+  for (const [label, sets, expected] of groups) {
+    const { n, uniq, tied } = shortestStats(sets);
+    assert.equal(n, expected, `${label}: expected ${expected} authored quiz, visualq, and predict cards, found ${n}`);
+    assert.ok(uniq / n <= 0.35, `${label}: correct option uniquely shortest in ${uniq} of ${n}, over the 35 percent ceiling`);
+    assert.ok(tied / n <= 0.45, `${label}: correct option shortest or tied in ${tied} of ${n}, over the 45 percent ceiling`);
+  }
+});
+
 await test("the learning flow carries no paper machinery at all", () => {
   assert.ok(!learnSrc.includes("THE FINDING"), "the feedback sheet still has a finding label");
   assert.ok(!learnSrc.includes("FROM THE LITERATURE"), "a reading card label survived");
