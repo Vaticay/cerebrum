@@ -663,5 +663,97 @@ await test("POST malformed JSON returns -32700 and a notification returns 202 wi
   assert.equal(await note.text(), "");
 });
 
+// ═══════════════════════════════════════════════════════════════════
+group("Batch cap, per entry charging, and the body ceiling (2026-10-16)");
+
+await test("a batch at the cap still executes every entry", async () => {
+  let calls = 0;
+  const runners = {
+    searchRunner: async () => { calls++; return SEARCH_PAYLOAD; },
+    trendingRunner: fakeRunners.trendingRunner,
+  };
+  const batch = Array.from({ length: mcp.MCP_MAX_BATCH }, (_, i) =>
+    rpc("tools/call", { name: "search_literature", arguments: { query: "q" + i } }, i + 1));
+  const out = await handleRpcMessage(batch, runners);
+  assert.equal(out.length, mcp.MCP_MAX_BATCH);
+  assert.equal(calls, mcp.MCP_MAX_BATCH, "batch execution under the cap must keep working");
+});
+
+await test("a batch over the cap is rejected whole and runs nothing", async () => {
+  let calls = 0;
+  const runners = {
+    searchRunner: async () => { calls++; return SEARCH_PAYLOAD; },
+    trendingRunner: fakeRunners.trendingRunner,
+  };
+  const batch = Array.from({ length: mcp.MCP_MAX_BATCH + 1 }, (_, i) =>
+    rpc("tools/call", { name: "search_literature", arguments: { query: "q" + i } }, i + 1));
+  const out = await handleRpcMessage(batch, runners);
+  assert.equal(out.error.code, -32600);
+  assert.equal(calls, 0, "an over cap batch dispatched entries");
+
+  const res = await onRequest({
+    request: new Request("https://askcerebrum.org/api/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.201" },
+      body: JSON.stringify(batch),
+    }),
+    env: {},
+    runners,
+  });
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error.code, -32600);
+  assert.equal(calls, 0, "an over cap batch dispatched entries over HTTP");
+});
+
+await test("tool calls in a batch are charged once per entry against the rate limit", async () => {
+  let calls = 0;
+  const runners = {
+    searchRunner: async () => { calls++; return SEARCH_PAYLOAD; },
+    trendingRunner: fakeRunners.trendingRunner,
+  };
+  const post = (payload) => onRequest({
+    request: new Request("https://askcerebrum.org/api/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.202" },
+      body: JSON.stringify(payload),
+    }),
+    env: {},
+    runners,
+  });
+  const batch = Array.from({ length: mcp.MCP_MAX_BATCH }, (_, i) =>
+    rpc("tools/call", { name: "search_literature", arguments: { query: "q" + i } }, i + 1));
+  // Each batch spends MCP_MAX_BATCH charges of the MCP_RATE_LIMIT
+  // budget, so exactly limit / cap batches fit in the window.
+  const batchesThatFit = mcp.MCP_RATE_LIMIT / mcp.MCP_MAX_BATCH;
+  for (let i = 0; i < batchesThatFit; i++) {
+    const res = await post(batch);
+    assert.equal(res.status, 200, `batch ${i + 1} within the per entry budget was refused`);
+  }
+  assert.equal(calls, mcp.MCP_RATE_LIMIT, "tool calls executed does not match the charged budget");
+  const over = await post(rpc("tools/call", { name: "search_literature", arguments: { query: "one more" } }, 99));
+  assert.equal(over.status, 429, "a tool call past the per entry budget was allowed through");
+  assert.equal(calls, mcp.MCP_RATE_LIMIT, "the refused tool call still executed");
+});
+
+await test("a body over the ceiling is refused with 413 before dispatch", async () => {
+  let calls = 0;
+  const runners = {
+    searchRunner: async () => { calls++; return SEARCH_PAYLOAD; },
+    trendingRunner: fakeRunners.trendingRunner,
+  };
+  const big = rpc("tools/call", { name: "search_literature", arguments: { query: "x".repeat(mcp.MCP_MAX_BODY_BYTES) } }, 5);
+  const res = await onRequest({
+    request: new Request("https://askcerebrum.org/api/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.203" },
+      body: JSON.stringify(big),
+    }),
+    env: {},
+    runners,
+  });
+  assert.equal(res.status, 413);
+  assert.equal(calls, 0, "an oversized body still dispatched a tool call");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

@@ -718,7 +718,13 @@ async function handleTemplateTrack(request, env, cors, body) {
   const checked = await requireProUser(request, env, cors);
   if (checked.response) return checked.response;
   const ip = clientIp(request);
-  if (!(await checkRateLimit(env, "tmpltrack:" + privacyKey(ip), 60, 60000))) {
+  // privacyKey is async (2026-10-16, audit finding 22): the unawaited
+  // call stringified a pending promise, so every caller shared one
+  // constant limiter bucket. Await it with its three arguments, the
+  // same shape every other call site in the tree uses; the returned
+  // string already carries the prefix.
+  const rlKey = await privacyKey("tmpltrack", ip, env);
+  if (!(await checkRateLimit(env, rlKey, 60, 60000))) {
     return tooManyRequests(cors);
   }
   const templateId = body && typeof body.templateId === "string" ? body.templateId : "";

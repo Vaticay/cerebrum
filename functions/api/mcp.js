@@ -47,6 +47,22 @@ export const MCP_DOCUMENTATION_URL = "https://askcerebrum.org/features";
 export const MCP_RATE_LIMIT = 20;
 export const MCP_RATE_WINDOW_MS = 60000;
 
+// Batch cap (2026-10-16, audit finding 10): a batch is one HTTP
+// request, but every tools/call entry in it runs a full upstream
+// search, the same cost the 20 per minute limit above exists to
+// bound. Five entries keeps legitimate fan out working while one
+// request can never spend more than a quarter of the minute budget
+// (5 of 20) at once. Entries past the cap are not executed at all:
+// the whole batch is rejected before dispatch.
+export const MCP_MAX_BATCH = 5;
+
+// Body ceiling (2026-10-16, audit finding 10): the bounded reader
+// pattern the sibling JSON endpoints use through readJsonBody in
+// functions/lib/http.js, with the same 32,000 byte ceiling the pro,
+// report, and cortex endpoints use. An MCP message carries a short
+// research question, so this is generous for real traffic.
+export const MCP_MAX_BODY_BYTES = 32_000;
+
 const MCP_USER_AGENT = "Cerebrum MCP 1.0.0 (https://askcerebrum.org)";
 const TRENDING_PER_SECTION = 5;
 
@@ -638,6 +654,13 @@ export async function handleRpcMessage(message, runners = {}, context = {}) {
     return handleRpcMessage(parsed.message, runners, context);
   }
   if (Array.isArray(message)) {
+    // Over cap batches are rejected whole (2026-10-16): dispatching
+    // the first entries and dropping the rest would silently change
+    // what the client asked for, and executing all of them is the
+    // unbounded fan out this cap exists to stop.
+    if (message.length > MCP_MAX_BATCH) {
+      return rpcError(null, -32600, "Invalid Request: batch too large");
+    }
     const out = [];
     for (const entry of message) {
       const r = await handleRpcMessage(entry, runners, context);
@@ -753,27 +776,63 @@ export async function onRequest(context) {
       "Retry-After": "30",
     });
   let rlKey = null;
-  try {
-    rlKey = await privacyKey("mcp", clientIp(request), env);
-    if (!(await checkRateLimit(env, rlKey, MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS))) {
-      return rateLimited();
+  // One limiter charge, with the fail bounded fallback above kept
+  // intact for every charge. Returns true when the charge is allowed.
+  const chargeOnce = async () => {
+    try {
+      if (!rlKey) rlKey = await privacyKey("mcp", clientIp(request), env);
+      return await checkRateLimit(env, rlKey, MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS);
+    } catch (e) {
+      console.error("Cerebrum MCP rate limit check failed, falling back to the in memory limiter:", e);
+      const fallbackKey = rlKey || "mcp:mem:" + memoryFallbackKey(clientIp(request));
+      return checkRateLimitMemoryOnly(fallbackKey, MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS);
     }
-  } catch (e) {
-    console.error("Cerebrum MCP rate limit check failed, falling back to the in memory limiter:", e);
-    const fallbackKey = rlKey || "mcp:mem:" + memoryFallbackKey(clientIp(request));
-    if (!checkRateLimitMemoryOnly(fallbackKey, MCP_RATE_LIMIT, MCP_RATE_WINDOW_MS)) {
-      return rateLimited();
-    }
+  };
+  if (!(await chargeOnce())) {
+    return rateLimited();
   }
 
+  // Bounded body read (2026-10-16), the readJsonBody pattern from
+  // functions/lib/http.js: Content-Length is refused up front, then
+  // the text is measured in real bytes, because Content-Length can
+  // be absent and text length undercounts multibyte characters.
+  const declaredLength = Number(request.headers.get("Content-Length") || 0);
+  if (declaredLength && declaredLength > MCP_MAX_BODY_BYTES) {
+    return json(rpcError(null, -32600, "Request too large"), 413, cors);
+  }
   let text;
   try {
     text = await request.text();
   } catch {
     return json(rpcError(null, -32700, "Parse error"), 400, cors);
   }
+  if (new TextEncoder().encode(text).length > MCP_MAX_BODY_BYTES) {
+    return json(rpcError(null, -32600, "Request too large"), 413, cors);
+  }
   const parsed = parseJsonRpcText(text);
   if (parsed.error) return json(parsed.error, 400, cors);
+
+  if (Array.isArray(parsed.message) && parsed.message.length > MCP_MAX_BATCH) {
+    return json(rpcError(null, -32600, "Invalid Request: batch too large"), 400, cors);
+  }
+
+  // Per entry charge for tool calls (2026-10-16, audit finding 10):
+  // the baseline charge above pays for the request itself, which is
+  // also the first tool call when there is one. Every further
+  // dispatchable tools/call entry (an entry with an id, matching
+  // what handleRpcMessage will actually execute; notifications are
+  // never dispatched) is charged once more, all before dispatch, so
+  // a batch spends limiter budget in proportion to the upstream
+  // searches it is about to run.
+  const parsedEntries = Array.isArray(parsed.message) ? parsed.message : [parsed.message];
+  const toolCallCount = parsedEntries.filter(
+    (entry) => isObject(entry) && entry.method === "tools/call" && "id" in entry && entry.id !== undefined
+  ).length;
+  for (let i = 1; i < toolCallCount; i++) {
+    if (!(await chargeOnce())) {
+      return rateLimited();
+    }
+  }
 
   const origin = (() => {
     try {

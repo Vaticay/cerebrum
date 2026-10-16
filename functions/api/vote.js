@@ -99,42 +99,78 @@ export async function onRequest(context) {
 
   try {
     await ensureVoteTable(env);
-    const existing = await env.DB.prepare(
-      "SELECT vote FROM answer_votes WHERE answer_id = ? AND user_id = ?"
-    ).bind(v.answerId, user.id).first();
-    const previous = existing ? existing.vote : null;
-    const delta = voteDelta(previous, v.vote);
+    const dir = v.vote === "up" ? 1 : -1;
 
-    if (delta === 0) {
-      // Idempotent: the same vote twice changes nothing and reports that.
-      return json({ ok: true, answerId: v.answerId, vote: v.vote, changed: false }, 200, cors);
-    }
-
-    await env.DB.prepare(
-      "INSERT OR REPLACE INTO answer_votes (answer_id, user_id, vote, created_at) VALUES (?, ?, ?, ?)"
-    ).bind(v.answerId, user.id, v.vote, Date.now()).run();
-    await env.DB.prepare(
-      "UPDATE answer_cache SET score = score + ? WHERE answer_id = ?"
-    ).bind(delta, v.answerId).run();
+    // Atomic vote application (2026-10-16, audit finding 13). The old
+    // shape read the previous vote, computed the delta in memory, then
+    // wrote the vote row and the score as separate statements: two
+    // concurrent requests from one account could both read "no
+    // previous vote", both compute a full delta, and both apply it,
+    // while the vote table ended with one row. Now the delta is
+    // computed inside SQL from the vote row as it stands when the
+    // statement runs (the same cases voteDelta documents: no previous
+    // vote gives dir, a repeat gives 0, a flip gives 2 * dir), and
+    // the score update, the paper signal, and the vote row write run
+    // as ONE D1 batch. A D1 batch is a single transaction, so no
+    // other request can interleave between the delta read inside the
+    // first statements and the vote write in the last one. The score
+    // and paper statements must stay BEFORE the vote write: their
+    // delta expressions read the previous vote.
+    const deltaCase =
+      "CASE WHEN NOT EXISTS (SELECT 1 FROM prev) THEN " + dir +
+      " WHEN (SELECT vote FROM prev) = ? THEN 0 ELSE " + (2 * dir) + " END";
+    const scoreStmt = env.DB.prepare(
+      "WITH prev AS (SELECT vote FROM answer_votes WHERE answer_id = ? AND user_id = ?), " +
+      "d AS (SELECT " + deltaCase + " AS delta) " +
+      "UPDATE answer_cache SET score = score + (SELECT delta FROM d) " +
+      "WHERE answer_id = ? AND (SELECT delta FROM d) <> 0"
+    ).bind(v.answerId, user.id, v.vote, v.answerId);
 
     // Extend the learning signal to paper-level: look up which query this
     // answer belongs to, and nudge every paper attached to it in paper_cache.
     // Upvotes confirm (2 per score point), downvotes decay (1 per score
     // point, floored at 0) so a bad match doesn't stay force-included
     // forever. A flipped vote applies the net delta, never double-counts.
-    try {
-      const row = await env.DB.prepare(
-        "SELECT query_key FROM answer_cache WHERE answer_id = ?"
-      ).bind(v.answerId).first();
-      if (row && row.query_key) {
-        const confirmDelta = delta > 0 ? delta * 2 : delta;
-        await env.DB.prepare(
-          "UPDATE paper_cache SET times_confirmed = MAX(0, times_confirmed + ?) WHERE query_key = ?"
-        ).bind(confirmDelta, row.query_key).run();
-      }
-    } catch (cbErr) { console.error("[Cerebrum] vote.js if: const row = await env.DB.prepare(:", cbErr); }
+    // The confirm transform of the same SQL delta: positive deltas
+    // double, negative deltas pass through.
+    const paperStmt = env.DB.prepare(
+      "WITH prev AS (SELECT vote FROM answer_votes WHERE answer_id = ? AND user_id = ?), " +
+      "d AS (SELECT " + deltaCase + " AS delta) " +
+      "UPDATE paper_cache SET times_confirmed = MAX(0, times_confirmed + " +
+      "(SELECT CASE WHEN delta > 0 THEN delta * 2 ELSE delta END FROM d)) " +
+      "WHERE query_key = (SELECT query_key FROM answer_cache WHERE answer_id = ?) " +
+      "AND (SELECT delta FROM d) <> 0"
+    ).bind(v.answerId, user.id, v.vote, v.answerId);
 
-    return json({ ok: true, answerId: v.answerId, vote: v.vote, changed: true }, 200, cors);
+    // The vote row write runs last in the batch, and only actually
+    // changes the row when the vote is new or flipped, so repeating
+    // the same vote stays a true no op, created_at included.
+    const voteStmt = env.DB.prepare(
+      "INSERT INTO answer_votes (answer_id, user_id, vote, created_at) VALUES (?, ?, ?, ?) " +
+      "ON CONFLICT(answer_id, user_id) DO UPDATE SET vote = excluded.vote, created_at = excluded.created_at " +
+      "WHERE answer_votes.vote <> excluded.vote"
+    ).bind(v.answerId, user.id, v.vote, Date.now());
+
+    let scoreResult;
+    if (typeof env.DB.batch === "function") {
+      const results = await env.DB.batch([scoreStmt, paperStmt, voteStmt]);
+      scoreResult = results && results[0];
+    } else {
+      // A DB binding without batch (test doubles): the same
+      // statements in the same order. The score delta is still
+      // computed inside its single statement, never in memory.
+      scoreResult = await scoreStmt.run();
+      await paperStmt.run();
+      await voteStmt.run();
+    }
+
+    // changed reports what the score update actually did: its change
+    // count. An answer id with no cache row touches zero rows and now
+    // honestly reports changed false, even though the vote itself was
+    // recorded. A repeat vote also touches zero rows (delta 0 is
+    // excluded by the WHERE above), preserving idempotent reporting.
+    const scoreChanges = scoreResult && scoreResult.meta ? scoreResult.meta.changes : 0;
+    return json({ ok: true, answerId: v.answerId, vote: v.vote, changed: scoreChanges > 0 }, 200, cors);
   } catch (e) {
     // Raw exception messages can leak D1 driver/schema detail on a genuine
     // database failure. Log server-side, return a generic message.
