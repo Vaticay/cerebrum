@@ -293,11 +293,30 @@ export function rebaseQaHistoryOffsets(qaHistory, leadTrim, textLength) {
 }
 
 /* A human title for a document: the first substantial line, capped. */
+/* Journal front matter lines (2026-10-17): a submission history
+   line ("Received: 7 October 2025. Revised: 24 February 2026.
+   Accepted: 12 March 2026"), a copyright or DOI line, or a keyword
+   line is metadata about the paper, never its title. PDF extraction
+   often places these ahead of the title, and the first long line
+   won by default — the owner's 2026-10-16 photo shows the analysis
+   masthead headlined by the submission dates. The screen mirrors
+   the backend extractive fallback's (functions/api/document.js,
+   isFrontMatterSentence), in the line shapes a title hunt meets. */
+function isFrontMatterLine(l) {
+  if (/^(copyright|©|all rights reserved|doi\s*:|https?:\/\/doi\.org\/|issn\b|keywords?\b)/i.test(l)) return true;
+  if (/^(received|revised|accepted|available online|published online|first published)\s*:/i.test(l)) return true;
+  const labels = l.match(/\b(received|revised|accepted)\b/gi);
+  if (labels && labels.length >= 2 && /\d{4}/.test(l)) return true;
+  if (/\bwas published by\b/i.test(l) && /\bon behalf of\b/i.test(l)) return true;
+  if (/^the (study|paper|article|work) was published\b/i.test(l)) return true;
+  return false;
+}
+
 export function docTitleOf(text) {
   const line = String(text || "")
     .split("\n")
     .map((l) => l.trim())
-    .find((l) => l.length > 12);
+    .find((l) => l.length > 12 && !isFrontMatterLine(l));
   if (!line) return "Untitled document";
   return line.length > 80 ? line.slice(0, 77) + "…" : line;
 }

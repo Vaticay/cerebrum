@@ -604,6 +604,8 @@ export async function generate(env, messages, maxTokens, { timeoutMs = 20000, id
         throw e;
       }
     );
+  const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+  const RETRY_MODEL = "meta-llama/llama-3.2-3b-instruct:free";
   const calls = activeRoster.map((model, i) =>
     tracked(
       model,
@@ -617,12 +619,14 @@ export async function generate(env, messages, maxTokens, { timeoutMs = 20000, id
       })
     )
   );
-  const CF_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
   if (env.AI && typeof env.AI.run === "function") {
     const park = docLegParkInfo(CF_MODEL, nowMs);
     if (park) skippedLegs.push({ model: CF_MODEL, reason: park.reason });
     else calls.push(tracked(CF_MODEL, callCF(env, CF_MODEL, clamped, maxTokens, Math.min(timeoutMs, 30000))));
   }
+  // (When every leg is parked, `calls` is empty and the race below
+  // settles instantly; the catch then owes the call one real attempt
+  // before it may fail — see the desperation leg there, 2026-10-17.)
   try {
     const winner = await Promise.any(calls);
     raceSettled = true;
@@ -642,7 +646,6 @@ export async function generate(env, messages, maxTokens, { timeoutMs = 20000, id
     // One fast retry with a small model before giving up — unless that
     // leg is itself parked, in which case firing it would repeat a
     // failure the store already knows about.
-    const RETRY_MODEL = "meta-llama/llama-3.2-3b-instruct:free";
     if (openRouterKey(env)) {
       const park = docLegParkInfo(RETRY_MODEL);
       if (park) {
@@ -663,6 +666,60 @@ export async function generate(env, messages, maxTokens, { timeoutMs = 20000, id
         }
       }
     }
+    // ── Desperation leg (2026-10-17) ──────────────────────────────
+    // Reaching here with `calls` empty means nothing was ever fired:
+    // every leg was parked, and the small model retry above was
+    // parked too. The old code threw "All providers failed" in under
+    // a millisecond from exactly this spot. That is the synthesis
+    // stage the owner watched fail at 0.0s on 2026-10-16 while
+    // extractive text shipped in its place: the digest's own chunk
+    // races had parked the OpenRouter legs (daily cap), the
+    // surviving Workers AI leg had parked itself rate limiting under
+    // the burst, and the synthesis — fired seconds later, inside
+    // every park window — never attempted anything. A park is a
+    // heuristic about the recent past (a rate limit a sibling call
+    // recorded, one error's wording), not ground truth about this
+    // second, so when the alternative is certain failure the
+    // soonest to unpark leg gets ONE real attempt. Its outcome is
+    // recorded like any other leg's: a success clears the park, a
+    // failure re-parks it, and a genuinely dead fleet still fails —
+    // after one honest try instead of none.
+    if (!calls.length) {
+      const candidates = [];
+      for (const model of roster) {
+        const park = docLegParkInfo(model);
+        if (park) candidates.push({ model, untilMs: park.untilMs, cf: false });
+      }
+      if (env.AI && typeof env.AI.run === "function") {
+        const park = docLegParkInfo(CF_MODEL);
+        if (park) candidates.push({ model: CF_MODEL, untilMs: park.untilMs, cf: true });
+      }
+      if (openRouterKey(env)) {
+        const park = docLegParkInfo(RETRY_MODEL);
+        if (park) candidates.push({ model: RETRY_MODEL, untilMs: park.untilMs, cf: false });
+      }
+      if (candidates.length) {
+        candidates.sort((a, b) => a.untilMs - b.untilMs);
+        const pick = candidates[0];
+        try {
+          const r = pick.cf
+            ? await callCF(env, pick.model, clamped, maxTokens, Math.min(timeoutMs, 30000))
+            : await callOR(env, pick.model, clamped, pick.model === RETRY_MODEL ? Math.min(maxTokens, 1200) : maxTokens, {
+                timeoutMs,
+                idleTimeoutMs,
+                onToken: useStream ? onToken : null,
+              });
+          recordDocLegOutcome(pick.model, true);
+          r.promptClamp = promptClamp;
+          r.skippedLegs = skippedLegs;
+          await accountSpend(r);
+          return r;
+        } catch (e2) {
+          recordDocLegOutcome(pick.model, false, e2);
+          errList.push("desperation leg " + pick.model + ": " + String((e2 && e2.message) || e2));
+        }
+      }
+    }
     const err = new Error("All providers failed: " + errList.join(" | "));
     err.skippedLegs = skippedLegs;
     throw err;
@@ -680,18 +737,32 @@ export async function generate(env, messages, maxTokens, { timeoutMs = 20000, id
 //
 // v2 tuning: 6K-char chunks (was 15K) digest in seconds rather than tens
 // of seconds; 10-way parallelism (was 4) means a 40K-char paper's ~7
-// chunks run in a single wave; 350-token chunk budgets (was 700) keep each
-// call short. Every chunk call is individually bounded by
+// chunks run in a single wave; small chunk budgets keep each call short.
+// Every chunk call is individually bounded by
 // MAP_PER_CHUNK_TIMEOUT_MS — there is deliberately no global map-phase
 // timeout that could fail all chunks at once.
+//
+// 2026-10-17 repair: the chunk budget was 350 tokens while the chunk
+// prompt asks for a 150-250 word digest — 250 words runs past 350
+// tokens, so digests on the surviving leg were cut mid-thought
+// (finish_reason "length") on ordinary sections, which the digest
+// stage then reported as sections that "hit their length cap while
+// being read" (owner photos, 2026-10-16). The budget is 600 now, and
+// summarizeChunks re-reads any section whose digest still comes back
+// cut, in parts, so the cap costs a second smaller call rather than
+// the section's tail.
 const MAP_REDUCE_THRESHOLD = 8000;
 const MAP_CHUNK_CHARS = 6000;
 const MAP_CONCURRENCY = 10;
-const MAP_MAX_TOKENS = 350;
+const MAP_MAX_TOKENS = 600;
 // One chunk's whole lifecycle — 3-provider race plus the small-model
 // retry — must settle inside this. Slow chunks degrade to placeholders,
 // never to a hung analysis.
 const MAP_PER_CHUNK_TIMEOUT_MS = 20000;
+// The parts recovery pass in summarizeChunks (2026-10-17) gets its own
+// soft wall clock: it starts no new section once this has elapsed, so
+// recovery can never hold an analysis open past the outer guards.
+const PARTS_RECOVERY_BUDGET_MS = 45000;
 // The final synthesis asks for 5-9 substantive paragraphs — roughly
 // 800-1600 tokens in practice. 2400 leaves real headroom without paying
 // for worst-case generation time on a slow free model: every extra
@@ -706,7 +777,7 @@ const SUMMARY_SINGLE_TIMEOUT_MS = 60000;
 const SUMMARY_SYNTH_TIMEOUT_MS = 100000;
 const SUMMARY_TIMEOUT_MS = 120000;
 const QA_TIMEOUT_MS = 75000;
-export { MAP_REDUCE_THRESHOLD, MAP_CHUNK_CHARS, MAP_CONCURRENCY, MAP_MAX_TOKENS, MAP_PER_CHUNK_TIMEOUT_MS, SUMMARY_MAX_TOKENS, SUMMARY_SINGLE_TIMEOUT_MS, SUMMARY_SYNTH_TIMEOUT_MS, SUMMARY_TIMEOUT_MS, QA_TIMEOUT_MS };
+export { MAP_REDUCE_THRESHOLD, MAP_CHUNK_CHARS, MAP_CONCURRENCY, MAP_MAX_TOKENS, MAP_PER_CHUNK_TIMEOUT_MS, PARTS_RECOVERY_BUDGET_MS, SUMMARY_MAX_TOKENS, SUMMARY_SINGLE_TIMEOUT_MS, SUMMARY_SYNTH_TIMEOUT_MS, SUMMARY_TIMEOUT_MS, QA_TIMEOUT_MS };
 
 // Split a document into chunks of at most maxChars, breaking on paragraph
 // boundaries (blank lines) so a chunk never starts or ends mid-thought. A
@@ -775,10 +846,13 @@ function defaultDigest(env, chunkText, index, total, { costCtl = null } = {}) {
 
 // Digest every chunk with bounded parallelism. Returns
 // { sections, failed, budgetDenied, skippedLegs, promptClampOmittedChars,
-// lengthCutChunks }: sections[i] is the digest or null; failed lists
-// 1-based indices of chunks that could not be read. A chunk that fails (provider timeout, rate limit)
-// leaves a null — never an exception — so one bad section can never kill
-// the whole analysis. onProgress reports (done, total) after each chunk
+// lengthCutChunks, unknownFinishChunks, recoveredInParts }: sections[i]
+// is the digest or null; failed lists 1-based indices of chunks that
+// could not be read even in parts (see the recovery pass below);
+// recoveredInParts lists the chunks a second, split read rescued. A
+// chunk that fails (provider timeout, rate limit) leaves a null —
+// never an exception — so one bad section can never kill the whole
+// analysis. onProgress reports (done, total) after each chunk
 // settles, done counting monotonically 1..N in completion order.
 //
 // priorSections (optional): an array aligned 1:1 with the chunks, from a
@@ -875,10 +949,103 @@ export async function summarizeChunks(env, chunks, onProgress, { digest = null, 
   const workers = [];
   for (let w = 0; w < Math.min(MAP_CONCURRENCY, n); w++) workers.push(worker());
   await Promise.all(workers);
+  // ── Second pass: read the problem sections in parts (2026-10-17) ──
+  // A section whose whole-section digest failed, or came back cut at
+  // its token cap, used to stay failed or truncated: the run shipped
+  // with a hole (or a quietly shortened digest) and only a manual
+  // rerun through the resume path could ever fill it. The owner's
+  // 2026-10-16 photos show both at once — five sections unread,
+  // four more cut — on a fleet having a bad evening, when a smaller
+  // call stood a real chance: half a section is a shorter prompt,
+  // a shorter generation, and a different moment for a rate limit
+  // window to have rolled. So each problem section is split in two
+  // and its parts are digested on their own:
+  //   - a failed section is recovered when its parts together yield
+  //     a real digest (one surviving part still counts: digestion is
+  //     lossy by design, and half a section read beats a hole);
+  //   - a length cut section is replaced only when every part comes
+  //     back whole, so a replacement is never a different truncation
+  //     wearing a new coat.
+  // The pass is bounded three ways: skipped entirely when the token
+  // budget denied the first pass (every part would be denied too),
+  // at most three sections in flight, and a soft deadline after
+  // which no new section starts. Progress is not re-reported: the
+  // first pass already ticked every section, and these ticks would
+  // double-count.
+  const recoveredInParts = [];
+  const replacedCutChunks = [];
+  if (!budgetDenied) {
+    const cutSet = new Set(lengthCutChunks);
+    const candidates = [];
+    for (let i = 0; i < n; i++) {
+      if (!sections[i] || cutSet.has(i + 1)) candidates.push(i);
+    }
+    if (candidates.length) {
+      const deadline = Date.now() + PARTS_RECOVERY_BUDGET_MS;
+      let cursor = 0;
+      const partsWorker = async () => {
+        while (cursor < candidates.length) {
+          if (Date.now() > deadline) return;
+          const i = candidates[cursor++];
+          const wasFailed = !sections[i];
+          const parts = chunkDocument(chunks[i], Math.max(1000, Math.ceil(chunks[i].length / 2)));
+          if (parts.length < 2) continue;
+          const partDigests = [];
+          let partCut = false;
+          let partFailed = false;
+          for (const part of parts) {
+            try {
+              const r = await doDigest(env, part, i, n);
+              noteDigestResult(r, i);
+              const text = typeof r === "string" ? r : r && r.answer;
+              if (text && text.trim().length >= 40) {
+                partDigests.push(text.trim());
+                if (r && r.finishReason === "length") partCut = true;
+              } else partFailed = true;
+            } catch (e) {
+              if (e && e.code === "token_budget_exhausted") budgetDenied = true;
+              partFailed = true;
+            }
+          }
+          const combined = partDigests.join("\n\n");
+          if (wasFailed) {
+            if (combined.length >= 40) {
+              sections[i] = combined;
+              recoveredInParts.push(i + 1);
+            }
+          } else if (!partFailed && !partCut && partDigests.length === parts.length) {
+            sections[i] = combined;
+            recoveredInParts.push(i + 1);
+            replacedCutChunks.push(i + 1);
+          }
+        }
+      };
+      const partsWorkers = [];
+      for (let w = 0; w < Math.min(3, candidates.length); w++) partsWorkers.push(partsWorker());
+      await Promise.all(partsWorkers);
+      if (recoveredInParts.length) {
+        for (let k = failed.length - 1; k >= 0; k--) {
+          if (sections[failed[k] - 1]) failed.splice(k, 1);
+        }
+      }
+      if (replacedCutChunks.length) {
+        const replaced = new Set(replacedCutChunks);
+        for (let k = lengthCutChunks.length - 1; k >= 0; k--) {
+          if (replaced.has(lengthCutChunks[k])) lengthCutChunks.splice(k, 1);
+        }
+      }
+      recoveredInParts.sort((a, b) => a - b);
+    }
+  }
   failed.sort((a, b) => a - b);
   lengthCutChunks.sort((a, b) => a - b);
   unknownFinishChunks.sort((a, b) => a - b);
-  return { sections, failed, budgetDenied, skippedLegs, promptClampOmittedChars, lengthCutChunks, unknownFinishChunks };
+  // A section read in parts can be noted twice (once per part); the
+  // stage record names each section once.
+  for (const arr of [lengthCutChunks, unknownFinishChunks]) {
+    for (let k = arr.length - 1; k > 0; k--) if (arr.indexOf(arr[k]) !== k) arr.splice(k, 1);
+  }
+  return { sections, failed, budgetDenied, skippedLegs, promptClampOmittedChars, lengthCutChunks, unknownFinishChunks, recoveredInParts };
 }
 
 // ---- extractive fallback (no LLM, never throws) --------------------------
@@ -919,6 +1086,40 @@ function splitSentences(text) {
   return out;
 }
 
+// ── Front matter screen (2026-10-17) ───────────────────────────────
+// Journal front matter — submission history ("Received: 7 October
+// 2025. Revised: 24 February 2026. Accepted: 12 March 2026"), the
+// publisher statement ("published by Oxford University Press on
+// behalf of the International Society for Microbial Ecology"),
+// copyright and DOI lines, keyword lists — is metadata ABOUT the
+// paper, not the study's substance. Until this screen existed, the
+// extractive fallback drew its lead sentences from the document's
+// opening unscreened, so exactly when the AI path failed, the
+// "summary" of a journal paper led with its submission dates and
+// the Q&A extract led with its keyword list (owner photos,
+// 2026-10-16). The screen keeps front matter out of every
+// extractive candidate pool. It is deliberately conservative —
+// anchored labels and the publisher statement's own shape, not
+// topic words — and every pool falls back to its unscreened text
+// when screening would empty it, so a document made only of front
+// matter still extracts something rather than nothing.
+// Exported for unit tests — pure function, no I/O.
+export function isFrontMatterSentence(s) {
+  const t = String(s || "").trim();
+  if (!t) return false;
+  if (/^(copyright|©|all rights reserved|doi\s*:|https?:\/\/doi\.org\/|issn\b|keywords?\b)/i.test(t)) return true;
+  // A submission history fragment standing alone ("Revised: 24
+  // February 2026.") or two or more of its labels in one sentence
+  // (the unsplit line "Received: … Revised: … Accepted: …").
+  if (/^(received|revised|accepted|available online|published online|first published)\s*:/i.test(t)) return true;
+  const labels = t.match(/\b(received|revised|accepted)\b/gi);
+  if (labels && labels.length >= 2 && /\d{4}/.test(t)) return true;
+  // The publisher statement, in its two common shapes.
+  if (/\bwas published by\b/i.test(t) && /\bon behalf of\b/i.test(t)) return true;
+  if (/^the (study|paper|article|work) was published\b/i.test(t)) return true;
+  return false;
+}
+
 // The extractive case is labeled where it belongs, in the result's
 // model field ("extractive", which the reader renders as a notice in
 // the masthead), never as a bracketed operator note inside the prose
@@ -936,11 +1137,23 @@ function scoreSentence(s) {
 // Build a four-section summary straight from the document's own sentences.
 // Exported for unit tests — pure function, no I/O.
 export function extractiveSummary(text) {
-  const sentences = splitSentences(text).filter((s) => s.length >= 30);
-  const paras = String(text || "")
+  const allSentences = splitSentences(text).filter((s) => s.length >= 30);
+  const screenedSentences = allSentences.filter((s) => !isFrontMatterSentence(s));
+  const sentences = screenedSentences.length ? screenedSentences : allSentences;
+  const allParas = String(text || "")
     .split(/\n\s*\n/)
     .map((p) => p.trim())
     .filter((p) => p.length > 40);
+  // A paragraph is front matter when its opening sentence is, or
+  // when the whole paragraph is a single front matter statement
+  // (a dates line the splitter kept whole). The lead paragraph
+  // hunt below reads these, so the summary's first line is the
+  // study's substance, never its submission history.
+  const screenedParas = allParas.filter((p) => {
+    const first = splitSentences(p)[0];
+    return !(first && isFrontMatterSentence(first)) && !isFrontMatterSentence(p);
+  });
+  const paras = screenedParas.length ? screenedParas : allParas;
   const used = new Set();
   const claim = (s) => {
     if (!s || used.has(s)) return null;
@@ -998,7 +1211,12 @@ export function extractiveQA(text, query) {
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length > 2 && !QA_STOPWORDS.has(t));
-  const sentences = splitSentences(text).filter((s) => s.length >= 40 && s.length <= 600);
+  const allSentences = splitSentences(text).filter((s) => s.length >= 40 && s.length <= 600);
+  // Front matter is screened out of the candidate passages (see
+  // isFrontMatterSentence): a question about a paper's topic should
+  // never be "answered" with its keyword list or submission dates.
+  const screenedQa = allSentences.filter((s) => !isFrontMatterSentence(s));
+  const sentences = screenedQa.length ? screenedQa : allSentences;
   // No bracketed operator header in the answer text: the result's
   // model field already says "extractive", and the reader labels the
   // answer from that field. The passages speak for themselves.
@@ -1105,7 +1323,7 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
     }
     const chunks = chunkDocument(documentText, MAP_CHUNK_CHARS);
     const digestT0 = Date.now();
-    const { sections, failed, budgetDenied, skippedLegs: digestSkippedLegs, promptClampOmittedChars, lengthCutChunks, unknownFinishChunks } = await summarizeChunks(env, chunks, onProgress, { digest, priorSections, costCtl });
+    const { sections, failed, budgetDenied, skippedLegs: digestSkippedLegs, promptClampOmittedChars, lengthCutChunks, unknownFinishChunks, recoveredInParts } = await summarizeChunks(env, chunks, onProgress, { digest, priorSections, costCtl });
     const good = sections.filter(Boolean);
     // The digest stage's health entry: ok false when any section went
     // unread, ok null with a skipReason when the budget denied every
@@ -1113,6 +1331,7 @@ export async function runSummary(env, documentText, { onProgress = null, onPhase
     // quiet degradations a reader would otherwise never hear about.
     const digestDetails = [];
     if (failed.length) digestDetails.push(failed.length + " of " + chunks.length + " sections could not be read");
+    if (recoveredInParts && recoveredInParts.length) digestDetails.push("sections " + recoveredInParts.join(", ") + " were read in parts after the first read fell short");
     if (lengthCutChunks && lengthCutChunks.length) digestDetails.push("sections " + lengthCutChunks.join(", ") + " hit their length cap while being read");
     if (unknownFinishChunks && unknownFinishChunks.length) digestDetails.push("sections " + unknownFinishChunks.join(", ") + " were read by a model that does not report whether it hit its length cap, so their truncation is unknown");
     if (promptClampOmittedChars > 0) digestDetails.push("section prompts were shortened by about " + promptClampOmittedChars + " characters to fit the length limit");
