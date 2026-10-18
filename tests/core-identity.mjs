@@ -564,7 +564,9 @@ await test("--cb-surface is set wherever --cb-solid-bg is set, and reaches the p
   // that keeps both ink colors legible if the variable ever goes
   // missing. This pin previously asserted the #141416 literal: it
   // encoded the defect, and wave seven updated it with the fix.
-  assert.match(flowchartsSrc, /var\(--cb-surface, #767676\)/, "the Dialog default no longer reads --cb-surface with the mid neutral fallback");
+  /* 2026-10-18 (design audit M3): the fallback became the COLOR.surface1
+     literal #1c1b19, readable under both inks; the pin moves with it. */
+  assert.match(flowchartsSrc, /var\(--cb-surface, #1c1b19\)/, "the Dialog default no longer reads --cb-surface with the surface fallback");
   assert.ok(!flowchartsSrc.includes("var(--cb-surface, #141416)"), "the near black Dialog fallback is back");
   // The app root sets it from the active palette alongside
   // --cb-solid-bg, in the same style object.
@@ -593,7 +595,7 @@ await test("ModalChrome centered panels take the palette, and only media surface
   const mc = flowchartsSrc.slice(at, flowchartsSrc.indexOf("export { ChromeHeader, ModalChrome }", at));
   assert.match(mc, /media = false/, "ModalChrome has no media opt in");
   assert.match(mc, /const themed = !!P && !media;/, "ModalChrome does not derive its themed state from the palette and the media flag");
-  assert.match(mc, /media \? "#0f1115" : drawer && P \? P\.bg : themed \? P\.surface : "var\(--cb-surface, #767676\)"/, "centered panels do not take the palette surface, or the no palette fallback is not the surface variable");
+  assert.match(mc, /media \? "#0f1115" : drawer && P \? P\.bg : themed \? P\.surface : "var\(--cb-surface, #1c1b19\)"/, "centered panels do not take the palette surface, or the no palette fallback is not the surface variable");
   assert.match(mc, /media \? "#f2f4f2" : P \? P\.ink : "var\(--cb-ink, #f4f4f2\)"/, "centered panels do not take the palette ink, or the no palette fallback is not the ink variable");
   assert.match(mc, /border: `1px solid \$\{panelBorder\}`/, "the centered panel border does not follow panelBorder");
   assert.match(mc, /P=\{drawer \|\| themed \? P : null\}/, "the chrome header does not receive the palette on themed centered panels");

@@ -255,6 +255,10 @@ const FILM_MODIFICATIONS =
 
 function FilmCreditsDialog({ onClose, accent }) {
   const link = { color: accent, textDecoration: "none", borderBottom: "1px solid " + withAlpha(accent, 0.4) };
+  /* Text and line colors come from the Dark palette, the palette this
+     marked media surface is set in. The panel ground itself stays the
+     deliberate dark treatment named in the panel style below. */
+  const FP = PALETTES.Dark;
 
   return (
     <Dialog
@@ -266,23 +270,23 @@ function FilmCreditsDialog({ onClose, accent }) {
            in every palette. Text panels do not get this exemption;
            IntroModal below follows the palette like other dialogs. */
         background: "#0f1115",
-        border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12,
-        boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
-        padding: "26px 26px 22px", color: "#f2f4f2", fontFamily: "var(--cb-font)",
+        border: "1px solid " + FP.line2, borderRadius: 2,
+        boxShadow: "none",
+        padding: "26px 26px 22px", color: FP.ink, fontFamily: "var(--cb-font)",
       }}
     >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 6 }}>
-          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: TYPE.heading.letterSpacing, flex: 1 }}>
+          <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, lineHeight: 1.3, flex: 1 }}>
             Background film credits
           </h2>
           <button onClick={onClose} aria-label="Close credits" style={{
-            border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.06)",
-            color: "rgba(242,244,242,0.72)", cursor: "pointer", borderRadius: 2,
+            border: "1px solid " + FP.line2, background: FP.surface,
+            color: FP.ink2, cursor: "pointer", borderRadius: 2,
             padding: "16px 16px", fontSize: 13, fontFamily: "var(--cb-font)",
           }}>Close</button>
         </div>
 
-        <p style={{ margin: "0 0 18px", fontSize: 13, lineHeight: 1.6, color: "rgba(242,244,242,0.62)" }}>
+        <p style={{ margin: "0 0 18px", fontSize: FONT_SIZES.body, lineHeight: 1.55, color: FP.ink2 }}>
           {FILM_MODIFICATIONS}
         </p>
 
@@ -290,15 +294,15 @@ function FilmCreditsDialog({ onClose, accent }) {
           {FILM_CREDITS.map((c) => (
             <div key={c.n} style={{
               display: "grid", gridTemplateColumns: "26px 1fr", gap: 12,
-              padding: "11px 0", borderTop: "1px solid rgba(255,255,255,0.07)",
+              padding: "11px 0", borderTop: "1px solid " + FP.line,
             }}>
               <span style={{
                 fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: withAlpha(accent, 0.9),
                 paddingTop: 2, fontVariantNumeric: "tabular-nums",
               }}>{c.n}</span>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.4, marginBottom: 3 }}>{c.title}</div>
-                <div style={{ fontSize: 12, color: "rgba(242,244,242,0.62)", lineHeight: 1.55 }}>
+                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, lineHeight: 1.55, marginBottom: 3 }}>{c.title}</div>
+                <div style={{ fontSize: 12, color: FP.ink2, lineHeight: 1.55 }}>
                   {c.credit}
                   {c.source ? (<>{" · "}<a href={safeHref(c.source)} target="_blank" rel="noopener noreferrer" style={link}>Source</a></>) : null}
                   {" · "}
@@ -311,7 +315,7 @@ function FilmCreditsDialog({ onClose, accent }) {
           ))}
         </div>
 
-        <p style={{ margin: "18px 0 0", fontSize: 12, lineHeight: 1.6, color: "rgba(242,244,242,0.46)" }}>
+        <p style={{ margin: "18px 0 0", fontSize: 12, lineHeight: 1.55, color: FP.faint }}>
           Clips are decorative. They are not data, not results, and not evidence of anything
           Cerebrum reports.
         </p>
@@ -462,12 +466,12 @@ function IntroModal({ label, title, onClose, accent, P = null, children, width =
       panelStyle={{
         background: P ? P.surface : "var(--cb-surface, #767676)",
         border: `1px solid ${P ? P.line : "rgba(255,255,255,0.10)"}`, borderRadius: RADIUS.xl,
-        boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
+        boxShadow: "none",
         padding: "22px 22px 24px", color: P ? P.ink : "var(--cb-ink, #f4f4f2)", fontFamily: "var(--cb-font)",
       }}
     >
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 19, fontWeight: 600, letterSpacing: TYPE.heading.letterSpacing, flex: 1, lineHeight: 1.25 }}>{title}</h2>
+          <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, flex: 1, lineHeight: 1.3 }}>{title}</h2>
           <button onClick={onClose} aria-label={"Close " + label} style={{ minHeight: 44,
             border: `1px solid ${P ? P.line : "rgba(255,255,255,0.12)"}`, background: P ? P.surface : "rgba(255,255,255,0.06)",
             color: P ? P.ink2 : "rgba(242,244,242,0.78)", cursor: "pointer", borderRadius: 2,
@@ -501,8 +505,8 @@ function HowItWorksDialog({ onClose, accent, P = null }) {
               paddingTop: 2, fontVariantNumeric: "tabular-nums",
             }}>{st.n}</span>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.35, marginBottom: 5 }}>{st.h}</div>
-              <div style={{ fontSize: 14, color: P ? P.ink2 : "rgba(242,244,242,0.68)", lineHeight: 1.6 }}>{st.b}</div>
+              <div style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.4, marginBottom: 5 }}>{st.h}</div>
+              <div style={{ fontSize: FONT_SIZES.body, color: P ? P.ink2 : "rgba(242,244,242,0.68)", lineHeight: 1.55 }}>{st.b}</div>
             </div>
           </div>
         ))}
@@ -524,7 +528,7 @@ function SourcesDialog({ onClose, accent, P = null }) {
   const PEER = { yes: "Peer-reviewed", mostly: "Mostly peer-reviewed", mixed: "Mixed", no: "Not peer-reviewed" };
   return (
     <IntroModal label="research sources" title="Research sources" onClose={onClose} accent={accent} P={P}>
-      <p style={{ margin: "0 0 16px", fontSize: 14, lineHeight: 1.65, color: P ? P.ink2 : "rgba(242,244,242,0.68)" }}>
+      <p style={{ margin: "0 0 16px", fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P ? P.ink2 : "rgba(242,244,242,0.68)" }}>
         Cerebrum queries these {SCHOLARLY_SOURCES.length} sources and merges the results, removing the
         same paper when it appears in more than one. Preprints are included and are labelled as
         preprints. They have not been peer-reviewed.
@@ -726,7 +730,7 @@ export const plateHead = (color) => ({
    reduced. If canvas is unavailable the vignette and grain behind it
    still hold the door, so the plate never renders broken.
    ════════════════════════════════════════════════════════════════════ */
-export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "163,184,153", count = 76 }) {
+export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "139,168,136", count = 76 }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -932,7 +936,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
      The front door is the brand, and it is the same for everyone. */
   const introAccent = (accent && relLuminance(accent) >= 0.15 && relLuminance(accent) <= 0.82)
     ? accent
-    : "#A3B899";
+    : "#8ba888";
   /* The accent at low alpha, for card glows and chip fills. */
   const accentA = (a) => {
     const h = String(introAccent).replace("#", "");
@@ -948,15 +952,34 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   const [doorHover, setDoorHover] = useState(false);
   const specimenCount = SPECIMENS.length;
   const setSize = 3;
+  /* Set position and off screen pause (M10): the rotation only runs
+     while the cards are on screen. An IntersectionObserver watches
+     the card set; when it leaves the viewport the timer stands down,
+     so phones no longer rotate a set nobody can see. Reduced motion
+     still stops the rotation entirely, exactly as before. */
+  const specimenWrapRef = useRef(null);
+  const [specimenVisible, setSpecimenVisible] = useState(true);
+  useEffect(() => {
+    const el = specimenWrapRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return undefined;
+    const io = new IntersectionObserver((entries) => {
+      setSpecimenVisible(entries.some((e) => e.isIntersecting));
+    }, { threshold: 0.15 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  const setTotal = Math.ceil(specimenCount / setSize);
+  const setCurrent = Math.floor(specimenIdx / setSize) + 1;
   useEffect(() => {
     if (reduced || animationMode === "off") return undefined;
     if (specimenHeld || howOpen || sourcesOpen) return undefined;
+    if (!specimenVisible) return undefined;
     const t = setInterval(
       () => setSpecimenIdx((i) => (i + setSize) % specimenCount),
       isMobile ? 12000 : 9000
     );
     return () => clearInterval(t);
-  }, [reduced, animationMode, specimenHeld, howOpen, sourcesOpen, specimenCount, isMobile]);
+  }, [reduced, animationMode, specimenHeld, howOpen, sourcesOpen, specimenVisible, specimenCount, isMobile]);
   const specimenSet = [0, 1, 2].map((k) => SPECIMENS[(specimenIdx + k) % specimenCount]);
 
   /* ── The door rule ──
@@ -1042,14 +1065,14 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             }}>Cerebrum</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 22 }}>
-            {!isMobile && ["About", "Privacy", "Contact"].map((item) => (
+            {!isMobile && ["About", "Privacy", "Terms", "Contact"].map((item) => (
               <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={navLink}>{item}</a>
             ))}
             {isMobile && (
               <button type="button" onClick={() => setNavOpen((v) => !v)}
                 aria-expanded={navOpen} aria-controls="cb-intro-navmenu"
                 style={{ ...navLink, background: "none", border: "1px solid " + cardLine, borderRadius: RADIUS.md, cursor: "pointer" }}>
-                MORE
+                More
               </button>
             )}
           </div>
@@ -1059,7 +1082,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             maxWidth: 1160, margin: "0 auto", padding: "0 24px 14px",
             display: "flex", gap: 4, flexWrap: "wrap",
           }}>
-            {["About", "Privacy", "Contact"].map((item) => (
+            {["About", "Privacy", "Terms", "Contact"].map((item) => (
               <a key={item} href={"/" + item.toLowerCase()} style={{ ...navLink, border: "1px solid " + cardLine, borderRadius: RADIUS.md }}>{item}</a>
             ))}
           </div>
@@ -1092,6 +1115,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           Ask a question and get an answer from the research papers, with the sources attached.
         </p>
         <div
+          ref={specimenWrapRef}
           onMouseEnter={() => setSpecimenHeld(true)}
           onMouseLeave={() => setSpecimenHeld(false)}
           onFocus={() => setSpecimenHeld(true)}
@@ -1102,7 +1126,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             flexDirection: isMobile ? "column" : "row",
             alignItems: "stretch",
             justifyContent: "center",
-            gap: isMobile ? 14 : 20,
+            gap: isMobile ? 16 : 20,
             /* Phone order (layout audit, 2026-10-16): the stacked set
                runs long, so on phones the way in (order 1, below)
                leads and the claims follow as the evidence under it.
@@ -1119,7 +1143,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
               style={{
                 flex: "1 1 0",
                 width: isMobile ? "100%" : undefined,
-                padding: isMobile ? "22px 22px 20px" : "24px 26px 22px",
+                padding: "24px 24px 20px",
                 background: surface,
                 border: "1px solid " + cardLine,
                 borderRadius: RADIUS.lg,
@@ -1128,16 +1152,16 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             >
               <p style={{
                 fontFamily: "var(--cb-serif)",
-                fontSize: isMobile ? 20 : 21,
-                fontWeight: 500, lineHeight: 1.42,
+                fontSize: FONT_SIZES.section,
+                fontWeight: 400, lineHeight: 1.55,
                 color: ink, margin: 0,
                 textAlign: "left",
               }}>
                 &ldquo;{spec.claim}&rdquo;
               </p>
               <div style={{
-                marginTop: 18, display: "flex", alignItems: "center",
-                justifyContent: "flex-start", gap: 9,
+                marginTop: 16, display: "flex", alignItems: "center",
+                justifyContent: "flex-start", gap: 8,
               }}>
                 <span aria-hidden="true" style={{
                   width: 7, height: 7, flex: "0 0 auto",
@@ -1151,7 +1175,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                 </span>
               </div>
               <p style={{
-                margin: "16px 0 0", paddingTop: 14,
+                margin: "16px 0 0", paddingTop: 16,
                 borderTop: "1px solid " + hairline,
                 fontSize: FONT_SIZES.label, lineHeight: 1.6,
                 color: pal.ink2, textAlign: "left",
@@ -1166,19 +1190,44 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                   Open the paper &#8599;
                 </a>
               </p>
-              {/* The honest proof, in the door's own quiet voice: the
-                  claim traces to the real paper linked above, and the
-                  index count is the product's real source list, the
-                  same SCHOLARLY_SOURCES the workspace searches. */}
-              <p style={{
-                margin: "10px 0 0", fontSize: FONT_SIZES.caption, lineHeight: 1.5,
-                color: pal.ink2, textAlign: "left",
-              }}>
-                Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes
-              </p>
             </div>
           ))}
         </div>
+
+        {/* The honest proof, once, under the set of cards: the claims
+            trace to the real papers linked on each card, and the
+            index count is the product's real source list, the same
+            SCHOLARLY_SOURCES the workspace searches. The line wears
+            the door's traced pattern and opens the Research sources
+            dialog, so the count can be checked against the list. */}
+        <div style={{ marginTop: 20, textAlign: "center", order: isMobile ? 2 : undefined }}>
+          <button type="button" onClick={() => setSourcesOpen(true)} aria-label="Research sources"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 8,
+              background: "none", border: "none", cursor: "pointer",
+              padding: "10px 8px",
+              fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 400,
+              lineHeight: 1.5, color: pal.ink2,
+            }}>
+            <span aria-hidden="true" style={{
+              width: 7, height: 7, flex: "0 0 auto",
+              background: introAccent,
+            }} />
+            <span>Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes</span>
+          </button>
+        </div>
+
+        {/* Set position on phones, where there are no steppers: the
+            same quiet caption the desktop stepper carries. */}
+        {isMobile && (
+          <div style={{
+            marginTop: 12, order: 2, textAlign: "center",
+            fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, lineHeight: 1.5,
+            color: pal.ink2,
+          }}>
+            Set {setCurrent} of {setTotal}
+          </div>
+        )}
 
         {/* Stepper: moves by a full set of three. Desktop only.
             Square ghost buttons, the shape the plan radius gives
@@ -1200,6 +1249,12 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
               }}>
               &#8592;
             </button>
+            <span style={{
+              fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, lineHeight: 1.5,
+              color: pal.ink2, minWidth: 76, textAlign: "center",
+            }}>
+              Set {setCurrent} of {setTotal}
+            </span>
             <button type="button" aria-label="Next three claims"
               onClick={() => setSpecimenIdx((i) => (i + setSize) % specimenCount)}
               style={{

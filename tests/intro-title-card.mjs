@@ -361,7 +361,9 @@ await test("the door header is the wordmark and quiet links", () => {
   // which read as a different product from the app behind the door.
   assert.ok(introFn.includes("<Mark size={22}"), "wordmark glyph missing from the header");
   assert.ok(introFn.includes(">Cerebrum</span>"), "stage wordmark missing from the header");
-  assert.ok(introFn.includes('["About", "Privacy", "Contact"]'), "quiet header links missing");
+  /* 2026-10-18 (design audit tail 7): the door header, mobile menu and footer
+     list the same four destinations, Terms included. */
+  assert.ok(introFn.includes('["About", "Privacy", "Terms", "Contact"]'), "quiet header links missing");
 });
 
 await test("the CTA is set in normal case, not tracked caps", () => {
@@ -506,8 +508,11 @@ await test("the stage carries the plain order and no corpus number", () => {
   assert.ok(!stage.includes("0{i + 1}"), "the examples are still numbered");
   assert.ok(stage.includes("stageSpecimen.claim"), "footer claim strip missing");
   assert.ok(!stage.includes("Traced claim"), "the plate footer label survives");
-  assert.ok(!stage.includes("scholarly indexes"), "a corpus number sits on the stage");
-  assert.ok(!stage.includes("SCHOLARLY_SOURCES.length"), "a corpus count sits on the stage");
+  /* 2026-10-18 (design audit H10): the scholarly proof line is mounted
+     on the stage on purpose now, wired to the sources dialog. This
+     reverses the two no corpus number assertions that stood here. */
+  assert.ok(stage.includes("scholarly databases"), "the H10 proof line is missing from the stage");
+  assert.ok(stage.includes("SCHOLARLY_SOURCES.length"), "the proof line does not read the source count");
 });
 
 await test("the stage composer rotates real specimen questions", () => {

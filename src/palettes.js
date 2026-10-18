@@ -23,7 +23,12 @@ const PALETTES = {
   // sit at the lightness Apple/Linear/Notion's own dark surfaces use. That
   // reasoning didn't survive contact with actual use — hence this reversal.
   // 2026-10-14: wave 1 foundation aligns the default dark palette to the overhaul plan tokens (text #E8E6E3, secondary #A8A49E, tertiary #6B6762, Surface 1 #1C1B19, Surface 2 #242320, borders #2E2C29 and #252422) on the unchanged background.
-  Dark:  { dark: true,  bg: "#09090b", surface: "#1c1b19", raised: "#242320", ink: "#e8e6e3", ink2: "#a8a49e", faint: "#6b6762", line: "#252422", line2: "#2e2c29", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #1c1b19 25%, #242320 50%, #1c1b19 75%)" },
+  Dark:  { dark: true,  bg: "#09090b", surface: "#1c1b19", raised: "#242320", ink: "#e8e6e3", ink2: "#a8a49e", faint: "#96928c", line: "#252422", line2: "#2e2c29", shadow: "none", shadowSm: "none", grain: 0, skel: "linear-gradient(90deg, #1c1b19 25%, #242320 50%, #1c1b19 75%)" },
+  // 2026-10-18 (H4): Dark faint lifted from #6b6762 to #96928c. The old
+  // value computed to 2.80 to 1 on raised (#242320), under the 4.5 to 1
+  // bar. #96928c computes to 5.08 to 1 on raised, 5.56 to 1 on surface
+  // (#1c1b19) and 6.43 to 1 on bg (#09090b). Mirrored into COLOR.faint
+  // in designSystem.jsx.
   // Slate: a cooler, blue-leaning dark surface (the Discord/Linear
   // register) for anyone who wants dark without Dark's neutral-grey cast —
   // kept deliberately cool rather than folded into the warm pair above, so
@@ -42,7 +47,7 @@ const PALETTES = {
      are wider and weaker than dark mode's: paper on a desk has a diffuse
      shadow, not a drop shadow. Grain stays, and slightly stronger, because
      it is what keeps large pale surfaces from looking like a blank div. */
-  Light: { dark: false, bg: "#f1f0ec", surface: "#f9f9f7", raised: "#ffffff", ink: "#22252a", ink2: "#4b5058", faint: "#5f656d", line: "rgba(34,37,42,0.10)", line2: "rgba(34,37,42,0.17)", shadow: "0 1px 2px rgba(34,37,42,0.04), 0 10px 30px rgba(34,37,42,0.07)", shadowSm: "0 1px 2px rgba(34,37,42,0.05)", grain: 0.009, skel: "linear-gradient(90deg, #e9e8e3 25%, #f3f2ef 50%, #e9e8e3 75%)" },
+  Light: { dark: false, bg: "#f1f0ec", surface: "#f9f9f7", raised: "#ffffff", ink: "#22252a", ink2: "#4b5058", faint: "#5f656d", line: "rgba(34,37,42,0.10)", line2: "rgba(34,37,42,0.17)", shadow: "none", shadowSm: "0 1px 2px rgba(34,37,42,0.05)", grain: 0.009, skel: "linear-gradient(90deg, #e9e8e3 25%, #f3f2ef 50%, #e9e8e3 75%)" },
   // Sage — "Modern Organic": near-black stone instead of neutral charcoal,
   // paired by default with the muted sage-green accent (ACCENTS.Sage)
   // instead of a neon hue. The fresh-browser default (restored Sep 2026

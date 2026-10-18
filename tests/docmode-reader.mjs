@@ -735,7 +735,9 @@ await test("the trail component is honest: empty renders nothing, unverified nev
   // Verified entries show the backend's offsets; the unverified
   // branch is a separate arm that names the quote as not found.
   assert.match(fn, /e\.verified \? \(/, "trail must branch on the backend's verified flag");
-  assert.match(fn, /Found in the document, characters/, "verified entries must show their passage location");
+  /* 2026-10-18 (design audit H18): verified entries render a jump control
+     that scrolls to the passage, never raw character offsets. */
+  assert.match(fn, /Jump to this passage in the document/, "verified entries must offer a jump to their passage");
   assert.match(fn, /e\.match === "normalized"/, "normalized matches must be disclosed as spacing differences");
   assert.match(fn, /Not found in the document\. Treat this quote with care\./, "unverified entries must be labelled as not found");
   // The rendered output of this component, including that the
@@ -825,9 +827,13 @@ await test("the stage record renders parked legs with their reasons", async () =
   // [{ model, reason }] (functions/api/document.js). The component
   // used to drop the field, so a stage line said "ok" and nothing
   // about the legs it won without racing.
-  assert.match(fn, /s\.skippedLegs/, "stage health drops the stage's skippedLegs");
-  assert.match(fn, /l\.model/, "parked legs must print their model");
-  assert.match(fn, /l\.reason/, "parked legs must print their reason");
+  /* 2026-10-18 (design audit H17): the health block no longer prints
+     parked legs with model names and raw reasons. Failures and skips
+     render as one plain sentence each, built from the stage skipReason
+     with human stage names. The pins move with the fix. */
+  assert.match(fn, /s\.skipReason/, "stage health drops the stage skipReason");
+  assert.doesNotMatch(fn, /l\.model/, "stage health prints a parked leg model again");
+  assert.doesNotMatch(fn, /skippedLegs/, "stage health reads the parked leg list again");
 });
 
 await test("the comparison keeps answerTruncated and renders the cut short note", async () => {
@@ -1019,7 +1025,7 @@ await test("the stale notices are present on every surface and carry no dashes",
     "These answers describe the earlier version of this document. The text has been edited since they were written.",
     "This document has been edited since these marks were made, so they are no longer placed in the text. The passages below are the words as they were marked.",
     "One of these documents has been edited since this comparison was run, so it describes the earlier texts. Compare again to update it.",
-    "Basic extract · the monthly AI budget is used up, so this comparison is passages from the documents.",
+    "Basic extract · the AI budget for this 5 day period is used up, so this comparison is passages from the documents.", // 2026-10-18 (design audit M33): one budget name, the real 5 day period
     "Basic extract · the AI service was unreachable, so this comparison is passages from the documents.",
   ];
   for (const n of notices) {

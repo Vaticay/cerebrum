@@ -29,10 +29,10 @@ export function QuotaCalculator({ P, accent, isMobile }) {
       marginTop: 18, padding: isMobile ? "20px 18px" : "24px 26px",
       borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface,
     }}>
-      <label htmlFor="cb-quota-slider" style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 4 }}>
+      <label htmlFor="cb-quota-slider" style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 4 }}>
         Questions in a typical week
       </label>
-      <div style={{ fontSize: 28, fontWeight: 700, color: accent, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums", marginBottom: 10 }}>
+      <div style={{ fontSize: 28, fontWeight: 500, color: accent, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums", marginBottom: 10 }}>
         {perWeek}
       </div>
       <input
@@ -52,14 +52,14 @@ export function QuotaCalculator({ P, accent, isMobile }) {
       }}>
         {covers ? (
           <>
-            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Free covers you.</div>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>Free covers you.</div>
             <p style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, margin: "6px 0 0", fontFamily: "var(--cb-font)" }}>
               50 answers every 5 days works out to about 70 a week. At {perWeek} a week, you have headroom.
             </p>
           </>
         ) : (
           <>
-            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>
               You would hit the free cap every {daysPerCap} {daysPerCap === 1 ? "day" : "days"}.
             </div>
             <p style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, margin: "6px 0 0", fontFamily: "var(--cb-font)" }}>
@@ -68,7 +68,7 @@ export function QuotaCalculator({ P, accent, isMobile }) {
           </>
         )}
       </div>
-      <a href="/" style={{ display: "inline-block", marginTop: 14, fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
+      <a href="/" style={{ display: "inline-block", marginTop: 14, fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
         Start free
       </a>
     </div>
@@ -89,9 +89,9 @@ export function LiveDemo({ P, accent, isMobile }) {
   const chip = {
     display: "inline-flex", alignItems: "center", justifyContent: "center",
     minWidth: 22, height: 22, padding: "0 6px", margin: "0 2px",
-    borderRadius: 6, border: `1px solid ${P.line2}`,
+    borderRadius: 2, border: `1px solid ${P.line2}`,
     background: P.raised, color: accent,
-    fontSize: 12, fontWeight: 700, fontFamily: "var(--cb-font)",
+    fontSize: 12, fontWeight: 500, fontFamily: "var(--cb-font)",
     textDecoration: "none", verticalAlign: "super", lineHeight: 1,
   };
   return (
@@ -99,7 +99,7 @@ export function LiveDemo({ P, accent, isMobile }) {
       marginTop: 40, padding: isMobile ? "22px 18px" : "28px 30px",
       borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface,
     }}>
-      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.tight, color: accent, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: accent, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
         See what an answer looks like
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
@@ -113,7 +113,7 @@ export function LiveDemo({ P, accent, isMobile }) {
               border: `1px solid ${active === i ? accent : P.line2}`,
               background: active === i ? accent : "transparent",
               color: active === i ? "#0b0b0e" : P.ink,
-              fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
+              fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
             }}
           >
             {d.q}
@@ -135,13 +135,13 @@ export function LiveDemo({ P, accent, isMobile }) {
           </p>
         ))}
         <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${P.line}` }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>
             SOURCES
           </div>
           <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10 }}>
             {demo.sources.map((s, i) => (
               <li key={i} style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.55, color: P.ink2, fontFamily: "var(--cb-font)" }}>
-                <span style={{ fontWeight: 700, color: accent, marginRight: 8 }}>[{i + 1}]</span>
+                <span style={{ fontWeight: 500, color: accent, marginRight: 8 }}>[{i + 1}]</span>
                 <a href={s.url} target="_blank" rel="noopener noreferrer" style={{ color: P.ink, textDecoration: "underline", textUnderlineOffset: 3, textDecorationColor: P.line2 }}>
                   {s.title}
                 </a>
@@ -154,7 +154,7 @@ export function LiveDemo({ P, accent, isMobile }) {
       <p style={{ fontSize: FONT_SIZES.caption, color: P.faint, margin: "16px 0 0", fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
         A cached sample, not a live search. Every citation above is a real paper you can open.
       </p>
-      <a href="/" style={{ display: "inline-block", marginTop: 10, fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
+      <a href="/" style={{ display: "inline-block", marginTop: 10, fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
         Ask your own question, free
       </a>
     </div>

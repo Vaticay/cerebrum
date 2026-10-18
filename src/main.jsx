@@ -29,6 +29,21 @@ import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
  * which the copy button's label discloses; the full message and stack go to
  * the console, where they can be retrieved when reporting a bug.
  */
+/* Sage ground values as literal constants for the crash surface. The
+ * boundary renders when the app itself may have failed to boot, so it
+ * cannot rely on the palette module or on CSS variables having loaded.
+ * These values copy PALETTES.Sage and ACCENTS.Sage in palettes.js. */
+const ERR_SAGE = {
+  bg: "#0d0f0e",
+  surface: "#151816",
+  ink: "#f4f7f4",
+  ink2: "#cbd5cd",
+  faint: "#94a397",
+  line2: "rgba(139,168,136,0.2)",
+  accent: "#8ba888",
+};
+const ERR_FONT = "var(--cb-font, 'Inter', 'Inter Tight', system-ui, sans-serif)";
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -68,20 +83,20 @@ class ErrorBoundary extends React.Component {
         role="alert"
         style={{
           minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center",
-          background: "#0a0d14", color: "#e8e6e1", padding: 24,
-          fontFamily: "'Inter Tight', system-ui, sans-serif", textAlign: "center",
+          background: ERR_SAGE.bg, color: ERR_SAGE.ink, padding: 24,
+          fontFamily: ERR_FONT, textAlign: "center",
         }}
       >
         <div style={{ maxWidth: 460 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 10, fontFamily: "'Inter Tight', 'Inter', system-ui, sans-serif", letterSpacing: "-0.015em" }}>
+          <div style={{ fontSize: 22, fontWeight: 500, marginBottom: 10, fontFamily: ERR_FONT, letterSpacing: 0 }}>
             Something broke on this screen
           </div>
-          <p style={{ fontSize: 15, lineHeight: 1.65, color: "rgba(232,230,225,0.72)", margin: "0 0 22px" }}>
+          <p style={{ fontSize: 15, fontWeight: 400, lineHeight: 1.55, color: ERR_SAGE.ink2, margin: "0 0 22px" }}>
             Your saved work is unaffected. Reloading usually clears it. If it keeps
             happening, the console has the details and we would like to see them.
           </p>
           {this.state.error && (
-            <p style={{ fontSize: 13, lineHeight: 1.6, color: "rgba(232,230,225,0.55)", margin: "0 0 18px", wordBreak: "break-word" }}>
+            <p style={{ fontSize: 13, fontWeight: 400, lineHeight: 1.55, color: ERR_SAGE.faint, margin: "0 0 18px", wordBreak: "break-word" }}>
               {String((this.state.error && this.state.error.message) || this.state.error).slice(0, 220)}
             </p>
           )}
@@ -89,8 +104,8 @@ class ErrorBoundary extends React.Component {
             <button
               onClick={() => window.location.reload()}
               style={{
-                padding: "10px 20px", borderRadius: 999, border: "none", cursor: "pointer",
-                background: "#e8e6e1", color: "#0a0d14", fontWeight: 700, fontSize: 14,
+                padding: "10px 20px", borderRadius: 2, border: "none", cursor: "pointer",
+                background: ERR_SAGE.ink, color: ERR_SAGE.bg, fontWeight: 500, fontSize: 13, fontFamily: ERR_FONT,
               }}
             >
               Reload
@@ -98,9 +113,9 @@ class ErrorBoundary extends React.Component {
             <a
               href="mailto:dusty@askcerebrum.org?subject=Cerebrum%20error"
               style={{
-                padding: "10px 20px", borderRadius: 999, cursor: "pointer",
-                border: "1px solid rgba(232,230,225,0.25)", color: "rgba(232,230,225,0.85)",
-                fontWeight: 600, fontSize: 14, textDecoration: "none",
+                padding: "10px 20px", borderRadius: 2, cursor: "pointer",
+                border: "1px solid " + ERR_SAGE.line2, color: ERR_SAGE.ink2,
+                fontWeight: 500, fontSize: 13, textDecoration: "none", fontFamily: ERR_FONT,
               }}
             >
               Tell us
@@ -108,15 +123,15 @@ class ErrorBoundary extends React.Component {
             <button
               onClick={() => this.copyDetails()}
               style={{
-                padding: "10px 20px", borderRadius: 999, cursor: "pointer",
-                border: "1px solid rgba(232,230,225,0.25)", color: "rgba(232,230,225,0.85)",
-                background: "transparent", fontWeight: 600, fontSize: 14,
+                padding: "10px 20px", borderRadius: 2, cursor: "pointer",
+                border: "1px solid " + ERR_SAGE.line2, color: ERR_SAGE.ink2,
+                background: "transparent", fontWeight: 500, fontSize: 13, fontFamily: ERR_FONT,
               }}
             >
               {this.state.copied === true ? "Copied ✓" : this.state.copied === "failed" ? "Copy failed" : "Copy details"}
             </button>
           </div>
-          <p style={{ fontSize: 12, lineHeight: 1.6, color: "rgba(232,230,225,0.4)", margin: "18px 0 0" }}>
+          <p style={{ fontSize: 12, fontWeight: 400, lineHeight: 1.55, color: ERR_SAGE.faint, margin: "18px 0 0" }}>
             Copy details grabs the technical error text (it may include your search words) so you can paste it to us.
           </p>
         </div>
@@ -201,7 +216,7 @@ function NotFound() {
   const link = {
     color: accent, textDecoration: "underline",
     textUnderlineOffset: 3, textDecorationColor: "rgba(128,128,128,0.4)",
-    fontWeight: 600,
+    fontWeight: 500,
   };
   const groups = [
     { h: "Product", links: [["Features", "/features"], ["Pricing", "/pricing"], ["Document Mode", "/document-mode"], ["Diagram Studio", "/diagram-studio"], ["Investigations", "/investigations"]] },
@@ -215,10 +230,10 @@ function NotFound() {
       fontFamily: "var(--cb-font, 'Inter Tight', system-ui, sans-serif)",
     }}>
       <div style={{ maxWidth: 560, width: "100%", textAlign: "center", padding: "48px 0" }}>
-        <div style={{ fontSize: 13, letterSpacing: "0.14em", color: P.faint, marginBottom: 14, fontWeight: 600 }}>
+        <div style={{ fontSize: 13, letterSpacing: "0.14em", color: P.faint, marginBottom: 14, fontWeight: 500 }}>
           404
         </div>
-        <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-0.015em", margin: "0 0 12px", color: P.ink }}>
+        <h1 style={{ fontSize: 30, fontWeight: 500, letterSpacing: "-0.015em", margin: "0 0 12px", color: P.ink }}>
           We don&rsquo;t invent pages either.
         </h1>
         <p style={{ fontSize: 15, lineHeight: 1.65, color: P.ink2, margin: "0 0 8px" }}>
@@ -238,7 +253,7 @@ function NotFound() {
             placeholder="Or search the literature directly"
             aria-label="Search the literature"
             style={{
-              flex: 1, minHeight: 44, padding: "0 16px", borderRadius: 12,
+              flex: 1, minHeight: 44, padding: "0 16px", borderRadius: 2,
               border: `1px solid ${P.line2}`, background: P.surface, color: P.ink,
               fontSize: 16, fontFamily: "var(--cb-font)", outline: "none",
             }}
@@ -246,9 +261,9 @@ function NotFound() {
           <button
             onClick={go}
             style={{
-              minHeight: 44, minWidth: 44, padding: "0 20px", borderRadius: 12,
+              minHeight: 44, minWidth: 44, padding: "0 20px", borderRadius: 2,
               border: "none", background: accent, color: "#0b0b0e",
-              fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)",
+              fontSize: 14, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)",
             }}
           >
             Search
@@ -265,7 +280,7 @@ function NotFound() {
         }}>
           {groups.map((g) => (
             <div key={g.h}>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.08em", color: P.faint, marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: "0.08em", color: P.faint, marginBottom: 10 }}>
                 {g.h.toUpperCase()}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

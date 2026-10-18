@@ -22,7 +22,7 @@ const fcFunctions = fcAst.program.body
   .filter(n=>n && n.type==='FunctionDeclaration' && n.id.name==='Dialog');
 assert.equal(functions.length + dsFunctions.length + fcFunctions.length,18);
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
-const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none'},STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c,
+const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none',xl:()=>'none'} /* 2026-10-18: Dialog calls SHADOW.xl (design audit C5) */,STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c,
 /* 2026-10-14, design overhaul wave 1: UIButton and UICard now close over
    the COLOR foundation tokens, so the sandbox carries the real values. */
 COLOR:{ink:'#E8E6E3',ink2:'#A8A49E',faint:'#6B6762',accent:'#C4A35A',accentInk:'#121110',surface1:'#1C1B19',surface2:'#242320',field:'#161513',line:'#2E2C29',lineSubtle:'#252422',support:'#7A9E7E',caution:'#B08B4F'}});
@@ -114,7 +114,8 @@ console.log('Actual search-mode, shared-button and card components render in dar
  assert.match(peek,/aria-modal="true"/);
  assert.match(peek,/aria-label="Source 1"/);
  // Sheet geometry survived the move onto the primitive.
- assert.match(peek,/border-radius:18px 18px 0 0/);
+ /* 2026-10-18 (design audit M29): territory sheets take radius 2 like the desktop drawer. */
+ assert.match(peek,/border-radius:2px 2px 0 0/);
  // The sheet's real content renders inside the dialog.
  assert.match(peek,/Sleep and memory consolidation/);
  assert.match(peek,/Deep read/);
@@ -151,9 +152,12 @@ console.log('Actual search-mode, shared-button and card components render in dar
  ]}));
  assert.match(trail,/Evidence from the document/);
  assert.match(trail,/Fifteen minutes in urban green space measurably restored directed attention\./);
- assert.match(trail,/Found in the document, characters 120 to 197\./);
+ /* 2026-10-18 (design audit H18): verified entries render a jump control,
+    never raw character offsets. */
+ assert.match(trail,/Jump to this passage in the document/);
+ assert.doesNotMatch(trail,/characters/);
  // Large offsets are formatted the way the surface formats counts.
- assert.match(trail,/characters 2,048 to 2,111, with spacing that differs from the document\./);
+ assert.match(trail,/with spacing that differs from the document/) /* the normalized note survives; its offsets do not */;
  assert.match(trail,/Attention was fully restored within two minutes of exposure\./);
  assert.match(trail,/Not found in the document\. Treat this quote with care\./);
  // The unverified entry's -1 offsets never reach the page.
@@ -208,10 +212,13 @@ console.log('Actual search-mode, shared-button and card components render in dar
   {name:'summary',ok:null,ms:0,skipReason:'token budget exhausted'},
  ]}));
  assert.match(health,/Pipeline health/);
- assert.match(health,/digest · failed · 3\.2s\. 2 of 5 sections could not be read/);
- assert.match(health,/synthesis · ok · 1\.5s/);
- assert.match(health,/summary · skipped \(token budget exhausted\)/);
- console.log('Stage health renders passed, failed with detail, and skipped with reason.');
+ /* 2026-10-18 (design audit H17): passing stages render nothing, and
+    failures and skips are one plain sentence each with human stage
+    names, no timings, no model names, no raw stage names. */
+ assert.match(health,/Reading the document in sections did not finish\. 2 of 5 sections could not be read\./);
+ assert.match(health,/Writing the summary was skipped because the AI budget for this 5 day period is used up\./);
+ assert.doesNotMatch(health,/synthesis|3\.2s|1\.5s/);
+ console.log('Stage health renders failures and skips as plain sentences, passing stages not at all.');
  assert.equal(renderToStaticMarkup(React.createElement(context.DocStageHealth,{P,stageHealth:[]})),'');
  assert.equal(renderToStaticMarkup(React.createElement(context.DocStageHealth,{P,stageHealth:undefined})),'');
  assert.equal(renderToStaticMarkup(React.createElement(context.DocStageHealth,{P})),'');
@@ -225,11 +232,10 @@ console.log('Actual search-mode, shared-button and card components render in dar
   {name:'answer',ok:true,ms:900,skippedLegs:[{model:'model one',reason:'daily cap reached'},{model:'model two',reason:'parked for this run'}]},
   {name:'digest',ok:true,ms:1200},
  ]}));
- assert.match(parked,/answer · ok · 0\.9s/);
- assert.match(parked,/model one · skipped \(daily cap reached\)/);
- assert.match(parked,/model two · skipped \(parked for this run\)/);
- assert.match(parked,/digest · ok · 1\.2s/);
- console.log('Stage health renders parked legs with their reasons.');
+ /* 2026-10-18 (design audit H17): parked legs are no longer listed,
+    and a record whose stages all passed renders nothing at all. */
+ assert.equal(parked,'');
+ console.log('Stage health renders nothing for an all passing record, parked legs included.');
 }
 
 /* ── Call surfaces: the huddle's modal contract, pinned by reading ──

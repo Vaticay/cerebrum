@@ -389,7 +389,7 @@ export function extractOpenQuestions(answer, factCheck, sources, selfReasoning) 
         : "A cited source that actually states this.",
       startWith: entryPapers(text + " " + String(c.note || "")),
       sourceSentence: text,
-      sourceLabel: "From the fact-check",
+      sourceLabel: "From the fact check",
     });
   }
 

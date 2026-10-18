@@ -231,7 +231,9 @@ function* srcFiles(dir) {
 const FIELD_FLOORS = {
   "src/CerebrumApp.jsx": { els: 35, text: 28, known: 25 },
   "src/LearnView.jsx": { els: 7, text: 6, known: 6 },
-  "src/flowcharts.jsx": { els: 7, text: 6, known: 6 },
+  /* 2026-10-18 (design audit M36): the evidence inspector native select
+   * became the shared UISelect, one fewer native field element. */
+  "src/flowcharts.jsx": { els: 6, text: 5, known: 4 },
   "src/inbox.jsx": { els: 8, text: 7, known: 7 },
   "src/settings.jsx": { els: 11, text: 7, known: 7 },
   "src/designSystem.jsx": { els: 2, text: 2, known: 1 },

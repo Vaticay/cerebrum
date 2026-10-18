@@ -45,7 +45,7 @@ export const FONT_SIZES = {
 export const COLOR = {
   ink: "#E8E6E3",
   ink2: "#A8A49E",
-  faint: "#6B6762",
+  faint: "#96928C",
   accent: "#C4A35A",
   accentInk: "#121110",
   surface1: "#1C1B19",
@@ -68,10 +68,17 @@ export const COLOR = {
 // unifying STATUS onto them would ship failing status text.
 export const STATUS = { good: "#10b981", warn: "#d9a520", bad: "#e5484d" };
 
-// Pro brand color: the deliberate emerald used for Pro surfaces (upgrade
-// prompts, Pro badges, Pro marketing). This is a brand decision, not the
-// user's selected accent — Pro surfaces stay emerald across all themes.
+// Pro brand colors (M58, 2026-10-18): one color for identity and one
+// color for action, named here so call sites stop mixing them. Identity
+// is the gold #d4a437 (tier labels, identity marks). Action is the
+// emerald #34d399 (purchase and upgrade buttons), and actionInk is the
+// one ink that sits on that emerald fill. This is a brand decision, not
+// the user's selected accent. The emerald names stay as aliases for the
+// action pair because older call sites already read them.
 export const PRO = {
+  identity: "#d4a437",
+  action: "#34d399",
+  actionInk: "#06281c",
   emerald: "#34d399",
   emeraldInk: "#06281c",
 };
@@ -270,7 +277,7 @@ export const TYPE = {
   body:    { fontFamily: "var(--cb-font)", fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 },
   reading: { fontFamily: "var(--cb-serif)", fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 }, // reading, answer body and lesson text only
   label:   { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
-  mono:    { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
+  mono:    { fontFamily: "var(--cb-mono)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
 };
 
 // 4px grid, rhythm 8/12/16/24/32/48.
@@ -428,7 +435,7 @@ export function UIRow({ label, desc, control, onClick, P = null, accent, last, t
     >
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 500, color: tone === "bad" ? (pal.dark ? (paletteName === "Mid" ? "#ff7a7a" : STATUS.bad) : "#b92c31") : pal.ink, overflowWrap: "anywhere" }}>{label}</div>
-        {desc && <div style={{ fontSize: FONT_SIZES.small, fontWeight: 450, color: pal.faint, lineHeight: 1.5, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
+        {desc && <div style={{ fontSize: FONT_SIZES.small, fontWeight: 400, color: pal.ink2, lineHeight: 1.5, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
       </div>
       {control && <div style={{ flexShrink: 0 }}>{control}</div>}
     </div>
@@ -573,9 +580,9 @@ export function FounderFrame({ size = 96, children, accent }) {
       position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center",
       width: size + 10, height: size + 10, borderRadius: "50%", flexShrink: 0,
     }}>
-      <span aria-hidden="true" className="cb-founder-ring" style={{
+      <span aria-hidden="true" style={{
         position: "absolute", inset: 0, borderRadius: "50%",
-        background: "conic-gradient(from 0deg, #c9a227, #f4e2a1, #34d399, #c9a227)",
+        border: "2px solid #c9a227", background: "transparent", boxSizing: "border-box",
       }} />
       <span aria-hidden="true" style={{
         position: "absolute", inset: 3, borderRadius: "50%",
@@ -592,9 +599,9 @@ function ProBadge({ style } = {}) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center",
-      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow,
-      fontFamily: "var(--cb-font)", color: "#06281c",
-      background: PRO.emerald,
+      fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
+      fontFamily: "var(--cb-font)", color: PRO.actionInk,
+      background: PRO.action,
       borderRadius: 2, padding: "2px 8px 2px 9px",
       whiteSpace: "nowrap", ...style,
     }}>PRO</span>
@@ -606,7 +613,7 @@ function TierBadge({ tier, style } = {}) {
   if (tier === "lite") return (
     <span style={{
       display: "inline-flex", alignItems: "center",
-      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow,
+      fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#c99a2e",
       border: "1px solid rgba(212,164,55,0.55)",
       borderRadius: 2, padding: "1px 8px 1px 9px",
@@ -616,7 +623,7 @@ function TierBadge({ tier, style } = {}) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center",
-      fontSize: FONT_SIZES.micro, fontWeight: 800, letterSpacing: TRACKING.eyebrow,
+      fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#9aa3a8",
       border: "1px solid rgba(150,160,165,0.4)",
       borderRadius: 2, padding: "1px 8px 1px 9px",

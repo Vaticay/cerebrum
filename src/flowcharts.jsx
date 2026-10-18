@@ -9,8 +9,8 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { Icon, UIButton, withAlpha, FONT_SIZES, STATUS, Z, TRACKING, RADIUS } from "./designSystem.jsx";
-import { getCookie, __cbMotionCache, cbMotionCacheSet, download, selectChrome, toast } from "./appUtils.js";
+import { Icon, UIButton, UISelect, SHADOW, withAlpha, FONT_SIZES, STATUS, Z, TRACKING, RADIUS } from "./designSystem.jsx";
+import { getCookie, __cbMotionCache, cbMotionCacheSet, download, toast } from "./appUtils.js";
 import { cbDialogLockScroll, cbDialogUnlockScroll } from "./scrollLock.js";
 import { fcExtractSteps, fcCompressStep } from "./fcLabel.js";
 import { safeHref } from "./textUtils.js";
@@ -172,15 +172,18 @@ export function Dialog({
           // when the caller forgets panelStyle. Uses theme CSS variables
           // (Dialog portals to body; the app mirrors --cb-surface onto
           // the document element so the variable does reach here). The
-          // fallback constant is a mid neutral, not near black: if the
-          // variable ever does go missing, the surface value is the
-          // only thing left deciding readability, and a mid gray keeps
-          // both the light and the dark ink colors legible on it
-          // where #141416 silently assumed a dark theme.
-          background: "var(--cb-surface, #767676)",
+          // fallback constant is the system surface literal #1c1b19
+          // (COLOR.surface1, the Dark surface): if the variable ever
+          // does go missing, the fallback ink #f4f4f2 stays fully
+          // readable on it. The old mid grey #767676 left both the
+          // light and the dark ink nearly unreadable (M3, 2026-10-18).
+          background: "var(--cb-surface, #1c1b19)",
           border: "1px solid var(--cb-line, rgba(255,255,255,0.12))",
           borderRadius: RADIUS.lg,
-          boxShadow: "0 24px 64px rgba(0,0,0,0.5)",
+          // The Dialog primitive owns the one allowed modal shadow
+          // (SHADOW.xl, 2026-10-18). Callers pass panelStyle last and
+          // can still override it for named media surfaces.
+          boxShadow: SHADOW.xl(null),
           color: "var(--cb-ink, #f4f4f2)",
           // The class brings the shared panel treatment; the keyframe
           // entrance is neutralized in favor of this state-driven one.
@@ -528,16 +531,16 @@ function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
       }}
       onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.10); e.currentTarget.style.borderColor = withAlpha(accent, 0.35); e.currentTarget.style.transform = "translateY(-1px)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = selected ? withAlpha(accent, 0.12) : "transparent"; e.currentTarget.style.borderColor = selected ? accent : "transparent"; e.currentTarget.style.transform = "none"; }}>
-      <svg width="40" height="24" viewBox="0 0 40 24" aria-hidden="true" style={{ filter: `drop-shadow(0 2px 4px ${withAlpha(accent, 0.25)})` }}>{shape}</svg>
-      <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.2, textAlign: "center", fontWeight: 600 }}>{t.name}</span>
+      <svg width="40" height="24" viewBox="0 0 40 24" aria-hidden="true">{shape}</svg>
+      <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.2, textAlign: "center", fontWeight: 500 }}>{t.name}</span>
     </button>
   );
 }
 
-/* In-canvas node shape (JSX). Layered: base fill, top-light gradient sheen,
-   soft drop shadow. Selected nodes get an accent glow ring.
-   Redesigned pass: softer, deeper shadow; hairline 1.5px strokes; larger
-   corner radii — the chrome gets out of the way of the terse labels. */
+/* In-canvas node shape (JSX). Flat (H19, 2026-10-18): one solid fill,
+   one hairline stroke, corners on the radius token. No gradient sheen,
+   no drop shadow filter, no glow ring. Start and end keep their pill
+   geometry because that shape is what makes them terminals. */
 function FcNodeShape({ n, P, accent, selected, pending }) {
   const cx = n.w / 2, cy = n.h / 2;
   const isAccent = n.type === "start" || n.type === "end";
@@ -547,21 +550,20 @@ function FcNodeShape({ n, P, accent, selected, pending }) {
   const shape = (() => {
     if (n.type === "decision") return <polygon points={`${cx},0 ${n.w},${cy} ${cx},${n.h} 0,${cy}`} />;
     if (n.type === "io") { const s = 20; return <polygon points={`${s},0 ${n.w},0 ${n.w - s},${n.h} 0,${n.h}`} />; }
-    if (n.type === "evidence") return <rect x={0} y={0} width={n.w} height={n.h} rx={14} />;
-    return <rect x={0} y={0} width={n.w} height={n.h} rx={isAccent ? n.h / 2 : 14} />;
+    if (n.type === "evidence") return <rect x={0} y={0} width={n.w} height={n.h} rx={RADIUS.lg} />;
+    return <rect x={0} y={0} width={n.w} height={n.h} rx={isAccent ? n.h / 2 : RADIUS.lg} />;
   })();
   return (
-    <g filter="url(#fcNodeShadow)">
+    <g>
       {selected && (
         <g opacity={0.55}>
           {n.type === "decision"
             ? <polygon points={`${cx},-7 ${n.w + 7},${cy} ${cx},${n.h + 7} -7,${cy}`} fill="none" stroke={accent} strokeWidth={2.4} />
-            : <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={(isAccent ? n.h / 2 : 14) + 7} fill="none" stroke={accent} strokeWidth={2.4} />}
+            : <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={(isAccent ? n.h / 2 : RADIUS.lg) + 7} fill="none" stroke={accent} strokeWidth={2.4} />}
         </g>
       )}
       {React.cloneElement(shape, { fill, stroke, strokeWidth: sw })}
-      {React.cloneElement(shape, { fill: "url(#fcNodeGrad)", stroke: "none", pointerEvents: "none" })}
-      {n.type === "evidence" && <rect x={0} y={0} width={5} height={n.h} rx={2.5} fill={accent} stroke="none" pointerEvents="none" />}
+      {n.type === "evidence" && <rect x={0} y={0} width={5} height={n.h} rx={RADIUS.lg} fill={accent} stroke="none" pointerEvents="none" />}
     </g>
   );
 }
@@ -874,7 +876,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
     <UIButton P={P} variant="ghost" type="button" onClick={onClick} disabled={opts.disabled} title={opts.title || label}
       style={{
         padding: "12px 24px", borderRadius: RADIUS.sm, cursor: opts.disabled ? "default" : "pointer",
-        fontSize: FONT_SIZES.caption, fontWeight: 650, fontFamily: "var(--cb-font)",
+        fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
         background: opts.primary ? accent : withAlpha(accent, 0.07),
         color: opts.primary ? at : opts.disabled ? P.faint : P.ink2,
         border: `1px solid ${opts.primary ? accent : withAlpha(accent, 0.22)}`,
@@ -912,7 +914,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
         background: P.bg,
         borderRadius: RADIUS.lg, height: isMobile ? "96dvh" : "88dvh",
         display: "flex", flexDirection: "column", overflow: "hidden",
-        border: `1px solid ${withAlpha(accent, 0.18)}`, boxShadow: "0 40px 120px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4), 0 0 80px rgba(0,0,0,0.25)", outline: "none",
+        border: `1px solid ${withAlpha(accent, 0.18)}`, boxShadow: SHADOW.xl(P), outline: "none",
       }}
     >
         {/* ── Studio command bar ── */}
@@ -921,14 +923,14 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
           <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
             <span style={{
               width: 34, height: 34, borderRadius: RADIUS.lg, display: "inline-flex", alignItems: "center", justifyContent: "center",
-              background: `linear-gradient(135deg, ${withAlpha(accent, 0.28)}, ${withAlpha(accent, 0.10)})`,
-              border: `1px solid ${withAlpha(accent, 0.4)}`, boxShadow: `0 2px 12px ${withAlpha(accent, 0.25)}`, flexShrink: 0,
+              background: withAlpha(accent, 0.14),
+              border: `1px solid ${withAlpha(accent, 0.4)}`, boxShadow: "none", flexShrink: 0,
             }}>
               <Icon name="flowchart" size={17} style={{ color: accent }} />
             </span>
             <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, minWidth: 0 }}>
               <span className="cb-kicker">Studio</span>
-              <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, fontFamily: "var(--cb-font)" }}>Evidence map</span>
+              <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>Evidence map</span>
             </div>
           </div>
           <div style={{ width: 1, height: 26, background: P.line, flexShrink: 0 }} />
@@ -938,7 +940,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             style={{
               flex: "1 1 140px", minWidth: 0, background: "transparent",
               border: "none", borderBottom: `1px dashed transparent`, outline: "none",
-              color: P.ink, fontSize: 16, fontWeight: 650, fontFamily: "var(--cb-font)",
+              color: P.ink, fontSize: 16, fontWeight: 500, fontFamily: "var(--cb-font)",
               padding: "4px 2px", transition: "border-color 150ms ease",
             }}
             onMouseEnter={(e) => { e.currentTarget.style.borderBottomColor = withAlpha(accent, 0.45); }}
@@ -946,7 +948,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             onFocus={(e) => { e.currentTarget.style.borderBottomColor = accent; e.currentTarget.style.borderBottomStyle = "solid"; }}
             onBlur={(e) => { e.currentTarget.style.borderBottomColor = "transparent"; e.currentTarget.style.borderBottomStyle = "dashed"; }}
           />
-          {savedFlash && <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="check" size={13} /> Saved</span>}
+          {savedFlash && <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="check" size={13} /> Saved</span>}
           {/* tool switcher */}
           {!isMobile && (
             <div role="toolbar" aria-label="Canvas tools" style={{
@@ -960,9 +962,9 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                     onClick={() => { setTool(key); setPendingFrom(null); }}
                     style={{ minHeight: 44,
                       display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 16px", borderRadius: RADIUS.sm,
-                      border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 650, fontFamily: "var(--cb-font)",
+                      border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
                       background: on ? accent : "transparent", color: on ? at : P.ink2,
-                      boxShadow: on ? `0 2px 10px ${withAlpha(accent, 0.4)}` : "none",
+                      boxShadow: "none",
                       transition: "background-color 150ms ease, color 150ms ease, box-shadow 150ms ease",
                     }}>
                     <Icon name={icon} size={13} />
@@ -984,14 +986,14 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                 <div style={{
                   position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: Z.sticky, minWidth: 220,
                   background: P.bg, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 6,
-                  boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
+                  boxShadow: "none",
                 }}>
                   {[["SVG", "Vector, any size", doExportSVG], ["PNG", "Image at 2\u00d7 resolution", doExportPNG], ["Markdown", "Text outline", doExportMD]].map(([fmt, desc, fn]) => (
                     <button key={fmt} type="button" onClick={() => { setExportOpen(false); fn(); }}
                       style={{ minHeight: 44, display: "flex", alignItems: "baseline", gap: 10, width: "100%", textAlign: "left", padding: "9px 11px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--cb-font)" }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); }}
                       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                      <span style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, width: 74, flexShrink: 0 }}>{fmt}</span>
+                      <span style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, width: 74, flexShrink: 0 }}>{fmt}</span>
                       <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2 }}>{desc}</span>
                     </button>
                   ))}
@@ -1037,7 +1039,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
           <div style={{
             flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${P.line}`,
             borderBottom: isMobile ? `1px solid ${P.line}` : "none",
-            background: P.dark ? "rgba(0,0,0,0.22)" : "rgba(0,0,0,0.02)",
+            background: P.surface,
             padding: isMobile ? "8px 10px" : "12px 10px", display: "flex", flexDirection: isMobile ? "row" : "column", gap: 3,
             overflowX: isMobile ? "auto" : "visible", overflowY: isMobile ? "visible" : "auto", alignItems: isMobile ? "center" : "stretch",
           }}>
@@ -1060,20 +1062,13 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             {FC_ORDER.map((t) => <FcPaletteBtn key={t} type={t} P={P} accent={accent} isMobile={isMobile} onClick={() => addNode(t)} />)}
             {!isMobile && (
               <div style={{ marginTop: "auto", padding: "12px 6px 2px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
-                <span style={{ color: P.ink2, fontWeight: 650 }}>Tip</span>: double-click a node to rename it.
+                <span style={{ color: P.ink2, fontWeight: 500 }}>Tip</span>: double-click a node to rename it.
               </div>
             )}
           </div>
 
           {/* Canvas */}
           <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0, background: P.dark ? "#0b0d0b" : "#eef0ec", overflow: "hidden" }}>
-            {/* vignette for depth */}
-            <div aria-hidden="true" style={{
-              position: "absolute", inset: 0, pointerEvents: "none", zIndex: Z.raised,
-              background: P.dark
-                ? "radial-gradient(120% 120% at 50% 40%, transparent 55%, rgba(0,0,0,0.42) 100%)"
-                : "radial-gradient(120% 120% at 50% 40%, transparent 60%, rgba(30,40,30,0.10) 100%)",
-            }} />
             <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block", cursor: tool === "connect" ? "crosshair" : "grab", touchAction: "none" }}
               onPointerDown={onCanvasPointerDown} onPointerMove={onCanvasPointerMove} onPointerUp={onCanvasPointerUp} onPointerCancel={onCanvasPointerCancel}>
               <defs>
@@ -1088,13 +1083,6 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                 <marker id="fcArrowHead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
                   <path d="M 0 1 L 9 5 L 0 9 z" fill={accent} />
                 </marker>
-                <filter id="fcNodeShadow" x="-30%" y="-30%" width="160%" height="160%">
-                  <feDropShadow dx="0" dy="4" stdDeviation="8" floodColor="#000" floodOpacity={P.dark ? 0.32 : 0.13} />
-                </filter>
-                <linearGradient id="fcNodeGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stopColor="#fff" stopOpacity={P.dark ? 0.10 : 0.55} />
-                  <stop offset="1" stopColor="#fff" stopOpacity="0" />
-                </linearGradient>
               </defs>
               <g transform={`translate(${viewport.x},${viewport.y}) scale(${viewport.zoom})`}>
                 <rect x={-4000} y={-4000} width={12000} height={12000} fill="url(#fcGridMajor)" />
@@ -1142,17 +1130,17 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                       onPointerUp={(e) => onNodePointerUp(e, n)}
                       onDoubleClick={(e) => { e.stopPropagation(); setSelection({ kind: "node", id: n.id }); setTimeout(() => document.getElementById("fc-label-edit")?.focus(), 50); }}
                       style={{ cursor: tool === "connect" ? "crosshair" : "grab" }}>
-                      {pend && <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={14} fill="none" stroke={accent} strokeWidth={1.6} strokeDasharray="6 4" opacity={0.8} />}
+                      {pend && <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={RADIUS.lg} fill="none" stroke={accent} strokeWidth={1.6} strokeDasharray="6 4" opacity={0.8} />}
                       <FcNodeShape n={n} P={P} accent={accent} selected={sel} pending={pend} />
                       {kicker && (
                         <text x={n.w / 2} y={ty + 4} textAnchor="middle" fontSize={10.5} fill={accent}
-                          style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 700, letterSpacing: "normal" }}>
+                          style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: "normal" }}>
                           {kicker}
                         </text>
                       )}
                       {lines.map((ln, i) => (
                         <text key={i} x={n.w / 2} y={labelTop + i * lh} textAnchor="middle" fontSize={15}
-                          fill={isAccent ? at : P.ink} style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 600, letterSpacing: "-0.015em" }}>
+                          fill={isAccent ? at : P.ink} style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: "-0.015em" }}>
                           {ln}
                         </text>
                       ))}
@@ -1182,12 +1170,12 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                     <path d="M60 43 h14" stroke={P.faint} strokeWidth="1.5" /><path d="M71 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
                     <path d="M146 43 h10" stroke={P.faint} strokeWidth="1.5" strokeDasharray="3 3" /><path d="M153 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
                   </svg>
-                  <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>A blank bench</div>
+                  <div style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>A blank bench</div>
                   <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, marginBottom: answerText ? 16 : 0 }}>
                     {answerText ? "Add nodes from the rail, or draft a starting chart from this answer." : "Add nodes from the rail to start building."}
                   </div>
                   {answerText && (
-                    <button type="button" onClick={doDraft} style={{ minHeight: 44, pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: RADIUS.sm, border: `1px solid ${accent}`, background: accent, color: at, fontSize: FONT_SIZES.small, fontWeight: 700, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                    <button type="button" onClick={doDraft} style={{ minHeight: 44, pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: RADIUS.sm, border: `1px solid ${accent}`, background: accent, color: at, fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
                       <Icon name="edit" size={14} /> Draft from answer
                     </button>
                   )}
@@ -1199,7 +1187,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
               {[["−", 1 / 1.25, "Zoom out"], ["+", 1.25, "Zoom in"]].map(([label, f, t2]) => (
                 <UIButton P={P} variant="ghost" key={label} type="button" title={t2} aria-label={t2}
                   onClick={() => setViewport((v) => ({ ...v, zoom: Math.min(2.5, Math.max(0.3, v.zoom * f)) }))}
-                  style={{ minWidth: 44, minHeight: 44, width: 30, height: 30, borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink2, cursor: "pointer", fontSize: 16, fontWeight: 600, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+                  style={{ minWidth: 44, minHeight: 44, width: 30, height: 30, borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink2, cursor: "pointer", fontSize: 16, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.color = accent; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.ink2; }}>
                   {label}
@@ -1207,7 +1195,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
               ))}
               <UIButton P={P} variant="ghost" type="button" title="Reset view" aria-label="Reset view"
                 onClick={() => setViewport({ x: 40, y: 40, zoom: 1 })}
-                style={{ minWidth: 44, minHeight: 44, height: 30, padding: "0 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 700, fontFamily: "var(--cb-font)", letterSpacing: "normal" }}
+                style={{ minWidth: 44, minHeight: 44, height: 30, padding: "0 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", letterSpacing: "normal" }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.color = accent; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.faint; }}>
                 {Math.round(viewport.zoom * 100)}%
@@ -1219,32 +1207,32 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
           <div style={{
             flexShrink: 0, width: isMobile ? "100%" : 264, maxHeight: isMobile ? 230 : "none", overflowY: "auto",
             borderLeft: isMobile ? "none" : `1px solid ${P.line}`, borderTop: isMobile ? `1px solid ${P.line}` : "none",
-            background: P.dark ? "rgba(0,0,0,0.22)" : "rgba(0,0,0,0.02)",
+            background: P.surface,
             padding: 14,
           }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <div className="cb-kicker">Inspector</div>
               {(selNode || selEdge) && (
-                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: RADIUS.viewport, padding: "3px 12px", textTransform: "none", letterSpacing: "normal" }}>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: RADIUS.viewport, padding: "3px 12px", textTransform: "none", letterSpacing: "normal" }}>
                   {selNode ? FC_NODE_TYPES[selNode.type].name : "Arrow"}
                 </div>
               )}
             </div>
             {!selection && (
               <div>
-                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 650, marginBottom: 6 }}>Nothing selected</div>
+                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 500, marginBottom: 6 }}>Nothing selected</div>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.7 }}>
                   Click a node or arrow to edit it here.
                 </div>
                 <div style={{ marginTop: 12, padding: 10, borderRadius: RADIUS.lg, background: withAlpha(accent, 0.07), border: `1px solid ${withAlpha(accent, 0.18)}`, fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65 }}>
-                  <span style={{ fontWeight: 700, color: accent }}>Connect</span> links two nodes. Click the source, then the target.
+                  <span style={{ fontWeight: 500, color: accent }}>Connect</span> links two nodes. Click the source, then the target.
                   {sources && sources.length > 0 && <span> Evidence nodes can cite this answer's papers.</span>}
                 </div>
               </div>
             )}
             {selNode && (
-              <div style={{ background: withAlpha(P.bg, 0.7), border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
-                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Label</label>
+              <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
+                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Label</label>
                 <textarea id="fc-label-edit" value={selNode.label} rows={3}
                   onChange={(e) => updateNode(selNode.id, { label: e.target.value }, false)}
                   onBlur={pushHistory}
@@ -1258,35 +1246,31 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                     never destroys information — it's one click away. */}
                 {selNode.detail && (
                   <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Source sentence</div>
-                    <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65, padding: "8px 12px", background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md }}>
+                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Source sentence</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65, padding: "8px 12px", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md }}>
                       {selNode.detail}
                     </div>
                   </div>
                 )}
                 {selNode.type === "evidence" && sources && sources.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <label htmlFor="fc-source-pick" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Cites paper</label>
-                    <select id="fc-source-pick" value={typeof selNode.sourceIdx === "number" ? selNode.sourceIdx : ""}
-                      onChange={(e) => updateNode(selNode.id, { sourceIdx: e.target.value === "" ? undefined : Number(e.target.value) })}
-                      style={{
-                        width: "100%", background: P.surface,
-                        border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink, padding: "8px 30px 8px 12px",
-                        fontSize: 16, fontFamily: "var(--cb-font)", cursor: "pointer", ...selectChrome(P),
-                      }}>
-                      <option value="">No citation</option>
-                      {sources.slice(0, 12).map((s, i) => (
-                        <option key={i} value={i}>{String(s.title || "Untitled").slice(0, 60)}{s.year ? ` (${s.year})` : ""}</option>
-                      ))}
-                    </select>
+                    <div style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Cites paper</div>
+                    <UISelect P={P} accent={accent} ariaLabel="Cites paper"
+                      value={typeof selNode.sourceIdx === "number" ? selNode.sourceIdx : ""}
+                      onChange={(v) => updateNode(selNode.id, { sourceIdx: v === "" ? undefined : Number(v) })}
+                      options={[
+                        { value: "", label: "No citation" },
+                        ...sources.slice(0, 12).map((s, i) => ({ value: i, label: `${String(s.title || "Untitled").slice(0, 60)}${s.year ? ` (${s.year})` : ""}` })),
+                      ]}
+                      style={{ width: "100%" }} />
                     {selSource?.url && (
-                      <a href={safeHref(selSource.url)} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 8, fontSize: FONT_SIZES.caption, color: accent, fontWeight: 600 }}>
+                      <a href={safeHref(selSource.url)} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 8, fontSize: FONT_SIZES.caption, color: accent, fontWeight: 500 }}>
                         Open the paper <Icon name="arrowUpRight" size={11} />
                       </a>
                     )}
                     {selSource && (
                       <div style={{ marginTop: 8, padding: "8px 12px", borderLeft: `2px solid ${accent}`, fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
-                        <div style={{ fontWeight: 700, color: P.ink }}>{selSource.title || "Untitled"}</div>
+                        <div style={{ fontWeight: 500, color: P.ink }}>{selSource.title || "Untitled"}</div>
                         <div style={{ color: P.faint }}>
                           {[selSource.authors, selSource.journal || selSource.source, selSource.year].filter(Boolean).join(" · ")}
                         </div>
@@ -1295,7 +1279,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                   </div>
                 )}
                 <button type="button" onClick={deleteSelection}
-                  style={{ minHeight: 44, marginTop: 14, width: "100%", background: "rgba(229,72,77,0.07)", border: "1px solid rgba(229,72,77,0.3)", borderRadius: RADIUS.lg, padding: "8px 16px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 650, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                  style={{ minHeight: 44, marginTop: 14, width: "100%", background: "rgba(229,72,77,0.07)", border: "1px solid rgba(229,72,77,0.3)", borderRadius: RADIUS.lg, padding: "8px 16px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.14)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.07)"; }}>
                   <Icon name="trash" size={13} /> Delete node
@@ -1303,8 +1287,8 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
               </div>
             )}
             {selEdge && (
-              <div style={{ background: withAlpha(P.bg, 0.7), border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
-                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 700, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: "0" }}>(e.g. yes / no)</span></label>
+              <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
+                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: "0" }}>(e.g. yes / no)</span></label>
                 <input id="fc-edge-edit" value={selEdge.label} onChange={(e) => { setEdges((prev) => prev.map((x) => (x.id === selEdge.id ? { ...x, label: e.target.value } : x))); }} onBlur={pushHistory}
                   style={{
                     width: "100%", boxSizing: "border-box", background: P.surface,
@@ -1315,7 +1299,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                   {(() => { const a = fcNodeById(nodes, selEdge.from), b = fcNodeById(nodes, selEdge.to); return a && b ? `${a.label.slice(0, 24)} → ${b.label.slice(0, 24)}` : ""; })()}
                 </div>
                 <button type="button" onClick={deleteSelection}
-                  style={{ minHeight: 44, marginTop: 14, width: "100%", background: "rgba(229,72,77,0.07)", border: "1px solid rgba(229,72,77,0.3)", borderRadius: RADIUS.lg, padding: "8px 16px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 650, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                  style={{ minHeight: 44, marginTop: 14, width: "100%", background: "rgba(229,72,77,0.07)", border: "1px solid rgba(229,72,77,0.3)", borderRadius: RADIUS.lg, padding: "8px 16px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.14)"; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.07)"; }}>
                   <Icon name="trash" size={13} /> Delete arrow
@@ -1332,7 +1316,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
           fontFamily: "var(--cb-font)", background: P.dark ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.02)",
         }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: nodes.length ? accent : P.faint, boxShadow: nodes.length ? `0 0 8px ${withAlpha(accent, 0.8)}` : "none" }} />
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: nodes.length ? accent : P.faint, boxShadow: "none" }} />
             {nodes.length} node{nodes.length === 1 ? "" : "s"} · {edges.length} arrow{edges.length === 1 ? "" : "s"}
           </span>
           {selection && <span style={{ color: accent }}>● {selection.kind === "node" ? "node" : "arrow"} selected</span>}
@@ -1483,7 +1467,14 @@ export function mmHighlight(code) {
   return out + "\n";
 }
 
-const MM_FONT = '13px/1.65 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+/* One size for all three editor layers (C8, 2026-10-18): the gutter,
+   the highlight pre and the textarea all take MM_FONT, and the gutter
+   row height is MM_LEADING, computed from the same two constants, so
+   the highlight and the text cannot drift apart again. */
+const MM_FONT_SIZE = 16;
+const MM_LINE_HEIGHT = 1.65;
+const MM_LEADING = MM_FONT_SIZE * MM_LINE_HEIGHT;
+const MM_FONT = `${MM_FONT_SIZE}px/${MM_LINE_HEIGHT} ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`;
 
 /* Line-numbered code editor: a transparent textarea over a highlighted
    <pre>, metrics locked together so the highlight never drifts. */
@@ -1513,12 +1504,12 @@ export function MMCodeEditor({ P, accent, code, onChange }) {
   return (
     <div style={{ position: "relative", flex: 1, display: "flex", minHeight: 0, minWidth: 0 }}>
       <div ref={gutterRef} aria-hidden="true" style={{
-        width: 46, flexShrink: 0, overflow: "hidden", padding: "16px 8px 14px 0",
+        width: 46, flexShrink: 0, overflow: "hidden", padding: "14px 8px 14px 0",
         font: MM_FONT, textAlign: "right", color: P.faint, userSelect: "none",
         borderRight: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.015)",
       }}>
         {Array.from({ length: lineCount }, (_, i) => (
-          <div key={i} style={{ height: "21.45px" }}>{i + 1}</div>
+          <div key={i} style={{ height: MM_LEADING }}>{i + 1}</div>
         ))}
       </div>
       <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
@@ -1532,10 +1523,9 @@ export function MMCodeEditor({ P, accent, code, onChange }) {
           aria-label="Diagram source code" placeholder="flowchart TD&#10;    A --> B"
           style={{
             position: "absolute", inset: 0, width: "100%", height: "100%", padding: pad,
-            /* The field carries an explicit 16px size like every text
-               field in the product (the 16px floor), set beside the
-               MM_FONT shorthand it keeps for its monospace family. */
-            font: MM_FONT, fontSize: 16, whiteSpace: "pre", overflow: "auto", resize: "none",
+            /* All three layers share the one MM_FONT shorthand (16px
+               at 1.65, the 16px floor), with no second size set here. */
+            font: MM_FONT, whiteSpace: "pre", overflow: "auto", resize: "none",
             background: "transparent", color: "transparent", caretColor: accent,
             border: 0, outline: "none",
           }} />
@@ -1900,7 +1890,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   };
 
   const paneLabel = {
-    fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none",
+    fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: "normal", textTransform: "none",
     color: P.faint, fontFamily: "var(--cb-font)", padding: "12px 16px",
     borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
   };
@@ -1937,7 +1927,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     <UIButton P={P} variant="ghost" key={key} onClick={() => setRailTab(key)}
       style={{
         flex: 1, minHeight: 44, border: 0, cursor: "pointer", fontFamily: "var(--cb-font)",
-        fontSize: FONT_SIZES.small, fontWeight: 600,
+        fontSize: FONT_SIZES.small, fontWeight: 500,
         color: railTab === key ? P.ink : P.faint,
         background: "transparent",
         borderBottom: `2px solid ${railTab === key ? accent : "transparent"}`,
@@ -1962,11 +1952,11 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       <div style={{ flex: 1, overflowY: "auto", padding: 10, minHeight: 0 }}>
         {railTab === "diagrams" && (
           <>
-            <button onClick={newDiagram} style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: accent, fontWeight: 600, marginBottom: 8 }}>
+            <button onClick={newDiagram} style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: accent, fontWeight: 500, marginBottom: 8 }}>
               <span aria-hidden="true">＋</span> New diagram
             </button>
             <button onClick={() => fileRef.current && fileRef.current.click()} title="Import a .mmd file, loaded verbatim"
-              style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: P.ink2, fontWeight: 600, marginBottom: 8 }}>
+              style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: P.ink2, fontWeight: 500, marginBottom: 8 }}>
               <span aria-hidden="true">⤒</span> Import .mmd
             </button>
             {diagrams.length === 0 && (
@@ -1978,7 +1968,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
               <div key={d.id} className="mm-railitem" style={{ display: "flex", alignItems: "center", borderRadius: RADIUS.lg, background: d.id === activeId ? withAlpha(accent, 0.08) : "transparent" }}>
                 <button onClick={() => { openDiagram(d); if (isMobile) setRailOpen(false); }} style={{ ...railItem, flex: 1, minWidth: 0 }} title={d.code.slice(0, 120)}>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", fontWeight: d.id === activeId ? 600 : 400 }}>{d.title}</span>
+                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", fontWeight: d.id === activeId ? 500 : 400 }}>{d.title}</span>
                     <span style={{ display: "block", fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2 }}>
                       {new Date(d.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {d.code.split("\n").length} lines
                     </span>
@@ -2014,17 +2004,17 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: isMobile ? "calc(100dvh - 150px)" : "calc(100dvh - 110px)", minWidth: 0 }}>
       <style>{`
-        .mm-kw { color: ${accent}; font-weight: 600; }
+        .mm-kw { color: ${accent}; font-weight: 500; }
         .mm-st { color: ${dark ? "#a5d6a7" : "#2e7d32"}; }
         .mm-cm { color: ${P.faint}; font-style: italic; }
-        .mm-ar { color: ${dark ? "#7dd3fc" : "#0369a1"}; font-weight: 600; }
-        .mm-zoombtn { width: 44px; height: 44px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); transition: border-color 280ms ease, background-color 280ms ease, color 280ms ease, filter 280ms ease; }
+        .mm-ar { color: ${dark ? "#7dd3fc" : "#0369a1"}; font-weight: 500; }
+        .mm-zoombtn { width: 44px; height: 44px; border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); transition: border-color 280ms ease, background-color 280ms ease, color 280ms ease, filter 280ms ease; }
         .mm-zoombtn:hover { border-color: ${accent}; color: ${accent}; }
         .mm-railitem { transition: background 150ms ease; }
         .mm-railitem:hover { background: ${dark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.035)"} !important; }
         .mm-rail-del { transition: opacity 150ms ease; }
         .mm-railitem:hover .mm-rail-del { opacity: 1 !important; }
-        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 6px; font-size: ${FONT_SIZES.small}px; font-weight: 600; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; transition: border-color 280ms ease, background-color 280ms ease, color 280ms ease, filter 280ms ease; }
+        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 2px; font-size: ${FONT_SIZES.small}px; font-weight: 500; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; transition: border-color 280ms ease, background-color 280ms ease, color 280ms ease, filter 280ms ease; }
         .mm-topbtn:hover { border-color: ${accent}; background: ${P.dark ? "rgba(255,255,255,0.09)" : "#f4f4f2"}; }
         .mm-topbtn-primary { background: ${accent}; border-color: transparent; color: ${at}; }
         .mm-topbtn-primary:hover { background: ${accent}; border-color: transparent; filter: brightness(1.06); }
@@ -2063,7 +2053,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           <StudioMark size={22} accent={accent} />
         </span>
         <div style={{ minWidth: 0, flexShrink: 0 }}>
-          <div style={{ fontFamily: "var(--cb-font)", fontWeight: 700, fontSize: FONT_SIZES.small, color: P.ink, letterSpacing: "-0.015em", lineHeight: 1.25 }}>Diagram Studio</div>
+          <div style={{ fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: FONT_SIZES.small, color: P.ink, letterSpacing: "-0.015em", lineHeight: 1.25 }}>Diagram Studio</div>
           <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>Mermaid, rendered live</div>
         </div>
         <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Diagram title" placeholder="Untitled diagram"
@@ -2119,7 +2109,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                 <UIButton P={P} variant="ghost" key={key} onClick={() => setMobilePane(key)}
                   style={{
                     minHeight: 44, flex: 1, padding: "9px 0", borderRadius: RADIUS.sm,
-                    fontSize: FONT_SIZES.small, fontWeight: 600, fontFamily: "var(--cb-font)", cursor: "pointer",
+                    fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer",
                     background: mobilePane === key ? withAlpha(accent, 0.14) : "transparent",
                     color: mobilePane === key ? accent : P.faint,
                     border: `1px solid ${mobilePane === key ? withAlpha(accent, 0.4) : P.line}`,
@@ -2144,7 +2134,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
             <div style={paneLabel}>
               <span>Source</span>
               <button onClick={copyCode} title="Copy diagram source"
-                style={{ minHeight: 44, padding: "6px 12px", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.micro, fontWeight: 700, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" }}>
+                style={{ minHeight: 44, padding: "6px 12px", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" }}>
                 {copied ? "Copied ✓" : "Copy"}
               </button>
               <span style={{ marginLeft: "auto", fontWeight: 400, letterSpacing: TRACKING.tight, textTransform: "none" }}>{diagramKind} · {code.split("\n").length} lines</span>
@@ -2228,7 +2218,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                   background: dark ? "#3c1010" : "#fee2e2",
                   border: "1px solid rgba(248,113,113,0.5)", zIndex: Z.float,
                 }}>
-                  <div style={{ fontSize: FONT_SIZES.small, fontWeight: 700, color: dark ? "#fca5a5" : "#b91c1c", fontFamily: "var(--cb-font)", marginBottom: 4 }}>
+                  <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: dark ? "#fca5a5" : "#b91c1c", fontFamily: "var(--cb-font)", marginBottom: 4 }}>
                     Mermaid could not parse this
                   </div>
                   <pre style={{
@@ -2241,9 +2231,9 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
               <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 6, alignItems: "center", zIndex: Z.float }}>
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.max(0.2, p.k / 1.25) })); }} aria-label="Zoom out" title="Zoom out">−</button>
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: 1 })); }} aria-label="Reset zoom to 100 percent" title="Reset to 100%"
-                  style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.small, fontWeight: 600 }}>{Math.round(pan.k * 100)}%</button>
+                  style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.small, fontWeight: 500 }}>{Math.round(pan.k * 100)}%</button>
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.min(3, p.k * 1.25) })); }} aria-label="Zoom in" title="Zoom in">＋</button>
-                <button className="mm-zoombtn" onClick={fitToView} aria-label="Fit diagram to view" title="Fit to view" style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.small, fontWeight: 600 }}>Fit</button>
+                <button className="mm-zoombtn" onClick={fitToView} aria-label="Fit diagram to view" title="Fit to view" style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.small, fontWeight: 500 }}>Fit</button>
               </div>
             </div>
           </section>
@@ -2282,7 +2272,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           <div style={{
             position: "absolute", top: 0, bottom: 0, left: 0, width: "min(320px, 85vw)",
             background: P.surface, borderRight: `1px solid ${P.line2}`,
-            boxShadow: "24px 0 60px rgba(0,0,0,0.35)",
+            boxShadow: "none",
           }} role="dialog" aria-label="Diagram library and templates">
             <div style={{ display: "flex", alignItems: "center", padding: "12px 10px 0" }}>
               <UIButton P={P} variant="ghost" onClick={() => setRailOpen(false)} aria-label="Close panel"
@@ -2313,14 +2303,14 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
       <div style={{ flex: 1, minWidth: 0 }}>
         {eyebrow && (
           <div style={{
-            fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 700,
+            fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 500,
             letterSpacing: "normal", textTransform: "none",
             color: withAlpha(accent, 0.9), marginBottom: 5,
           }}>{eyebrow}</div>
         )}
         {title ? (
         <div style={{
-          fontSize: FONT_SIZES.title, fontWeight: 650, color: ink,
+          fontSize: FONT_SIZES.title, fontWeight: 500, color: ink,
           letterSpacing: "-0.015em", lineHeight: 1.3, fontFamily: "var(--cb-font)",
         }}>{title}</div>
         ) : null}
@@ -2365,11 +2355,11 @@ function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex =
   // panel was hard coded #0f1115 in every palette, Light included,
   // while the drawers beside them honored the theme. A caller that
   // forgets the palette entirely gets the Dialog default's own
-  // treatment (the --cb-surface variable with its mid neutral
-  // fallback, and the matching ink and line variables), never the
+  // treatment (the --cb-surface variable with its system surface
+  // fallback #1c1b19, and the matching ink and line variables), never the
   // near black constant: only the media flag earns that now.
   const themed = !!P && !media;
-  const panelBg = media ? "#0f1115" : drawer && P ? P.bg : themed ? P.surface : "var(--cb-surface, #767676)";
+  const panelBg = media ? "#0f1115" : drawer && P ? P.bg : themed ? P.surface : "var(--cb-surface, #1c1b19)";
   const panelInk = media ? "#f2f4f2" : P ? P.ink : "var(--cb-ink, #f4f4f2)";
   const panelBorder = media ? "rgba(255,255,255,0.10)" : P ? P.line : "var(--cb-line, rgba(255,255,255,0.12))";
   return (
@@ -2378,13 +2368,13 @@ function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex =
       width={width} panelClassName={ticks ? "cb-modal cb-specimen" : "cb-modal"}
       panelStyle={drawer ? {
         background: panelBg, borderLeft: `1px solid ${panelBorder}`,
-        boxShadow: "-24px 0 80px rgba(0,0,0,0.5)",
+        boxShadow: "none",
         padding: "24px 26px 48px", color: panelInk, fontFamily: "var(--cb-font)",
       } : {
         ...(tall ? { height: "min(760px, 86dvh)" } : {}),
         background: panelBg,
         border: `1px solid ${panelBorder}`, borderRadius: RADIUS.lg,
-        boxShadow: "0 40px 100px rgba(0,0,0,0.6)",
+        boxShadow: "none",
         padding: "24px 22px 22px", color: panelInk, fontFamily: "var(--cb-font)",
       }}
     >
