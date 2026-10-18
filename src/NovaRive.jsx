@@ -72,18 +72,12 @@ RuntimeLoader.setWasmFallbackUrl(riveWasmFallbackUrl);
    Triggers: poke, celebrate, sleep, wake.
    Events the asset may fire: EmitIdleQuip, EmitQuizQuip,
    EmitSearchQuip.
-   Canvas box: the character renders at size * 1.85 wide with a
-   height ratio of 0.62, matching the bust box the small spots
-   have always used, so the editor artboard should be authored
-   wide.
-   Framing update (2026-10-15, the owner's verdict on the first
-   live build: "She's blurry and too small"): the shipped asset
-   is a full body character on a square 1024 artboard, and she
-   fills about 80 percent of it each way (measured on the rest
-   frame: x 0.102 to 0.898, y 0.104 to 0.886). The bust box
-   letterboxed her into about 59 CSS px of figure in the old
-   66px header. NovaCanvas now takes a framing prop: "bust"
-   (the default, the box above, unchanged for the small spots)
+   Canvas box: the character renders on a square 1024
+   artboard, and she fills about 80 percent of it each way
+   (measured on the rest frame: x 0.102 to 0.898, y 0.104 to
+   0.886). NovaCanvas takes a framing prop: "bust" (the
+   default for the small spots, a head and shoulders crop of
+   the size times 1.85 mount, applied in NovaCanvas below)
    or "full" (a box hugging the figure's own aspect, width
    size * 1.02 by height size), and "panel" means full too,
    the standing figure semantics the large spots always used.
@@ -453,24 +447,37 @@ function NovaCanvas(props) {
     };
   }, [rive]);
 
-  /* Framing (2026-10-15): "bust" is the original box, size *
-     1.85 by 0.62, kept byte for byte for the small spots (the
-     lesson sheet, the sidebar pop, the tab headers). "full"
-     and "panel" give the square asset a box in its own
-     proportions: the figure fills about 0.80 of the artboard's
-     width and 0.78 of its height, so a box of size * 1.02 by
-     size holds her whole figure with almost no letterbox, and
-     size reads as the height she stands at (times 0.78 of
-     figure). maxWidth keeps the stage box inside a narrow
-     panel; the runtime resizes to whatever box results. */
+  /* Framing. "full" and "panel" give the square asset a box in
+     its own proportions: the figure fills about 0.80 of the
+     artboard width and 0.78 of its height, so a box of size
+     times 1.02 by size holds her whole figure with almost no
+     letterbox, and size reads as the height she stands at.
+     maxWidth keeps the stage box inside a narrow panel; the
+     runtime resizes to whatever box results.
+     Bust framing (2026-10-18, design audit H24): the small
+     spots now crop to head and shoulders. The figure mount
+     keeps its old size times 1.85 square, and a smaller outer
+     box clips it, centred on her head, so her face, glasses
+     and badge read at resident sizes like the 66px header.
+     Every bust caller inherits this from here: the header,
+     the Player and the lesson sheet figures alike. */
   const fullBody = framing === "full" || framing === "panel";
-  const w = fullBody ? Math.round(size * 1.02) : Math.round(size * 1.85);
-  const h = fullBody ? Math.round(size) : Math.round(w * 0.62);
+  const w = fullBody ? Math.round(size * 1.02) : Math.round(size * 1.3);
+  const h = fullBody ? Math.round(size) : Math.round(size);
+  const bustInner = Math.round(size * 1.85);
   return (
     <span ref={anchorRef} style={{ position: "relative", display: "inline-flex" }}>
-      <span ref={boxRef} style={fullBody ? { width: w, height: h, maxWidth: "100%", display: "block" } : { width: w, height: h, display: "block" }}>
-        <RiveComponent />
-      </span>
+      {fullBody ? (
+        <span ref={boxRef} style={{ width: w, height: h, maxWidth: "100%", display: "block" }}>
+          <RiveComponent />
+        </span>
+      ) : (
+        <span style={{ width: w, height: h, display: "block", overflow: "hidden", position: "relative", flexShrink: 0 }}>
+          <span ref={boxRef} style={{ width: bustInner, height: bustInner, display: "block", position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)" }}>
+            <RiveComponent />
+          </span>
+        </span>
+      )}
       {speech && speech.current && <NovaBubble text={speech.current.text} variant="header" onDismiss={speech.dismiss} />}
     </span>
   );

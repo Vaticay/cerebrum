@@ -656,7 +656,7 @@ export function useNovaSpeech({ enabled = true } = {}) {
    dismiss button, the way the tip bubble read. Text only,
    always: she is on the screen once, and the bubble never
    carries a second figure of her. A click dismisses. */
-const SPEECH_BUBBLE_CREAM = "#F5F0E8";
+const SPEECH_BUBBLE_CREAM = "#FDF3D7";
 const SPEECH_BUBBLE_INK = "#1A1A1A";
 const SPEECH_BUBBLE_LINE = "rgba(26, 26, 26, 0.16)";
 const SPEECH_BUBBLE_FAINT = "#6E675C";
@@ -718,9 +718,9 @@ export function NovaBubble({ text, children, variant = "header", tail = null, on
   const variantStyle = v === "stage"
     ? {
         position: "absolute", bottom: "calc(100% + 10px)", left: "50%", transform: "translateX(-50%)",
-        borderRadius: 14, padding: "10px 14px", lineHeight: 1.45,
+        borderRadius: 2, padding: "10px 14px", lineHeight: 1.45,
         width: "max-content", maxWidth: 290, cursor: "pointer",
-        boxShadow: "0 10px 26px rgba(0, 0, 0, 0.25)",
+        boxShadow: "none",
       }
     : v === "sheet"
       ? {
@@ -729,9 +729,9 @@ export function NovaBubble({ text, children, variant = "header", tail = null, on
         }
       : {
           position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(calc(-50% + " + clampShift + "px))",
-          borderRadius: 10, padding: "7px 11px", lineHeight: 1.35,
+          borderRadius: 2, padding: "7px 11px", lineHeight: 1.35,
           width: "max-content", maxWidth: "min(250px, calc(100vw - 16px))", cursor: "pointer",
-          boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
+          boxShadow: "none",
         };
   const tailStyle = tailSide === "down"
     ? { bottom: -7, left: "50%", marginLeft: -7, borderRight: "1px solid " + SPEECH_BUBBLE_LINE, borderBottom: "1px solid " + SPEECH_BUBBLE_LINE }

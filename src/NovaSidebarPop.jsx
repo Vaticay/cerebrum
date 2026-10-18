@@ -153,11 +153,11 @@ const POP_CSS = `
 @keyframes nspFadeIn { from { opacity: 0; } to { opacity: 1; } }
 .nsp-still.nsp-ph-exit { animation: nspFadeOut 0.45s ease both; }
 @keyframes nspFadeOut { from { opacity: 1; } to { opacity: 0; } }
-.nsp-bubble { position: absolute; width: max-content; max-width: 290px; background: #F5F0E8; color: #1A1A1A; border: 1px solid rgba(26, 26, 26, 0.16); border-radius: 14px; padding: 11px 50px 11px 14px; font-size: ${FONT_SIZES.body}px; line-height: 1.5; pointer-events: auto; box-shadow: 0 10px 26px rgba(0, 0, 0, 0.25); animation: nspBubbleIn 0.35s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
+.nsp-bubble { position: absolute; width: max-content; max-width: 290px; background: #FDF3D7; color: #1A1A1A; border: 1px solid rgba(26, 26, 26, 0.16); border-radius: 2px; padding: 11px 50px 11px 14px; font-size: ${FONT_SIZES.body}px; line-height: 1.5; pointer-events: auto; box-shadow: none; animation: nspBubbleIn 0.35s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
 @keyframes nspBubbleIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .nsp-bubble-d { left: calc(100% + 10px); top: 2px; }
 .nsp-bubble-m { bottom: calc(100% + 10px); left: 0; }
-.nsp-bubble-tail { position: absolute; width: 13px; height: 13px; background: #F5F0E8; transform: rotate(45deg); }
+.nsp-bubble-tail { position: absolute; width: 13px; height: 13px; background: #FDF3D7; transform: rotate(45deg); }
 .nsp-bubble-d .nsp-bubble-tail { left: -7px; top: 17px; border-left: 1px solid rgba(26, 26, 26, 0.16); border-bottom: 1px solid rgba(26, 26, 26, 0.16); }
 .nsp-bubble-m .nsp-bubble-tail { bottom: -7px; left: 38px; border-right: 1px solid rgba(26, 26, 26, 0.16); border-bottom: 1px solid rgba(26, 26, 26, 0.16); }
 /* 44px hit area (2026-10-16, layout audit finding 20); the glyph size is unchanged and its center stays 17px from each edge, where it sat in the old 28px box; the bubble padding above reserves the wider box. */
@@ -168,11 +168,12 @@ const POP_CSS = `
 `;
 
 /* Her desktop size, and the width her bust box renders at:
-   NovaRive draws size times 1.85 wide, so the wrap math below
-   works in rendered pixels, not in the size prop. */
+   NovaRive draws its bust crop at size times 1.3 wide, so the
+   wrap math below works in rendered pixels, not in the size
+   prop. */
 const FIG_SIZE_DESKTOP = 84;
 const FIG_SIZE_MOBILE = 72;
-const FIG_W = Math.round(FIG_SIZE_DESKTOP * 1.85);
+const FIG_W = Math.round(FIG_SIZE_DESKTOP * 1.3);
 
 export default function NovaSidebarPop({ searchRunning = false, inCall = false, novaOpen = false, railCollapsed = false, isMobile = false, onOpenNova }) {
   const [pop, setPop] = useState(null);

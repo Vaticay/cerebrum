@@ -242,7 +242,8 @@ await test("the whole tour runs in the stage presentation; the bottom band is go
   // Pin updated 2026-10-16 (layout audit finding 14): the narrow
   // figure shrank from 176 to 144 so the tour panel fits a phone's
   // visible area with its controls stacked in two fixed rows.
-  assert.ok(tourSrc.includes("const figureSize = narrow ? 144 : 236;"), "her size is not one fixed stage size per width");
+  /* 2026-10-18 (design audit M48): tour figure sizes aligned with the stage. */
+  assert.ok(tourSrc.includes("const figureSize = narrow ? 264 : 288;"), "her size is not one fixed stage size per width");
 });
 
 await test("the figure mounts exactly once, so her runtime never restarts between stops", () => {

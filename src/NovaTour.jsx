@@ -72,13 +72,9 @@ import { useNovaSpeech, speechPlanFor } from "./NovaSpeech.jsx";
 import { FONT_SIZES } from "./designSystem.jsx";
 import { accentInk, useWindowWidth } from "./appUtils.js";
 
-/* The wordmark stack, mirroring LearnView's WORDMARK: her
-   name plate is set in it, the way her stage wordmark is. */
-const NT_WORDMARK = "'Orbitron', 'Inter Tight', ui-sans-serif, system-ui, sans-serif";
-
 /* The house speech colours, the same values NovaSpeech's
    bubble carries, so her voice looks identical everywhere. */
-const NT_CREAM = "#F5F0E8";
+const NT_CREAM = "#FDF3D7";
 const NT_INK = "#1A1A1A";
 /* The name plate is house gold, the site's plan gold
    (designSystem COLOR.accent, ACCENTS.Amber, the share
@@ -294,17 +290,18 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
   /* One figure size for the whole tour (the narrow switch
      is the only variation): her box never resizes between
      stops, so the canvas never reattributes its drawing
-     surface mid tour either. The narrow size dropped from
-     176 to 144 on 2026-10-16 (layout audit finding 14): at
-     phone widths the panel ran taller than the visible area
-     and its controls could sit below it. */
-  const figureSize = narrow ? 144 : 236;
+     surface mid tour either. The sizes match her stage on
+     the learning home (2026-10-18, design audit M48): 288
+     on desktop and 264 on phones, so she keeps one scale
+     identity from surface to surface. The panel scrolls
+     inside its 92vh cap when the taller figure needs it. */
+  const figureSize = narrow ? 264 : 288;
 
   const dots = (
     <div style={{ display: "flex", alignItems: "center", gap: 7 }} aria-hidden="true">
       {TOUR_STEPS.map((_, i) => (
         <span key={i} style={{
-          width: i === step ? 20 : 7, height: 7, borderRadius: 999,
+          width: i === step ? 20 : 7, height: 7, borderRadius: 2,
           background: i === step ? accent : "rgba(255,255,255,0.28)",
           transition: "all .25s",
         }} />
@@ -319,18 +316,21 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
       onClick={(e) => { e.stopPropagation(); advance(); }}
       style={{
         position: "relative", background: NT_CREAM, color: NT_INK,
-        border: "1px solid " + NT_LINE, borderRadius: 14,
+        border: "1px solid " + NT_LINE, borderRadius: 2,
         padding: "18px 18px 16px", cursor: "pointer",
-        boxShadow: "0 14px 34px rgba(0,0,0,0.35)",
+        boxShadow: "none",
       }}
     >
       <span style={{
         position: "absolute", top: -13, left: 14, background: NT_GOLD, color: onAccent,
-        fontFamily: NT_WORDMARK, fontWeight: 800, fontSize: 11, letterSpacing: "0.16em",
-        padding: "5px 11px 4px", borderRadius: 6, lineHeight: 1,
+        fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: 11, letterSpacing: "0.16em",
+        padding: "5px 11px 4px", borderRadius: 2, lineHeight: 1,
       }}>
         NOVA
       </span>
+      <div style={{ fontSize: FONT_SIZES.section, fontWeight: 500, lineHeight: 1.3, margin: "0 0 8px" }}>
+        {stop.title}
+      </div>
       <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.5, margin: 0, minHeight: 76 }}>
         {visibleText}
       </p>
@@ -357,7 +357,7 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
         <span style={{ flex: 1 }} />
         <button
           onClick={(e) => { e.stopPropagation(); onClose(); }}
-          style={{ background: "none", border: "none", color: "rgba(255,255,255,0.75)", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44 }}
+          style={{ background: "none", border: "none", color: "rgba(255,255,255,0.75)", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44 }}
         >
           Skip the tour
         </button>
@@ -367,14 +367,14 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
         {step > 0 && (
           <button
             onClick={(e) => { e.stopPropagation(); setStep(step - 1); }}
-            style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.35)", color: "#FFFFFF", borderRadius: 999, padding: "10px 18px", fontSize: FONT_SIZES.body, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}
+            style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.35)", color: "#FFFFFF", borderRadius: 2, padding: "10px 18px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}
           >
             Back
           </button>
         )}
         <button
           onClick={(e) => { e.stopPropagation(); advance(); }}
-          style={{ background: accent, color: onAccent, border: "none", borderRadius: 999, padding: "10px 22px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}
+          style={{ background: accent, color: onAccent, border: "none", borderRadius: 2, padding: "10px 22px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}
         >
           {last ? "Start learning" : "Next"}
         </button>
@@ -422,15 +422,15 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
         className="lv-rise"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: P.raised, border: "1px solid " + P.line, borderRadius: 24,
+          background: P.raised, border: "1px solid " + P.line, borderRadius: 2,
           maxWidth: 560, width: "100%", margin: 18, padding: "26px 26px 22px",
-          color: P.ink, boxShadow: "0 30px 80px rgba(0,0,0,0.5)",
+          color: P.ink, boxShadow: "none",
           maxHeight: "92vh", overflowY: "auto",
           display: "flex", flexDirection: "column", gap: 18,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink }}>
             HOW NOVA WORKS · {step + 1} OF {TOUR_STEPS.length}
           </div>
           {/* 44px hit area (2026-10-16, layout audit finding 20); the glyph size is unchanged. */}

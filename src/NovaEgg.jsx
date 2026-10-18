@@ -1,12 +1,14 @@
 /* ── Nova, app wide: the Easter egg (egg wave, 2026-10-14) ──────
    Nova belongs to the learning view, but she is the product's
    character, so rarely, and only when nothing important is
-   happening, she visits the rest of the app: a swim across the
-   bottom of the screen, a peek from behind the bottom edge, a
-   pleased pass when a learner finishes a path, or a still
-   appearance for anyone whose motion settings say quiet. There
-   is one deliberate secret: three quick clicks on the Cerebrum
+   happening, she visits the rest of the app as a still
+   appearance in the corner, and a path completion earns the
+   same still visit with a pleased line. There is one
+   deliberate secret: three quick clicks on the Cerebrum
    wordmark summon her. It is written down nowhere in the app.
+   The swim, the peek, the bubbles, the shimmer and the roll
+   retired on 2026-10-18 (design audit M49): her life is in
+   her expression and her voice, never in travel or stickers.
 
    The discipline is the egg's whole point. Rare by design: a
    low roll per check, an eight hour shared cooldown in local
@@ -24,10 +26,7 @@
    LearnView; the figure herself is the NovaRive canvas, the
    same v3 character every other surface renders (2026-10-15,
    the old model purge: the traced SVG rig she used to ride
-   retired with the raster poses). The canvas contract has no
-   swim cycle, so the crossing itself still comes from the
-   stage CSS below (the travel, the bob, the roll); her in
-   figure motion while she crosses is the canvas idle. */
+   retired with the raster poses). */
 import React, { useEffect, useRef, useState } from "react";
 import { cbMotionOff } from "./flowcharts.jsx";
 import { NovaRive } from "./NovaRive.jsx";
@@ -164,87 +163,18 @@ function probeEggContext() {
 
 const EGG_CSS = `
 .ne-stage { position: fixed; inset: 0; z-index: 80; pointer-events: none; overflow: hidden; }
-.ne-shimmer { position: absolute; left: 0; right: 0; bottom: 6%; height: 190px; pointer-events: none; background: linear-gradient(100deg, transparent 30%, rgba(255,255,255,0.05) 47%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.05) 53%, transparent 70%); background-size: 250% 100%; animation: neShimmerMove 9s linear infinite; }
-@keyframes neShimmerMove { from { background-position: 120% 0; } to { background-position: -120% 0; } }
 .ne-rig { position: absolute; pointer-events: none; }
 .ne-rig-live { pointer-events: auto; cursor: pointer; }
 .ne-shadow { position: absolute; left: 12%; right: 12%; bottom: -13px; height: 15px; border-radius: 50%; background: rgba(0,0,0,0.35); filter: blur(7px); }
-.ne-bob { animation: neBob 3.1s ease-in-out infinite alternate; }
-@keyframes neBob { from { transform: translateY(0) rotate(-0.5deg); } to { transform: translateY(-6px) rotate(0.6deg); } }
-.ne-roll { }
-.ne-ph-cross .ne-roll { animation: neRoll 2.2s cubic-bezier(0.45, 0.05, 0.35, 1) 2.6s both; }
-@keyframes neRoll { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.ne-bub { position: absolute; border-radius: 50%; border: 1px solid rgba(255,255,255,0.5); background: rgba(255,255,255,0.10); opacity: 0; animation: neBubRise ease-out infinite; }
-@keyframes neBubRise {
-  0% { transform: translate(0, 0); opacity: 0; }
-  12% { opacity: 0.75; }
-  55% { transform: translate(-16px, -38px); }
-  100% { transform: translate(-6px, -74px); opacity: 0; }
-}
-.ne-bubble { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 290px; background: #F5F0E8; color: #1A1A1A; border: 1px solid rgba(26,26,26,0.16); border-radius: 14px; padding: 11px 34px 11px 14px; font-size: 14.5px; line-height: 1.5; pointer-events: auto; box-shadow: 0 10px 26px rgba(0,0,0,0.25); animation: neBubbleIn 0.35s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
+.ne-bubble { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 290px; background: #FDF3D7; color: #1A1A1A; border: 1px solid rgba(26,26,26,0.16); border-radius: 2px; padding: 11px 34px 11px 14px; font-size: 14.5px; line-height: 1.5; pointer-events: auto; box-shadow: none; animation: neBubbleIn 0.35s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
 @keyframes neBubbleIn { from { opacity: 0; transform: translateX(-50%) translateY(6px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-.ne-bubble-tail { position: absolute; bottom: -7px; left: 50%; margin-left: -7px; width: 13px; height: 13px; background: #F5F0E8; border-right: 1px solid rgba(26,26,26,0.16); border-bottom: 1px solid rgba(26,26,26,0.16); transform: rotate(45deg); }
+.ne-bubble-tail { position: absolute; bottom: -7px; left: 50%; margin-left: -7px; width: 13px; height: 13px; background: #FDF3D7; border-right: 1px solid rgba(26,26,26,0.16); border-bottom: 1px solid rgba(26,26,26,0.16); transform: rotate(45deg); }
 .ne-bubble-x { position: absolute; top: 3px; right: 3px; width: 28px; height: 28px; background: none; border: none; color: #6E675C; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
-/* The swim across: enter with an anticipation dip and an
-   overshoot settle, cross on a gentle arc, pause, then leave
-   pleased. Every phase is its own keyframes so the positions
-   join exactly. */
-.ne-swim { left: 0; bottom: 13%; }
-.ne-swim.ne-ph-enter { animation: neSwimEnter 1.5s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
-@keyframes neSwimEnter {
-  0% { transform: translate(-190px, 10px); }
-  18% { transform: translate(-150px, 16px); }
-  72% { transform: translate(15.5vw, -3px); }
-  100% { transform: translate(16vw, 0); }
-}
-.ne-swim.ne-ph-cross { animation: neSwimCross 5.9s cubic-bezier(0.3, 0.6, 0.4, 1) both; }
-@keyframes neSwimCross {
-  0% { transform: translate(16vw, 0); }
-  30% { transform: translate(31vw, -26px); }
-  55% { transform: translate(44vw, 2px); }
-  78% { transform: translate(54vw, -18px); }
-  100% { transform: translate(58vw, 0); }
-}
-.ne-swim.ne-ph-pause { transform: translate(58vw, 0); }
-.ne-swim.ne-ph-exit { animation: neSwimExit 1.5s cubic-bezier(0.5, 0, 0.8, 0.4) both; }
-@keyframes neSwimExit {
-  0% { transform: translate(58vw, 0); opacity: 1; }
-  80% { transform: translate(96vw, -22px); opacity: 1; }
-  100% { transform: translate(108vw, -26px); opacity: 0; }
-}
-/* The peek: rise from behind the bottom edge, look around, duck. */
-.ne-peek { left: 9vw; bottom: 0; }
-.ne-peek.ne-ph-rise { animation: nePeekRise 1.4s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
-@keyframes nePeekRise {
-  0% { transform: translateY(82%); }
-  20% { transform: translateY(88%); }
-  74% { transform: translateY(30%); }
-  100% { transform: translateY(38%); }
-}
-.ne-peek.ne-ph-look { animation: nePeekLook 3s ease-in-out both; }
-@keyframes nePeekLook {
-  0%, 100% { transform: translateY(38%) translateX(0); }
-  30% { transform: translateY(37%) translateX(-7px); }
-  65% { transform: translateY(39%) translateX(7px); }
-}
-.ne-peek.ne-ph-duck { animation: nePeekDuck 1.1s cubic-bezier(0.6, 0, 0.9, 0.5) both; }
-@keyframes nePeekDuck { from { transform: translateY(38%); } to { transform: translateY(112%); } }
-/* The celebration pass: pleased, lower, a little quicker, two hops. */
-.ne-celebrate { left: 0; bottom: 20%; }
-.ne-celebrate.ne-ph-enter { animation: neSwimEnter 1.2s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
-.ne-celebrate.ne-ph-cross { animation: neCelebCross 5.2s cubic-bezier(0.3, 0.6, 0.4, 1) both; }
-@keyframes neCelebCross {
-  0% { transform: translate(16vw, 0); }
-  26% { transform: translate(34vw, -34px); }
-  50% { transform: translate(52vw, 0); }
-  74% { transform: translate(70vw, -30px); }
-  100% { transform: translate(84vw, -4px); }
-}
-.ne-celebrate.ne-ph-exit { animation: neCelebExit 1.4s cubic-bezier(0.5, 0, 0.8, 0.4) both; }
-@keyframes neCelebExit {
-  0% { transform: translate(84vw, -4px); opacity: 1; }
-  100% { transform: translate(112vw, -30px); opacity: 0; }
-}
+/* The celebration visit is a still visit too: she fades in
+   at the corner, pleased, says her line, and fades out. */
+.ne-celebrate { right: 22px; bottom: 22px; }
+.ne-celebrate.ne-ph-show { animation: neStillIn 0.6s ease both; }
+.ne-celebrate.ne-ph-leave { animation: neStillOut 0.7s ease both; }
 /* The summon entrance: she rises in the middle and stays to talk. */
 .ne-summon { left: 50%; bottom: 5%; }
 .ne-summon.ne-ph-rise { animation: neSummonRise 1.6s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
@@ -268,7 +198,7 @@ const EGG_CSS = `
 .ne-still.ne-ph-leave { animation: neStillOut 0.7s ease both; }
 @keyframes neStillOut { from { opacity: 1; } to { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .ne-bob, .ne-shimmer, .ne-bub, .ne-pose-in { animation: none !important; }
+  .ne-rig { animation: none !important; }
 }
 `;
 
@@ -276,24 +206,10 @@ const EGG_CSS = `
    of the visit. The pose rides along with the phases; the line
    shows during the speaking phases. */
 const EGG_TIMELINES = {
-  swim: [
-    { at: 0, phase: "enter", pose: "greeting" },
-    { at: 1500, phase: "cross", pose: "greeting" },
-    { at: 7400, phase: "pause", pose: "explaining", line: true },
-    { at: 10000, phase: "exit", pose: "pleased" },
-    { at: 11500, end: true },
-  ],
-  peek: [
-    { at: 0, phase: "rise", pose: "thinking" },
-    { at: 1400, phase: "look", pose: "greeting", line: true },
-    { at: 4400, phase: "duck", pose: "greeting" },
-    { at: 5600, end: true },
-  ],
   celebrate: [
-    { at: 0, phase: "enter", pose: "pleased" },
-    { at: 1200, phase: "cross", pose: "pleased", line: true },
-    { at: 6400, phase: "exit", pose: "pleased" },
-    { at: 7900, end: true },
+    { at: 0, phase: "show", pose: "pleased", line: true },
+    { at: 5800, phase: "leave", pose: "pleased" },
+    { at: 6600, end: true },
   ],
   summon: [
     { at: 0, phase: "rise", pose: "greeting" },
@@ -308,8 +224,8 @@ const EGG_TIMELINES = {
   ],
 };
 
-const EGG_SIZES = { swim: 148, peek: 132, celebrate: 148, summon: 168, still: 120 };
-const EGG_SPEAK_PHASES = { swim: ["pause"], peek: ["look"], celebrate: ["cross"], summon: ["speak"], still: ["show"] };
+const EGG_SIZES = { celebrate: 120, summon: 168, still: 120 };
+const EGG_SPEAK_PHASES = { celebrate: ["show"], summon: ["speak"], still: ["show"] };
 
 /* Her figure on the egg stage (2026-10-15, the old model
    purge): the NovaRive canvas at full framing. The egg's poses
@@ -370,7 +286,7 @@ export default function NovaEgg() {
     } else if (k === "celebrate") {
       line = pickNovaLine(NOVA_CELEBRATE_LINES, seed);
     } else {
-      const wantLine = k === "still" ? true : k === "peek" ? Math.random() < 0.5 : Math.random() < 0.65;
+      const wantLine = true;
       if (wantLine) {
         const quirks = loadNovaQuirks();
         const picked = pickEggLine(
@@ -422,15 +338,7 @@ export default function NovaEgg() {
     setVisit(beat);
     const t = setTimeout(() => {
       if (!visitRef.current || visitRef.current.id !== v.id) return;
-      if (v.kind === "swim" || v.kind === "celebrate") {
-        const exit = { ...visitRef.current, phase: "exit" };
-        visitRef.current = exit;
-        setVisit(exit);
-        const t2 = setTimeout(() => endVisit(), 1500);
-        timersRef.current.push(t2);
-      } else {
-        endVisit();
-      }
+      endVisit();
     }, 900);
     timersRef.current.push(t);
   };
@@ -456,7 +364,7 @@ export default function NovaEgg() {
       const ctx = probeEggContext();
       if (!eggEligible(s, ctx, sessionRef.current, Date.now())) return;
       if (Math.random() > EGG_AMBIENT_CHANCE) return;
-      startVisit(Math.random() < 0.7 ? "swim" : "peek");
+      startVisit("still");
     };
     const first = setTimeout(check, 20000);
     const iv = setInterval(check, EGG_TICK_MS);
@@ -520,33 +428,15 @@ export default function NovaEgg() {
 
   if (!visit) return null;
   const speaking = (EGG_SPEAK_PHASES[visit.kind] || []).includes(visit.phase);
-  const bubbles = (visit.phase === "cross" || visit.phase === "enter") && visit.kind !== "still"
-    ? [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-      <span key={i} className="ne-bub" style={{
-        left: 6 + (i % 3) * 9,
-        bottom: 18 + (i % 4) * 13,
-        width: 4 + (i % 4) * 2,
-        height: 4 + (i % 4) * 2,
-        animationDuration: (2.6 + (i % 5) * 0.7) + "s",
-        animationDelay: (i * 0.55) + "s",
-      }} />
-    ))
-    : null;
   return (
     <div className="ne-stage" aria-hidden={!visit.line}>
       <style>{EGG_CSS}</style>
-      {(visit.kind === "swim" || visit.kind === "celebrate") && <div className="ne-shimmer" />}
       <div
         className={"ne-rig ne-" + visit.kind + " ne-ph-" + visit.phase + (speaking ? " ne-rig-live" : "")}
         onClick={onFigureClick}
       >
         <div className="ne-shadow" />
-        <div className="ne-bob">
-          <div className="ne-roll">
-            <EggFigure pose={visit.pose} size={EGG_SIZES[visit.kind] || 140} />
-          </div>
-        </div>
-        {bubbles}
+        <EggFigure pose={visit.pose} size={EGG_SIZES[visit.kind] || 140} />
         {visit.showLine && visit.line && (
           <div className="ne-bubble" role="status">
             <span className="ne-bubble-tail" />

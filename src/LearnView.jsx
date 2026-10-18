@@ -1282,7 +1282,9 @@ function playSound(kind, enabled) {
 }
 
 /* ── shared styles ───────────────────────────────────────────────── */
-const SERIF = "Georgia, 'Iowan Old Style', 'Times New Roman', serif";
+const SERIF = "var(--cb-serif)";
+/* Display headings take the Inter stack at weight 500. Serif stays for teach body, prompts and the feedback WHY. */
+const SANS = "var(--cb-font)";
 /* Wordmark only (2026-10-15, owner pick Orbitron 800): the standalone word Nova, never headings or body text. */
 const WORDMARK = "'Orbitron', 'Inter Tight', ui-sans-serif, system-ui, sans-serif";
 const CSS = `
@@ -1291,8 +1293,8 @@ const CSS = `
 .lv-sheet { animation: lvSheet .38s cubic-bezier(.05,.7,.1,1) both; }
 @keyframes lvSheet { from { transform: translateY(102%); } to { transform: none; } }
 .lv-btn { transition: transform 80ms linear, box-shadow 80ms linear, background .15s, opacity .15s; }
-.lv-btn-primary { box-shadow: 0 4px 0 rgba(0,0,0,.38); }
-.lv-btn-primary:active { transform: translateY(4px); box-shadow: 0 0 0 rgba(0,0,0,0); }
+.lv-btn-primary { box-shadow: none; }
+.lv-btn-primary:active { transform: translateY(4px); box-shadow: none; }
 .lv-opt { transition: border-color .15s, background .15s, transform .15s; }
 .lv-opt:not(:disabled):hover { transform: translateY(-1px); }
 /* Option hover (audit fix, 2026-10-15): on a real pointer the
@@ -1414,7 +1416,7 @@ function Cover({ title, height, radius = 16, fontSize, cat, img }) {
       background: "radial-gradient(120% 150% at 18% 0%, " + pair[0] + " 0%, " + pair[1] + " 72%)",
     }}>
       <div style={{
-        position: "absolute", right: -28, top: -38, fontFamily: SERIF, fontWeight: 600,
+        position: "absolute", right: -28, top: -38, fontFamily: SERIF, fontWeight: 500,
         fontSize: fontSize || Math.round(height * 1.5), lineHeight: 1, color: "rgba(255,255,255,.13)",
         userSelect: "none",
       }}>{letter}</div>
@@ -1444,19 +1446,19 @@ function Cover({ title, height, radius = 16, fontSize, cat, img }) {
    exactly the card as it renders today. The character slot is the
    same idea at feedback and win screens: one small reaction image
    of the guide, present only when the art exists. */
-function CardVisual({ src, P, accent, height = 190 }) {
+function CardVisual({ src, P, accent }) {
   const [state, setState] = useState("loading");
   useEffect(() => { setState("loading"); }, [src]);
   if (!src || state === "error") return null;
   return (
     <div aria-hidden="true" style={{
       display: state === "ok" ? "block" : "none",
-      borderRadius: 18, overflow: "hidden", border: "1px solid " + P.line,
+      borderRadius: 2, overflow: "hidden", border: "1px solid " + P.line,
       background: P.raised, marginBottom: 20,
     }}>
       <img src={src} alt="" loading="lazy"
         onLoad={() => setState("ok")} onError={() => setState("error")}
-        style={{ width: "100%", height, objectFit: "cover", display: "block" }} />
+        style={{ width: "100%", height: "auto", aspectRatio: "3 / 2", objectFit: "cover", display: "block" }} />
     </div>
   );
 }
@@ -2870,7 +2872,7 @@ export function pickEggLine(opts, quirks, now) {
    text, on the site's dark ground, and muted gold is the only
    accent. These four constants are that surface, named once so
    the home, the bench, and the Player cannot drift apart. */
-const CREAM = "#F5F0E8";
+const CREAM = "#FDF3D7";
 const CREAM_INK = "#1A1A1A";
 const CREAM_FAINT = "#6E675C";
 const CREAM_LINE = "rgba(26, 26, 26, 0.16)";
@@ -2950,15 +2952,15 @@ function ShelfObjectMark({ glyph }) {
 function DiagramArt({ diagram, P, accent }) {
   if (!diagram || !Array.isArray(diagram.steps) || !diagram.steps.length) return null;
   return (
-    <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 18px 14px", marginBottom: 20 }}>
+    <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: 2, padding: "18px 18px 14px", marginBottom: 20 }}>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "stretch", gap: 8 }}>
         {diagram.steps.map((step, i) => (
           <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
             <span style={{
-              fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, lineHeight: 1.4,
+              fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.4,
               background: P.bg, border: "1.5px solid " + accent, borderRadius: RADIUS.pill, padding: "8px 13px",
             }}>{step}</span>
-            {i < diagram.steps.length - 1 && <span aria-hidden="true" style={{ color: accent, fontWeight: 800 }}>→</span>}
+            {i < diagram.steps.length - 1 && <span aria-hidden="true" style={{ color: accent, fontWeight: 500 }}>→</span>}
           </span>
         ))}
       </div>
@@ -3148,7 +3150,7 @@ export const LEARNING_PATHS = [
             cards: [
               mkNote("The big idea", "Science starts with a question",
                 "Science begins when someone asks a question the world can answer. Not every question works. A good science question points at something you can observe, count, or measure, so the answer can be checked by anyone who repeats the work.",
-                { visual: "/cortex/paths/path-science.webp" }),
+                { visual: "/cortex/lessons/science/u1-l1-questions.webp" }),
               mkQuiz("Which of these questions can science test directly?",
                 ["Which song is the most beautiful ever written?", "Do plants grow faster in sunlight or in shade?", "What is the meaning of life and why are we all here?", "Which color is the luckiest?"],
                 1,
@@ -3170,7 +3172,7 @@ export const LEARNING_PATHS = [
             id: "sci-hypothesis", title: "Guesses You Can Check", subtitle: "What a hypothesis really is",
             cards: [
               mkNote("Key idea", "A hypothesis is a careful guess",
-                "A hypothesis is a possible answer stated clearly enough to be tested. It is more than a hunch. It says what you expect to happen, and what you expect not to happen, before the test begins."),
+                "A hypothesis is a possible answer stated clearly enough to be tested. It is more than a hunch. It says what you expect to happen, and what you expect not to happen, before the test begins.", { visual: "/cortex/lessons/science/u1-l2-hypothesis.webp" }),
               mkQuiz("Which of these is a hypothesis?",
                 ["Plants are wonderful to look at in spring.", "Fertilizer will make these tomato plants grow taller than plants without it.", "Maybe something interesting will happen at some point soon, though nobody can say what", "Science is hard for everyone at first."],
                 1,
@@ -3197,7 +3199,7 @@ export const LEARNING_PATHS = [
             id: "sci-what-counts", title: "What Counts as Evidence", subtitle: "Observations beat opinions",
             cards: [
               mkNote("The big idea", "Evidence is what the world says back",
-                "Evidence is information gathered by observing and measuring: counts, weights, times, photographs, records. A strong opinion is not evidence, and neither is a good story by itself. Evidence is the part anyone else can go and check."),
+                "Evidence is information gathered by observing and measuring: counts, weights, times, photographs, records. A strong opinion is not evidence, and neither is a good story by itself. Evidence is the part anyone else can go and check.", { visual: "/cortex/lessons/science/u2-l1-evidence.webp" }),
               mkMatch("Match each word to what it means.",
                 [["Claim", "A statement that could be true or false"], ["Data", "Measurements and observations you collect"], ["Anecdote", "A single story about what happened once"], ["Conclusion", "What the evidence points to, in the end"]],
                 "Claims are cheap. Data is what you gather. A conclusion is what the data supports once you have it."),
@@ -3219,7 +3221,7 @@ export const LEARNING_PATHS = [
             id: "sci-repeat", title: "Why Scientists Repeat Tests", subtitle: "Once is a hint, twice is a pattern",
             cards: [
               mkNote("Key idea", "Once is a hint, twice is a pattern",
-                "A single study can be a fluke, a mistake, or plain luck. When other scientists repeat the test and get the same result, confidence grows. Science trusts results that survive repetition, not results that happened once."),
+                "A single study can be a fluke, a mistake, or plain luck. When other scientists repeat the test and get the same result, confidence grows. Science trusts results that survive repetition, not results that happened once.", { visual: "/cortex/lessons/science/u2-l2-repeat.webp" }),
               mkQuiz("A study finds a surprising result. What should happen next?",
                 ["It becomes fact forever", "Other scientists try to repeat it and check the result", "It is kept secret from everyone", "The scientists celebrate and stop working on it altogether"],
                 1,
@@ -3246,7 +3248,7 @@ export const LEARNING_PATHS = [
             id: "sci-controls", title: "Change One Thing at a Time", subtitle: "Fair tests change a single variable",
             cards: [
               mkNote("Key idea", "Fair tests change one thing",
-                "A fair test changes exactly one thing and keeps everything else the same. Suppose you test a new plant food, but the fed plants sit in a sunny window while the unfed ones sit in a dark corner. If the sunny plants grow taller, you cannot tell whether the food or the light did it. Change one thing at a time, and the result can speak clearly."),
+                "A fair test changes exactly one thing and keeps everything else the same. Suppose you test a new plant food, but the fed plants sit in a sunny window while the unfed ones sit in a dark corner. If the sunny plants grow taller, you cannot tell whether the food or the light did it. Change one thing at a time, and the result can speak clearly.", { visual: "/cortex/lessons/science/u3-l1-controls.webp" }),
               mkQuiz("Two gardens get the same soil, water, and sunlight. One gets fertilizer and grows taller. What can you conclude?",
                 ["Nothing, because gardens are unpredictable in every single way there is", "The fertilizer is the likely reason, since it was the only difference", "Sunlight must have done it", "The taller garden was just lucky"],
                 1,
@@ -3268,7 +3270,7 @@ export const LEARNING_PATHS = [
             id: "sci-blind", title: "Not Fooling Yourself", subtitle: "Blind tests and the power of expecting",
             cards: [
               mkNote("The big idea", "Expecting can change what you see",
-                "People tend to notice what they expect to notice. If you believe a medicine works, you may feel better and report feeling better, even if the pill did nothing at all. Scientists guard against this self trickery with blind tests, where the people taking part do not know who got the real treatment and who got a harmless stand in."),
+                "People tend to notice what they expect to notice. If you believe a medicine works, you may feel better and report feeling better, even if the pill did nothing at all. Scientists guard against this self trickery with blind tests, where the people taking part do not know who got the real treatment and who got a harmless stand in.", { visual: "/cortex/lessons/science/u3-l2-blind.webp" }),
               mkQuiz("In a blind test of a new medicine, the volunteers do not know...",
                 ["whether the study will be published in a journal or kept private forever", "whether they got the real medicine or a dummy pill", "the name of the lead scientist", "how long the study will last"],
                 1,
@@ -4865,7 +4867,7 @@ export const LEARNING_PATHS = [
             cards: [
               mkNote("The big idea", "Eight planets, one star",
                 "Our solar system is the Sun plus everything its gravity holds: eight planets, their moons, and crowds of rocky and icy leftovers. The four planets nearest the Sun are small and rocky. The four far ones are giants made mostly of gas and liquid.",
-                { visual: "/cortex/paths/path-space.webp" }),
+                { visual: "/cortex/lessons/space/u1-l1-planets.webp" }),
               mkOrder("Put these planets in order from the Sun.",
                 ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn"],
                 "Mercury is closest, then Venus, Earth, and Mars, and then the giants Jupiter and Saturn. Uranus and Neptune come after Saturn."),
@@ -4891,7 +4893,7 @@ export const LEARNING_PATHS = [
             id: "space-day-year", title: "Day, Night, and the Year", subtitle: "Spinning and circling at the same time",
             cards: [
               mkNote("The big idea", "Spinning and circling",
-                "Earth spins on its axis once a day, and that spin gives us day and night. At the same time Earth travels all the way around the Sun, taking one year for the full trip. The seasons come from Earth's tilt, not from being closer to the Sun."),
+                "Earth spins on its axis once a day, and that spin gives us day and night. At the same time Earth travels all the way around the Sun, taking one year for the full trip. The seasons come from Earth's tilt, not from being closer to the Sun.", { visual: "/cortex/lessons/space/u1-l2-day-year.webp" }),
               mkQuiz("What causes day and night?",
                 ["The Sun moving around Earth", "Earth spinning on its axis", "Clouds covering the Sun", "The Moon blocking the light"],
                 1,
@@ -4918,7 +4920,7 @@ export const LEARNING_PATHS = [
             id: "space-gravity", title: "Gravity Holds It All", subtitle: "The pull between everything",
             cards: [
               mkNote("The big idea", "The invisible pull",
-                "Gravity is a pull between anything that has mass. Bigger masses pull harder, and the pull weakens with distance. Gravity holds you to Earth, holds the Moon near Earth, and holds every planet in its path around the Sun."),
+                "Gravity is a pull between anything that has mass. Bigger masses pull harder, and the pull weakens with distance. Gravity holds you to Earth, holds the Moon near Earth, and holds every planet in its path around the Sun.", { visual: "/cortex/lessons/space/u2-l1-gravity.webp" }),
               mkQuiz("Why does the Moon stay near Earth instead of drifting away?",
                 ["The oceans hold it", "Earth's gravity keeps pulling it in", "It has no way to move", "Space is completely empty in every direction"],
                 1,
@@ -4940,7 +4942,7 @@ export const LEARNING_PATHS = [
             id: "space-stars", title: "Stars and Their Lives", subtitle: "Born in clouds, shining for ages",
             cards: [
               mkNote("The big idea", "Stars are born, shine, and fade",
-                "A star begins as a cold cloud of gas that gravity squeezes until the center grows hot enough to fuse atoms together. That fusion pours out light and heat for billions of years. When the fuel runs low, the star changes, swelling up or fading away depending on its size."),
+                "A star begins as a cold cloud of gas that gravity squeezes until the center grows hot enough to fuse atoms together. That fusion pours out light and heat for billions of years. When the fuel runs low, the star changes, swelling up or fading away depending on its size.", { visual: "/cortex/lessons/space/u2-l2-stars.webp" }),
               mkQuiz("What powers a star's light?",
                 ["Burning wood", "Atoms fusing in its hot core", "Reflected sunlight", "Lightning in space"],
                 1,
@@ -4967,7 +4969,7 @@ export const LEARNING_PATHS = [
             id: "space-moon", title: "The Moon and Its Changing Face", subtitle: "Sunlight, shadow, and a monthly show",
             cards: [
               mkNote("The big idea", "The Moon shines with borrowed light",
-                "The Moon makes no light of its own. It shines because sunlight falls on it, the way a ball glows in a sunbeam. The Sun always lights one half of the Moon, but from Earth we see different amounts of that lit half as the Moon circles us. Those changing views are the phases, and the full round takes about 29 days."),
+                "The Moon makes no light of its own. It shines because sunlight falls on it, the way a ball glows in a sunbeam. The Sun always lights one half of the Moon, but from Earth we see different amounts of that lit half as the Moon circles us. Those changing views are the phases, and the full round takes about 29 days.", { visual: "/cortex/lessons/space/u3-l1-moon.webp" }),
               mkQuiz("Why does the Moon shine in the night sky?",
                 ["It glows like a small sun", "It reflects sunlight", "It stores light from the day", "City lights bounce off it"],
                 1,
@@ -4989,7 +4991,7 @@ export const LEARNING_PATHS = [
             id: "space-beyond", title: "Galaxies and the Light Year", subtitle: "Our star is one among billions",
             cards: [
               mkNote("The big idea", "Cities of stars",
-                "Stars are not scattered evenly through space. They gather into vast families called galaxies, each holding billions of stars along with gas and dust. Our Sun is one ordinary star in one such family, the Milky Way. Beyond it lie billions more galaxies, so far away that their light takes billions of years to reach us."),
+                "Stars are not scattered evenly through space. They gather into vast families called galaxies, each holding billions of stars along with gas and dust. Our Sun is one ordinary star in one such family, the Milky Way. Beyond it lie billions more galaxies, so far away that their light takes billions of years to reach us.", { visual: "/cortex/lessons/space/u3-l2-galaxies.webp" }),
               mkQuiz("A light year is...",
                 ["the time light takes to circle Earth", "the distance light travels in one year", "a year with extra daylight", "the brightness of a star"],
                 1,
@@ -10490,8 +10492,7 @@ function ShareCardButton({ model, P, accent }) {
       if (!ctx) return;
       /* The wave 3 share card (2026-10-14), drawn to the reconciled
          spec: near black ground, name and tagline at the top, Nova
-         large inside a soft cream circle with a whisper of gold
-         behind it, then the kind line, the title in serif, two
+         large inside a soft cream circle, then the kind line, the title in serif, two
          stats as cream pills, and the footer. Nothing else is on
          the image: no ring, no frame, no white square, no dead
          space the layout does not account for. */
@@ -10516,29 +10517,26 @@ function ShareCardButton({ model, P, accent }) {
       ctx.fillStyle = GOLD;
       ctx.font = "400 34px 'Inter Tight', 'Segoe UI', sans-serif";
       ctx.fillText(CORTEX_TAGLINE, 540, 188);
-      /* gold glow at 8 percent, behind the circle only */
-      const glow = ctx.createRadialGradient(540, 448, 60, 540, 448, 330);
-      glow.addColorStop(0, "rgba(196, 163, 90, 0.08)");
-      glow.addColorStop(1, "rgba(196, 163, 90, 0)");
-      ctx.fillStyle = glow;
-      ctx.fillRect(210, 118, 660, 660);
-      /* the cream circle, 420 across, Nova filling it */
+      /* The cream circle, 420 across. The model sheet draws at
+         460 inside the clip (2026-10-18, design audit M51), so
+         her outer gills stay inside the chord instead of being
+         cut by it. No glow sits behind the disc. */
       ctx.beginPath(); ctx.arc(540, 448, 210, 0, Math.PI * 2);
       ctx.fillStyle = CREAM; ctx.fill();
       if (img) {
         try {
           ctx.save();
           ctx.beginPath(); ctx.arc(540, 448, 210, 0, Math.PI * 2); ctx.clip();
-          ctx.drawImage(img, 540 - 252, 448 - 252, 504, 504);
+          ctx.drawImage(img, 540 - 230, 448 - 230, 460, 460);
           ctx.restore();
         } catch { /* the cream circle stands on its own */ }
       }
       /* Cerebrum brand lockup, top left (owner ask, 2026-10-15):
          the brain mark stroked in the house gold, the name
-         beside it, and the copyright small under the mark. It
-         sits quiet in the corner on purpose: the Nova wordmark
+         beside it. It sits quiet in the corner on purpose:
+         the Nova wordmark
          owns the top centre and nothing here competes with it.
-         Drawn after the glow so it stays crisp. */
+         Drawn after the circle so it stays crisp. */
       ctx.save();
       ctx.translate(56, 52);
       ctx.scale(2, 2);
@@ -10553,9 +10551,6 @@ function ShareCardButton({ model, P, accent }) {
       ctx.fillStyle = INK;
       ctx.font = "600 33px 'Inter Tight', 'Segoe UI', sans-serif";
       ctx.fillText("Cerebrum", 110, 92);
-      ctx.fillStyle = "rgba(232, 228, 220, 0.45)";
-      ctx.font = "400 20px 'Inter Tight', 'Segoe UI', sans-serif";
-      ctx.fillText("© 2026 Cerebrum", 56, 128);
       ctx.textAlign = "center";
       /* The lower stack, laid out on a budget before anything
          below the circle is drawn (owner photo, 2026-10-15: the
@@ -10572,7 +10567,7 @@ function ShareCardButton({ model, P, accent }) {
       const STACK_LIMIT = 968;
       let titleSize = 84;
       const wrapTitle = (size) => {
-        ctx.font = "600 " + size + "px Georgia, 'Times New Roman', serif";
+        ctx.font = "600 " + size + "px 'Source Serif 4', Georgia, 'Times New Roman', serif";
         const words = String(model.title || "").split(/\s+/);
         const lines = [];
         let lineNow = "";
@@ -10643,9 +10638,9 @@ function ShareCardButton({ model, P, accent }) {
       if (extra.length) {
         ctx.fillStyle = "rgba(232, 228, 220, 0.66)";
         let subSize = 30;
-        ctx.font = "400 " + subSize + "px Georgia, 'Times New Roman', serif";
+        ctx.font = "400 " + subSize + "px 'Source Serif 4', Georgia, 'Times New Roman', serif";
         const subText = extra.join(" · ");
-        while (ctx.measureText(subText).width > 940 && subSize > 20) { subSize -= 2; ctx.font = "400 " + subSize + "px Georgia, 'Times New Roman', serif"; }
+        while (ctx.measureText(subText).width > 940 && subSize > 20) { subSize -= 2; ctx.font = "400 " + subSize + "px 'Source Serif 4', Georgia, 'Times New Roman', serif"; }
         ctx.fillText(subText, 540, stack.extraBaseline);
       }
       /* two stats, cream pills side by side, shrunk as a pair
@@ -10664,7 +10659,7 @@ function ShareCardButton({ model, P, accent }) {
         let px = 540 - total / 2;
         stats.forEach((s, i) => {
           const w = widths[i];
-          const rx = px, ry = stack.pillsTop, rw = w, rh = 58, rr = 29;
+          const rx = px, ry = stack.pillsTop, rw = w, rh = 58, rr = 2;
           ctx.beginPath();
           ctx.moveTo(rx + rr, ry);
           ctx.lineTo(rx + rw - rr, ry);
@@ -10708,7 +10703,7 @@ function ShareCardButton({ model, P, accent }) {
   return (
     <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
       <button className="lv-btn" onClick={draw}
-        style={{ background: "transparent", border: "1px solid " + P.line, color: P.ink, borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}>
+        style={{ background: "transparent", border: "1px solid " + P.line, color: P.ink, borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}>
         Share card
       </button>
       {msg && <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>{msg}</span>}
@@ -11157,8 +11152,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   };
 
   const btnPrimary = {
-    background: accent, color: at, border: "none", borderRadius: 14,
-    padding: "15px 30px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer",
+    background: accent, color: at, border: "none", borderRadius: 2,
+    padding: "15px 30px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer",
     fontFamily: "var(--cb-font)", minHeight: 54,
   };
 
@@ -11192,8 +11187,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <circle cx="12" cy="12" r="11" stroke={accent} strokeWidth="1.6" />
             <path d="M7 12.5 L10.5 16 L17 8.5" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="lv-pop" />
           </svg>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>{course.builtin ? "PATH COMPLETE" : "COURSE COMPLETE"}</div>
-          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.2 }}>{course.title}</h2>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>{course.builtin ? "PATH COMPLETE" : "COURSE COMPLETE"}</div>
+          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, margin: "0 0 12px", lineHeight: 1.2 }}>{course.title}</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 440 }}>
             {course.builtin
               ? "Every lesson on this path is done. Progress is saved on the path, and daily practice keeps pulling from it."
@@ -11201,7 +11196,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           </p>
           {rankSummary && (
             <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 440 }}>
-              Your rank: <span style={{ color: P.ink, fontWeight: 700 }}>{rankSummary.name}</span>
+              Your rank: <span style={{ color: P.ink, fontWeight: 500 }}>{rankSummary.name}</span>
               {rankSummary.atTop ? ". Top rung, earned." : " · " + rankSummary.xpToNext + " XP to " + rankSummary.nextName + "."}
             </p>
           )}
@@ -11213,20 +11208,20 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           </div>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 36, flexWrap: "wrap" }}>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 26px" }}>
-              <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 700, color: accent }}>+{sessionXp}</div>
+              <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 500, color: accent }}>+{sessionXp}</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>XP this session</div>
             </div>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 26px" }}>
-              <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 700 }}>{answered ? Math.round((right / answered) * 100) + "%" : "·"}</div>
+              <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 500 }}>{answered ? Math.round((right / answered) * 100) + "%" : "·"}</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>First try accuracy</div>
             </div>
           </div>
           {misses.length > 0 ? (
             <div style={{ textAlign: "left", maxWidth: 520, margin: "0 auto 34px" }}>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORTH ANOTHER LOOK</div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORTH ANOTHER LOOK</div>
               {misses.map((m, i) => (
                 <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 18px", marginBottom: 10 }}>
-                  <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.45, marginBottom: 6 }}>{m.card.question || m.card.statement || m.card.prompt}</div>
+                  <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, lineHeight: 1.45, marginBottom: 6 }}>{m.card.question || m.card.statement || m.card.prompt}</div>
                   <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink2 }}>
                     {"The idea: "}<span style={{ color: P.ink }}><RichText text={m.card.why} /></span>
                   </div>
@@ -11243,10 +11238,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           )}
           {course.vocab && course.vocab.length > 0 && (
             <div style={{ textAlign: "left", maxWidth: 520, margin: "0 auto 34px" }}>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORDS FROM THIS COURSE</div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORDS FROM THIS COURSE</div>
               {course.vocab.map((v, i) => (
                 <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "14px 18px", marginBottom: 10 }}>
-                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 700 }}>{v.term}</span>
+                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 500 }}>{v.term}</span>
                   <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink2, marginTop: 4 }}><RichText text={v.text} /></div>
                 </div>
               ))}
@@ -11279,7 +11274,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <div style={{ display: "flex", justifyContent: "center", margin: "26px 0 2px" }}>
             <NovaRive state="greeting" size={128} framing="full" />
           </div>
-          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.2, margin: "18px 0 12px" }}>{lesson.title}</h2>
+          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, lineHeight: 1.2, margin: "18px 0 12px" }}>{lesson.title}</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 14px", maxWidth: 420 }}>{lesson.subtitle}</p>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.label, margin: "0 0 22px" }}>{lesson.cards.length} cards · about {Math.max(1, Math.round(lesson.cards.length * 0.4))} min</p>
           {(() => {
@@ -11295,7 +11290,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 : "This one starts with a story. Settle in first, then the checks begin.";
             return (
               <div style={{ display: "inline-block", background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "9px 16px", margin: "0 0 26px" }}>
-                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent, letterSpacing: "0.06em" }}>
+                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: accent, letterSpacing: "0.06em" }}>
                   {opener === "visual" ? "START WITH THE PICTURE" : opener === "predict" ? "START WITH A GUESS" : "START WITH A STORY"}
                 </span>
                 <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}> · {line}</span>
@@ -11312,14 +11307,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             }[lesson.id] || "";
             if (!purpose) return null;
             return (
-              <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
+              <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 2, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
                 <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>{purpose}</p>
               </div>
             );
           })()}
           {course.builtin && (
-            <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>ABOUT THESE LESSONS</div>
+            <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 2, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>ABOUT THESE LESSONS</div>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>
                 {"Written for Nova from standard textbook material covering " + course.title + ". The checks explain the ideas in plain words. Courses built from a search on the Nova home teach the same way: plain statements first, then quizzes on the ideas."}
               </p>
@@ -11334,8 +11329,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                the review of your misses afterwards, is what
                counts as mastered; replays are always allowed
                and simply pay less XP. */
-            <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>CHECKPOINT RULES</div>
+            <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 2, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>CHECKPOINT RULES</div>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>
                 {"This checkpoint asks " + lesson.cards.filter(isInteractiveCard).length + " questions from the lessons before it. Nothing new. Finishing counts, whatever your score. A score of " + MASTERY_MIN_PCT + "% or better counts as mastered, and clearing the review of your misses afterwards counts too. You can play it again whenever you like."}
               </p>
@@ -11369,8 +11364,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <circle cx="12" cy="12" r="11" stroke={accent} strokeWidth="1.6" />
             <path d="M7 12.5 L10.5 16 L17 8.5" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="lv-pop" />
           </svg>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>LESSON COMPLETE</div>
-          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>{lesson.title}</h2>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>LESSON COMPLETE</div>
+          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, margin: "0 0 10px", lineHeight: 1.25 }}>{lesson.title}</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 400 }}>
             {course.builtin
               ? "+" + lessonXp + " XP. This lesson is marked on your path. The next one is open."
@@ -11392,7 +11387,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           </div>
           {rankSummary && (
             <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 18px", maxWidth: 400 }}>
-              Your rank: <span style={{ color: P.ink, fontWeight: 700 }}>{rankSummary.name}</span>
+              Your rank: <span style={{ color: P.ink, fontWeight: 500 }}>{rankSummary.name}</span>
               {rankSummary.atTop ? ". That is the top rung." : " · " + rankSummary.xpToNext + " XP to " + rankSummary.nextName + "."}
             </p>
           )}
@@ -11400,8 +11395,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <ShareCardButton P={P} accent={accent} model={shareCardModel("lesson", { title: lesson.title, courseTitle: course.title, accuracy: lessonAnswered ? Math.round((lessonRight / lessonAnswered) * 100) : 100, xp: lessonXp })} />
           </div>
           {goalPicker && (
-            <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>SET YOUR DAILY GOAL</div>
+            <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 2, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: P.faint, marginBottom: 8 }}>SET YOUR DAILY GOAL</div>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: "0 0 14px" }}>
                 First lesson done. How many minutes a day should Nova ask of you? Small and daily beats big and rare.
               </p>
@@ -11410,7 +11405,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   <button key={m} className="lv-chip" onClick={() => goalPicker.onPick(m)}
                     aria-pressed={goalPicker.minutes === m}
                     style={{
-                      borderRadius: RADIUS.pill, padding: "10px 16px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 48,
+                      borderRadius: RADIUS.pill, padding: "10px 16px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 48,
                       background: goalPicker.minutes === m ? accent : "transparent",
                       color: goalPicker.minutes === m ? (at || "#101408") : P.ink,
                       border: "1px solid " + (goalPicker.minutes === m ? accent : P.line),
@@ -11422,7 +11417,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             </div>
           )}
           {firstFinish && (
-            <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
+            <div style={{ textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: 2, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440 }}>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: "0 0 10px" }}>
                 XP is a progress count for finishing lessons and answering checks. It measures learning done, nothing more.
               </p>
@@ -11438,8 +11433,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <button className="lv-btn" onClick={() => startMissReview(lessonMisses.map((m) => m.card))}
                 style={{
                   width: "100%", maxWidth: 340, marginBottom: 12, background: "transparent",
-                  border: "1.5px solid " + accent, color: accent, borderRadius: 14,
-                  padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer",
+                  border: "1.5px solid " + accent, color: accent, borderRadius: 2,
+                  padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer",
                   fontFamily: "var(--cb-font)", minHeight: 50,
                 }}>
                 Review what you missed ({lessonMisses.length})
@@ -11470,15 +11465,15 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     return shell(
       <div className="lv-screen" style={{ maxWidth: 620, margin: "0 auto", padding: "48px 24px 48px" }}>
         <div className="lv-rise">
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>REVIEW WHAT YOU MISSED</div>
-          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 10px", lineHeight: 1.25 }}>The ideas first</h2>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>REVIEW WHAT YOU MISSED</div>
+          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, margin: "0 0 10px", lineHeight: 1.25 }}>The ideas first</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 0 26px" }}>
             Read the idea behind each miss. Then the questions come again.
           </p>
           <div style={{ marginBottom: 30 }}>
             {reviewRecap.map((c, i) => (
               <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 18px", marginBottom: 10 }}>
-                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.45, marginBottom: 6 }}>{c.question || c.statement || c.prompt}</div>
+                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, lineHeight: 1.45, marginBottom: 6 }}>{c.question || c.statement || c.prompt}</div>
                 {c.kind === "predict" && c.outcome && (
                   <div style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink2, marginBottom: 6 }}>
                     {"What happens: "}<span style={{ color: P.ink }}><RichText text={c.outcome} /></span>
@@ -11560,7 +11555,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       backgroundColor: P.surface,
       backgroundImage: "linear-gradient(" + (sheetGood ? goodWash : badWash) + ", " + (sheetGood ? goodWash : badWash) + ")",
       borderTop: "2px solid " + (sheetGood ? toneGood : toneBad),
-      borderRadius: "20px 20px 0 0", padding: "20px 22px 24px", color: P.ink,
+      borderRadius: "2px 2px 0 0", padding: "20px 22px 24px", color: P.ink,
       /* The sheet is capped and its content scrolls, with Continue
          outside the scroll area (layout audit finding 6,
          2026-10-16): uncapped, a long WHY on a miss pushed the
@@ -11572,31 +11567,31 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
           <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} teach={sheetTeach} />
         </div>
-        <div style={{ fontSize: FONT_SIZES.title, fontWeight: 800, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
+        <div style={{ fontSize: FONT_SIZES.title, fontWeight: 500, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "match" ? (isRight ? "Every pair, first try." : "All pairs matched.")
             : card.kind === "order" || card.kind === "build" ? (orderResult && orderResult.perfect ? (card.kind === "build" ? "Built in the right order." : "In the right order.")
               : orderResult && orderResult.correctPositions > 0 ? orderResult.correctPositions + " of " + orderResult.total + " steps in the right place."
               : "Not the right order.")
             : card.kind === "spoterror" ? (isRight ? "You found the wrong piece." : "That piece is fine.")
             : isRight ? "Right." : "Not yet."}
-          <span style={{ float: "right", fontSize: FONT_SIZES.label, fontWeight: 700, color: sheetGood ? goodInk : badInk }}>
+          <span style={{ float: "right", fontSize: FONT_SIZES.label, fontWeight: 500, color: sheetGood ? goodInk : badInk }}>
             {"+" + lastAward + " XP"}
           </span>
         </div>
         <>
             {!isRight && displayOptions && picked !== null && picked !== undefined && (
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 10px", color: P.ink2 || P.ink }}>
-                You picked: <span style={{ fontWeight: 600 }}><RichText text={displayOptions[picked]} /></span>
+                You picked: <span style={{ fontWeight: 500 }}><RichText text={displayOptions[picked]} /></span>
               </p>
             )}
             {card.kind === "spoterror" && picked !== null && picked !== undefined && (
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 10px", color: P.ink2 || P.ink }}>
-                You picked: <span style={{ fontWeight: 600 }}><RichText text={card.parts[picked]} /></span>
+                You picked: <span style={{ fontWeight: 500 }}><RichText text={card.parts[picked]} /></span>
               </p>
             )}
             {card.kind === "predict" && card.outcome && (
               <>
-                <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHAT ACTUALLY HAPPENS</p>
+                <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHAT ACTUALLY HAPPENS</p>
                 <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 0 12px", color: P.ink }}><RichText text={card.outcome} /></p>
               </>
             )}
@@ -11611,16 +11606,16 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             {!isRight && displayOptions && displayCorrect !== null && displayCorrect !== undefined
               && (card.kind === "quiz" || card.kind === "cloze" || card.kind === "visualq" || card.kind === "truefalse") && (
               <>
-                <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHAT ACTUALLY HAPPENS</p>
+                <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHAT ACTUALLY HAPPENS</p>
                 <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 0 12px", color: P.ink }}><RichText text={displayOptions[displayCorrect]} /></p>
               </>
             )}
-            <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHY</p>
+            <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHY</p>
             <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: 0, color: P.ink }}><RichText text={card.why} /></p>
             {card.kind === "spoterror" && (
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "10px 0 0", color: P.ink }}>
-                The wrong piece says: <span style={{ fontWeight: 600 }}><RichText text={card.parts[card.wrong]} /></span><br />
-                It should say: <span style={{ fontWeight: 600 }}><RichText text={card.fix} /></span>
+                The wrong piece says: <span style={{ fontWeight: 500 }}><RichText text={card.parts[card.wrong]} /></span><br />
+                It should say: <span style={{ fontWeight: 500 }}><RichText text={card.fix} /></span>
               </p>
             )}
         </>
@@ -11637,8 +11632,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         <button className="lv-btn" onClick={advance}
           style={{
             marginTop: 18, width: "100%", background: sheetGood ? toneGood : P.raised, color: sheetGood ? accentText(toneGood) : P.ink,
-            border: sheetGood ? "none" : "1px solid " + P.line, borderRadius: 14, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 800,
-            cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54, boxShadow: "0 4px 0 rgba(0,0,0,.25)",
+            border: sheetGood ? "none" : "1px solid " + P.line, borderRadius: 2, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 500,
+            cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54, boxShadow: "none",
           }}>
           {cardIdx === lesson.cards.length - 1 ? "Finish lesson" : "Continue"}
         </button>
@@ -11663,7 +11658,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               </div>
             ))}
           </div>
-          <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: accent, minWidth: 52, textAlign: "right" }}>{sessionXp > 0 ? "+" + sessionXp + " XP" : ""}</span>
+          <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: accent, minWidth: 52, textAlign: "right" }}>{sessionXp > 0 ? "+" + sessionXp + " XP" : ""}</span>
         </div>
         {/* The study partner (audit fix, 2026-10-15): Nova is
             mounted for the whole lesson now, not only on the
@@ -11695,22 +11690,22 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       <div style={{ flex: 1, width: "100%", maxWidth: 680, margin: "0 auto", padding: "26px 24px 8px", boxSizing: "border-box" }}>
         <div key={lessonIdx + "-" + cardIdx} className="lv-rise">
           {(card.kind === "quiz" || card.kind === "cloze") && course.img && (
-            <div style={{ position: "relative", height: 92, borderRadius: 18, overflow: "hidden", marginBottom: 22, border: "1px solid " + P.line }}>
+            <div style={{ position: "relative", height: 92, borderRadius: 2, overflow: "hidden", marginBottom: 22, border: "1px solid " + P.line }}>
               <img src={course.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
               <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(6,10,6,0.05), rgba(6,10,6,0.72))" }} />
-              <span style={{ position: "absolute", left: 16, bottom: 10, color: "#fff", fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 600 }}>{lesson.title}</span>
+              <span style={{ position: "absolute", left: 16, bottom: 10, color: "#fff", fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 500 }}>{lesson.title}</span>
             </div>
           )}
           {card.kind === "note" && (
             <div>
               {/* Chapter opener: the course photo carries the top of the
                   screen, then what this chapter actually holds. */}
-              <div style={{ position: "relative", borderRadius: 22, overflow: "hidden", marginBottom: 24, border: "1px solid " + P.line, background: P.raised }}>
+              <div style={{ position: "relative", borderRadius: 2, overflow: "hidden", marginBottom: 24, border: "1px solid " + P.line, background: P.raised }}>
                 {course.img && <img src={course.img} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
                 <div style={{ position: "absolute", inset: 0, background: course.img ? "linear-gradient(180deg, rgba(6,10,6,0.16), rgba(6,10,6,0.85))" : "linear-gradient(135deg, " + withAlphaSafe(accent, 0.22) + ", transparent 65%)" }} />
                 <div style={{ position: "relative", padding: "64px 22px 20px" }}>
-                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: course.img ? "#F5F0E8" : accent, marginBottom: 10 }}>{(card.kicker || "").toUpperCase()}</div>
-                  <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.22, margin: 0, color: course.img ? "#fff" : P.ink }}>{card.title}</h2>
+                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.13em", color: course.img ? "#FDF3D7" : accent, marginBottom: 10 }}>{(card.kicker || "").toUpperCase()}</div>
+                  <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, lineHeight: 1.22, margin: 0, color: course.img ? "#fff" : P.ink }}>{card.title}</h2>
                 </div>
               </div>
               {(card.visual || card.diagram) && (
@@ -11722,20 +11717,20 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <p style={{ fontSize: FONT_SIZES.title, color: P.ink2, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               {lesson.id === "vocab" && course.vocab && course.vocab.length > 0 && (
                 <div style={{ marginTop: 26 }}>
-                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 12 }}>THE WORDS AHEAD</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: P.faint, marginBottom: 12 }}>THE WORDS AHEAD</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                     {course.vocab.map((v, i) => (
-                      <span key={i} style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 600, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "7px 14px" }}>{v.term}</span>
+                      <span key={i} style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "7px 14px" }}>{v.term}</span>
                     ))}
                   </div>
                 </div>
               )}
               <div style={{ marginTop: 28 }}>
-                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 12 }}>THE SHAPE OF THIS LESSON</div>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: P.faint, marginBottom: 12 }}>THE SHAPE OF THIS LESSON</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7, alignItems: "center" }}>
                   {lesson.cards.map((c, i) => (
                     <span key={i} style={{
-                      fontSize: FONT_SIZES.label, fontWeight: i === cardIdx ? 800 : 600, borderRadius: RADIUS.pill, padding: "6px 12px",
+                      fontSize: FONT_SIZES.label, fontWeight: i === cardIdx ? 500 : 500, borderRadius: RADIUS.pill, padding: "6px 12px",
                       color: i === cardIdx ? "#14240a" : P.ink2,
                       background: i === cardIdx ? accent : "transparent",
                       border: "1.5px solid " + (i === cardIdx ? accent : P.line),
@@ -11748,10 +11743,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {(card.kind === "quiz" || card.kind === "cloze" || card.kind === "visualq" || card.kind === "predict") && (
             <div>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>
                 {card.vocab ? "VOCABULARY · TERMS IN CONTEXT" : card.kind === "cloze" ? "PREDICT THE RESULT" : card.kind === "visualq" ? "LOOK AT THE PICTURE" : card.kind === "predict" ? "PREDICT WHAT HAPPENS" : "RECALL"}
               </div>
-              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 10px" }}>{card.question}</h2>
+              <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, lineHeight: 1.4, margin: "0 0 10px" }}>{card.question}</h2>
               {card.kind === "visualq" && (
                 <>
                   <CardVisual src={card.visual} P={P} accent={accent} />
@@ -11790,7 +11785,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                         background: checked && i === displayCorrect ? toneGood : "transparent",
                         border: "1.5px solid " + (checked && i === displayCorrect ? toneGood : checked && i === picked ? toneBad : !checked && picked === i ? toneGood : CREAM_LINE),
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: FONT_SIZES.label, fontWeight: 700, color: CREAM_INK, opacity: 0.9,
+                        fontSize: FONT_SIZES.label, fontWeight: 500, color: CREAM_INK, opacity: 0.9,
                       }}>{checked && i === displayCorrect ? "✓" : "ABCD"[i] || ""}</span>
                       <span style={{ minWidth: 0, overflowWrap: "break-word" }}><RichText text={opt} /></span>
                     </button>
@@ -11802,7 +11797,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {card.kind === "truefalse" && (
             <div>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>TRUE OR FALSE</div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>TRUE OR FALSE</div>
               <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: RADIUS.xl, padding: "19px 21px", marginBottom: 20 }}>
                 <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.55, margin: 0 }}><RichText text={card.statement} /></p>
               </div>
@@ -11819,7 +11814,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       style={{
                         appearance: "none", WebkitAppearance: "none", background: bg, backgroundColor: bg,
                         border: "2px solid " + border, borderRadius: RADIUS.xl, padding: "18px 12px",
-                        fontSize: FONT_SIZES.title, fontWeight: 700, color, cursor: checked ? "default" : "pointer",
+                        fontSize: FONT_SIZES.title, fontWeight: 500, color, cursor: checked ? "default" : "pointer",
                         fontFamily: "var(--cb-font)", minHeight: 62,
                       }}>
                       {label}
@@ -11832,8 +11827,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {card.kind === "spoterror" && (
             <div>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>SPOT THE ERROR</div>
-              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>SPOT THE ERROR</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 500, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
               <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: "0 0 4px", lineHeight: 1.55 }}>The claim below is built from pieces. Exactly one piece is wrong. Tap it, then check.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}>
                 {(card.parts || []).map((part, i) => {
@@ -11864,8 +11859,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {card.kind === "match" && (
             <div>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>MATCH THE PAIRS</div>
-              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>MATCH THE PAIRS</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 500, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
               <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: "0 0 4px", lineHeight: 1.55 }}>Tap a word on the left, then tap the meaning it belongs with on the right.</p>
               <div className="lv-match-grid" style={{ gap: 10, marginTop: 18 }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -11879,7 +11874,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                           appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
                           background: donePair ? CREAM_GOLD : CREAM,
                           border: "2px solid " + (donePair ? toneGood : selected ? toneGood : CREAM_LINE), borderRadius: RADIUS.xl,
-                          padding: "13px 14px", fontSize: FONT_SIZES.body, fontWeight: 700, lineHeight: 1.45, textAlign: "left",
+                          padding: "13px 14px", fontSize: FONT_SIZES.body, fontWeight: 500, lineHeight: 1.45, textAlign: "left",
                           color: CREAM_INK, cursor: donePair || checked ? "default" : "pointer",
                           fontFamily: "var(--cb-font)", minHeight: 52,
                         }}>
@@ -11917,12 +11912,12 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {(card.kind === "order" || card.kind === "build") && (
             <div>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>{card.kind === "build" ? "BUILD THE SYSTEM" : "PUT IT IN ORDER"}</div>
-              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>{card.kind === "build" ? "BUILD THE SYSTEM" : "PUT IT IN ORDER"}</div>
+              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 500, lineHeight: 1.4, margin: "0 0 8px" }}>{card.prompt}</h2>
               <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: "0 0 4px", lineHeight: 1.55 }}>{card.kind === "build" ? "Tap the parts in the order the system runs. Tap a placed part to take it back." : "Tap the steps in the order they happen. Tap a placed step to take it back."}</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 9, margin: "20px 0 18px" }}>
                 {orderPlaced.length === 0 && (
-                  <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: 0, border: "1.5px dashed " + P.line, borderRadius: 14, padding: "15px 16px" }}>Your order will appear here.</p>
+                  <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: 0, border: "1.5px dashed " + P.line, borderRadius: 2, padding: "15px 16px" }}>Your order will appear here.</p>
                 )}
                 {orderPlaced.map((item, i) => {
                   const rightHere = checked && card.items[i] === item;
@@ -11942,7 +11937,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       <span aria-hidden="true" style={{
                         flexShrink: 0, width: 26, height: 26, borderRadius: "50%",
                         background: rightHere ? toneGood : wrongHere ? toneBad : accent, color: wrongHere ? "#fff" : accentText(toneGood),
-                        display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 800,
+                        display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 500,
                       }}>{i + 1}</span>
                       <span style={{ minWidth: 0 }}><RichText text={item} /></span>
                     </button>
@@ -11951,7 +11946,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               </div>
               {orderDisplay.filter((item) => !orderPlaced.includes(item)).length > 0 && (
                 <>
-                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, marginBottom: 10 }}>THE STEPS</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: P.faint, marginBottom: 10 }}>THE STEPS</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
                     {orderDisplay.filter((item) => !orderPlaced.includes(item)).map((item) => (
                       <button key={"pool" + item} onClick={() => orderTap(item)} disabled={checked}
@@ -11959,7 +11954,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                         style={{
                           appearance: "none", WebkitAppearance: "none", boxSizing: "border-box",
                           background: CREAM, border: "2px solid " + CREAM_LINE, borderRadius: RADIUS.pill,
-                          padding: "10px 16px", fontSize: FONT_SIZES.body, fontWeight: 600, lineHeight: 1.4,
+                          padding: "10px 16px", fontSize: FONT_SIZES.body, fontWeight: 500, lineHeight: 1.4,
                           color: CREAM_INK, cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 46,
                         }}>
                         <RichText text={item} />
@@ -11978,7 +11973,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {card.kind === "deepen" && (
             <div>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>GO DEEPER · OPTIONAL</div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>GO DEEPER · OPTIONAL</div>
               <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: RADIUS.xl, padding: "20px 22px" }}>
                 <p style={{ fontSize: FONT_SIZES.title, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               </div>
@@ -11990,13 +11985,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
           {card.kind === "summary" && (
             <div>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>WRAP UP</div>
-              <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, lineHeight: 1.25, margin: "0 0 16px" }}>{card.title}</h2>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>WRAP UP</div>
+              <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, lineHeight: 1.25, margin: "0 0 16px" }}>{card.title}</h2>
               <p style={{ fontSize: FONT_SIZES.title, color: P.ink2, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 24 }}>
-                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "8px 15px" }}>{course.lessons.length} lessons</span>
+                <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "8px 15px" }}>{course.lessons.length} lessons</span>
                 {course.vocab && course.vocab.length > 0 && (
-                  <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "8px 15px" }}>{course.vocab.length} terms met</span>
+                  <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "8px 15px" }}>{course.vocab.length} terms met</span>
                 )}
               </div>
             </div>
@@ -12069,7 +12064,7 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
       </button>
       <div className="lv-rise">
         <Cover title={course.title} height={168} radius={22} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
-        <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{course.title}</h2>
+        <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{course.title}</h2>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, margin: "0 0 6px" }}>
           {course.lessons.length} lessons · {(course.vocab || []).length} terms · {course.xpEarned || 0} XP earned
         </p>
@@ -12098,7 +12093,7 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
                 border: "2px solid " + (isDone || isNext ? accent : P.line),
                 display: "flex", alignItems: "center", justifyContent: "center",
                 color: isDone ? at : isNext ? accent : P.faint,
-                fontWeight: 800, fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)",
+                fontWeight: 500, fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)",
               }} className={isNext ? "lv-pulse" : ""}>
                 {isDone ? (
                   <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -12107,12 +12102,12 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
               <button className="lv-node" onClick={() => onPlay(i)}
                 style={{
                   display: "block", width: "100%", textAlign: "left", cursor: "pointer",
-                  background: P.raised, border: "1px solid " + (isNext ? accent : P.line), borderRadius: 18,
+                  background: P.raised, border: "1px solid " + (isNext ? accent : P.line), borderRadius: 2,
                   padding: "16px 18px", fontFamily: "var(--cb-font)", color: P.ink,
                 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3 }}>{lesson.title}</span>
-                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", color: isDone ? accent : P.faint, flexShrink: 0 }}>
+                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3 }}>{lesson.title}</span>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.06em", color: isDone ? accent : P.faint, flexShrink: 0 }}>
                     {isDone ? "DONE" : isNext ? "UP NEXT" : lesson.cards.length + " CARDS"}
                   </span>
                 </div>
@@ -12127,8 +12122,8 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
         {confirmDelete ? (
           <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <span style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>Delete this course and its review schedule?</span>
-            <button onClick={onDelete} style={{ background: STATUS.bad, color: "#fff", border: "none", borderRadius: 9, padding: "8px 14px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Delete</button>
-            <button onClick={() => setConfirmDelete(false)} style={{ background: "transparent", color: P.ink2, border: "1px solid " + P.line, borderRadius: 9, padding: "8px 14px", fontSize: FONT_SIZES.label, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep</button>
+            <button onClick={onDelete} style={{ background: STATUS.bad, color: "#fff", border: "none", borderRadius: 2, padding: "8px 14px", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Delete</button>
+            <button onClick={() => setConfirmDelete(false)} style={{ background: "transparent", color: P.ink2, border: "1px solid " + P.line, borderRadius: 2, padding: "8px 14px", fontSize: FONT_SIZES.label, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep</button>
           </span>
         ) : (
           <button onClick={() => setConfirmDelete(true)} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", padding: 0 }}>
@@ -12157,7 +12152,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
       </button>
       <div className="lv-rise">
         <Cover title={path.title} height={168} radius={22} cat={CATALOG.find((c) => c.name === path.category) || null} />
-        <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{path.title}</h2>
+        <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{path.title}</h2>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 6px" }}>{path.blurb}</p>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, margin: 0 }}>
           {pp.total} lessons · {path.units.length} unit{path.units.length === 1 ? "" : "s"} · about {pace.minutes} min · {pace.word} · taught directly
@@ -12182,10 +12177,10 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
         <div key={unit.id} style={{ marginTop: 34 }}>
           <div style={{
             background: withAlphaSafe(accent, P.dark ? 0.16 : 0.1), border: "1px solid " + P.line,
-            borderRadius: 18, padding: "16px 20px", marginBottom: 26,
+            borderRadius: 2, padding: "16px 20px", marginBottom: 26,
           }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: accent, marginBottom: 5 }}>UNIT {ui + 1}</div>
-            <div style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, color: P.ink }}>{unit.title}</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: accent, marginBottom: 5 }}>UNIT {ui + 1}</div>
+            <div style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3, color: P.ink }}>{unit.title}</div>
             <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.5, margin: "4px 0 0" }}>{unit.subtitle}</p>
           </div>
           {unit.lessons.map((lesson, li) => {
@@ -12206,7 +12201,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
                     border: (fading ? "2px dashed " : "2px solid ") + (mastered || isDone || isCurrent ? accent : P.line),
                     display: "flex", alignItems: "center", justifyContent: "center",
                     color: mastered ? at : isDone || isCurrent ? accent : P.faint,
-                    fontWeight: 800, fontSize: FONT_SIZES.title, fontFamily: "var(--cb-font)",
+                    fontWeight: 500, fontSize: FONT_SIZES.title, fontFamily: "var(--cb-font)",
                     opacity: fading ? 0.72 : 1,
                   }}>
                   {isDone ? (
@@ -12222,13 +12217,13 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
                   style={{
                     flex: 1, minWidth: 0, display: "block", textAlign: "left",
                     cursor: unlocked ? "pointer" : "default",
-                    background: P.raised, border: "1px solid " + (isCurrent ? accent : P.line), borderRadius: 18,
+                    background: P.raised, border: "1px solid " + (isCurrent ? accent : P.line), borderRadius: 2,
                     padding: "15px 18px", fontFamily: "var(--cb-font)", color: P.ink,
                     opacity: unlocked ? 1 : 0.55,
                   }}>
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                    <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3 }}>{lesson.title}</span>
-                    <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", color: mastered || isDone || isCurrent ? accent : P.faint, flexShrink: 0 }}>
+                    <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3 }}>{lesson.title}</span>
+                    <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.06em", color: mastered || isDone || isCurrent ? accent : P.faint, flexShrink: 0 }}>
                       {mastered ? "MASTERED" : fading ? "FADING" : isDone ? "DONE" : isCurrent ? "UP NEXT" : "LOCKED"}
                     </span>
                   </span>
@@ -12366,7 +12361,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
   const [minutes, setMinutes] = useState(5);
   const [reminderHour, setReminderHour] = useState(null);
   const chip = (active) => ({
-    borderRadius: RADIUS.pill, padding: "11px 18px", fontSize: FONT_SIZES.body, fontWeight: 700,
+    borderRadius: RADIUS.pill, padding: "11px 18px", fontSize: FONT_SIZES.body, fontWeight: 500,
     cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50,
     background: active ? accent : "transparent", color: active ? (at || "#101408") : P.ink,
     border: "1.5px solid " + (active ? accent : P.line), textAlign: "left",
@@ -12377,16 +12372,16 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
       <div className="lv-rise">
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
           <span style={{ color: ink, display: "inline-flex" }}><Icon name="cortex" size={30} /></span>
-          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint }}>
+          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: P.faint }}>
             WELCOME TO NOVA · {step + 1} OF 3
           </span>
           <span style={{ marginLeft: 2 }}><NovaRive state="greeting" size={40} /></span>
         </div>
-        <h1 style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.hero, fontWeight: 800, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
+        <h1 style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.hero, fontWeight: 500, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 6px" }}>{CORTEX_TAGLINE}</p>
         {step === 0 ? (
           <>
-            <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>What are you curious about?</h2>
+            <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "26px 0 10px", lineHeight: 1.3 }}>What are you curious about?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
               Pick the one that pulls at you. It sets your first path. Every path stays open to you afterwards.
             </p>
@@ -12400,13 +12395,13 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
               ))}
             </div>
             <button className="lv-btn lv-btn-primary" onClick={() => setStep(1)}
-              style={{ width: "100%", marginTop: 22, background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
+              style={{ width: "100%", marginTop: 22, background: accent, color: at || "#101408", border: "none", borderRadius: 2, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
               Continue
             </button>
           </>
         ) : step === 1 ? (
           <>
-            <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>How many minutes a day?</h2>
+            <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "26px 0 10px", lineHeight: 1.3 }}>How many minutes a day?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
               This becomes your daily goal, the size of one daily session. Small and daily beats big and rare. You can change it on your first win screen.
             </p>
@@ -12420,7 +12415,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
             </div>
             <button className="lv-btn lv-btn-primary"
               onClick={() => setStep(2)}
-              style={{ width: "100%", marginTop: 22, background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
+              style={{ width: "100%", marginTop: 22, background: accent, color: at || "#101408", border: "none", borderRadius: 2, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
               Continue
             </button>
             <button onClick={() => setStep(0)}
@@ -12430,7 +12425,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           </>
         ) : (
           <>
-            <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "26px 0 10px", lineHeight: 1.3 }}>When should Nova remind you?</h2>
+            <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "26px 0 10px", lineHeight: 1.3 }}>When should Nova remind you?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
               Pick a time. Nova will have your streak and your open quest waiting when you come back. You can change it later in settings.
             </p>
@@ -12444,7 +12439,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
             </div>
             <button className="lv-btn lv-btn-primary"
               onClick={() => onDone({ curiosity, minutes, reminderHour })}
-              style={{ width: "100%", marginTop: 22, background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
+              style={{ width: "100%", marginTop: 22, background: accent, color: at || "#101408", border: "none", borderRadius: 2, padding: "15px 24px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
               Start your first lesson
             </button>
             <button onClick={() => setStep(1)}
@@ -12466,13 +12461,16 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
    Today is the day itself and nothing else; every other section
    of the old stacked home has exactly one home here, one tap
    from the navigation that sits under the header. */
+/* Four tabs remain (2026-10-18, design audit M47). The Shop
+   and Leagues tabs left the bar because each held a single
+   notice card rather than a destination. Their screen
+   components stay in this file below, intact and unmounted
+   from the tab bar, until either has real content again. */
 const HOME_TABS = [
   { id: "today", label: "Today" },
   { id: "paths", label: "Paths" },
   { id: "library", label: "Library" },
   { id: "create", label: "Create" },
-  { id: "shop", label: "Shop" },
-  { id: "leagues", label: "Leagues" },
 ];
 
 export default function LearnView({ P, accent, at, onNavigate }) {
@@ -12492,7 +12490,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
      2026-10-14): Today holds the day itself, and everything that
      used to stack below it lives behind this one navigation. The
      tab is view state only; no learner data hangs off it. */
-  const [homeTab, setHomeTab] = useState("today"); // today | paths | library | create | shop | leagues
+  const [homeTab, setHomeTab] = useState("today"); // today | paths | library | create
   const [topic, setTopic] = useState("");
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState("");
@@ -13200,36 +13198,36 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
             <NovaCelebrateFigure size={128} />
           </div>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.14em", color: ink, marginBottom: 10 }}>DAILY SESSION COMPLETE</div>
-          <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.hero, fontWeight: 600, margin: "0 0 12px", lineHeight: 1.2 }}>That is today, done properly.</h2>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.14em", color: ink, marginBottom: 10 }}>DAILY SESSION COMPLETE</div>
+          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, margin: "0 0 12px", lineHeight: 1.2 }}>That is today, done properly.</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 26px", maxWidth: 440 }}>
             Warmup, new ground, and a clear head to end on. Here is where today leaves you.
           </p>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 26, flexWrap: "wrap" }}>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 24px", minWidth: 130 }}>
-              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700, color: ink }}>{rank.name}</div>
+              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: ink }}>{rank.name}</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>
                 {rank.atTop ? "Top rank" : rank.xpToNext + " XP to " + rank.nextName}
               </div>
             </div>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 24px", minWidth: 130 }}>
-              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700 }}>{profile ? profile.streak || 0 : 0} day streak</div>
+              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 500 }}>{profile ? profile.streak || 0 : 0} day streak</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>{profile ? profile.xp : 0} XP in all</div>
             </div>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 24px", minWidth: 130 }}>
-              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 700 }}>{masteredTotal} mastered</div>
+              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 500 }}>{masteredTotal} mastered</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>{doneTotal} lessons finished</div>
             </div>
           </div>
-          <div style={{ background: P.raised, border: "1px solid " + accent, borderRadius: 18, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440, textAlign: "left" }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 7 }}>TOMORROW</div>
+          <div style={{ background: P.raised, border: "1px solid " + accent, borderRadius: 2, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440, textAlign: "left" }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 7 }}>TOMORROW</div>
             <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>{hook}</p>
           </div>
           <div style={{ margin: "0 auto 24px" }}>
             <ShareCardButton P={P} accent={accent} model={shareCardModel([7, 30, 100, 365].includes(profile ? profile.streak || 0 : 0) ? "streak" : "session", { streak: profile ? profile.streak || 0 : 0, rankName: rank.name, mastered: masteredTotal })} />
           </div>
           <button className="lv-btn lv-btn-primary" onClick={() => setScreen({ name: "home" })}
-            style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 14, padding: "15px 30px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
+            style={{ background: accent, color: at || "#101408", border: "none", borderRadius: 2, padding: "15px 30px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 54 }}>
             Back to Nova home
           </button>
         </div>
@@ -13251,10 +13249,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <button onClick={() => setScreen({ name: "home" })} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
           ← Nova home
         </button>
-        <h2 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 26px", lineHeight: 1.2 }}>Nova settings</h2>
+        <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 26px", lineHeight: 1.2 }}>Nova settings</h2>
 
         <div style={{ marginBottom: 30 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>REMINDERS</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>REMINDERS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
             Pick an hour. When you come back at that hour, Nova has your streak and your open quest waiting at the top of the home page.
           </p>
@@ -13263,7 +13261,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               const active = profile ? (profile.reminderHour == null ? null : profile.reminderHour) === opt.value : opt.value === null;
               return (
                 <button key={opt.label} className="lv-chip" aria-pressed={active} onClick={() => updateProfile({ reminderHour: opt.value })}
-                  style={{ borderRadius: RADIUS.pill, padding: "10px 16px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44, background: active ? accent : "transparent", color: active ? (at || "#101408") : P.ink, border: "1px solid " + (active ? accent : P.line) }}>
+                  style={{ borderRadius: RADIUS.pill, padding: "10px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44, background: active ? accent : "transparent", color: active ? (at || "#101408") : P.ink, border: "1px solid " + (active ? accent : P.line) }}>
                   {opt.label}
                 </button>
               );
@@ -13272,7 +13270,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
 
         <div style={{ marginBottom: 30 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>SOUND</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>SOUND</div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <button onClick={toggleSound} aria-label={soundOn ? "Mute lesson sounds" : "Unmute lesson sounds"} aria-pressed={soundOn}
               style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -13285,17 +13283,20 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
 
         <div>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>YOUR PROGRESS</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>YOUR PROGRESS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
             Your progress is stored in this browser only. Export saves a file you keep, not a cloud copy. Import replaces the progress in this browser with the file you pick.
           </p>
+          <p style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.5, margin: "0 0 14px" }}>
+            Progress stays in this browser. Export to keep a copy.
+          </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button onClick={exportProgress}
-              style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink, cursor: "pointer", padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 700, fontFamily: "var(--cb-font)", minHeight: 44 }}>
+              style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink, cursor: "pointer", padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", minHeight: 44 }}>
               Export progress
             </button>
             <label
-              style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink, cursor: "pointer", padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 700, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", minHeight: 44, boxSizing: "border-box" }}>
+              style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink, cursor: "pointer", padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", minHeight: 44, boxSizing: "border-box" }}>
               Import progress
               <input type="file" accept=".json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; importProgressFile(f); }} />
             </label>
@@ -13349,7 +13350,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 <NovaLive state={novaMood} size={66} />
               </span>
               <div style={{ minWidth: 0 }}>
-                <h1 className="lv-wordmark" style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.display, fontWeight: 800, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
+                <h1 className="lv-wordmark" style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.display, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
                 <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "8px 0 0" }}>{CORTEX_TAGLINE}</p>
               </div>
             </>
@@ -13357,11 +13358,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <button onClick={() => { tourReturnRef.current = homeTab; setTourOpen(true); }}
-            style={{ background: "none", border: "none", color: ink, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            style={{ background: "none", border: "none", color: ink, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}>
             How Nova works <Icon name="arrowRight" size={13} />
           </button>
           <button onClick={() => setScreen({ name: "settings" })}
-            style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 600, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44 }}>
+            style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44 }}>
             Settings
           </button>
           <button onClick={toggleSound}
@@ -13386,7 +13387,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               style={{
                 background: "none", border: "none", borderBottom: "2px solid " + (active ? accent : "transparent"),
                 color: active ? P.ink : P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)",
-                fontSize: FONT_SIZES.label, fontWeight: active ? 700 : 600,
+                fontSize: FONT_SIZES.label, fontWeight: active ? 500 : 500,
                 padding: "10px 14px", minHeight: 44, whiteSpace: "nowrap", marginBottom: -1, flexShrink: 0,
               }}>
               {t.label}
@@ -13418,22 +13419,83 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             {!tourOpen && <NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" />}
           </span>
           <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-            <h2 className="lv-stage-word" style={{ fontFamily: WORDMARK, fontWeight: 800, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h2>
+            <h2 className="lv-stage-word" style={{ fontFamily: WORDMARK, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "10px 0 0" }}>{CORTEX_TAGLINE}</p>
             <div style={{ marginTop: 24 }}>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TODAY'S PATH</div>
-              <div style={{ fontFamily: SERIF, fontSize: FONT_SIZES.subhead, fontWeight: 600, color: P.ink, lineHeight: 1.3 }}>{bandTitle}</div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TODAY'S PATH</div>
+              <div style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, lineHeight: 1.3 }}>{bandTitle}</div>
               <span style={{ display: "block", height: 4, background: P.line, overflow: "hidden", marginTop: 10, maxWidth: 340 }}>
                 <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, width: (totalPathLessons > 0 ? Math.round((totalPathDone / totalPathLessons) * 100) : 0) + "%" }} />
               </span>
               <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>
-                {totalPathDone} of {totalPathLessons} path lessons done. Today's session and the full path are in the band below.
+                {totalPathDone} of {totalPathLessons} path lessons done. Today's session is on this stage, just below.
               </p>
             </div>
           </div>
         </div>
+        <div style={{ borderTop: "1px solid " + P.line, marginTop: 22, paddingTop: 18 }}>
+        {reminder && (
+          <div style={{ paddingBottom: 16, marginBottom: 16, borderBottom: "1px solid " + P.line }}>
+            <NovaBubble variant="sheet">
+              <span style={{ fontWeight: 500, display: "block" }}>{reminder.title}</span>
+              <span style={{ fontSize: FONT_SIZES.label, color: CREAM_FAINT, display: "block", marginTop: 2, lineHeight: 1.5 }}>{reminder.body}</span>
+            </NovaBubble>
+          </div>
+        )}
+        <div className="lv-band">
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>DAILY PRACTICE</div>
+            <div className="lv-nodes" role="list" aria-label={"Lessons on " + bandTitle}>
+              {bandNodes.map((n, i) => (
+                <span key={n.id} role="listitem" style={{ display: "inline-flex", alignItems: "flex-start", flexShrink: 0 }}>
+                  {i > 0 && <span aria-hidden="true" style={{ display: "block", width: 16, height: 2, background: P.line, marginTop: 21 }} />}
+                  <button onClick={bandGo} title={n.title} aria-label={n.title + (n.state === "done" ? ", done" : n.state === "fading" ? ", fading, review due" : n.state === "current" ? ", next stop" : ", locked")}
+                    className={n.state === "current" ? "lv-pulse" : ""}
+                    style={{
+                      width: 44, height: 44, borderRadius: "50%", flexShrink: 0, cursor: "pointer", padding: 0,
+                      background: n.state === "done" ? accent : "transparent",
+                      border: (n.state === "fading" ? "2px dashed " : "2px solid ") + (n.state === "done" || n.state === "current" || n.state === "fading" ? accent : P.line),
+                      color: n.state === "done" ? (at || "#101408") : accent,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: FONT_SIZES.label,
+                      opacity: n.state === "fading" ? 0.7 : n.state === "locked" ? 0.55 : 1,
+                    }}>
+                    {n.state === "done" || n.state === "fading" ? (
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    ) : i + 1}
+                  </button>
+                </span>
+              ))}
+            </div>
+            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "4px 0 0" }}>
+              {due.length > 0
+                ? due.length + " question" + (due.length === 1 ? " is" : "s are") + " due for the warmup."
+                : "Nothing is due. The session starts at your next stop."}
+              {bundleStop ? " Next stop: " + bundleStop.lesson.title + " on " + bundleStop.path.title + "." : " Every path is finished. This session is a review round."}
+            </p>
+          </div>
+          <div className="lv-band-primary" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <button className="lv-btn" onClick={startBundle} disabled={!bundleReady}
+              style={{
+                background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, width: "100%",
+                minHeight: 52, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 500,
+                cursor: bundleReady ? "pointer" : "default", fontFamily: "var(--cb-font)",
+                opacity: bundleReady ? 1 : 0.5,
+              }}>
+              Start daily practice{reviewDueCount > 0 ? " · " + reviewDueCount + " due" : ""}
+            </button>
+            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: 0 }}>
+              One session, in a fixed order: a short review warmup, one new lesson, then the payoff. {totalPathDone} of {totalPathLessons} path lessons done so far.
+            </p>
+          </div>
+        </div>
+          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 16, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.label, color: P.ink2 }}>
+            <span>{(profile ? profile.streak || 0 : 0) + " day streak"}</span>
+            <span>{rankForXp(profile ? profile.xp : 0).name}</span>
+          </div>
+        </div>
         <div data-tour-anchor="shelf" style={{ borderTop: "1px solid " + P.line, marginTop: 22, paddingTop: 18 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 12 }}>NOVA'S SHELF</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 12 }}>NOVA'S SHELF</div>
           {shelf.length === 0 ? (
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: 0 }}>
               Nothing on the shelf yet. Finish a path and its object lands here, and stays.
@@ -13477,120 +13539,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
       )}
 
-      {/* Zone 2, the journey band: the current path as a strip of
-          nodes, and the page's one primary action at the right.
-          The reminder, when Nova has one, speaks from the top of
-          the band; it gets no button of its own, because the band's
-          button is the action it is pointing at. */}
-      <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, margin: "20px 0 20px" }}>
-        {reminder && (
-          <div style={{ paddingBottom: 16, marginBottom: 16, borderBottom: "1px solid " + P.line }}>
-            <NovaBubble variant="sheet">
-              <span style={{ fontWeight: 600, display: "block" }}>{reminder.title}</span>
-              <span style={{ fontSize: FONT_SIZES.label, color: CREAM_FAINT, display: "block", marginTop: 2, lineHeight: 1.5 }}>{reminder.body}</span>
-            </NovaBubble>
-          </div>
-        )}
-        <div className="lv-band">
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>DAILY PRACTICE</div>
-            <button onClick={bandGo}
-              style={{ display: "block", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--cb-font)", color: P.ink, marginBottom: 4 }}>
-              <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.subhead, fontWeight: 600, lineHeight: 1.3 }}>{bandTitle}</span>
-            </button>
-            <div className="lv-nodes" role="list" aria-label={"Lessons on " + bandTitle}>
-              {bandNodes.map((n, i) => (
-                <span key={n.id} role="listitem" style={{ display: "inline-flex", alignItems: "flex-start", flexShrink: 0 }}>
-                  {i > 0 && <span aria-hidden="true" style={{ display: "block", width: 16, height: 2, background: P.line, marginTop: 21 }} />}
-                  <button onClick={bandGo} title={n.title} aria-label={n.title + (n.state === "done" ? ", done" : n.state === "fading" ? ", fading, review due" : n.state === "current" ? ", next stop" : ", locked")}
-                    className={n.state === "current" ? "lv-pulse" : ""}
-                    style={{
-                      width: 44, height: 44, borderRadius: "50%", flexShrink: 0, cursor: "pointer", padding: 0,
-                      background: n.state === "done" ? accent : "transparent",
-                      border: (n.state === "fading" ? "2px dashed " : "2px solid ") + (n.state === "done" || n.state === "current" || n.state === "fading" ? accent : P.line),
-                      color: n.state === "done" ? (at || "#101408") : accent,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontFamily: "var(--cb-font)", fontWeight: 700, fontSize: FONT_SIZES.label,
-                      opacity: n.state === "fading" ? 0.7 : n.state === "locked" ? 0.55 : 1,
-                    }}>
-                    {n.state === "done" || n.state === "fading" ? (
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                    ) : i + 1}
-                  </button>
-                </span>
-              ))}
-            </div>
-            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "4px 0 0" }}>
-              {due.length > 0
-                ? due.length + " question" + (due.length === 1 ? " is" : "s are") + " due for the warmup."
-                : "Nothing is due. The session starts at your next stop."}
-              {bundleStop ? " Next stop: " + bundleStop.lesson.title + " on " + bundleStop.path.title + "." : " Every path is finished. This session is a review round."}
-            </p>
-          </div>
-          <div className="lv-band-primary" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <button className="lv-btn" onClick={startBundle} disabled={!bundleReady}
-              style={{
-                background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, width: "100%",
-                minHeight: 52, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 700,
-                cursor: bundleReady ? "pointer" : "default", fontFamily: "var(--cb-font)",
-                opacity: bundleReady ? 1 : 0.5,
-              }}>
-              Start daily practice{reviewDueCount > 0 ? " · " + reviewDueCount + " due" : ""}
-            </button>
-            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: 0 }}>
-              One session, in a fixed order: a short review warmup, one new lesson, then the payoff. {totalPathDone} of {totalPathLessons} path lessons done so far.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Zone 3, the status row: three cream cards, status only.
-          Nothing in this row is a button; the eye reads streak,
-          Sparks, and rank, in that order, and moves on. The freeze
-          count is quiet text inside the streak card, per the
-          reconciliation: freezes are real, they just get no card
-          of their own. */}
-      <div className="lv-status" style={{ marginBottom: 24 }}>
-        <div style={{ background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl, padding: 16 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-            <span style={{ fontSize: FONT_SIZES.section, fontWeight: 500 }}>{profile ? profile.streak || 0 : 0}</span>
-            <span style={{ fontSize: FONT_SIZES.label }}>day streak</span>
-          </div>
-          <p style={{ fontSize: FONT_SIZES.caption, color: CREAM_FAINT, margin: "8px 0 0", lineHeight: 1.45 }}>
-            {profile && profile.freezes ? profile.freezes + " freeze" + (profile.freezes === 1 ? "" : "s") + " held for a missed day" : "No freezes held"}
-          </p>
-        </div>
-        <div style={{ background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl, padding: 16 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-            <span style={{ fontSize: FONT_SIZES.section, fontWeight: 500 }}>{profile ? profile.sparks || 0 : 0}</span>
-            <span style={{ fontSize: FONT_SIZES.label }}>Sparks</span>
-          </div>
-          <p style={{ fontSize: FONT_SIZES.caption, color: CREAM_FAINT, margin: "8px 0 0", lineHeight: 1.45 }}>For streak protection, and nothing else</p>
-        </div>
-        <div style={{ background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl, padding: 16 }}>
-          {(() => {
-            const rank = profile ? rankForXp(profile.xp) : rankForXp(0);
-            return (
-              <>
-                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: CREAM_FAINT, marginBottom: 4 }}>YOUR RANK</div>
-                <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500 }}>{rank.name}</div>
-                <span style={{ display: "block", height: 4, background: "rgba(26, 26, 26, 0.14)", overflow: "hidden", marginTop: 10 }}>
-                  <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, width: rank.pctToNext + "%" }} />
-                </span>
-                <p style={{ fontSize: FONT_SIZES.caption, color: CREAM_FAINT, margin: "8px 0 0", lineHeight: 1.45 }}>
-                  {rank.atTop ? "Top rung · " + (profile ? profile.xp : 0) + " XP in all" : rank.xpToNext + " XP to " + rank.nextName}
-                </p>
-              </>
-            );
-          })()}
-        </div>
-      </div>
-
-      {/* Zone 4, the body: review and quests in one column.
-          It was a two column body until the stage move
-          (2026-10-15): the rail held her shelf, and the shelf
-          lives on her stage now, so the rail is gone and the
-          bench and quests take the full width. */}
+      {/* The body is the review bench alone (2026-10-18,
+          design audit M45). Today ends here: the practice band
+          folded into her stage above, and the quests and the
+          status cards left the home with it. */}
       <div style={{ marginBottom: 8 }}>
         <div style={{ minWidth: 0 }}>
           {/* the review bench: review as a place, with its due
@@ -13598,7 +13550,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               starts the bench, and so does the button under them. */}
           <div style={{ marginBottom: 26 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-              <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink }}>REVIEW BENCH</span>
+              <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink }}>REVIEW BENCH</span>
               {/* One Nova per screen (owner's ruling, 2026-10-15):
                   the bench's own figure stood here until today.
                   The header Nova is the screen's only resident;
@@ -13624,7 +13576,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                       <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500 }}>{due.length} scheduled question{due.length === 1 ? "" : "s"}</span>
                       <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: CREAM_FAINT, marginTop: 2 }}>From the courses you built</span>
                     </span>
-                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: CREAM_INK, flexShrink: 0 }}>Review</span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: CREAM_INK, flexShrink: 0 }}>Review</span>
                   </button>
                 )}
                 {fadingAll.slice(0, 3).map((f) => (
@@ -13634,7 +13586,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                       <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500 }}>{f.lesson.title}</span>
                       <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: CREAM_FAINT, marginTop: 2 }}>{"Finished lesson on " + f.path.title + ", fading"}</span>
                     </span>
-                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: CREAM_INK, flexShrink: 0 }}>Review</span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: CREAM_INK, flexShrink: 0 }}>Review</span>
                   </button>
                 ))}
               </div>
@@ -13645,7 +13597,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <button className="lv-btn" onClick={startReview} disabled={reviewDueCount === 0}
               style={{
                 background: "transparent", color: ink, border: "1px solid " + accent, borderRadius: RADIUS.lg,
-                padding: "12px 22px", fontSize: FONT_SIZES.body, fontWeight: 700,
+                padding: "12px 22px", fontSize: FONT_SIZES.body, fontWeight: 500,
                 cursor: reviewDueCount > 0 ? "pointer" : "default", fontFamily: "var(--cb-font)",
                 opacity: reviewDueCount > 0 ? 1 : 0.5,
               }}>
@@ -13653,53 +13605,10 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             </button>
           </div>
 
-          {/* today's quests: the daily loop, flat rows under a
-              hairline each, no card chrome competing with the
-              bench above it */}
-          <div>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TODAY'S QUESTS</div>
-            {questCheer.length > 0 && questCheer.map((slot) => {
-              const cheerQuest = todayQuests.find((q) => q.slot === slot);
-              return (
-                <div key={slot} style={{ display: "flex", alignItems: "center", gap: 12, border: "1px solid " + accent, borderRadius: RADIUS.xl, padding: "12px 14px", marginBottom: 12 }}>
-                  {/* No figure in the cheer row (one Nova per
-                      screen, 2026-10-15): the header Nova is the
-                      screen's resident; the row is text and the
-                      Sparks it announces. */}
-                  <span style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
-                    {"+5 Sparks · " + (cheerQuest ? cheerQuest.title : "Quest done")}
-                  </span>
-                </div>
-              );
-            })}
-            {todayQuests.map((quest) => {
-              const state = questState(quest, { loop: todayLoop, dueCount: due.length, progress: builtinProgress });
-              const pct = state.total > 0 ? Math.round((state.current / state.total) * 100) : (state.done ? 100 : 0);
-              return (
-                <div key={quest.slot} style={{ padding: "12px 0", borderTop: "1px solid " + P.line, opacity: state.done ? 0.75 : 1 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                    <span style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.35 }}>{quest.title}</span>
-                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: state.done ? accent : P.ink2, flexShrink: 0 }}>{state.done ? "Done" : state.current + " of " + state.total}</span>
-                  </div>
-                  <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "4px 0 8px" }}>{quest.detail}</p>
-                  <span style={{ display: "block", height: 4, background: P.line, overflow: "hidden" }}>
-                    <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, width: pct + "%" }} />
-                  </span>
-                </div>
-              );
-            })}
-          </div>
         </div>
 
       </div>
 
-      {/* Zone 5, the footer line (wave 3): one quiet line, and the
-          controls it names live in Nova settings now. It closes
-          the Today screen; the screens below are reached from
-          the navigation, never by scrolling past this line. */}
-      <p style={{ fontSize: FONT_SIZES.label, color: P.faint, margin: "26px 0 0" }}>
-        Progress stays in this browser. Export to keep a copy.
-      </p>
         </>
       )}
 
@@ -13713,7 +13622,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               used to sit in Today's rail, where it competed with
               the day itself. */}
           <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, marginBottom: 16, background: P.raised }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>SPARKS</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>SPARKS</div>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
               You hold {profile ? profile.sparks || 0 : 0} Sparks.
             </p>
@@ -13733,7 +13642,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                       const bought = buyStreakFreeze(profile);
                       if (bought) { saveProfile(bought); setProfile(bought); setSparksMsg("Freeze bought. It covers one missed day."); }
                     }}
-                    style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: atCap || short ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: atCap || short ? 0.5 : 1, width: "100%" }}>
+                    style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: atCap || short ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: atCap || short ? 0.5 : 1, width: "100%" }}>
                     Buy a streak freeze · 50 Sparks
                   </button>
                   {(atCap || short) && (
@@ -13755,7 +13664,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                     const repaired = applyStreakRepair(profile);
                     if (repaired) { saveProfile(repaired); setProfile(repaired); setSparksMsg("Streak repaired."); }
                   }}
-                  style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: (profile ? profile.sparks || 0 : 0) < repairOffer.cost ? 0.5 : 1, width: "100%" }}>
+                  style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: (profile ? profile.sparks || 0 : 0) < repairOffer.cost ? 0.5 : 1, width: "100%" }}>
                   Repair the missed day · 100 Sparks
                 </button>
                 {(profile ? profile.sparks || 0 : 0) < repairOffer.cost && (
@@ -13780,7 +13689,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               Its own screen now (home restructure wave), beside
               the shop it used to share a rail with. */}
           <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, background: P.raised }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEAGUES</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEAGUES</div>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
               Leagues start when enough learners are active in the same week. Until then there is nobody to rank you against, so the board stays shut. When it opens, you are put in a group of 30 and ranked on points from first time lessons and review accuracy, with a daily cap. Replays earn nothing. Joining is your choice.
             </p>
@@ -13788,7 +13697,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               League points come from lessons and reviews. Meanwhile, your paths and daily practice are where those happen.
             </p>
             <button className="lv-btn" aria-pressed={!!(profile && profile.leaguesOptIn)} onClick={() => updateProfile({ leaguesOptIn: !(profile && profile.leaguesOptIn) })}
-              style={{ background: profile && profile.leaguesOptIn ? accent : "transparent", color: profile && profile.leaguesOptIn ? (at || "#101408") : P.ink, border: "1px solid " + (profile && profile.leaguesOptIn ? accent : P.line), borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}>
+              style={{ background: profile && profile.leaguesOptIn ? accent : "transparent", color: profile && profile.leaguesOptIn ? (at || "#101408") : P.ink, border: "1px solid " + (profile && profile.leaguesOptIn ? accent : P.line), borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}>
               {profile && profile.leaguesOptIn ? "You are in" : "Join when leagues open"}
             </button>
             {profile && profile.leaguesOptIn && (
@@ -13800,18 +13709,15 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
       {homeTab === "paths" && (
         <>
-      {/* the journey: paths as places, units as regions, lessons
-          as stops. Filled ground is knowledge the learner owns;
-          a dashed, dimmed stop is finished ground whose review
-          has come due, so review due shows on the map itself. */}
+      {/* The journey index (2026-10-18, design audit M46): one
+          card per path with its cover, title, progress and stop
+          count. The map itself lives in the path detail view
+          only, so the two surfaces stop redrawing each other. */}
       <div data-tour-anchor="paths" style={{ marginBottom: 30 }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEARNING PATHS</div>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEARNING PATHS</div>
         <h2 style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Your journey</h2>
-        <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 10px" }}>
-          Whole subjects, in order, shown as places on a map. Every lesson teaches first, then checks what stuck. None of it needs a search to start.
-        </p>
-        <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-          How to read the map: a filled stop is a lesson you finished. The outlined stop is where you stopped. A dashed stop marked fading is due for review. It is still yours. The review bench brings it back.
+        <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
+          Whole subjects, in order. Every lesson teaches first, then checks what stuck. None of it needs a search to start. Open a path to see its map and pick up where you stopped.
         </p>
         <NovaTip id="paths" bare state="explaining" style={{ margin: "0 0 18px" }}>
           Whole subjects, in order. Pick one and it keeps your place.
@@ -13819,16 +13725,16 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         {LEARNING_PATHS.map((path) => {
           const pp = pathProgress(path, builtinProgress);
           const pace = pathPaceFor(path);
-          const flat = flattenPathLessons(path);
-          let stopNo = -1;
+          const cat = CATALOG.find((c) => c.name === path.category) || null;
           return (
-            <div key={path.id} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "20px 20px 10px", marginBottom: 18 }}>
-              <button onClick={() => setScreen({ name: "bpath", pathId: path.id })}
-                style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "var(--cb-font)", color: P.ink }}>
+            <button key={path.id} onClick={() => setScreen({ name: "bpath", pathId: path.id })}
+              style={{ display: "block", width: "100%", textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 0, overflow: "hidden", cursor: "pointer", fontFamily: "var(--cb-font)", color: P.ink, marginBottom: 18 }}>
+              <Cover title={path.title} height={120} radius={0} cat={cat} />
+              <span style={{ display: "block", padding: "16px 20px 18px" }}>
                 <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 700, lineHeight: 1.3 }}>{path.title}</span>
-                  <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: ink, flexShrink: 0 }}>
-                    {pp.complete ? "Complete" : pp.done > 0 ? pp.done + " of " + pp.total + " stops" : pp.total + " stops"}
+                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3 }}>{path.title}</span>
+                  <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: ink, flexShrink: 0 }}>
+                    {pp.complete ? "Complete" : pp.done + " of " + pp.total + " stops"}
                   </span>
                 </span>
                 <span style={{ display: "block", fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, marginTop: 4 }}>{path.blurb}</span>
@@ -13836,86 +13742,17 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: pp.pct + "%" }} />
                 </span>
                 <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
-                  {"About " + pace.minutes + " min in all · " + pace.word + " · " + pace.lessons + " lessons"}
+                  {pp.total + " stops · About " + pace.minutes + " min in all"}
                 </span>
-              </button>
-              {path.units.map((unit, ui) => {
-                const unitOwned = unit.lessons.every((l) => progressStore[l.id] && progressStore[l.id].done);
-                return (
-                  <div key={unit.id} style={{
-                    marginTop: 16, borderRadius: RADIUS.xl, padding: "12px 12px 2px",
-                    background: unitOwned ? withAlphaSafe(accent, P.dark ? 0.13 : 0.08) : "transparent",
-                    border: "1px solid " + (unitOwned ? accent : "transparent"),
-                  }}>
-                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.1em", color: unitOwned ? accent : P.faint, marginBottom: 10, paddingLeft: 4 }}>
-                      UNIT {ui + 1} · {unit.title.toUpperCase()}{unitOwned ? " · YOURS" : ""}
-                    </div>
-                    {unit.lessons.map((lesson) => {
-                      stopNo += 1;
-                      const myStop = stopNo;
-                      const rec = progressStore[lesson.id];
-                      const isDone = !!(rec && rec.done);
-                      const mastered = isLessonMastered(rec);
-                      const fading = isLessonFading(rec);
-                      const unlocked = isLessonUnlocked(path, lesson.id, builtinProgress);
-                      const isCurrent = unlocked && !isDone;
-                      return (
-                        <div key={lesson.id} style={{ display: "flex", gap: 13, alignItems: "flex-start", marginBottom: 12 }}>
-                          <span aria-hidden="true" className={isCurrent ? "lv-pulse" : ""}
-                            style={{
-                              flexShrink: 0, width: 40, height: 40, borderRadius: "50%", marginTop: 2,
-                              background: isDone ? accent : P.bg,
-                              border: (fading ? "2px dashed " : "2px solid ") + (isDone || isCurrent ? accent : P.line),
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              color: isDone ? (at || "#101408") : isCurrent ? accent : P.faint,
-                              fontWeight: 800, fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)",
-                              opacity: fading ? 0.7 : 1,
-                            }}>
-                            {isDone ? (
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                            ) : unlocked ? myStop + 1 : (
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                <rect x="5" y="10.5" width="14" height="9.5" rx="2.5" stroke="currentColor" strokeWidth="2" />
-                                <path d="M8 10.5 V7.8 a4 4 0 0 1 8 0 v2.7" stroke="currentColor" strokeWidth="2" />
-                              </svg>
-                            )}
-                          </span>
-                          <button className="lv-node"
-                            onClick={() => { if (unlocked) startBuiltinLesson(path, myStop); else setScreen({ name: "bpath", pathId: path.id }); }}
-                            style={{
-                              flex: 1, minWidth: 0, display: "block", textAlign: "left", cursor: "pointer",
-                              background: P.bg, border: "1px solid " + (isCurrent ? accent : P.line), borderRadius: RADIUS.xl,
-                              padding: "11px 14px", fontFamily: "var(--cb-font)", color: P.ink,
-                              opacity: unlocked ? 1 : 0.6,
-                            }}>
-                            <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-                              <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, fontWeight: 700, lineHeight: 1.3 }}>{lesson.title}</span>
-                              <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.06em", color: isDone || isCurrent ? accent : P.faint, flexShrink: 0 }}>
-                                {mastered ? "MASTERED" : fading ? "FADING" : isDone ? "DONE" : isCurrent ? "NEXT STOP" : "LOCKED"}
-                              </span>
-                            </span>
-                            <span style={{ display: "block", color: P.ink2, fontSize: FONT_SIZES.label, lineHeight: 1.45, marginTop: 3 }}>
-                              {fading
-                                ? "Finished, and its review is due."
-                                : !unlocked && myStop > 0
-                                  ? lesson.subtitle + " Opens when " + flat[myStop - 1].title + " is done."
-                                  : lesson.subtitle}
-                            </span>
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
+              </span>
+            </button>
           );
         })}
       </div>
 
       {/* courses from searches: heading for everything below */}
       <div style={{ marginBottom: 4 }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TOPIC COURSES</div>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TOPIC COURSES</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
           Twenty four topics, each a full course of lessons and quizzes. Pick one and start. No searching needed.
         </p>
@@ -13927,7 +13764,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           {["All", ...CATALOG.map((c) => c.name), ...(published.length ? ["From contributors"] : [])].map((name) => (
             <button key={name} className="lv-chip" onClick={() => setCatFilter(name)}
               style={{
-                borderRadius: RADIUS.pill, padding: "9px 15px", fontSize: FONT_SIZES.label, fontWeight: 600, cursor: "pointer", fontFamily: "var(--cb-font)",
+                borderRadius: RADIUS.pill, padding: "9px 15px", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)",
                 background: catFilter === name ? accent : "transparent",
                 color: catFilter === name ? (at || "#101408") : P.ink,
                 border: "1px solid " + (catFilter === name ? accent : P.line),
@@ -13951,16 +13788,16 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 }}>
                 <Cover title={t.t} height={104} radius={0} cat={cat} img={t.img} />
                 <span style={{ display: "block", padding: "14px 16px 16px" }}>
-                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{t.t}</span>
+                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3, display: "block" }}>{t.t}</span>
                   <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{t.b}</span>
                   {mastery > 0 && (
-                    <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 700, color: ink, marginTop: 8 }}>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: ink, marginTop: 8 }}>
                       Mastery level {mastery} of 5
                     </span>
                   )}
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
-                    <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.08em", color: P.faint }}>{cat.name.toUpperCase()}</span>
-                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: ink }}>{tpp && tpp.complete ? "Complete" : tpp && tpp.done > 0 ? tpp.done + " of " + tpp.total : "Start"}</span>
+                    <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.08em", color: P.faint }}>{cat.name.toUpperCase()}</span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: ink }}>{tpp && tpp.complete ? "Complete" : tpp && tpp.done > 0 ? tpp.done + " of " + tpp.total : "Start"}</span>
                   </span>
                 </span>
               </button>
@@ -13980,14 +13817,14 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 }}>
                 {cat ? <CategoryArt motif={cat.motif} pair={cat.pair} height={104} radius={0} /> : <Cover title={e.title} height={104} radius={0} />}
                 <span style={{ display: "block", padding: "14px 16px 16px" }}>
-                  <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block" }}>{e.title}</span>
+                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3, display: "block" }}>{e.title}</span>
                   <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{e.blurb || e.query}</span>
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
                     <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, display: "inline-flex", alignItems: "center", gap: 5 }}>
                       <span style={{ color: ink, display: "inline-flex" }}><Icon name="cortex" size={12} /></span>
                       by {String(e.createdBy || "").split("@")[0]}
                     </span>
-                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 700, color: ink }}>{existing ? "Open" : isBuilding ? "Searching..." : "Build course"}</span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: ink }}>{existing ? "Open" : isBuilding ? "Searching..." : "Build course"}</span>
                   </span>
                 </span>
               </button>
@@ -14008,7 +13845,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           builder has made for you. Its own screen now (home
           restructure wave); building lives on Create. */}
       <div style={{ marginBottom: 4, marginTop: 24 }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
           The courses you build live here. Ask in Search and turn the answer into a course, or name a topic on the Create screen.
         </p>
@@ -14034,7 +13871,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           }}>
             <Icon name="bookOpen" size={26} />
           </div>
-          <h3 style={{ fontFamily: SERIF, color: P.ink, fontSize: FONT_SIZES.display, fontWeight: 600, margin: "0 0 8px" }}>No courses yet</h3>
+          <h3 style={{ fontFamily: SANS, color: P.ink, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 8px" }}>No courses yet</h3>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 20px", maxWidth: 430 }}>
             Build one on the Create screen, or open an answer in Search and choose Turn into course. The answer becomes lessons with quizzes.
           </p>
@@ -14056,7 +13893,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         </div>
       ) : (
         <>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: P.faint, margin: "6px 0 14px" }}>YOUR COURSES</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: P.faint, margin: "6px 0 14px" }}>YOUR COURSES</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
             {courses.map((course) => {
               const mem = memoryState(course, claims);
@@ -14070,7 +13907,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   }}>
                   <Cover title={course.title} height={96} radius={0} fontSize={150} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
                   <span style={{ display: "block", padding: "15px 18px 17px" }}>
-                    <span style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, fontWeight: 600, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
+                    <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
                     <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, display: "block", marginTop: 4 }}>
                       {course.lessons.length} lessons · {(course.vocab || []).length} terms
                     </span>
@@ -14078,7 +13915,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                       <span style={{ flex: 1, height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", display: "block" }}>
                         <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: (course.lessons.length ? Math.round((doneCount / course.lessons.length) * 100) : 0) + "%" }} />
                       </span>
-                      <span style={{ fontSize: FONT_SIZES.caption, color: mem.pct > 0 || doneCount > 0 ? accent : P.faint, fontWeight: 600 }}>{mem.label}</span>
+                      <span style={{ fontSize: FONT_SIZES.caption, color: mem.pct > 0 || doneCount > 0 ? accent : P.faint, fontWeight: 500 }}>{mem.label}</span>
                     </span>
                   </span>
                 </button>
@@ -14097,7 +13934,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           stacked home; building is its own place now, and what
           it builds lands on Library. */}
       <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24, marginTop: 24 }}>
-        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>BUILD A COURSE</div>
+        <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>BUILD A COURSE</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
           Name a topic. Cerebrum looks it up and builds lessons and quizzes from what it finds.
         </p>
@@ -14119,7 +13956,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <button className="lv-btn lv-btn-primary" onClick={buildCourse} disabled={building || !topic.trim()}
             style={{
               background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg,
-              padding: "14px 26px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: building ? "wait" : "pointer",
+              padding: "14px 26px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: building ? "wait" : "pointer",
               fontFamily: "var(--cb-font)", minHeight: 54, opacity: building || !topic.trim() ? 0.55 : 1,
             }}>
             {building ? "Searching..." : "Build course"}
@@ -14131,7 +13968,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {/* contributor studio */}
       {access.isCreator && (
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>CONTRIBUTOR STUDIO</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>CONTRIBUTOR STUDIO</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
             You can publish to the catalog. A published course is just a topic here. When someone taps it, Nova builds the course on the spot, same as every course on this screen.
           </p>
@@ -14155,7 +13992,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 14, flexWrap: "wrap" }}>
             <button className="lv-btn lv-btn-primary" onClick={publishEntry} disabled={!studio.title.trim() || !studio.query.trim()}
-              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !studio.title.trim() || !studio.query.trim() ? 0.55 : 1 }}>
+              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 24px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !studio.title.trim() || !studio.query.trim() ? 0.55 : 1 }}>
               Publish to catalog
             </button>
             {studioMsg && <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>{studioMsg}</span>}
@@ -14179,7 +14016,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {/* owner: creator access */}
       {access.isFounder && (
         <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 22, marginBottom: 24 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 700, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>CREATORS</div>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>CREATORS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
             Type an email. That account can then publish catalog courses from the studio above, and gets the Nova Contributor badge on its profile.
           </p>
@@ -14189,7 +14026,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               placeholder="creator@example.com" aria-label="Creator email" type="email"
               style={{ flex: "1 1 260px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg, padding: "12px 14px", fontSize: 16, color: P.ink, fontFamily: "var(--cb-font)", minHeight: 48, boxSizing: "border-box" }} />
             <button className="lv-btn lv-btn-primary" onClick={grantCreator} disabled={!creatorEmail.trim()}
-              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 24px", fontSize: FONT_SIZES.body, fontWeight: 700, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !creatorEmail.trim() ? 0.55 : 1 }}>
+              style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 24px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: !creatorEmail.trim() ? 0.55 : 1 }}>
               Allow creator
             </button>
           </div>

@@ -2636,7 +2636,10 @@ await test("the review session serves due cards first, then fading lessons only"
 await test("the opener rhythm rotates by position and only opens visual where a visual exists", () => {
   assert.deepEqual([...OPENER_STYLES], ["visual", "predict", "story"]);
   const water = flattenPathLessons(LEARNING_PATHS.find((p) => p.id === "earth-and-weather"))[0];
-  const plain = flat0[1];
+  /* 2026-10-18 (design audit H23): every authored lesson carries art now,
+     so the no visual case is the same real lesson with its card
+     visuals stripped. */
+  const plain = { ...flat0[1], cards: flat0[1].cards.map((c) => ({ ...c, visual: undefined, diagram: undefined })) };
   assert.equal(lessonOpenerStyle(water, 0), "visual", "a lesson with a diagram should open visual at a visual slot");
   assert.equal(lessonOpenerStyle(plain, 0), "story", "a lesson with no visual falls back to the story opener");
   assert.equal(lessonOpenerStyle(plain, 1), "predict");
@@ -2684,8 +2687,8 @@ await test("the Player renders every second version kind and the character slot"
 
 await test("the home carries the journey, the bench, the bundle, ranks, and onboarding", () => {
   for (const needle of [
-    "Your journey", "NEXT STOP", "FADING", "REVIEW BENCH", "Start review",
-    "COURSES FROM YOUR SEARCHES", "YOUR RANK", "rankForXp(profile.xp)",
+    "Your journey", "Next stop: ", "FADING", "REVIEW BENCH", "Start review",
+    "COURSES FROM YOUR SEARCHES", "YOUR RANK", "rankForXp(profile ? profile.xp : 0)",
     "Mastery level", "topicMasteryLevel(topicPath, builtinProgress)",
     "function OnboardingFlow", "What are you curious about?", "How many minutes a day?",
     "Start your first lesson", "DAILY SESSION COMPLETE", "TOMORROW",
@@ -2961,7 +2964,7 @@ await test("export and import round trip keeps sparks and the reminder hour", ()
 
 await test("the home carries quests, the Sparks shop, reminders, leagues, share cards, and the third onboarding step", () => {
   for (const needle of [
-    "TODAY'S QUESTS", "SPARKS", "Buy a streak freeze · 50 Sparks", "Repair the missed day · 100 Sparks",
+    "SPARKS", "Buy a streak freeze · 50 Sparks", "Repair the missed day · 100 Sparks",
     // Pin moved 2026-10-14 (owner's copy ruling): the reminders
     // explanation was rewritten plainer; the surface is the same.
     "REMINDERS", "Pick an hour. When you come back at that hour", "LEAGUES",
@@ -3028,7 +3031,7 @@ await test("the wave 3 home carries its zones, its settings surface, and Nova's 
     // greeting was rewritten drier; see the lines library note.
     "NOVA'S SHELF", "Nothing on the shelf yet", "Back, then. Your reviews waited.",
     "Due for review", "Nova settings", "lv-band", "lv-status", "lv-cols",
-    'const CREAM = "#F5F0E8"', "Progress stays in this browser. Export to keep a copy.",
+    'const CREAM = "#FDF3D7"', "Progress stays in this browser. Export to keep a copy.",
     '<Icon name="bookOpen" size={26} />', "Start daily practice", "LAST_VISIT_KEY",
   ]) {
     assert.ok(learnSrc.includes(needle), `the wave 3 home is missing: ${needle}`);
@@ -3047,7 +3050,9 @@ await test("the wave 3 home carries its zones, its settings surface, and Nova's 
 
 await test("the share card draws the wave 3 layout: cream circle, gold glow, two pills, plain footer", () => {
   assert.ok(learnSrc.includes('ctx.fillStyle = "#0F0F0F"'), "share card ground is not the spec near black");
-  assert.ok(learnSrc.includes("rgba(196, 163, 90, 0.08)"), "share card lost its 8 percent gold glow");
+  /* 2026-10-18 (design audit M51): the share card glow was removed on
+     purpose; the pin now holds it gone. */
+  assert.ok(!learnSrc.includes("rgba(196, 163, 90, 0.08)"), "the share card gold glow is back");
   assert.ok(learnSrc.includes("Cerebrum · askcerebrum.org"), "share card footer is not the spec footer");
   assert.ok(!learnSrc.includes("ctx.strokeRect(36, 36"), "the old share card frame survived");
   assert.ok(!learnSrc.includes("Nova · askcerebrum.org"), "the old share card footer survived");
@@ -3064,7 +3069,9 @@ await test("the share card carries the Cerebrum lockup top left and a footer not
   assert.ok(learnSrc.includes("M9.5 2A2.5 2.5 0 0 1 12 4.5v15"), "the lockup brain is not the favicon geometry");
   assert.ok(learnSrc.includes("ctx.stroke(new Path2D(SHARE_CARD_BRAIN_L))"), "the lockup brain is not stroked");
   assert.ok(learnSrc.includes('ctx.fillText("Cerebrum", 110, 92)'), "the lockup name is not beside the mark");
-  assert.ok(learnSrc.includes('ctx.fillText("© 2026 Cerebrum", 56, 128)'), "the lockup copyright line is missing");
+  /* 2026-10-18 (design audit M51): the copyright line was dropped from
+     the card to untangle the vertical band; the pin holds it gone. */
+  assert.ok(!learnSrc.includes('ctx.fillText("© 2026 Cerebrum", 56, 128)'), "the share card copyright line is back");
   // The stack is budgeted: the title shrinks until title plus
   // subline plus pills end above STACK_LIMIT with every title
   // word drawn, stepping the whole block up for the longest
@@ -3154,7 +3161,7 @@ await test("the search built course asks the search for a medium answer, the val
 
 group("Home restructure: focused screens and the living Nova");
 
-await test("the home is six focused screens behind one tablist, and Today holds only its own sections", () => {
+await test("the home is four focused screens behind one tablist, and Today holds only its own sections", () => {
   // Home restructure wave (2026-10-14): the owner ruled the wave 3
   // home was still one endless scroll with info people would miss.
   // The home is now six screens behind a flat tablist; Today holds
@@ -3163,16 +3170,19 @@ await test("the home is six focused screens behind one tablist, and Today holds 
   for (const entry of [
     '{ id: "today", label: "Today" }', '{ id: "paths", label: "Paths" }',
     '{ id: "library", label: "Library" }', '{ id: "create", label: "Create" }',
-    '{ id: "shop", label: "Shop" }', '{ id: "leagues", label: "Leagues" }',
   ]) assert.ok(learnSrc.includes(entry), "HOME_TABS is missing " + entry);
   assert.ok(learnSrc.includes('role="tablist"'), "the home navigation is not a tablist");
   assert.ok(learnSrc.includes("aria-selected={active}"), "the tabs do not expose the selected screen");
   assert.ok(learnSrc.includes("onClick={() => setHomeTab(t.id)}"), "the tabs do not switch screens");
+  /* 2026-10-18 (design audit M47): Shop and Leagues left the tab bar,
+     so four screens are reachable. Their render blocks remain in the
+     file in order, unmounted, so the slices below still use all six
+     block markers while the tab entries above pin the four. */
   const markers = ["today", "shop", "leagues", "paths", "library", "create"].map((id) => learnSrc.indexOf(`homeTab === "${id}"`));
   assert.ok(markers.every((m) => m >= 0), "a home screen block is missing");
   assert.ok(markers.every((m, i) => i === 0 || m > markers[i - 1]), "the home screen blocks are out of order");
   const today = learnSrc.slice(markers[0], markers[1]);
-  for (const s of ["DAILY PRACTICE", "Due for review", "TODAY'S QUESTS", "NOVA'S SHELF"])
+  for (const s of ["DAILY PRACTICE", "Due for review", "NOVA'S SHELF"])
     assert.ok(today.includes(s), "the Today screen is missing " + s);
   for (const s of ["Your journey", "BUILD A COURSE", "Buy a streak freeze", "LEAGUES"])
     assert.ok(!today.includes(s), "the Today screen still stacks " + s);
@@ -3996,7 +4006,9 @@ await test("the egg is mounted once in the shell, still under quiet motion, and 
   assert.ok(!eggSrc.includes("NovaRig"), "the egg renders the retired rig");
   assert.ok(!eggSrc.includes("sepia(0.17)"), "the egg still carries the retired print grade");
   assert.ok(!eggSrc.includes("feTurbulence"), "the egg still carries the retired print grain");
-  assert.ok(eggSrc.includes("@keyframes neRoll"), "the swim's barrel roll is missing");
+  /* 2026-10-18 (design audit M49): the swim and its barrel roll were
+     retired on purpose; the pin now holds them gone. */
+  assert.ok(!eggSrc.includes("@keyframes neRoll"), "the swim barrel roll is back");
   assert.ok(eggSrc.includes("if (!visit) return null;"), "the egg does not unmount to zero cost when idle");
   assert.ok(!/Audio|playSound|speak\(/.test(eggSrc), "the egg makes noise; it should be silent by construction");
 });
@@ -4644,13 +4656,17 @@ await test("path pace is computed from the real curriculum, never authored", () 
   assert.equal(body.word, "Demanding", "the 235 question path should read Demanding");
   assert.equal(science.word, "Gentle", "the 24 question path should read Gentle");
   assert.ok(body.minutes > science.minutes * 5, "the long path's estimate should dwarf the short one's");
-  assert.ok(learnSrc.includes('"About " + pace.minutes + " min in all'), "the paths tab does not show the pace");
+  /* 2026-10-18 (design audit M46): the Paths tab is an index now and
+     carries no pace line; pace is pinned on the path view header
+     by the next assertion. */
   assert.ok(learnSrc.includes("about {pace.minutes} min · {pace.word}"), "the path view header does not show the pace");
 });
 
 await test("finished paths read as finished, and locked lessons name their key on the paths tab", () => {
   assert.ok(learnSrc.includes('"Finished · all " + pp.total + " lessons done'), "the path view still counts a finished path like an unfinished one");
-  assert.ok(learnSrc.includes('lesson.subtitle + " Opens when " + flat[myStop - 1].title + " is done."'), "a locked lesson on the paths tab does not say what unlocks it");
+  /* 2026-10-18 (design audit M46): locked lessons name their key in the
+     path detail view, in plain words. */
+  assert.ok(learnSrc.includes('"Finish the lesson before this one to unlock it"'), "a locked lesson in the path view does not say what unlocks it");
 });
 
 await test("the checkpoint intro states the real rules", () => {
