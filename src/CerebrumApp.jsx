@@ -18,6 +18,15 @@ function saveInvestigation(history, turns, allSources, now = Date.now()) {
   const entry = { ...previous, id: previous?.id || `h${firstId}`,
     title: previous?.title || String(turns[0].q || "Untitled investigation").slice(0, 140),
     ts: now, turns, allSources };
+  /* 2026-10-19 (audit H20): a template plan rides on the investigation
+     itself, and its checklist fills from the turns actually asked. The
+     done list is recomputed here, the one place every completed ask
+     passes through, so the persisted record can never claim a question
+     was asked when no turn carries it. */
+  if (previous?.templatePlan && Array.isArray(previous.templatePlan.questions)) {
+    entry.templatePlan = { ...previous.templatePlan,
+      doneQuestions: previous.templatePlan.questions.filter((q) => turns.some((t) => t && t.q === q)) };
+  }
   return [entry, ...entries.filter(item => item.turns?.[0]?.id !== firstId)].slice(0, 40);
 }
 /**
@@ -15739,7 +15748,7 @@ function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, heigh
   );
 }
 
-function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount, proStatus, onOpenPro, vaultMode, onGoSearch, onStartTemplate }) {
+function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount, proStatus, onOpenPro, vaultMode, onGoSearch, onGoInvestigations }) {
   const tabUid = useId().replace(/:/g, "");
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
@@ -15960,28 +15969,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
     (saved || []).length > 0 && { id: "library", n: (saved || []).length, label: (saved || []).length === 1 ? "Paper saved" : "Papers saved" },
     collectionCounts.length > 0 && { id: "collections", n: collectionCounts.length, label: collectionCounts.length === 1 ? "Collection" : "Collections" },
   ].filter(Boolean);
-  /* Investigations grouped by month for the diary view — "September 2026"
-     beats an undifferentiated scroll of bare dates. */
-  const monthGroups = [];
-  ledger.forEach((h) => {
-    const d = new Date(h.ts || 0);
-    const key = `${d.getFullYear()}-${d.getMonth()}`;
-    const label = d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-    let g = monthGroups.find((x) => x.key === key);
-    if (!g) { g = { key, label, items: [] }; monthGroups.push(g); }
-    g.items.push(h);
-  });
   const shelfName = (sv) => (collections || []).find((c) => c.id === sv.collectionId)?.name || "";
-
-  const fmtDate = (ts) => {
-    if (!ts) return "";
-    const d = new Date(ts);
-    const opts = { month: "short", day: "numeric" };
-    if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
-    return d.toLocaleDateString(undefined, opts);
-  };
-
-  const eyebrow = { fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" };
 
   // Membership rank for the identity-level membership row below: derived
   // the same way as the account menu and the Settings card, from
@@ -16269,52 +16257,25 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
         {tab === "investigations" && (
         <section aria-label="Investigations" style={{ marginTop: 6 }}>
-          {/* Pro investigation templates — pre-built research arcs. Pro
-              members start one in a tap; everyone else sees the PRO badge
-              and gets the upsell. */}
-          <TemplateGallery
-            P={P} accent={accent} at={at} isMobile={isMobile}
-            isPro={proStatus?.tier === "pro" || !!user?.isPro}
-            onStart={onStartTemplate} onOpenPro={onOpenPro}
-          />
+          {/* 2026-10-19 (audit M39, M40): the Profile tab is the record
+              only. The template gallery and the one list design both live
+              on the Investigations page; this tab links into that ledger
+              instead of restyling the same data as a month diary with no
+              status, rename, or delete. */}
           {ledger.length === 0 ? (
             <div style={{ marginTop: 18 }}>
               <WorkspaceEmpty P={P} accent={accent} icon="search"
                 title="No investigations yet"
-                body="Questions you ask are saved here as investigations, with their answers and the papers behind them. Ask a question from the search tab to start one."
+                body="Questions you ask are saved as investigations, with their answers and the papers behind them. Ask a question from the search tab to start one."
                 action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={onGoSearch}>Ask something</UIButton>}
                 isMobile={isMobile} />
             </div>
           ) : (
-            <div>
-              {monthGroups.map((g) => (
-                <div key={g.key}>
-                  <div style={{ ...eyebrow, margin: "22px 0 2px" }}>{g.label}</div>
-                  {g.items.map((h, i) => {
-                    const turns = (h.turns || []).length;
-                    const papers = (h.allSources || []).length;
-                    return (
-                      <button key={h.id || `${g.key}-${i}`} onClick={() => onOpenHistory(h)} className="cb-row" style={{
-                        display: "block", width: "100%", textAlign: "left", background: "transparent",
-                        border: "none", borderTop: i > 0 ? `1px solid ${P.line}` : "none",
-                        cursor: "pointer", padding: "12px 0",
-                      }}>
-                        <div style={{ display: "flex", gap: 14, alignItems: "baseline" }}>
-                          <span style={{ flexShrink: 0, width: isMobile ? 52 : 64, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                            {fmtDate(h.ts)}
-                          </span>
-                          <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, lineHeight: 1.45 }}>
-                            {tidyQuestionTitle(h.title)}
-                          </span>
-                          <span style={{ flexShrink: 0, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
-                            {turns} question{turns === 1 ? "" : "s"}{papers > 0 ? ` · ${papers} paper${papers === 1 ? "" : "s"}` : ""}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
+            <div style={{ marginTop: 18, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, padding: "16px 18px" }}>
+              <span style={{ flex: 1, minWidth: 200, fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.55 }}>
+                {ledger.length} investigation{ledger.length === 1 ? "" : "s"} on record. Status, rename, export, delete, and template checklists live in the investigations ledger.
+              </span>
+              <UIButton P={P} accent={accent} at={at} variant="primary" onClick={onGoInvestigations}>Open investigations</UIButton>
             </div>
           )}
         </section>
@@ -21412,7 +21373,7 @@ function App() {
       setSaved(serverSaved.map(({ id, createdAt, ...rest }) => (
         rest.savedAt ? rest : { ...rest, savedAt: createdAt }
       )));
-      setHistory(serverHist.map((h) => ({ id: h.id, title: h.title, ts: h.createdAt, turns: h.turns, allSources: h.allSources })));
+      setHistory(serverHist.map((h) => ({ id: h.id, title: h.title, ts: h.createdAt, turns: h.turns, allSources: h.allSources, templatePlan: h.templatePlan || null })));
       setSyncReady(true);
     } else if (checkImport && (saved.length > 0 || history.length > 0)) {
       // Brand-new account, and this browser already had guest-mode data —
@@ -21667,6 +21628,11 @@ function App() {
   // Declared up here (rather than down by newSession()) because the
   // scroll-lock effect below reads historyOpen in its dependency array.
   const [history, setHistory] = useState(() => { try { const v = JSON.parse(localStorage.getItem("cb_history") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } });
+  /* 2026-10-19 (audit H20): the template plan a start is waiting to
+     attach to the investigation its first question creates. Held in a
+     ref because ask() attaches it inside the history write, and cleared
+     the moment it lands or the session is abandoned. */
+  const pendingTemplatePlanRef = useRef(null);
   // v5: destructive-delete confirmation used to be inconsistent three ways —
   // Settings' "Clear all data" had a real inline confirm, Saved's "Clear
   // all" popped a jarring unstyled native browser confirm() (the only place
@@ -21908,7 +21874,9 @@ function App() {
     const { zkId, zkRev, savedId, ...rest } = s || {};
     return rest;
   };
-  const zkInvPayload = (h) => ({ title: h.title, ts: h.ts, turns: h.turns, allSources: h.allSources });
+  /* 2026-10-19 (audit H20): templatePlan rides in the vault payload so
+     the checklist survives the encrypted round trip as well. */
+  const zkInvPayload = (h) => ({ title: h.title, ts: h.ts, turns: h.turns, allSources: h.allSources, templatePlan: h.templatePlan || null });
   const zkColPayload = (c) => ({ name: c.name, createdAt: c.created_at || c.createdAt || Date.now() });
   const zkNextRev = (id) => {
     const n = (zkRevRef.current.get(id) || 0) + 1;
@@ -22935,6 +22903,17 @@ function App() {
       // stable identity immediately instead of waiting for the write-back.
       setHistory((previous) => {
         const next = saveInvestigation(previous, nextTurns, nextSources);
+        /* 2026-10-19 (audit H20): attach a pending template plan to the
+           investigation this ask just created, but only when the new
+           entry really is the template's thread (its first turn is the
+           template's first question) and it carries no plan yet. */
+        const pendingPlan = pendingTemplatePlanRef.current;
+        if (pendingPlan && next.length > 0 && !next[0].templatePlan
+          && next[0].turns && next[0].turns[0] && next[0].turns[0].q === pendingPlan.questions[0]) {
+          next[0] = { ...next[0], templatePlan: { ...pendingPlan,
+            doneQuestions: pendingPlan.questions.filter((q) => next[0].turns.some((t) => t && t.q === q)) } };
+          pendingTemplatePlanRef.current = null;
+        }
         if (vaultModeRef.current === "unlocked" && next.length > 0 && !next[0].zkId) {
           next[0] = { ...next[0], zkId: makeItemId("inv"), zkRev: 0 };
         }
@@ -23583,8 +23562,36 @@ function App() {
   function newSession() {
     if (!mutedRef.current) Sfx.click();
     investigationRequest.current += 1;
+    /* 2026-10-19 (audit H20): abandoning the session abandons a pending
+       template plan with it, so the plan can never land on a later,
+       unrelated investigation. */
+    pendingTemplatePlanRef.current = null;
     setBusy(false); setAskedThisSession(false);
     setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setCmdOpen(false); window.scrollTo({ top: 0, left: 0, behavior: "instant" }); setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 50);
+  }
+  /* 2026-10-19 (audit H20): the one template start path, shared by the
+     gallery on the Investigations page and any other mount. It records
+     the full question list as a pending plan, asks the first question,
+     and lets ask() attach the plan to the investigation that question
+     creates; the remaining questions stay visible as a checklist on
+     that investigation in the ledger. */
+  function startTemplateInvestigation(t, topic) {
+    // Template telemetry: fire-and-forget, never blocks the start.
+    try { apiProPost("template-track", { templateId: t.id }).catch(() => {}); } catch {}
+    const questions = templateQuestions(t, topic);
+    pendingTemplatePlanRef.current = {
+      templateId: t.id, templateTitle: t.title,
+      topic: String(topic || "").trim(), questions, doneQuestions: [],
+    };
+    setView("search");
+    ask(questions[0]);
+  }
+  /* Ask one pending checklist question inside its own investigation:
+     reopen the thread first, then ask through the stable ref once the
+     restored turns have rendered, the same pattern the deep link uses. */
+  function askTemplateQuestion(h, q) {
+    openHistoryItem(h);
+    setTimeout(() => { try { askRef.current?.(q); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx askTemplateQuestion:", cbErr); } }, 90);
   }
   function openHistoryItem(entry) {
     investigationRequest.current += 1;
@@ -23597,8 +23604,8 @@ function App() {
     setAllSources(entry.allSources || []);
     setPinnedSources([]); setCorrections([]); setError("");
     /* Pass 4: the investigations ledger shows "last opened". It is recorded
-       here — the single point every open flows through — and items that
-       predate it honestly show "n/a". */
+       here, the single point every open flows through, and items that
+       predate it leave the cell empty (2026-10-19, audit tail 22). */
     setHistory((prev) => prev.map((x) => x.id === entry.id ? { ...x, lastOpened: Date.now() } : x));
     setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, left: 0, behavior: "instant" }), 60);
   }
@@ -24702,11 +24709,7 @@ function App() {
             vaultMode={vaultMode}
             onOpenHistory={(h) => { openHistoryItem(h); setView("search"); }}
             onGoSearch={() => setView("search")}
-            onStartTemplate={(t, topic) => {
-              // Template telemetry: fire-and-forget, never blocks the start.
-              try { apiProPost("template-track", { templateId: t.id }).catch(() => {}); } catch {}
-              setView("search"); ask(templateQuestions(t, topic)[0]);
-            }}
+            onGoInvestigations={() => setView("investigations")}
             onManageAccount={() => { setSettingsInitialTab("account"); setView("settings"); }}
             proStatus={proStatus} onOpenPro={openPro}
           />
@@ -25158,6 +25161,15 @@ function App() {
               </>
             )}
           >
+            {/* 2026-10-19 (audit M39): the template gallery lives here,
+                on the Investigations page above the ledger, where the
+                work it starts is recorded. The Profile tab is the record
+                only and no longer carries a second copy. */}
+            <TemplateGallery
+              P={P} accent={accent} at={at} isMobile={isMobile}
+              isPro={proStatus?.tier === "pro" || !!user?.isPro}
+              onStart={startTemplateInvestigation} onOpenPro={openPro}
+            />
             {history.length === 0 ? (
               <WorkspaceEmpty P={P} accent={accent} icon="history"
                 title="No investigations yet"
@@ -25197,7 +25209,11 @@ function App() {
                       const qCount = (h.turns || []).length;
                       const pCount = (h.allSources || []).length;
                       const mCount = (h.turns || []).filter((t) => t && t.evidenceStructure).length;
-                      const accession = accessionById.get(h.id) || "n/a";
+                      /* 2026-10-19 (audit tail 22): no placeholder prose in
+                         the ledger. A missing accession leaves the cell
+                         empty rather than borrowing an identifier's
+                         authority with placeholder text. */
+                      const accession = accessionById.get(h.id) || "";
                       const invTitle = h.title || ((h.turns || [])[0] && (h.turns || [])[0].q) || "Untitled";
                       const statusTone = status === "Answered" ? accent : status === "Needs review" ? statusWarn(P) : P.faint;
                       return (
@@ -25263,11 +25279,50 @@ function App() {
                                       {h.allSources.length > 1 ? " · and " + (h.allSources.length - 1) + " more" : ""}
                                     </span>
                                   )}
+                                  {/* 2026-10-19 (audit H20): the template checklist.
+                                      Every question the template promised stays
+                                      on the investigation, marked done from the
+                                      turns actually asked, with an Ask control
+                                      on each question still pending. */}
+                                  {h.templatePlan && Array.isArray(h.templatePlan.questions) && h.templatePlan.questions.length > 0 && (() => {
+                                    const askedQs = new Set((h.turns || []).map((t) => t && t.q));
+                                    const doneQs = new Set([...(h.templatePlan.doneQuestions || []), ...askedQs]);
+                                    const doneCount = h.templatePlan.questions.filter((q) => doneQs.has(q)).length;
+                                    return (
+                                      <span style={{ display: "block", marginTop: 10, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "10px 12px", background: P.surface }}>
+                                        <span style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>
+                                          {h.templatePlan.templateTitle || "Template"} checklist · {doneCount} of {h.templatePlan.questions.length} asked
+                                        </span>
+                                        {h.templatePlan.topic && (
+                                          <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-font)" }}>Topic: {h.templatePlan.topic}</span>
+                                        )}
+                                        {h.templatePlan.questions.map((q, qi) => {
+                                          const done = doneQs.has(q);
+                                          return (
+                                            <span key={qi} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                                              <span aria-hidden="true" style={{ flexShrink: 0, width: 18, height: 18, display: "inline-flex", alignItems: "center", justifyContent: "center", border: `1px solid ${done ? accent : P.line2}`, borderRadius: RADIUS.sm, color: accent }}>
+                                                {done && <Icon name="check" size={12} />}
+                                              </span>
+                                              <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, color: done ? P.faint : P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.45, textDecoration: done ? "line-through" : "none" }}>{q}</span>
+                                              {done ? (
+                                                <span style={{ flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Asked</span>
+                                              ) : (
+                                                <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => askTemplateQuestion(h, q)} style={{ flexShrink: 0 }}>Ask</UIButton>
+                                              )}
+                                            </span>
+                                          );
+                                        })}
+                                        {doneCount === h.templatePlan.questions.length && (
+                                          <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8, fontFamily: "var(--cb-font)" }}>All template questions asked.</span>
+                                        )}
+                                      </span>
+                                    );
+                                  })()}
                                 </span>
                                 {!isMobile && (
                                   <>
                                     <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-                                      {h.ts ? new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "n/a"}
+                                      {h.ts ? new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : ""}
                                     </span>
                                     <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
                                       {qCount} Q · {pCount} papers · {mCount} map{mCount === 1 ? "" : "s"}
@@ -25276,7 +25331,7 @@ function App() {
                                       <span style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: statusTone, border: `1px solid ${withAlpha(statusTone, 0.45)}`, borderRadius: RADIUS.viewport, padding: "3px 12px", fontFamily: "var(--cb-font)", lineHeight: 1.4, whiteSpace: "nowrap" }}>{status}</span>
                                     </span>
                                     <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-                                      {h.lastOpened ? new Date(h.lastOpened).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "n/a"}
+                                      {h.lastOpened ? new Date(h.lastOpened).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : ""}
                                     </span>
                                   </>
                                 )}
@@ -25297,9 +25352,13 @@ function App() {
                                       {historyMenuId === h.id && (
                                         <div style={{
                                           position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: Z.sticky,
-                                          background: P.dark ? "#14161c" : "#fff",
-                                          border: `1px solid ${P.line}`, borderRadius: RADIUS.lg,
-                                          boxShadow: "none", minWidth: 140,
+                                          /* 2026-10-19 (audit tail 23): the row menu
+                                             fills from the palette surface with the
+                                             palette border and the plan shadow only,
+                                             never a hardcoded dark flag hex. */
+                                          background: P.surface,
+                                          border: `1px solid ${P.line2}`, borderRadius: RADIUS.lg,
+                                          boxShadow: SHADOW.xl(P), minWidth: 140,
                                           overflow: "hidden",
                                         }}>
                                           {[
