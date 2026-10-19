@@ -8,10 +8,12 @@ const {renderToStaticMarkup} = require('react-dom/server');
 const source = fs.readFileSync('src/CerebrumApp.jsx','utf8');
 const dsSource = fs.readFileSync('src/designSystem.jsx','utf8');
 const fcSource = fs.readFileSync('src/flowcharts.jsx','utf8');
+const tuSource = fs.readFileSync('src/textUtils.js','utf8');
 const ast = parse(source,{sourceType:'module',plugins:['jsx']});
 const dsAst = parse(dsSource,{sourceType:'module',plugins:['jsx']});
 const fcAst = parse(fcSource,{sourceType:'module',plugins:['jsx']});
-const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks','MediaFigure','TrendThumb'];
+const tuAst = parse(tuSource,{sourceType:'module',plugins:['jsx']});
+const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks','MediaFigure','TrendThumb',/* 2026-10-19 (S2, audit C3): CitationPeek renders its title through the shared inline renderer now, so the harness extracts the real chain */'renderTitleInline','renderInlineNodes','inlineTokens','speciesRuns','renderCleanTitle'];
 const dsNames = ['UIButton','UICard'];
 const functions = ast.program.body.filter(n=>n.type==='FunctionDeclaration' && names.includes(n.id.name));
 const dsFunctions = dsAst.program.body
@@ -20,8 +22,11 @@ const dsFunctions = dsAst.program.body
 const fcFunctions = fcAst.program.body
   .map(n=>n.type==='ExportNamedDeclaration' ? n.declaration : n)
   .filter(n=>n && n.type==='FunctionDeclaration' && n.id.name==='Dialog');
-assert.equal(functions.length + dsFunctions.length + fcFunctions.length,18);
-const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
+const tuDecls = tuAst.program.body
+  .map(n=>n.type==='ExportNamedDeclaration' ? n.declaration : n)
+  .filter(n=>n && ((n.type==='FunctionDeclaration' && (n.id.name==='renderCleanTitle' || n.id.name==='highlightKeywords')) || (n.type==='VariableDeclaration' && n.declarations.some(d=>d.id.name==='TITLE_SAFE_TAG_RE'))));
+assert.equal(functions.length + dsFunctions.length + fcFunctions.length + tuDecls.length,25);
+const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n')+'\n'+tuDecls.map(n=>tuSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
 const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none',xl:()=>'none'} /* 2026-10-18: Dialog calls SHADOW.xl (design audit C5) */,STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c,
 /* 2026-10-14, design overhaul wave 1: UIButton and UICard now close over
    the COLOR foundation tokens, so the sandbox carries the real values. */

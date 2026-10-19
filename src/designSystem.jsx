@@ -81,6 +81,9 @@ export const PRO = {
   identity: "#d4a437",
   action: "#34d399",
   actionInk: "#06281c",
+  // The action emerald darkened for light grounds (text links), where
+  // the fill value cannot hold contrast (2026-10-19 landing, M58).
+  actionOnLight: "#047857",
   emerald: "#34d399",
   emeraldInk: "#06281c",
 };

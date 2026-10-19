@@ -261,7 +261,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
         desc={`${used} of ${cap} used · ${fmtRefill(refillMs)}`}
         control={
           <div style={{ width: 92, height: 5, borderRadius: RADIUS.viewport, background: P.raised, overflow: "hidden", flexShrink: 0 }} role="progressbar" aria-valuenow={used} aria-valuemax={cap} aria-label={`${label} usage`}>
-            <div style={{ width: `${pct}%`, height: "100%", borderRadius: RADIUS.viewport, background: pct >= 100 ? STATUS.bad : "#d4a437", transition: "width 300ms ease" }} />
+            <div style={{ width: `${pct}%`, height: "100%", borderRadius: RADIUS.viewport, background: accent, transition: "width 300ms ease" }} />
           </div>
         }
         last={last}
@@ -2660,7 +2660,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               {!(user && user.isPro) && (
                 <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 }}>
                   <ProBadge />
-                  <span>Members also get four Pro themes and deeper search. <button onClick={onOpenPro} style={{ background: "none", border: "none", padding: 0, color: P.dark ? "#34d399" : "#047857", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline" }}>see plans</button></span>
+                  <span>Members also get four Pro themes and deeper search. <button onClick={onOpenPro} style={{ background: "none", border: "none", padding: 0, color: P.dark ? PRO.action : PRO.actionOnLight, fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline" }}>see plans</button></span>
                 </div>
               )}
             </Section>

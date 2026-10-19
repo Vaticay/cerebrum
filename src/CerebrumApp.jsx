@@ -6847,7 +6847,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
   return (
     <Dialog label="Cerebrum Pro" onClose={onClose} zIndex={Z.dialog} width={640}
       panelStyle={{
-        background: P.dark ? "#0f111a" : "#ffffff",
+        background: P.surface,
         border: `1px solid ${P.line}`,
         borderRadius: RADIUS.lg, maxHeight: "90dvh", overflowY: "auto",
         padding: "28px", outline: "none", fontFamily: "var(--cb-font)",
@@ -6935,7 +6935,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                   <span style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
                     <span style={{
                       width: 18, height: 18, borderRadius: "50%", flexShrink: 0,
-                      border: plan === opt.id ? "5px solid #34d399" : `2px solid ${P.line2}`,
+                      border: plan === opt.id ? `5px solid ${PRO.action}` : `2px solid ${P.line2}`,
                       transition: "border 150ms ease",
                     }} />
                     <span>
@@ -7231,8 +7231,8 @@ function ReportModal({ query, P, accent, at, onClose, answer = "", sources = [] 
   return (
     <Dialog label="Report data issue" onClose={onClose} zIndex={Z.dialog} width={440}
       panelStyle={{
-        background: P.dark ? "#0f111a" : "#ffffff",
-        border: `1px solid ${P.line}`,
+        background: P.surface,
+        border: `1px solid ${P.line2}`,
         borderRadius: RADIUS.md, padding: "28px", outline: "none", fontFamily: "var(--cb-font)",
         boxShadow: "none",
       }}
@@ -9370,7 +9370,7 @@ function EvidenceVideoModal({ P, accent, video, close }) {
   return (
     <Dialog label={video.title || "Video"} onClose={close} zIndex={Z.dialogMedia} width={880}
       panelStyle={{
-        background: P.dark ? "#0f111a" : "#ffffff",
+        background: P.surface,
         border: `1px solid ${P.line}`,
         borderRadius: RADIUS.lg, display: "flex", flexDirection: "column",
         boxShadow: "none", overflow: "hidden", outline: "none",
@@ -12118,7 +12118,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
   return (
     <Dialog label={(item.title || "Article").replace(/\*/g, "")} onClose={close} zIndex={Z.dialogMedia} width={640}
       panelStyle={{
-        background: P.dark ? "#0f111a" : "#ffffff",
+        background: P.surface,
         border: `1px solid ${P.line}`,
         borderRadius: RADIUS.lg, maxHeight: "88dvh", display: "flex", flexDirection: "column",
         boxShadow: "none", overflow: "hidden", outline: "none",
@@ -12526,7 +12526,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
         {showUpgrade && (
           <UIButton P={P} variant="ghost" onClick={() => onOpenPro(upgradePlan)} style={{
             marginTop: 10, minHeight: 44, padding: "12px 24px", borderRadius: RADIUS.sm,
-            border: state === "empty" ? "none" : `1px solid ${withAlpha("#d4a437", 0.55)}`,
+            border: state === "empty" ? "none" : `1px solid ${withAlpha(PRO.identity, 0.55)}`,
             background: state === "empty" ? accent : "transparent",
             color: state === "empty" ? at : P.ink,
             fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer",
@@ -12555,7 +12555,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
        Student plan, which gates checkout on college email verification. */
     const proLike = id === "pro" || id === "student";
     return (
-      <UIButton P={P} variant="ghost" onClick={() => onOpenPro(id === "lite" ? "lite-monthly" : id === "student" ? "student" : undefined)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: proLike ? "#d4a437" : "transparent", color: proLike ? "#1a1405" : P.ink, border: proLike ? "none" : `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+      <UIButton P={P} variant="ghost" onClick={() => onOpenPro(id === "lite" ? "lite-monthly" : id === "student" ? "student" : undefined)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: proLike ? PRO.action : "transparent", color: proLike ? PRO.actionInk : P.ink, border: proLike ? "none" : `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
         {id === "lite" ? "Get Lite" : id === "pro" ? "Go Pro" : id === "student" ? "Get Student" : "Switch to Free"}
       </UIButton>
     );
@@ -12573,7 +12573,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
           <NovaLive size={66} />
         </span>
         <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</h1>
-        <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.label, fontWeight: 500, color: isPro ? "#d4a437" : P.ink2, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.label, fontWeight: 500, color: isPro ? PRO.identity : P.ink2, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 8 }}>
           {isPro && <ProBadge />}
           {isPro ? "Pro" : isLite ? "Pro Lite" : "Free"}
         </span>
@@ -14041,7 +14041,7 @@ function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
           ? { top: 12, left: 12, right: 12 }
           : { bottom: 24, right: 24, width: 340 }),
         padding: 20, borderRadius: RADIUS.lg,
-        background: P.dark ? "#121318" : "#ffffff",
+        background: P.surface,
         border: `1px solid ${P.line2}`,
         boxShadow: "none",
       }}
@@ -16723,7 +16723,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
   return (
     <Dialog label="Find researchers" onClose={close} zIndex={Z.dialogBase} width={440}
       panelStyle={{
-        background: P.dark ? "#0f111a" : "#ffffff",
+        background: P.surface,
         border: `1px solid ${P.line}`,
         borderRadius: RADIUS.lg, maxHeight: "80dvh", display: "flex", flexDirection: "column",
         boxShadow: "none", overflow: "hidden", outline: "none",
@@ -20375,7 +20375,7 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
           width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
           display: "inline-flex", alignItems: "center", justifyContent: "center",
           fontSize: 20, fontWeight: 500, fontFamily: "var(--cb-font)",
-          boxShadow: rank === "pro" ? "0 0 0 2px #d4a437" : `0 0 0 1px ${P.line}`,
+          boxShadow: rank === "pro" ? `0 0 0 2px ${PRO.identity}` : `0 0 0 1px ${P.line}`,
           ...avatarSkin(user?.email || user?.id || "cerebrum"),
         }}>{(user?.email || "?")[0].toUpperCase()}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -25711,7 +25711,7 @@ function App() {
       )}
       {started && isMobile && mobilePanel && (
         <Dialog label="Sources" onClose={() => setMobilePanel(false)} zIndex={Z.drawer} drawer={true}
-          panelStyle={{ width: "min(400px, 88vw)", background: P.dark ? "#0f111a" : "#ffffff", border: `1px solid ${P.line}`, padding: "24px", boxShadow: "none" }}
+          panelStyle={{ width: "min(400px, 88vw)", background: P.surface, border: `1px solid ${P.line}`, padding: "24px", boxShadow: "none" }}
         >
           <button style={{ ...S.ghostBtn, marginBottom: 14, display: "inline-flex", alignItems: "center", gap: 6 }} onClick={() => setMobilePanel(false)}><Icon name="close" size={13} /> Close</button>{SourcesInner}
         </Dialog>
