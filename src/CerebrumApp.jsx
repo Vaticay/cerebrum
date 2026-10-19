@@ -18451,16 +18451,16 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </div>
               </nav>
             )}
+            {/* Reading voice (2026-10-19, H16): the body below sets in
+                TYPE.reading (Source Serif 4) at the plan body size with
+                1.55 leading, and its section headings take the section
+                role at weight 500. This is the longest reading surface
+                in the product; it reads in the reading face, not the
+                interface face. */}
             <div ref={readBodyRef} onMouseUp={onReadSelect} onTouchEnd={onReadSelect}
               onKeyUp={(e) => { if (e.shiftKey) onReadSelect(); }}
               className="cb-doc-reader"
-              /* Reading voice (2026-10-19, H16): the body sets in
-                 TYPE.reading (Source Serif 4) at the plan body size
-                 with 1.55 leading, and section headings take the
-                 section role at weight 500. This is the longest
-                 reading surface in the product; it reads in the
-                 reading face, not the interface face.
-                 Containment: min-width 0 + width 100% keep it inside its
+              /* Containment: min-width 0 + width 100% keep it inside its
                  column; overflow-wrap breaks long tokens; pre-wrap keeps
                  the document's line breaks. Segments partition the text
                  exactly, so selection offsets still map 1:1 to highlight
