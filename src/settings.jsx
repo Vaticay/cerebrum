@@ -135,7 +135,21 @@ function PasskeyPanel({ P, accent, at, Section, Row, sfx, onRegisterPasskey }) {
     }
   };
 
-  if (!supported) return null;
+  /* 2026-10-19 (S7b, tail 33): a browser without WebAuthn gets the
+     section with a disabled row and the reason, not a vanished panel. */
+  if (!supported) {
+    return (
+      <Section title="Passkeys" footer="A passkey signs you in with one tap. No codes, no email round trip.">
+        <Row label="Passkeys are not available here"
+          desc="This browser does not support passkeys on this device, so sign in with an email code instead."
+          control={
+            <button disabled style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "none", border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, color: P.faint, cursor: "default", opacity: 0.6, fontFamily: "var(--cb-font)" }}>
+              Not available
+            </button>
+          } last />
+      </Section>
+    );
+  }
   return (
     <Section title="Passkeys" footer="A passkey signs you in with one tap. No codes, no email round trip.">
       {creds === null ? (
@@ -537,9 +551,9 @@ function RestorePhrasePanel({ P, accent, backups, restoreDeviceId, setRestoreDev
             ariaLabel="Which device's backup is this for" style={{ width: "100%", fontSize: 16 }} />
         </div>
       )}
-      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Your 24-word recovery phrase</div>
+      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, marginBottom: 6, fontFamily: "var(--cb-font)" }}>Your 24 word recovery phrase</div>
       <textarea
-        aria-label="Your 24-word recovery phrase"
+        aria-label="Your 24 word recovery phrase"
         value={restorePhrase}
         onChange={(e) => setRestorePhrase(e.target.value)}
         rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
@@ -558,7 +572,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
   const [loading, setLoading] = useState(true);
   const [setUp, setSetUp] = useState(false);
   const [deviceId, setDeviceId] = useState(null);
-  const [phrase, setPhrase] = useState(null);           // 24-word string while visible
+  const [phrase, setPhrase] = useState(null);           // 24 word string while visible
   const [phraseMode, setPhraseMode] = useState(null);   // "setup" | "revealed" | null
   const [challenges, setChallenges] = useState([]);      // [{ index, typed }]
   const [challengeOn, setChallengeOn] = useState(false);
@@ -859,7 +873,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
         />
         <Row
           label="Restore from recovery phrase"
-          desc="Already set up encrypted messaging on another device? Bring this device in with your 24-word phrase."
+          desc="Already set up encrypted messaging on another device? Bring this device in with your 24 word phrase."
           control={<UIButton P={P} variant="ghost" onClick={openRestore} style={{ ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 }}>{showRestore ? "Close" : "Restore"}</UIButton>}
           last={!showRestore}
         />
@@ -1006,7 +1020,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
     // alias routes e2ee/recovery.js through the lazy facade): a bare call
     // returns a Promise, which is always truthy, silently bypassing this
     // validation. Await it.
-    if (!(await isValidRecoveryPhrase(typed))) { toast("That doesn't look like a valid 24-word recovery phrase.", { tone: "error" }); return; }
+    if (!(await isValidRecoveryPhrase(typed))) { toast("That doesn't look like a valid 24 word recovery phrase.", { tone: "error" }); return; }
     // The typed phrase must be THIS device's phrase: enabling under any
     // other phrase would lock the vault to a key this device doesn't hold.
     if (normalizePhrase(typed) !== normalizePhrase(devicePhrase)) { toast("That doesn't match the recovery phrase on this device.", { tone: "error" }); return; }
@@ -1199,7 +1213,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
     const typed = unlockPhrase.trim();
     // Awaited: isValidRecoveryPhrase is async in the production bundle
     // (lazy facade via the vite alias); a bare call is always truthy.
-    if (!(await isValidRecoveryPhrase(typed))) { toast("That doesn't look like a valid 24-word recovery phrase.", { tone: "error" }); return; }
+    if (!(await isValidRecoveryPhrase(typed))) { toast("That doesn't look like a valid 24 word recovery phrase.", { tone: "error" }); return; }
     setBusy("unlock");
     try {
       sfx();
@@ -1373,12 +1387,12 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         )}
         {enableStep === "phrase" && (
           <div style={noteBox}>
-            <div style={fieldLabel}>Type your 24-word recovery phrase</div>
+            <div style={fieldLabel}>Type your 24 word recovery phrase</div>
             <div style={{ ...warnLine, marginBottom: 10 }}>
               <span>This proves the phrase is really yours, and it's the phrase your vault will be locked with. It never leaves this device.</span>
             </div>
             <textarea
-              aria-label="Type your 24-word recovery phrase"
+              aria-label="Type your 24 word recovery phrase"
               value={typedPhrase}
               onChange={(e) => setTypedPhrase(e.target.value)}
               rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
@@ -1416,15 +1430,15 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         )}
         <Row
           label="Unlock with recovery phrase"
-          desc="Type your 24-word recovery phrase to unlock the vault on this device and resume syncing."
+          desc="Type your 24 word recovery phrase to unlock the vault on this device and resume syncing."
           control={<UIButton P={P} variant="ghost" onClick={() => { sfx(); setShowUnlock((v) => !v); }} style={ghostBtn}>{showUnlock ? "Close" : "Unlock"}</UIButton>}
           last={!showUnlock}
         />
         {showUnlock && (
           <div style={noteBox}>
-            <div style={fieldLabel}>Your 24-word recovery phrase</div>
+            <div style={fieldLabel}>Your 24 word recovery phrase</div>
             <textarea
-              aria-label="Your 24-word recovery phrase"
+              aria-label="Your 24 word recovery phrase"
               value={unlockPhrase}
               onChange={(e) => setUnlockPhrase(e.target.value)}
               rows={3} autoComplete="off" autoCapitalize="off" spellCheck={false}
@@ -1445,7 +1459,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         />
         <Row
           label="Rotate vault key"
-          desc="Generates a fresh key and re-encrypts everything. Do this if you think a device was compromised. The old key stops working immediately."
+          desc="Creates a fresh key and encrypts everything again. Do this if you think a device was compromised. The old key stops working immediately."
           control={<button onClick={doRotate} disabled={busy === "rotate"} style={pillBtn}>{busy === "rotate" ? "Rotating…" : "Rotate"}</button>}
           last={!purgeNeeded && !disableStep}
         />
@@ -1711,7 +1725,7 @@ function SystemStatus({ P, accent }) {
         marginTop: 14, padding: "8px 16px", borderRadius: RADIUS.viewport, cursor: "pointer",
         background: "transparent", border: `1px solid ${P.line2}`, color: P.ink2,
         fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
-      }}>Re-check</UIButton>
+      }}>Check again</UIButton>
     </div>
   );
 }
@@ -1787,7 +1801,7 @@ function ConfigStatus({ P, accent }) {
           border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, background: withAlpha(STATUS.bad, 0.08),
           fontSize: FONT_SIZES.caption, color: P.ink, lineHeight: 1.6, fontFamily: "var(--cb-font)",
         }}>
-          <strong>{padded.map((v) => v.name).join(", ")}</strong> {padded.length === 1 ? "has" : "have"} a space or newline around the value. That is invisible in the Cloudflare dashboard and will fail every request. Re-paste without the trailing character.
+          <strong>{padded.map((v) => v.name).join(", ")}</strong> {padded.length === 1 ? "has" : "have"} a space or newline around the value. That is invisible in the Cloudflare dashboard and will fail every request. Paste it again without the trailing character.
         </div>
       )}
 
@@ -1830,7 +1844,7 @@ function ConfigStatus({ P, accent }) {
         alignSelf: "flex-start", background: "none", border: `1px solid ${P.line2}`,
         color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)",
         padding: "6px 16px", borderRadius: RADIUS.pill,
-      }}>Re-check</button>
+      }}>Check again</button>
     </div>
   );
 }
@@ -1843,6 +1857,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // whole list down and broke the one-row-one-action anatomy). They are
   // real Dialog sheets now, opened from quiet label rows.
   const [clearOpen, setClearOpen] = useState(false);
+  const [clearHistoryOpen, setClearHistoryOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   // Commit 67
@@ -2576,7 +2591,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             {/* Wave 3 — how an answer is spoken is part of what an answer
                 is, so the voice and key pickers live here. Auto-read (the
                 when) lives under Sound & motion. */}
-            <Section title="Read aloud" footer="The built-in voice is free and needs no setup. Answers are read aloud on this device using your browser's voice.">
+            <Section title="Read aloud" footer="The voice that comes with your browser is free and needs no setup. Answers are read aloud on this device using your browser's voice.">
               <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
             </Section>
 
@@ -2713,7 +2728,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               title="Desktop notifications"
               footer={
                 notifPerm === "unsupported" ? "This browser doesn't support desktop notifications."
-                : notifPerm === "denied" ? "Your browser is blocking notifications for this site. Re-allow them in the padlock menu in the address bar: Cerebrum can't undo that from here."
+                : notifPerm === "denied" ? "Your browser is blocking notifications for this site. Allow them again in the padlock menu in the address bar: Cerebrum can't undo that from here."
                 : notifPerm === "granted" ? (pushState === "on"
                     ? "Background notifications are on: calls and messages reach you even with Cerebrum closed."
                     : "Cerebrum only notifies you while this tab is in the background. Enable background notifications below to be reached with the tab closed.")
@@ -2788,7 +2803,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
             <Section
               title="What to notify me about"
-              footer="These are per-browser, like every other preference here. Turning one off stops the notification only. The call still rings in the app, the message still arrives in your Inbox, and the papers still appear on your watchlist."
+              footer="These live in this browser, like every other preference here. Turning one off stops the notification only. The call still rings in the app, the message still arrives in your Inbox, and the papers still appear on your watchlist."
             >
               <Row label="Incoming calls" desc="Someone is calling you right now" control={
                 <Switch on={notify.call} onChange={(v) => setNotifyKind("call", v)} label="Notify me about incoming calls" />
@@ -2874,7 +2889,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             </Section>
 
             <Section title="Auto read" footer="Voice selection is on the Answers tab.">
-              <Row label="Auto read answers" desc="Reads new answers aloud automatically" control={<Switch on={autoplay} onChange={(v) => { sfx(); setAutoplay(v); }} label="Auto-read" />} last />
+              <Row label="Auto read answers" desc="Reads new answers aloud automatically" control={<Switch on={autoplay} onChange={(v) => { sfx(); setAutoplay(v); }} label="Auto read" />} last />
             </Section>
           </>)}
 
@@ -2890,7 +2905,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} last={(history || []).length === 0} />
               {(history || []).length > 0 && (
                 <Row label="Clear conversation history" destructive control={
-                  <button onClick={() => { if (window.confirm("Clear your conversation history? This can't be undone.")) { setHistory([]); sfx(); } }} style={{ padding: "6px 16px", minHeight: 44, fontSize: FONT_SIZES.label, color: statusBad(P, paletteName), background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-font)" }}>Clear</button>
+                  <button onClick={() => setClearHistoryOpen(true)} style={{ padding: "6px 16px", minHeight: 44, fontSize: FONT_SIZES.label, color: statusBad(P, paletteName), background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-font)" }}>Clear</button>
                 } last />
               )}
             </Section>
@@ -3080,6 +3095,20 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
             <UIButton P={P} variant="ghost" onClick={() => setClearOpen(false)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my data</UIButton>
             <UIButton P={P} variant="ghost" onClick={() => { setSessions([]); setSaved([]); setHistory([]); setClearOpen(false); sfx(); }} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: "#d13438", color: "#fff", border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Clear everything</UIButton>
+          </div>
+        </Dialog>
+      )}
+      {clearHistoryOpen && (
+        <Dialog label="Clear conversation history" onClose={() => setClearHistoryOpen(false)} zIndex={240}>
+          <p style={{ fontSize: FONT_SIZES.body, fontWeight: 400, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
+            Clear your conversation history, in this browser and in your account's synced copy.
+          </p>
+          <p style={{ fontSize: FONT_SIZES.small, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+            Your saved articles, preferences, watched topics, collections, and documents are kept. This can't be undone.
+          </p>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
+            <UIButton P={P} variant="ghost" onClick={() => setClearHistoryOpen(false)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my history</UIButton>
+            <UIButton P={P} variant="ghost" onClick={() => { setHistory([]); setClearHistoryOpen(false); sfx(); }} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500, background: "#d13438", color: "#fff", border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Clear history</UIButton>
           </div>
         </Dialog>
       )}

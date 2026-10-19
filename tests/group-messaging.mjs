@@ -104,7 +104,10 @@ await test("group modal searches people", async () => {
 });
 
 await test("group modal warns about no E2EE", async () => {
-  srcHas(uiSrc, "Group messages aren't end-to-end encrypted yet", "E2EE disclaimer");
+  // Pin updated 2026-10-19 (S7b, item 11): the disclaimer copy lost its
+  // hyphenated compound under the no dashes rule; the sentence is the
+  // same claim in unhyphenated form.
+  srcHas(uiSrc, "Group messages aren't encrypted end to end yet", "E2EE disclaimer");
 });
 
 // ── Frontend: group thread rendering ────────────────────────────────────
@@ -234,13 +237,16 @@ await test("group info panel lists members with remove buttons", async () => {
 });
 
 await test("group info panel has Add people search", async () => {
-  srcHas(uiSrc, "ADD PEOPLE", "add people section");
+  // Pin updated 2026-10-19 (S7b, tail 31): group modal section labels
+  // are sentence case at label size now, matching the Settings section
+  // header, so the pins name the new label text.
+  srcHas(uiSrc, "Add people", "add people section");
   srcHas(uiSrc, "addGroupMembers", "add handler");
 });
 
 await test("group info panel has rename field", async () => {
   srcHas(uiSrc, "renameGroup", "rename handler");
-  srcHas(uiSrc, "GROUP NAME", "rename section");
+  srcHas(uiSrc, "Group name", "rename section");
 });
 
 await test("group info panel has leave button", async () => {
@@ -250,7 +256,8 @@ await test("group info panel has leave button", async () => {
 
 await test("group info panel keeps the honest disclaimer", async () => {
   srcHas(uiSrc, "There are no admins: any member can rename the group or remove people", "no-admins honesty line");
-  srcHas(uiSrc, "Group messages aren't end-to-end encrypted yet", "plaintext disclaimer in panel");
+  // Pin updated 2026-10-19 (S7b, item 11): unhyphenated disclaimer copy.
+  srcHas(uiSrc, "Group messages aren't encrypted end to end yet", "plaintext disclaimer in panel");
 });
 
 await test("thread list and header refresh after roster changes", async () => {
