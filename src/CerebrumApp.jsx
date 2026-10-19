@@ -1682,7 +1682,7 @@ function DeckBtn({ children, onClick, accent, at, P, primary = false, title }) {
    wall of grey locked badges is not. Every number is a row count from
    the database — see resource "milestones" in functions/api/data.js. */
 
-function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "", flush = false, suppressContinue = false }) {
+function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "", flush = false, suppressContinue = false, stageDeck = false }) {
   const deckRef = useGsapReveal([user ? user.id : "anon", history.length, saved.length], {
     y: 14, stagger: 0.06, duration: 0.85, descend: false,
   });
@@ -1757,7 +1757,11 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
             letterSpacing: TYPE.display.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)",
             display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
           }}>
-            {lastQ
+            {/* On the stage the greeting never leads with Continue
+                (2026-10-19, S7 shell lane, audit M12): the stage already
+                quotes the last question in full in its Continue row, so
+                the deck falls back to the plain greeting and date. */}
+            {lastQ && !stageDeck
               ? <>Continue <span style={{ color: accent }}>&ldquo;{shortSubject(lastQ)}&rdquo;</span></>
               : <>{greeting()}{greetingName ? <>, <span style={{ color: accent }}>{greetingName}</span></> : null}</>}
           </h2>
@@ -1766,7 +1770,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
             fontFamily: "var(--cb-font)", display: "flex", flexWrap: "wrap",
             alignItems: "center", gap: 8,
           }}>
-            {lastQ && <><span>{greeting()}{greetingName ? ", " + greetingName : ""}</span><span aria-hidden="true" style={{ opacity: 0.4 }}>·</span></>}
+            {lastQ && !stageDeck && <><span>{greeting()}{greetingName ? ", " + greetingName : ""}</span><span aria-hidden="true" style={{ opacity: 0.4 }}>·</span></>}
             <span>{todayLabel()}</span>
           </p>
         </div>
@@ -2438,8 +2442,8 @@ function SignalComposer({
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
-    let lineH = 25.5;
-    try { lineH = parseFloat(getComputedStyle(el).lineHeight) || 25.5; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx autosize lineHeight:", cbErr); }
+    let lineH = 23.25;
+    try { lineH = parseFloat(getComputedStyle(el).lineHeight) || 23.25; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx autosize lineHeight:", cbErr); }
     const max = lineH * 6 + 26;
     el.style.height = Math.min(el.scrollHeight, max) + "px";
     el.style.overflowY = el.scrollHeight > max + 1 ? "auto" : "hidden";
@@ -24303,7 +24307,7 @@ function App() {
             <Reveal style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 40px" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               <div style={{
-                width: "100%", maxWidth: LAYOUT.answer, padding: isMobile ? "0 20px" : "0 24px",
+                width: "100%", maxWidth: LAYOUT.answer, padding: isMobile ? "0" : "0 24px",
                 "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
                 "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
               }}>
@@ -24414,21 +24418,18 @@ function App() {
 
                   {/* Example questions: three full sentence
                       questions as a plain ruled list under a plain
-                      label. First timers run the search at a tap,
-                      as before; returning visitors fill the
-                      composer to edit first, as before. Hidden
-                      while typing. */}
+                      label. One behavior for everyone since
+                      2026-10-19 (audit tail 10): a tap fills the
+                      composer so the question can be edited before
+                      it runs. Hidden while typing. */}
                   {!input.trim() && stageInquiries.length > 0 && (
                     <div style={{ marginTop: 34 }}>
                       <div style={{ fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, color: P.faint }}>Try asking</div>
                       <div style={{ marginTop: 6 }}>
                         {stageInquiries.map((ex) => (
                           <button key={ex.q} type="button" className="cb-stage-inq"
-                            onClick={() => {
-                              if (!deckHasContent) { ask(ex.q); }
-                              else { setInput(ex.q); setTimeout(() => inputRef.current?.focus(), 30); }
-                            }}
-                            title={!deckHasContent ? `Search: ${ex.q}` : `Ask: ${ex.q}`}
+                            onClick={() => { setInput(ex.q); setTimeout(() => inputRef.current?.focus(), 30); }}
+                            title={`Ask: ${ex.q}`}
                             style={{
                               display: "flex", alignItems: "baseline", gap: 14,
                               width: "100%", textAlign: "left", background: "none",
@@ -24447,18 +24448,54 @@ function App() {
                     </div>
                   )}
 
+                  {/* Trending, one quiet row (2026-10-19, S7 shell lane,
+                      audit tail 11): the home names the Trending view
+                      once, under Try asking, in the same ruled list
+                      language, and sends you there. It carries no feed
+                      of its own. */}
+                  {!input.trim() && (
+                    <div style={{ marginTop: 26 }}>
+                      <button type="button" className="cb-stage-inq"
+                        onClick={() => setView("trending")}
+                        style={{
+                          display: "flex", alignItems: "baseline", gap: 14,
+                          width: "100%", textAlign: "left", background: "none",
+                          border: "none", borderTop: `1px solid ${P.line}`,
+                          padding: "13px 0", cursor: "pointer",
+                        }}>
+                        <span style={{ fontFamily: "var(--cb-font)", flex: 1, fontSize: 13, lineHeight: 1.55, color: P.ink2 }}>
+                          Trending in research, updated through the day
+                        </span>
+                        <span aria-hidden="true" style={{ color: accent, fontSize: 14 }}>&#8594;</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Signed out visitors get one plain line with an
+                      action (2026-10-19, audit tail 11); until now the
+                      stage they saw was identical to a signed in one. */}
+                  {!user && (
+                    <div style={{ marginTop: 26, borderTop: `1px solid ${P.line}`, paddingTop: 14, display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: "var(--cb-font)", fontSize: 13, lineHeight: 1.55, color: P.ink2, flex: 1, minWidth: 220 }}>
+                        You are browsing signed out. Sign in to save investigations and pick them up on another device.
+                      </span>
+                      <button type="button" onClick={() => { setAuthInitialTab("login"); setAuthOpen(true); }} className="cb-stage-textbtn" style={{ color: accent, fontWeight: 500, fontSize: 13 }}>
+                        Sign in
+                      </button>
+                    </div>
+                  )}
+
                   {/* Your work, at the stage's own width and left
                       edge. The deck component is unchanged; only its
                       wrapper lost the second helping of left padding
                       and the mismatched width. */}
-                  {deckHasContent && (
-                    <div style={{ marginTop: 34, fontSize: FONT_SIZES.small, color: P.faint }}>
-                      {(history || []).length} investigations{(saved || []).length > 0 ? `, ${(saved || []).length} saved` : ""}
-                    </div>
-                  )}
-                  <div style={{ marginTop: deckHasContent ? 10 : 36 }}>
+                  {/* The bare count line that used to sit here is cut
+                      (2026-10-19, audit M12): it repeated the deck's own
+                      counts with no label and no action. */}
+                  <div style={{ marginTop: 36 }}>
                     <HomeDeck
                       suppressContinue
+                      stageDeck
                       P={P} accent={accent} at={at} user={user} isMobile={isMobile}
                       greetingName={firstName} flush={deckHasContent}
                       history={history} saved={saved} sessions={sessions}
@@ -24474,10 +24511,13 @@ function App() {
                       quote and the paper say what it is. */}
                   <div style={{ marginTop: 44, borderTop: `1px solid ${P.line}`, paddingTop: 14 }}>
                     <p style={{
+                      /* The door's claim treatment (2026-10-19, S7 shell lane,
+                         audit tail 9): upright serif at the section size,
+                         weight 400, 1.55. No italics, no second size. */
                       margin: "0", fontFamily: "var(--cb-serif)",
-                      fontStyle: "italic", fontSize: 15.5, lineHeight: 1.5, color: P.ink2,
+                      fontStyle: "normal", fontSize: FONT_SIZES.section, fontWeight: 400, lineHeight: 1.55, color: P.ink2,
                     }}>&ldquo;{stageSpecimen.claim}&rdquo;</p>
-                    <p style={{ margin: "6px 0 0", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.faint }}>
+                    <p style={{ margin: "16px 0 0", paddingTop: 12, borderTop: `1px solid ${P.line}`, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, lineHeight: 1.6, color: P.faint }}>
                       {stageSpecimen.paper}{" "}
                       <a href={stageSpecimen.doi} target="_blank" rel="noopener noreferrer"
                         style={{ color: accent, textDecoration: "none", fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: FONT_SIZES.caption }}>
@@ -26336,8 +26376,11 @@ summary::-webkit-details-marker { display: none; }
   width: 100%; min-height: 52px;
   border: 0; background: transparent; outline: none;
   padding: 12px 4px 12px 18px;
-  font-family: var(--cb-font); font-size: 17px; font-weight: 500;
-  line-height: 1.5; color: var(--cb-ink);
+  /* Body role, one size across variants (2026-10-19, S7 shell lane,
+     audit M11): 15 at 1.55, the plan body. The stage variant no longer
+     overrides this to 17.5 at 1.4. */
+  font-family: var(--cb-font); font-size: 15px; font-weight: 500;
+  line-height: 1.55; color: var(--cb-ink);
   caret-color: var(--cb-acc);
   resize: none; overflow-y: hidden;
 }
@@ -26417,8 +26460,9 @@ summary::-webkit-details-marker { display: none; }
   transform: none;
 }
 .cb-ask--stage .cb-ask-input {
-  font-size: 17.5px; min-height: 46px;
-  padding: 10px 4px 10px 16px; line-height: 1.4;
+  /* Size and leading inherit the one composer rule above (audit M11). */
+  min-height: 46px;
+  padding: 10px 4px 10px 16px;
 }
 .cb-ask--stage .cb-ask-tools { padding: 0 6px 0 0; }
 .cb-ask--stage .cb-ask-tool { color: var(--cb-faint); }
