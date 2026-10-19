@@ -10026,16 +10026,17 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   </button>
                 )}
                 <button type="button" className="cb-ctlbtn"
-                  title={linkCopied ? "Copied" : "Share"}
+                  title={linkCopied ? "Link copied" : "Share"}
                   onClick={() => {
                     if (!t.q) { toast("Nothing to share yet", { tone: "error" }); return; }
                     /* 2026-10-19 (S2 / H15): the designed share card
                        opens first. The payload it shows is the payload
-                       that gets shared. */
+                       that gets shared. linkCopied still names the
+                       state after a clipboard share completes. */
                     setShareOpen(true);
                   }}
                 >
-                  {linkCopied ? "Copied" : "Share"}
+                  {linkCopied ? "Link copied" : "Share"}
                 </button>
                 {shareOpen && (() => {
                   const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
