@@ -358,7 +358,7 @@ const TIER_TWO = [
   { unit: "The Restless Earth", lessons: ["Rocks That Change", "Plates on the Move"] },
 ];
 
-await test("the legacy paths keep the three unit shape; the flagships hold their own", () => {
+await test("the legacy paths keep the four unit shape; the flagships hold their own", () => {
   // Updated 2026-10-14: The Human Body was rebuilt as the flagship
   // (six units, five lessons each, a checkpoint per unit, and the
   // capstone, for 37 lessons), superseding its tier two shape. The
@@ -366,19 +366,25 @@ await test("the legacy paths keep the three unit shape; the flagships hold their
   // Nova content wave (2026-10-14): a second flagship joins, Matter
   // and Energy, built to the same discipline (six units, 37 lessons
   // with capstone), so the curriculum total moves 55 to 92.
+  // Curriculum upgrade (2026-10-19, the owner's order to raise the
+  // ceiling to college level): every path gains one advanced unit
+  // at the end. The legacy paths run four units and eight lessons,
+  // the flagships seven units and forty lessons, and the total
+  // moves 92 to 104. Tier two indices are untouched because the
+  // new units append after them.
   let total = 0;
   for (const p of LEARNING_PATHS) {
     if (p.id === "the-human-body" || p.id === "matter-and-energy") {
-      assert.equal(p.units.length, 6, `the flagship ${p.title} has ${p.units.length} units`);
-      assert.equal(flattenPathLessons(p).length, 37, `the flagship ${p.title} should hold 37 lessons`);
+      assert.equal(p.units.length, 7, `the flagship ${p.title} has ${p.units.length} units`);
+      assert.equal(flattenPathLessons(p).length, 40, `the flagship ${p.title} should hold 40 lessons`);
       total += flattenPathLessons(p).length;
       continue;
     }
-    assert.equal(p.units.length, 3, `${p.title} has ${p.units.length} units`);
-    assert.equal(flattenPathLessons(p).length, 6, `${p.title} should hold 6 lessons`);
+    assert.equal(p.units.length, 4, `${p.title} has ${p.units.length} units`);
+    assert.equal(flattenPathLessons(p).length, 8, `${p.title} should hold 8 lessons`);
     total += flattenPathLessons(p).length;
   }
-  assert.equal(total, 92, `curriculum holds ${total} lessons, not 92`);
+  assert.equal(total, 104, `curriculum holds ${total} lessons, not 104`);
 });
 
 await test("the tier two units and lessons are the authored ones", () => {
@@ -440,7 +446,9 @@ await test("a tier two lesson masters and counts like any other", () => {
   const pp = pathProgress(p0, prog);
   assert.equal(pp.done, 5);
   assert.equal(pp.mastered, 5);
-  assert.equal(pp.total, 6);
+  // Curriculum upgrade (2026-10-19): the science path holds eight
+  // lessons since its advanced unit landed, so the total is 8.
+  assert.equal(pp.total, 8);
   assert.equal(pp.complete, false, "one lesson remains, so the path is not complete");
 });
 
@@ -1970,12 +1978,15 @@ await test("feedback never says or prints one passage twice (2026-10-18)", () =>
   assert.ok(learnSrc.includes("No passage twice on one sheet"), "the sheet dedup lost its marker comment");
 });
 
-await test("the authored sets pass the repeat checks whole: 474 option cards, no repeats left", () => {
+await test("the authored sets pass the repeat checks whole: 510 option cards, no repeats left", () => {
   // Counts measured 2026-10-18 for step 5 of the defect fix: the
   // checks flagged exactly two authored cards (a senses checkpoint
   // visual question reusing the retina answer, and a fasting
   // checkpoint spot the error reusing an earlier why), and both
   // were rewritten in place. This pin holds the cleaned state.
+  // Curriculum upgrade (2026-10-19): the advanced units add 36
+  // path option cards (294 in the paths, 216 in the topics, 510 in
+  // all), and every one passes the same repeat checks.
   let pathCards = 0;
   let topicCards = 0;
   for (const [paths, tally] of [[LEARNING_PATHS, "paths"], [TOPIC_COURSES, "topics"]]) {
@@ -1993,7 +2004,7 @@ await test("the authored sets pass the repeat checks whole: 474 option cards, no
       }
     }
   }
-  assert.equal(pathCards, 258, `learning path option cards measured ${pathCards}, expected 258`);
+  assert.equal(pathCards, 294, `learning path option cards measured ${pathCards}, expected 294`);
   assert.equal(topicCards, 216, `topic option cards measured ${topicCards}, expected 216`);
 });
 
@@ -2227,7 +2238,11 @@ await test("every learning path quiz answer is taught before it is asked, apart 
   }
   // Nova content wave (2026-10-14): the fifth path, Matter and
   // Energy, adds its 44 quizzes to the 77, for 121 in all.
-  assert.equal(quizzes, 121, `expected 121 path quizzes under the coverage pin, found ${quizzes}`);
+  // Curriculum upgrade (2026-10-19): the advanced units add 20
+  // quizzes (twelve in the legacy paths, four in each flagship
+  // capstone), for 141 in all. None needed the fair application
+  // judgment: every new quiz meets coverage outright.
+  assert.equal(quizzes, 141, `expected 141 path quizzes under the coverage pin, found ${quizzes}`);
   assert.deepEqual([...flagged].sort(), [...FAIR_APPLICATIONS].sort(),
     `path quizzes under half coverage differ from the judged fair applications.\nflagged: ${flagged.join(" | ")}\nnamed fair: ${FAIR_APPLICATIONS.join(" | ")}`);
 });
@@ -2265,14 +2280,15 @@ await test("learning path quizzes meet the same length band the topics are held 
   // The count was 45 until the flagship Body rebuild (2026-10-14)
   // replaced its 12 quizzes with 44, for 77 in all. The Nova content
   // wave (2026-10-14) adds the fifth path Matter and Energy with 44
-  // more of its own, for 121 in all.
+  // more of its own, for 121 in all. The curriculum upgrade
+  // (2026-10-19) adds the advanced units' 20, for 141 in all.
   const pathCards = [];
   for (const p of LEARNING_PATHS) {
     for (const lesson of flattenPathLessons(p)) {
       for (const card of lesson.cards) if (card.kind === "quiz") pathCards.push({ path: p, card });
     }
   }
-  assert.equal(pathCards.length, 121, `expected 121 path quizzes, found ${pathCards.length}`);
+  assert.equal(pathCards.length, 141, `expected 141 path quizzes, found ${pathCards.length}`);
   for (const { path, card } of pathCards) {
     assert.equal(card.options.length, 4, `${path.title}: "${String(card.question).slice(0, 40)}" has ${card.options.length} options`);
     const keys = card.options.map(normKey);
@@ -2321,10 +2337,12 @@ await test("the correct option's length rank stays near chance in both authored 
   // 8 quizzes among 17 cards), so topic quizzes fall 192 to 96,
   // while the fifth path lifts path quizzes 77 to 121; both sets
   // together run 217.
+  // Curriculum upgrade (2026-10-19): the advanced units lift path
+  // quizzes 121 to 141, so both sets together run 237.
   const groups = [
-    ["learning paths", LEARNING_PATHS, 121],
+    ["learning paths", LEARNING_PATHS, 141],
     ["topic courses", TOPIC_COURSES, 96],
-    ["both sets", [...LEARNING_PATHS, ...TOPIC_COURSES], 217],
+    ["both sets", [...LEARNING_PATHS, ...TOPIC_COURSES], 237],
   ];
   for (const [label, sets, expected] of groups) {
     const { n, uniq, tied } = rankStats(sets);
@@ -2367,10 +2385,12 @@ await test("the correct option's length rank stays near chance for shortest in b
     }
     return { n, uniq, tied };
   };
+  // Curriculum upgrade (2026-10-19): the advanced units lift the
+  // path population 258 to 294 and the combined 474 to 510.
   const groups = [
-    ["learning paths", LEARNING_PATHS, 258],
+    ["learning paths", LEARNING_PATHS, 294],
     ["topic courses", TOPIC_COURSES, 216],
-    ["both sets", [...LEARNING_PATHS, ...TOPIC_COURSES], 474],
+    ["both sets", [...LEARNING_PATHS, ...TOPIC_COURSES], 510],
   ];
   for (const [label, sets, expected] of groups) {
     const { n, uniq, tied } = shortestStats(sets);
@@ -2528,13 +2548,18 @@ await test("learning path true or false cards run within 40 to 60 percent true",
   // true or false cards are also written in true and false pairs:
   // 74 more cards, 37 of them true, so the set runs 82 true of 166
   // (49.4 percent) and the count pin moves to 166.
+  // Curriculum upgrade (2026-10-19): the advanced units add 18
+  // more (six misconception statements in the legacy units, all
+  // false by construction, and three true and false pairs in each
+  // flagship capstone), so the set runs 88 true of 184 (47.8
+  // percent) and the count pin moves to 184.
   const cards = [];
   for (const p of LEARNING_PATHS) {
     for (const lesson of flattenPathLessons(p)) {
       for (const card of lesson.cards) if (card.kind === "truefalse") cards.push(card);
     }
   }
-  assert.equal(cards.length, 166, `expected 166 path true or false cards, found ${cards.length}`);
+  assert.equal(cards.length, 184, `expected 184 path true or false cards, found ${cards.length}`);
   const trues = cards.filter((c) => c.answer === true).length;
   const share = trues / cards.length;
   assert.ok(share >= 0.4 && share <= 0.6,
@@ -3280,20 +3305,23 @@ await test("the share card carries the Cerebrum lockup top left and a footer not
 // ══════════════════════════════════════════════════════════════════
 group("Nova content wave: the fifth path, at the flagship standard");
 
-await test("the fifth path is Matter and Energy, six units and 37 lessons like the flagship", () => {
+await test("the fifth path is Matter and Energy, seven units and 40 lessons like the flagship", () => {
   // Nova content wave (2026-10-14): the outside reviewers converged
   // on a fifth authored path in matter, energy, and chemistry. It
   // is authored to the flagship standard of The Human Body and sits
   // with the other authored paths.
+  // Curriculum upgrade (2026-10-19): the advanced capstone unit
+  // takes it to seven units, forty lessons, and seven flagged
+  // checkpoints, the same shape as The Human Body.
   assert.equal(LEARNING_PATHS.length, 5, `expected 5 authored paths, found ${LEARNING_PATHS.length}`);
   const mx = LEARNING_PATHS.find((p) => p.id === "matter-and-energy");
   assert.ok(mx, "the fifth path is missing");
   assert.equal(mx.title, "Matter and Energy");
   assert.equal(mx.category, "Matter and Energy");
-  assert.equal(mx.units.length, 6, `the fifth path has ${mx.units.length} units`);
-  assert.equal(flattenPathLessons(mx).length, 37, "the fifth path should hold 37 lessons");
+  assert.equal(mx.units.length, 7, `the fifth path has ${mx.units.length} units`);
+  assert.equal(flattenPathLessons(mx).length, 40, "the fifth path should hold 40 lessons");
   const flagged = flattenPathLessons(mx).filter((l) => l.checkpoint === true);
-  assert.equal(flagged.length, 6, `the fifth path has ${flagged.length} flagged checkpoints, not 6`);
+  assert.equal(flagged.length, 7, `the fifth path has ${flagged.length} flagged checkpoints, not 7`);
   for (const l of flagged) {
     assert.equal(l.subtitle, "Eight mixed questions on the whole unit. Nothing new, just proof.",
       `${l.title} checkpoint subtitle drifted from the flagship wording`);
@@ -5139,6 +5167,91 @@ await test("the wave cue ends at the canvas: accepted, unused, and the rig's wav
   assert.ok(!learnSrc.includes(".nv-rig-wave"), "the rig's wave class is back");
   assert.ok(!learnSrc.includes("@keyframes nvRigWave"), "the rig's wave keyframes are back");
   assert.ok(!learnSrc.includes("NOVA_RIG_D.armR"), "the rig's arm paths are back");
+});
+
+// ══════════════════════════════════════════════════════════════════
+group("Curriculum upgrade: college depth and thinking cards (2026-10-19)");
+
+/* The owner's order (2026-10-19): the paths and quizzes smarter
+   and more advanced, college level included. These pins hold the
+   shape of that upgrade. Every path ends in an advanced unit the
+   path view marks as advanced; the advanced lessons ask scenario
+   questions rather than recall alone; the topic courses converted
+   their apply and checkpoint quizzes to the same stems; and
+   search built courses check terms in context and re ask a claim
+   in a changed form. The stem convention is the upgrade rubric's:
+   application, comparison, and interpretation cards open with a
+   person, a setup, a supposition, or a comparison. */
+const THINKING_STEM = (text) => {
+  const q = String(text || "");
+  return /^(A|An|Two|Suppose)\s/.test(q) || q.startsWith("Compared") ||
+    q.startsWith("Use the diagram") || q.startsWith("Look at the diagram");
+};
+const stemOf = (card) => String(card.question || card.prompt || card.statement || "");
+
+await test("every path ends in a marked advanced unit, and the path view shows it", () => {
+  for (const p of LEARNING_PATHS) {
+    const last = p.units[p.units.length - 1];
+    assert.equal(last.advanced, true, `${p.title} last unit is not marked advanced`);
+    assert.ok(last.lessons.length >= 2, `${p.title} advanced unit holds ${last.lessons.length} lessons`);
+    assert.equal(p.units.filter((u) => u.advanced === true).length, 1,
+      `${p.title} should carry exactly one advanced unit`);
+  }
+  assert.ok(learnSrc.includes("unit.advanced"), "the path view does not read the advanced flag");
+  assert.ok(learnSrc.includes("ADVANCED · COLLEGE LEVEL"), "the path view does not show the advanced tag");
+});
+
+await test("advanced lessons ask scenario questions, not recall alone", () => {
+  for (const p of LEARNING_PATHS) {
+    const adv = p.units[p.units.length - 1];
+    let marked = 0, optionCards = 0;
+    for (const lesson of adv.lessons) {
+      const opts = lesson.cards.filter((c) => ["quiz", "visualq", "predict"].includes(c.kind));
+      const hits = opts.filter((c) => THINKING_STEM(stemOf(c))).length;
+      assert.ok(hits >= 2, `${p.title} / ${lesson.title} holds ${hits} thinking stem cards, under 2`);
+      marked += hits; optionCards += opts.length;
+    }
+    assert.ok(marked * 2 >= optionCards,
+      `${p.title} advanced unit: only ${marked} of ${optionCards} option cards carry a thinking stem`);
+  }
+});
+
+await test("every topic course converted its apply and checkpoint quizzes to thinking stems", () => {
+  let total = 0;
+  for (const t of TOPIC_COURSES) {
+    const lessons = flattenPathLessons(t);
+    const targets = [lessons[0].cards[8], lessons[1].cards[8], lessons[2].cards[0], lessons[2].cards[6]];
+    const hits = targets.filter((c) => c && THINKING_STEM(stemOf(c))).length;
+    assert.ok(hits >= 2, `${t.title} converted only ${hits} of its 4 target quizzes`);
+    total += hits;
+  }
+  assert.ok(total >= 72, `topic thinking conversions measured ${total} of 96, under 72`);
+});
+
+await test("search built courses check terms in context and re ask in a changed form", () => {
+  const md = `## Summary
+
+In the leaf, photosynthesis turns sunlight, water, and air into sugars that store energy for the plant. [1]
+In every cell, respiration frees the energy stored in sugars, running day and night whether the plant is lit or dark. [1]
+${CLAIM_TRIAL.text} [1]
+${CLAIM_RESIDENT.text} [1]
+`;
+  const course = createCourseFromResults("light and leaves", LEAK_SOURCES, md);
+  assert.ok(course, "the fixture course did not build");
+  const teachCards = course.lessons
+    .filter((l) => l.id === "basics" || l.id === "deeper")
+    .flatMap((l) => l.cards);
+  assert.ok(teachCards.some((c) => typeof c.vocab === "string"),
+    "no teach check asks a term in context");
+  const clozeTaught = teachCards.find((c) => c.kind === "cloze");
+  assert.ok(clozeTaught, "the numbered claims earned no cloze check");
+  // A card's claim id carries its claim's hash ahead of a sequence
+  // suffix, so the same claim's cards share the hash segment.
+  const claimKey = (id) => String(id || "").replace(/-\d+$/, "");
+  const review = course.lessons.find((l) => l.id === "review");
+  const reask = review.cards.find((c) => claimKey(c.claimId) === claimKey(clozeTaught.claimId));
+  assert.ok(reask, "a numbered claim is missing from the review lesson");
+  assert.notEqual(reask.kind, "cloze", "the review re asked a claim in the same cloze form it was taught");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
