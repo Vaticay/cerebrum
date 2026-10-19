@@ -10649,6 +10649,22 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
   const [renameValue, setRenameValue] = useState("");
   const [activeId, setActiveId] = useState("all"); // "all" | "uncategorized" | collection id
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  /* 2026-10-19 (audit M44): the dialog form of this component never
+     received the narrow flag from any caller, so on a phone its fixed
+     210px rail squeezed paper titles to about 148px. Stacking is now
+     decided here from the live window width as well as the caller's
+     flag, so both the page form and the dialog form stack on narrow
+     viewports the same way. */
+  const winW = useWindowWidth();
+  const stackNarrow = narrow || winW < 700;
+  /* 2026-10-19 (audit M43): rename commits only through its explicit
+     Save control (or Enter); Cancel drops the draft. Blur does
+     nothing, so a typed name is never discarded silently. */
+  const commitRename = (id) => {
+    const v = renameValue.trim();
+    if (v) onRenameCollection(id, v);
+    setRenamingId(null);
+  };
   // Commit 88 — Escape dismisses a dialog. In page mode there is nothing
   // to dismiss, and stealing Escape from a page is how you lose a
   // half-typed collection name.
@@ -10665,18 +10681,30 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
      never drift apart. */
   const content = (
     <>
-        <div style={narrow
+        <div style={stackNarrow
           ? { width: "100%", flexShrink: 0, borderBottom: `1px solid ${P.line}`, padding: 16 }
           : { width: 210, flexShrink: 0, borderRight: `1px solid ${P.line}`, padding: 16, overflowY: "auto" }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 12 }}>Collections</div>
           {[{ id: "all", name: "All saved" }, { id: "uncategorized", name: "Uncategorized" }, ...collections].map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
               {renamingId === c.id ? (
-                <input autoFocus value={renameValue} aria-label="Rename collection" onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { onRenameCollection(c.id, renameValue); setRenamingId(null); } if (e.key === "Escape") { e.stopPropagation(); setRenamingId(null); } }} onBlur={() => setRenamingId(null)} style={{ flex: 1, padding: "7px 8px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: "transparent", color: P.ink }} />
+                <span style={{ display: "flex", flex: 1, minWidth: 0, alignItems: "center", gap: 6 }}>
+                  <input autoFocus value={renameValue} aria-label="Rename collection" onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") commitRename(c.id); if (e.key === "Escape") { e.stopPropagation(); setRenamingId(null); } }} style={{ flex: 1, minWidth: 0, padding: "7px 8px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: "transparent", color: P.ink }} />
+                  <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => commitRename(c.id)}>Save</UIButton>
+                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setRenamingId(null)}>Cancel</UIButton>
+                </span>
               ) : (
                 <UIButton P={P} variant="ghost" onClick={() => setActiveId(c.id)} onDoubleClick={() => { if (c.id !== "all" && c.id !== "uncategorized") { setRenamingId(c.id); setRenameValue(c.name); } }} style={{ minHeight: 44, flex: 1, textAlign: "left", padding: "7px 8px", fontSize: FONT_SIZES.small, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: activeId === c.id ? withAlpha(accent, 0.12) : "transparent", color: activeId === c.id ? accent : P.ink2, fontFamily: "var(--cb-font)" }}>
                   {c.name} <span style={{ opacity: 0.6 }}>({countFor(c.id)})</span>
                 </UIButton>
+              )}
+              {c.id !== "all" && c.id !== "uncategorized" && renamingId !== c.id && (
+                /* 2026-10-19 (audit M43, M44): rename gets its own visible
+                   control beside delete, and delete is a full 44px target
+                   instead of a 12px glyph in 4px of padding. */
+                <span style={{ display: "inline-flex", flexShrink: 0 }}>
+                  <button onClick={() => { setRenamingId(c.id); setRenameValue(c.name); }} aria-label={`Rename ${c.name}`} title={`Rename ${c.name}`} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 0, minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}><Icon name="edit" size={14} /></button>
+                </span>
               )}
               {c.id !== "all" && c.id !== "uncategorized" && renamingId !== c.id && (
                 deleteConfirmId === c.id ? (
@@ -10685,7 +10713,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
                     <button onClick={() => { onDeleteCollection(c.id); setDeleteConfirmId(null); if (activeId === c.id) setActiveId("all"); }} style={{ minHeight: 44, ...S.chipMini, padding: "3px 7px", background: "#d13438", color: "#fff", borderColor: "#d13438" }}>Confirm</button>
                   </span>
                 ) : (
-                  <button onClick={() => setDeleteConfirmId(c.id)} aria-label={`Delete ${c.name}`} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 4, display: "inline-flex" }}><Icon name="close" size={12} /></button>
+                  <button onClick={() => setDeleteConfirmId(c.id)} aria-label={`Delete ${c.name}`} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 0, minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}><Icon name="close" size={14} /></button>
                 )
               )}
             </div>
@@ -10731,7 +10759,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
   if (page) {
     return (
       <div style={{ width: "100%" }}>
-        <div style={narrow
+        <div style={stackNarrow
           ? { background: P.surface, borderRadius: RADIUS.lg, width: "100%", display: "flex", flexDirection: "column", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }
           : { background: P.surface, borderRadius: RADIUS.lg, width: "100%", height: "min(640px, 68vh)", display: "flex", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }}>
           {content}
@@ -10746,7 +10774,10 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
          listener); anywhere else it closes the dialog, as before. */
       onEscape={() => { if (renamingId) setRenamingId(null); else close(); }}
       panelStyle={{
+        /* 2026-10-19 (audit M44): the dialog stacks on narrow viewports
+           too, driven by stackNarrow above rather than a caller flag. */
         background: P.bg, borderRadius: RADIUS.md, maxHeight: "85dvh", display: "flex",
+        flexDirection: stackNarrow ? "column" : "row",
         boxShadow: "none", border: `1px solid ${P.line}`,
         overflow: "hidden", outline: "none",
       }}
