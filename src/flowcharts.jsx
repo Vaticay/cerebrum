@@ -415,19 +415,30 @@ function fcBounds(nodes, pad = 60) {
   }
   return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + pad * 2, h: y1 - y0 + pad * 2 };
 }
+/* Standalone file default only: an exported SVG that leaves the app
+   cannot read a live palette, so fcSvgString keeps these literal
+   values as its fallback. Every in app export passes palette colors
+   instead (fcPaletteColors, M38, 2026-10-19). */
 const FC_EXPORT_COLORS = {
   bg: "#ffffff", fill: "#f6f7f6", stroke: "#232723", text: "#161916",
   accent: "#2e7d52", accentText: "#ffffff", edge: "#5b625b", decisionFill: "#eef4ef",
 };
-function fcNodeSvg(n) {
-  const C = FC_EXPORT_COLORS;
+/* The live palette as export colors, built from tokens only. */
+function fcPaletteColors(P, accent, at) {
+  return {
+    bg: P.bg, fill: P.surface, stroke: P.ink2, text: P.ink,
+    accent, accentText: at, edge: P.faint, decisionFill: withAlpha(accent, 0.14),
+  };
+}
+function fcNodeSvg(n, colors) {
+  const C = colors || FC_EXPORT_COLORS;
   const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
   const lines = fcWrap(n.label, Math.max(8, Math.floor((n.w - 30) / 7)));
   const lh = 16;
   const ty = cy - ((lines.length - 1) * lh) / 2 + 5;
   const isAccent = n.type === "start" || n.type === "end";
   const textFill = isAccent ? C.accentText : C.text;
-  const text = lines.map((ln, i) => `<text x="${cx}" y="${(ty + i * lh).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="${textFill}">${fcEsc(ln)}</text>`).join("");
+  const text = lines.map((ln, i) => `<text x="${cx}" y="${(ty + i * lh).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="500" fill="${textFill}">${fcEsc(ln)}</text>`).join("");
   let shape = "";
   if (n.type === "start" || n.type === "end") {
     shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${n.h / 2}" fill="${C.accent}"/>`;
@@ -443,8 +454,8 @@ function fcNodeSvg(n) {
   }
   return `<g>${shape}${text}</g>`;
 }
-function fcSvgString(nodes, edges, title) {
-  const C = FC_EXPORT_COLORS;
+function fcSvgString(nodes, edges, title, colors) {
+  const C = colors || FC_EXPORT_COLORS;
   const b = fcBounds(nodes);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const edgeSvg = edges.map((e) => {
@@ -454,7 +465,7 @@ function fcSvgString(nodes, edges, title) {
     const lbl = e.label ? `<text x="${g.mx}" y="${(g.my - 7).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-style="italic" fill="${C.edge}">${fcEsc(e.label)}</text>` : "";
     return `<path d="${g.d}" fill="none" stroke="${C.edge}" stroke-width="1.6" marker-end="url(#fcArrow)"/>${lbl}`;
   }).join("");
-  const nodeSvg = nodes.map(fcNodeSvg).join("");
+  const nodeSvg = nodes.map((n) => fcNodeSvg(n, C)).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(b.w)}" height="${Math.ceil(b.h)}" viewBox="${b.x} ${b.y} ${b.w} ${b.h}"><title>${fcEsc(title || "Flowchart")}</title><defs><marker id="fcArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="${C.edge}"/></marker></defs><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${C.bg}"/>${edgeSvg}${nodeSvg}</svg>`;
 }
 function fcToMarkdown(nodes, edges, title) {
@@ -491,7 +502,7 @@ function FcThumb({ chart, accent }) {
   const scale = Math.min(1, 280 / b.w, 120 / b.h);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   return (
-    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: 96, display: "block", background: "rgba(127,140,127,0.06)", borderRadius: RADIUS.md }}>
+    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: 96, display: "block", background: withAlpha(accent, 0.06), borderRadius: RADIUS.md }}>
       {(chart.edges || []).map((e) => {
         const a = byId.get(e.from), bb = byId.get(e.to);
         if (!a || !bb) return null;
@@ -544,8 +555,11 @@ function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
 function FcNodeShape({ n, P, accent, selected, pending }) {
   const cx = n.w / 2, cy = n.h / 2;
   const isAccent = n.type === "start" || n.type === "end";
-  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.055)" : "#ffffff");
-  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : (P.dark ? "rgba(255,255,255,0.20)" : "rgba(20,30,20,0.24)");
+  /* Canvas values on palette tokens (M38, 2026-10-19): the regular
+     node fill is P.surface and its stroke is P.line2, so switching
+     palettes restyles the canvas with the chrome. */
+  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : P.surface;
+  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : P.line2;
   const sw = selected || pending ? 2.6 : 1.5;
   const shape = (() => {
     if (n.type === "decision") return <polygon points={`${cx},0 ${n.w},${cy} ${cx},${n.h} 0,${cy}`} />;
@@ -565,6 +579,64 @@ function FcNodeShape({ n, P, accent, selected, pending }) {
       {React.cloneElement(shape, { fill, stroke, strokeWidth: sw })}
       {n.type === "evidence" && <rect x={0} y={0} width={5} height={n.h} rx={RADIUS.lg} fill={accent} stroke="none" pointerEvents="none" />}
     </g>
+  );
+}
+
+/* One toolbar grammar for both Diagram Studio editors (M37,
+   2026-10-19). The two editors do two different jobs and say so in
+   one naming scheme: the family name is Diagram Studio, the job name
+   is Code diagram (build a diagram from code) or Evidence map (map
+   evidence from an answer), and the job line under the name says the
+   job in plain words. Both toolbars are this component, and every
+   toolbar action in both is StudioToolbarBtn: radius RADIUS.sm,
+   weight 500, size FONT_SIZES.small, padding 0 14px at a 44px
+   height, and one 150ms transition. No editor keeps its own button
+   treatment, class, or duration. */
+export function StudioToolbarBtn({ P, accent, at, label, onClick, primary = false, disabled = false, title, icon, pressed }) {
+  return (
+    <UIButton P={P} variant="ghost" type="button" onClick={onClick} disabled={disabled}
+      title={title || label} aria-label={label} aria-pressed={pressed}
+      style={{
+        minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm,
+        fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)",
+        background: primary ? accent : "transparent",
+        color: primary ? at : disabled ? P.faint : P.ink,
+        border: `1px solid ${primary ? accent : P.line2}`,
+        boxShadow: "none", opacity: disabled ? 0.5 : 1,
+        display: "inline-flex", alignItems: "center", gap: 7, whiteSpace: "nowrap",
+        cursor: disabled ? "not-allowed" : "pointer",
+        transition: "background-color 150ms ease, border-color 150ms ease, color 150ms ease",
+      }}
+      onMouseEnter={(e) => { if (!disabled && !primary) e.currentTarget.style.background = withAlpha(accent, 0.12); }}
+      onMouseLeave={(e) => { if (!disabled && !primary) e.currentTarget.style.background = "transparent"; }}>
+      {icon && <Icon name={icon} size={14} />}
+      {label}
+    </UIButton>
+  );
+}
+
+export function StudioToolbar({ P, accent, job, detail, icon, leading, children }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+      borderBottom: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap", background: P.bg,
+    }}>
+      {leading}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <span style={{
+          width: 34, height: 34, borderRadius: RADIUS.sm, display: "inline-flex", alignItems: "center", justifyContent: "center",
+          background: withAlpha(accent, 0.14), border: `1px solid ${withAlpha(accent, 0.4)}`, boxShadow: "none", flexShrink: 0,
+        }}>
+          {icon}
+        </span>
+        <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.25, minWidth: 0 }}>
+          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)" }}>Diagram Studio</span>
+          <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>{job}</span>
+          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 400, color: P.faint, fontFamily: "var(--cb-font)" }}>{detail}</span>
+        </div>
+      </div>
+      {children}
+    </div>
   );
 }
 
@@ -709,12 +781,12 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
     setTimeout(() => setSavedFlash(false), 1800);
   };
   const doExportSVG = () => {
-    download(fcSlug(title) + ".svg", fcSvgString(nodes, edges, title));
+    download(fcSlug(title) + ".svg", fcSvgString(nodes, edges, title, fcPaletteColors(P, accent, at)));
     setExportOpen(false);
   };
   const doExportPNG = () => {
     const b = fcBounds(nodes);
-    const svg = fcSvgString(nodes, edges, title);
+    const svg = fcSvgString(nodes, edges, title, fcPaletteColors(P, accent, at));
     const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
     const img = new Image();
     // 2026-09-14: Surface export failures. The old code closed the menu
@@ -729,7 +801,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
         c.height = Math.max(1, Math.ceil(b.h * scale));
         const ctx = c.getContext("2d");
         if (!ctx) throw new Error("canvas unavailable");
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = P.bg;
         ctx.fillRect(0, 0, c.width, c.height);
         ctx.drawImage(img, 0, 0, c.width, c.height);
         c.toBlob((blob) => {
@@ -872,25 +944,11 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
     ? (pendingFrom ? "Now click the target node. The arrow lands there. Esc cancels." : "Click the node the arrow starts from.")
     : "Drag nodes to move · scroll to zoom · drag the canvas to pan · double-click a node to edit it.";
 
+  /* Toolbar actions are the shared StudioToolbarBtn (M37,
+     2026-10-19), the same treatment the code diagram editor uses. */
   const studioBtn = (label, onClick, opts = {}) => (
-    <UIButton P={P} variant="ghost" type="button" onClick={onClick} disabled={opts.disabled} title={opts.title || label}
-      style={{
-        padding: "12px 24px", borderRadius: RADIUS.sm, cursor: opts.disabled ? "default" : "pointer",
-        fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
-        background: opts.primary ? accent : withAlpha(accent, 0.07),
-        color: opts.primary ? at : opts.disabled ? P.faint : P.ink2,
-        border: `1px solid ${opts.primary ? accent : withAlpha(accent, 0.22)}`,
-        boxShadow: "none",
-        opacity: opts.disabled ? 0.45 : 1,
-        display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-        transition: "background-color 150ms ease, opacity 150ms ease",
-        minHeight: 44,
-      }}
-      onMouseEnter={(e) => { if (!opts.disabled) e.currentTarget.style.background = opts.primary ? accent : withAlpha(accent, 0.14); }}
-      onMouseLeave={(e) => { if (!opts.disabled) e.currentTarget.style.background = opts.primary ? accent : withAlpha(accent, 0.07); }}>
-      {opts.icon && <Icon name={opts.icon} size={14} />}
-      {label}
-    </UIButton>
+    <StudioToolbarBtn P={P} accent={accent} at={at} label={label} onClick={onClick}
+      primary={opts.primary} disabled={opts.disabled} title={opts.title} icon={opts.icon} />
   );
   const studioIconBtn = (icon, onClick, opts = {}) => (
     <UIButton P={P} variant="ghost" type="button" onClick={onClick} disabled={opts.disabled} title={opts.title || icon} aria-label={opts.title || icon}
@@ -908,7 +966,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
   );
 
   return (
-    <Dialog label="Evidence map studio" onClose={onClose} zIndex={300} width={1240}
+    <Dialog label="Diagram Studio evidence map" onClose={onClose} zIndex={300} width={1240}
       onEscape={() => { if (exportOpen) setExportOpen(false); else onClose(); }}
       panelStyle={{
         background: P.bg,
@@ -917,22 +975,9 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
         border: `1px solid ${withAlpha(accent, 0.18)}`, boxShadow: SHADOW.xl(P), outline: "none",
       }}
     >
-        {/* ── Studio command bar ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap", background: P.bg }}>
-          {/* identity */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-            <span style={{
-              width: 34, height: 34, borderRadius: RADIUS.lg, display: "inline-flex", alignItems: "center", justifyContent: "center",
-              background: withAlpha(accent, 0.14),
-              border: `1px solid ${withAlpha(accent, 0.4)}`, boxShadow: "none", flexShrink: 0,
-            }}>
-              <Icon name="flowchart" size={17} style={{ color: accent }} />
-            </span>
-            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, minWidth: 0 }}>
-              <span className="cb-kicker">Studio</span>
-              <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>Evidence map</span>
-            </div>
-          </div>
+        {/* ── Studio command bar: the shared StudioToolbar (M37) ── */}
+        <StudioToolbar P={P} accent={accent} job="Evidence map" detail="Map evidence from an answer"
+          icon={<Icon name="flowchart" size={17} style={{ color: accent }} />}>
           <div style={{ width: 1, height: 26, background: P.line, flexShrink: 0 }} />
           {/* title */}
           <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Evidence map title" placeholder="Untitled evidence map"
@@ -961,11 +1006,11 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                   <UIButton P={P} variant="ghost" key={key} type="button" aria-pressed={on} title={key === "connect" ? "Connect: click a source node, then a target" : "Select and drag nodes"}
                     onClick={() => { setTool(key); setPendingFrom(null); }}
                     style={{ minHeight: 44,
-                      display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 16px", borderRadius: RADIUS.sm,
-                      border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
+                      display: "inline-flex", alignItems: "center", gap: 7, padding: "0 14px", borderRadius: RADIUS.sm,
+                      border: "none", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)",
                       background: on ? accent : "transparent", color: on ? at : P.ink2,
                       boxShadow: "none",
-                      transition: "background-color 150ms ease, color 150ms ease, box-shadow 150ms ease",
+                      transition: "background-color 150ms ease, border-color 150ms ease, color 150ms ease",
                     }}>
                     <Icon name={icon} size={13} />
                     {label}
@@ -1020,7 +1065,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
               </span>
             </UIButton>
           </div>
-        </div>
+        </StudioToolbar>
 
         {draftNotice && (
           <div style={{
@@ -1068,15 +1113,15 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
           </div>
 
           {/* Canvas */}
-          <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0, background: P.dark ? "#0b0d0b" : "#eef0ec", overflow: "hidden" }}>
+          <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0, background: P.bg, overflow: "hidden" }}>
             <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block", cursor: tool === "connect" ? "crosshair" : "grab", touchAction: "none" }}
               onPointerDown={onCanvasPointerDown} onPointerMove={onCanvasPointerMove} onPointerUp={onCanvasPointerUp} onPointerCancel={onCanvasPointerCancel}>
               <defs>
                 <pattern id="fcGrid" width="28" height="28" patternUnits="userSpaceOnUse">
-                  <circle cx="1.2" cy="1.2" r="1.1" fill={P.dark ? "rgba(255,255,255,0.055)" : "rgba(20,30,20,0.07)"} />
+                  <circle cx="1.2" cy="1.2" r="1.1" fill={P.line2} />
                 </pattern>
                 <pattern id="fcGridMajor" width="140" height="140" patternUnits="userSpaceOnUse">
-                  <path d="M 140 0 L 0 0 0 140" fill="none" stroke={P.dark ? "rgba(255,255,255,0.045)" : "rgba(20,30,20,0.06)"} strokeWidth="1" />
+                  <path d="M 140 0 L 0 0 0 140" fill="none" stroke={P.line} strokeWidth="1" />
                 </pattern>
                 {/* Arrowheads carry the accent now, not faint grey: the eye
                     follows the flow instead of hunting for it. */}
@@ -1133,7 +1178,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                       {pend && <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={RADIUS.lg} fill="none" stroke={accent} strokeWidth={1.6} strokeDasharray="6 4" opacity={0.8} />}
                       <FcNodeShape n={n} P={P} accent={accent} selected={sel} pending={pend} />
                       {kicker && (
-                        <text x={n.w / 2} y={ty + 4} textAnchor="middle" fontSize={10.5} fill={accent}
+                        <text x={n.w / 2} y={ty + 4} textAnchor="middle" fontSize={FONT_SIZES.caption} fill={accent}
                           style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: "normal" }}>
                           {kicker}
                         </text>
@@ -1145,7 +1190,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                         </text>
                       ))}
                       {n.type === "evidence" && typeof n.sourceIdx === "number" && sources?.[n.sourceIdx] && (
-                        <text x={n.w / 2} y={n.h - 10} textAnchor="middle" fontSize={10} fill={P.faint}
+                        <text x={n.w / 2} y={n.h - 10} textAnchor="middle" fontSize={FONT_SIZES.caption} fill={P.faint}
                           style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontStyle: "italic" }}>
                           {String(sources[n.sourceIdx].title || "source").slice(0, 34)}{String(sources[n.sourceIdx].title || "").length > 34 ? "…" : ""}
                         </text>
@@ -1328,10 +1373,11 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   Diagram Studio — a mermaid.live-grade diagram instrument as its own
-   tab. A code editor with live preview, pan/zoom canvas, diagram-type
+   Diagram Studio, Code diagram: build a diagram from code. A code
+   editor with live preview, pan/zoom canvas, diagram type
    templates, .mmd import/export, SVG/PNG export, and a local diagram
-   library.
+   library. The other Diagram Studio editor, Evidence map, maps
+   evidence from an answer; both share StudioToolbar above.
 
    Mermaid is lazy-loaded (dynamic import) so the main bundle never pays
    for it until the studio opens. Rendering runs at securityLevel
@@ -1607,29 +1653,33 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
              to run scripts, no matter what a pasted .mmd contains. */
           securityLevel: "strict",
           theme: "base",
+          /* Canvas colors from palette tokens (M38, 2026-10-19): node
+             and actor fills are P.surface, secondary fills P.raised,
+             and the ground behind edge labels P.bg, so a palette
+             switch restyles this canvas with the chrome. */
           themeVariables: {
             darkMode: dark,
             background: "transparent",
-            primaryColor: dark ? "#1c1c21" : "#ffffff",
+            primaryColor: P.surface,
             primaryBorderColor: accent,
             primaryTextColor: P.ink,
-            secondaryColor: dark ? "#26262c" : "#f1f0ec",
-            tertiaryColor: dark ? "#131316" : "#e9e7e2",
+            secondaryColor: P.raised,
+            tertiaryColor: P.bg,
             lineColor: P.faint,
             textColor: P.ink,
-            mainBkg: dark ? "#1c1c21" : "#ffffff",
-            nodeBkg: dark ? "#1c1c21" : "#ffffff",
+            mainBkg: P.surface,
+            nodeBkg: P.surface,
             nodeBorder: accent,
-            clusterBkg: dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.025)",
+            clusterBkg: P.raised,
             clusterBorder: P.line2,
             titleColor: P.ink,
-            edgeLabelBackground: dark ? "#131316" : "#f4f3ef",
-            actorBkg: dark ? "#1c1c21" : "#ffffff",
+            edgeLabelBackground: P.bg,
+            actorBkg: P.surface,
             actorBorder: accent,
             actorTextColor: P.ink,
             signalColor: P.ink,
             signalTextColor: P.ink,
-            labelBoxBkgColor: dark ? "#1c1c21" : "#ffffff",
+            labelBoxBkgColor: P.surface,
             labelBoxBorderColor: P.line2,
             labelTextColor: P.ink,
             pie1: accent,
@@ -1642,7 +1692,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [dark, accent, P.ink, P.faint, P.line2]);
+  }, [dark, accent, P.ink, P.faint, P.line2, P.surface, P.raised, P.bg]);
 
   /* Debounced live render. */
   useEffect(() => {
@@ -1843,7 +1893,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       canvas.height = h * scale;
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("canvas unavailable");
-      ctx.fillStyle = dark ? "#101013" : "#ffffff";
+      ctx.fillStyle = P.surface;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
@@ -1896,9 +1946,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   };
   /* Ruled lines, not dots: the canvas reads as a working surface, and the
      diagram stays the figure against it. */
-  const ruledBg = dark
-    ? "repeating-linear-gradient(to bottom, transparent 0, transparent 27px, rgba(255,255,255,0.05) 27px, rgba(255,255,255,0.05) 28px)"
-    : "repeating-linear-gradient(to bottom, transparent 0, transparent 27px, rgba(0,0,0,0.055) 27px, rgba(0,0,0,0.055) 28px)";
+  const ruledBg = `repeating-linear-gradient(to bottom, transparent 0, transparent 27px, ${withAlpha(P.ink, 0.055)} 27px, ${withAlpha(P.ink, 0.055)} 28px)`;
   const status = mmError
     ? { dot: "#f87171", text: "Engine failed to load" }
     : !mm ? { dot: P.faint, text: "Loading engine…" }
@@ -1953,11 +2001,11 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
         {railTab === "diagrams" && (
           <>
             <button onClick={newDiagram} style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: accent, fontWeight: 500, marginBottom: 8 }}>
-              <span aria-hidden="true">＋</span> New diagram
+              <Icon name="plus" size={14} /> New diagram
             </button>
             <button onClick={() => fileRef.current && fileRef.current.click()} title="Import a .mmd file, loaded verbatim"
               style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: P.ink2, fontWeight: 500, marginBottom: 8 }}>
-              <span aria-hidden="true">⤒</span> Import .mmd
+              <Icon name="upload" size={14} /> Import .mmd
             </button>
             {diagrams.length === 0 && (
               <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
@@ -1975,10 +2023,12 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                   </span>
                   {d.id === activeId && <span style={{ color: accent, fontSize: FONT_SIZES.caption, flexShrink: 0 }} aria-label="Open">●</span>}
                 </button>
+                {/* Delete uses the Icon set at full opacity (tail 21,
+                    2026-10-19), the way the Reader shelf delete does:
+                    no hover dependent text cross at 45 percent. */}
                 <button onClick={() => deleteDiagram(d.id)} aria-label={`Delete ${d.title}`} title="Delete"
-                  className="mm-rail-del"
-                  style={{ background: "transparent", border: 0, color: P.faint, cursor: "pointer", minWidth: 44, minHeight: 44, fontSize: 14, opacity: 0.45 }}>
-                  ✕
+                  style={{ background: "transparent", border: 0, color: P.faint, cursor: "pointer", minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", opacity: 1 }}>
+                  <Icon name="trash" size={14} />
                 </button>
               </div>
             ))}
@@ -2008,16 +2058,10 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
         .mm-st { color: ${dark ? "#a5d6a7" : "#2e7d32"}; }
         .mm-cm { color: ${P.faint}; font-style: italic; }
         .mm-ar { color: ${dark ? "#7dd3fc" : "#0369a1"}; font-weight: 500; }
-        .mm-zoombtn { width: 44px; height: 44px; border-radius: 2px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); transition: border-color 280ms ease, background-color 280ms ease, color 280ms ease, filter 280ms ease; }
+        .mm-zoombtn { width: 44px; height: 44px; border-radius: ${RADIUS.sm}px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
         .mm-zoombtn:hover { border-color: ${accent}; color: ${accent}; }
         .mm-railitem { transition: background 150ms ease; }
         .mm-railitem:hover { background: ${dark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.035)"} !important; }
-        .mm-rail-del { transition: opacity 150ms ease; }
-        .mm-railitem:hover .mm-rail-del { opacity: 1 !important; }
-        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 2px; font-size: ${FONT_SIZES.label}px; font-weight: 500; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; transition: border-color 280ms ease, background-color 280ms ease, color 280ms ease, filter 280ms ease; }
-        .mm-topbtn:hover { border-color: ${accent}; background: ${P.dark ? "rgba(255,255,255,0.09)" : "#f4f4f2"}; }
-        .mm-topbtn-primary { background: ${accent}; border-color: transparent; color: ${at}; }
-        .mm-topbtn-primary:hover { background: ${accent}; border-color: transparent; filter: brightness(1.06); }
         /* Source pane focus: the textarea suppresses its own outline (the
            highlight layer sits under it), so the pane carries the
            keyboard-visible edge. !important wins over the inline border
@@ -2040,22 +2084,17 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
         @keyframes mmSavedIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
       `}</style>
 
-      {/* ── Top bar: instrument chrome ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: isMobile ? "12px 14px" : "14px 24px", borderBottom: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap" }}>
-        <UIButton P={P} variant="ghost" onClick={() => setRailOpen((v) => !v)} aria-label={railOpen ? "Hide side panel" : "Show side panel"} title={railOpen ? "Hide side panel" : "Show side panel"}
-          style={{ minHeight: 44, minWidth: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, color: P.ink2, cursor: "pointer", flexShrink: 0 }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <line x1="9.5" y1="4" x2="9.5" y2="20" />
-          </svg>
-        </UIButton>
-        <span style={{ display: "inline-flex", padding: 8, borderRadius: RADIUS.lg, background: withAlpha(accent, 0.1), border: `1px solid ${withAlpha(accent, 0.25)}`, flexShrink: 0 }}>
-          <StudioMark size={22} accent={accent} />
-        </span>
-        <div style={{ minWidth: 0, flexShrink: 0 }}>
-          <div style={{ fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: FONT_SIZES.label, color: P.ink, letterSpacing: "-0.015em", lineHeight: 1.25 }}>Diagram Studio</div>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Mermaid, rendered live</div>
-        </div>
+      {/* ── Top bar: the shared StudioToolbar (M37, 2026-10-19),
+          the same component and button treatment as the evidence
+          map toolbar. ── */}
+      <StudioToolbar P={P} accent={accent} job="Code diagram" detail="Build a diagram from code"
+        icon={<StudioMark size={20} accent={accent} />}
+        leading={(
+          <UIButton P={P} variant="ghost" onClick={() => setRailOpen((v) => !v)} aria-label={railOpen ? "Hide side panel" : "Show side panel"} title={railOpen ? "Hide side panel" : "Show side panel"}
+            style={{ minHeight: 44, minWidth: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, color: P.ink2, cursor: "pointer", flexShrink: 0 }}>
+            <Icon name="panelLeft" size={18} />
+          </UIButton>
+        )}>
         <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Diagram title" placeholder="Untitled diagram"
           className="mm-titleinput"
           style={{
@@ -2063,35 +2102,31 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
             border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "8px 12px", minHeight: 44,
             color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", outline: "none",
           }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexShrink: 0, flexWrap: "wrap" }}>
           {/* The toolbar is four actions: arrange the panes, take the
               diagram out as SVG, save it, and toggle the source. Import
               lives in the library rail; Copy lives on the source pane;
               PNG and .mmd live in the status bar. */}
           {!isMobile && (
-            <button className="mm-topbtn" onClick={() => setPaneLayout((v) => v === "side" ? "stack" : "side")}
+            <StudioToolbarBtn P={P} accent={accent} at={at} label="Layout"
+              onClick={() => setPaneLayout((v) => v === "side" ? "stack" : "side")}
               title={paneLayout === "side" ? "Stack source above preview" : "Show source beside preview"}
-              aria-pressed={paneLayout === "stack"}>
-              Layout
-            </button>
+              pressed={paneLayout === "stack"} />
           )}
-          <button className="mm-topbtn" onClick={() => { exportSVG(); logExport("SVG", `${slug}.svg`); }} disabled={!svg}
-            title="Download as SVG vector" style={!svg ? { opacity: 0.5, cursor: "not-allowed" } : undefined}>
-            Export SVG
-          </button>
-          <button className="mm-topbtn" onClick={() => {
+          <StudioToolbarBtn P={P} accent={accent} at={at} label="Export SVG"
+            onClick={() => { exportSVG(); logExport("SVG", `${slug}.svg`); }} disabled={!svg}
+            title="Download as SVG vector" icon="download" />
+          <StudioToolbarBtn P={P} accent={accent} at={at} label="Edit source"
+            onClick={() => {
               if (isMobile) setMobilePane(mobilePane === "code" ? "preview" : "code");
               else setSourceOpen((v) => !v);
             }}
             title={isMobile ? "Switch between source and preview" : (sourceOpen ? "Hide the source pane" : "Show the source pane")}
-            aria-pressed={isMobile ? mobilePane === "code" : sourceOpen}>
-            Edit source
-          </button>
-          <button className="mm-topbtn mm-topbtn-primary" onClick={saveDiagram} title="Save (⌘S / Ctrl+S)">
-            Save
-          </button>
+            pressed={isMobile ? mobilePane === "code" : sourceOpen} />
+          <StudioToolbarBtn P={P} accent={accent} at={at} label="Save" primary
+            onClick={saveDiagram} title="Save (⌘S / Ctrl+S)" icon="check" />
         </div>
-      </div>
+      </StudioToolbar>
 
       {/* ── Body: rail + work area ── */}
       <div style={{ flex: 1, display: "flex", minHeight: 0, minWidth: 0 }}>
@@ -2188,9 +2223,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                       {[["flowchart", "Flowchart"], ["sequence", "Sequence"], ["mindmap", "Mindmap"]].map(([tkey, tlabel]) => {
                         const t = MERMAID_TEMPLATES.find((x) => x.key === tkey);
                         return t ? (
-                          <button key={tkey} type="button" className="mm-topbtn" onClick={() => loadTemplate(t)}>
-                            {tlabel}
-                          </button>
+                          <StudioToolbarBtn key={tkey} P={P} accent={accent} at={at} label={tlabel} onClick={() => loadTemplate(t)} />
                         ) : null;
                       })}
                     </div>
@@ -2232,7 +2265,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.max(0.2, p.k / 1.25) })); }} aria-label="Zoom out" title="Zoom out">−</button>
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: 1 })); }} aria-label="Reset zoom to 100 percent" title="Reset to 100%"
                   style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.label, fontWeight: 500 }}>{Math.round(pan.k * 100)}%</button>
-                <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.min(3, p.k * 1.25) })); }} aria-label="Zoom in" title="Zoom in">＋</button>
+                <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.min(3, p.k * 1.25) })); }} aria-label="Zoom in" title="Zoom in"><Icon name="plus" size={16} /></button>
                 <button className="mm-zoombtn" onClick={fitToView} aria-label="Fit diagram to view" title="Fit to view" style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.label, fontWeight: 500 }}>Fit</button>
               </div>
             </div>
@@ -2276,7 +2309,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           }} role="dialog" aria-label="Diagram library and templates">
             <div style={{ display: "flex", alignItems: "center", padding: "12px 10px 0" }}>
               <UIButton P={P} variant="ghost" onClick={() => setRailOpen(false)} aria-label="Close panel"
-                style={{ minWidth: 44, minHeight: 44, background: "transparent", border: 0, color: P.faint, fontSize: 16, cursor: "pointer", marginLeft: "auto" }}>✕</UIButton>
+                style={{ minWidth: 44, minHeight: 44, background: "transparent", border: 0, color: P.faint, cursor: "pointer", marginLeft: "auto" }}><Icon name="close" size={16} /></UIButton>
             </div>
             <div style={{ height: "calc(100% - 54px)" }}>{rail}</div>
           </div>
