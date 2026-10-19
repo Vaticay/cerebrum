@@ -4886,6 +4886,39 @@ function stanceCountsFor(t) {
   };
 }
 
+/* ── The share payload (2026-10-19, S2 / H15) ────────────────────────────
+   Built from the answer itself: the question, the key figures line in
+   the stance ledger's own words (the same counts KeyFigures prints),
+   the top sources, and the link. The share card presents exactly this
+   payload before the system share sheet opens, and the fallback copies
+   the payload, never a bare link on its own. */
+function keyFiguresLine(t) {
+  const sc = stanceCountsFor(t);
+  if (!sc.total) return "";
+  const parts = [`${sc.total} paper${sc.total === 1 ? "" : "s"}`];
+  if (sc.support > 0) parts.push(`${sc.support} support${sc.support === 1 ? "s" : ""} the direction`);
+  if (sc.qualify > 0) parts.push(`${sc.qualify} qualif${sc.qualify === 1 ? "ies" : "y"} it`);
+  if (sc.contest > 0) parts.push(`${sc.contest} contest${sc.contest === 1 ? "s" : ""} it`);
+  if (sc.unclear > 0) parts.push(`${sc.unclear} no clear signal`);
+  return parts.join(" · ");
+}
+function shareTopSources(t) {
+  return (Array.isArray(t && t.sources) ? t.sources : []).slice(0, 3).map((s) => ({
+    title: cleanTitleText(String((s && s.title) || "Untitled paper")).trim() || "Untitled paper",
+    meta: [s && s.journal ? formatJournalName(s.journal) : null, s && s.year].filter(Boolean).join(" · "),
+  }));
+}
+function buildShareText(t, url) {
+  const lines = [String((t && t.q) || "").trim(), keyFiguresLine(t)].filter(Boolean);
+  const tops = shareTopSources(t);
+  if (tops.length) {
+    lines.push("Top sources:");
+    for (const s of tops) lines.push(s.meta ? `${s.title} (${s.meta})` : s.title);
+  }
+  if (url) lines.push(url);
+  return lines.join("\n");
+}
+
 /* ── KeyFigures: quiet counts, not a verdict ─────────────────────────────
    Replaces the old VerdictReadout ("Supported"/"Contested"/"Unverified").
    Dusty's rule: the judgment is distributed per-paper, never global.
@@ -4928,7 +4961,7 @@ function KeyFigures({ t, P }) {
     );
   }
   const sc = stanceCountsFor(t);
-  const clay = "#B0472B";
+  const clay = STANCE_TOKENS.contest;
   const parts = [];
   if (sc.support > 0) parts.push(<span key="sup">{sc.support} support{sc.support === 1 ? "s" : ""} the direction</span>);
   if (sc.qualify > 0) parts.push(<span key="qual">{sc.qualify} qualif{sc.qualify === 1 ? "ies" : "y"} it</span>);
@@ -5022,9 +5055,9 @@ function ConsensusMeter({ t, P }) {
   const yesPct = (yesW / totalW) * 100;
   const noPct = (noW / totalW) * 100;
   const mixedPct = Math.max(0, 100 - yesPct - noPct);
-  const green = "#2E7D5B";
-  const clay = "#B0472B";
-  const gray = "#7A756A";
+  const green = STANCE_TOKENS.support;
+  const clay = STANCE_TOKENS.contest;
+  const gray = STANCE_TOKENS.neutral;
   const label = { fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums" };
   return (
     <div style={{ maxWidth: 720, margin: "0 0 24px 0", padding: 0 }} aria-label="How the studies lean">
@@ -6161,8 +6194,10 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
     setExportOpen(false);
   };
   /* Pass 6: the consolidated Export menu carries "Send to Zotero" as a
-     menu item. The key/ID form opens inline under the controls — scoped
-     to this answer's sources, the same send as the old scattered button. */
+     menu item, scoped to this answer's sources, the same send as the
+     old scattered button. Since 2026-10-19 (S2 / M22) the key and ID
+     form opens in a dialog owned by that menu item, not inline in the
+     reading page. */
   const [zoteroOpen, setZoteroOpen] = useState(false);
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const sendToZotero = async () => {
@@ -6284,15 +6319,25 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
       </span>
     </span>
     {zoteroOpen && (
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8, width: "100%" }}>
-        <input type="password" autoComplete="off" aria-label="Zotero API key" placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)}
-          style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", flex: "1 1 160px" }} />
-        <input aria-label="Zotero user ID" placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)}
-          style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", flex: "1 1 120px" }} />
-        <UIButton P={P} variant="ghost" type="button" onClick={sendToZotero} style={{ ...ctlBtn }}>Save {sources.length}</UIButton>
-        <button type="button" className="cb-textbtn" style={{ padding: "6px 4px" }} onClick={() => { setZoteroOpen(false); setZMsg(""); }}>Cancel</button>
-        {zMsg && <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontFamily: "var(--cb-font)" }}>{zMsg}</span>}
-      </div>
+      /* 2026-10-19 (S2 / M22): the Zotero credential form leaves the
+         reading page. It opens as a dialog owned by the export action
+         that asked for it; the reading page keeps no credential inputs. */
+      <Dialog label="Send to Zotero" onClose={() => { setZoteroOpen(false); setZMsg(""); }} zIndex={230} width={440}>
+        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginBottom: 14, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+          Send these {sources.length} sources to your Zotero library. Your API key stays in this tab and is sent only to Zotero.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <input type="password" autoComplete="off" aria-label="Zotero API key" placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)}
+            style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", width: "100%", boxSizing: "border-box" }} />
+          <input aria-label="Zotero user ID" placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)}
+            style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", width: "100%", boxSizing: "border-box" }} />
+        </div>
+        {zMsg && <div style={{ fontSize: FONT_SIZES.caption, color: accent, fontFamily: "var(--cb-font)", marginTop: 10 }}>{zMsg}</div>}
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <button type="button" className="cb-textbtn" style={{ minHeight: 44, padding: "12px 12px" }} onClick={() => { setZoteroOpen(false); setZMsg(""); }}>Cancel</button>
+          <UIButton P={P} variant="ghost" type="button" onClick={sendToZotero} style={{ ...ctlBtn }}>Save {sources.length}</UIButton>
+        </div>
+      </Dialog>
     )}
     </>
   );
@@ -6310,7 +6355,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
         <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Show</span>
         {bibFilterOptions.map((o) => (
           <button key={o.key} type="button" aria-pressed={bibFilter === o.key} onClick={() => setBibFilter(o.key)}
-            style={{ background: "none", border: "none", padding: "6px 4px", minHeight: 32, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: bibFilter === o.key ? 500 : 500, color: bibFilter === o.key ? accent : P.faint }}>
+            style={{ background: "none", border: "none", padding: "6px 4px", minHeight: 44, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: bibFilter === o.key ? 500 : 500, color: bibFilter === o.key ? accent : P.faint }}>
             {o.label} · {o.count}
           </button>
         ))}
@@ -6318,7 +6363,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
         <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Order</span>
         {bibSortOptions.map((o) => (
           <button key={o.key} type="button" aria-pressed={bibSort === o.key} onClick={() => setBibSort(o.key)}
-            style={{ background: "none", border: "none", padding: "6px 4px", minHeight: 32, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: bibSort === o.key ? 500 : 500, color: bibSort === o.key ? accent : P.faint }}>
+            style={{ background: "none", border: "none", padding: "6px 4px", minHeight: 44, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: bibSort === o.key ? 500 : 500, color: bibSort === o.key ? accent : P.faint }}>
             {o.label}
           </button>
         ))}
@@ -6509,7 +6554,21 @@ function receptionCounts(source) {
    used to print for every untallied paper were placeholders the reader
    could not act on (owner audit, 2026-10-15): a number that exists only
    when it is real, silence otherwise. */
-const STANCE_COLORS = { supporting: "#2E7D5B", contrasting: "#B0472B", mentioning: "#7A756A" };
+/* Stance colors as named tokens (2026-10-19, S2 / M24): one definition
+   for the whole stance family, the support green, the contest clay,
+   the neutral gray, and the two retraction tints. KeyFigures,
+   ConsensusMeter, the stance ledger CSS, the evidence rail rows and
+   BibEntry all read these tokens; STANCE_COLORS keeps the shape its
+   existing consumers (ReceptionLine, AnswerArc, NetworkGraphBody)
+   already take, now fed from the same values. */
+const STANCE_TOKENS = {
+  support: "#2E7D5B",
+  contest: "#B0472B",
+  neutral: "#7A756A",
+  retracted: "#d99b86",
+  concern: "#d7c27b",
+};
+const STANCE_COLORS = { supporting: STANCE_TOKENS.support, contrasting: STANCE_TOKENS.contest, mentioning: STANCE_TOKENS.neutral };
 /* When a real scite.ai tally is passed in, the raw numbers render as-is —
    never converted to verdicts or percentages. When absent, the line
    renders nothing (2026-10-15): the "Unknown supporting / contrasting /
@@ -6578,7 +6637,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         {(source.retracted || source.concern) && (
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: source.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: source.retracted ? STANCE_TOKENS.retracted : STANCE_TOKENS.concern, marginBottom: 4, fontFamily: "var(--cb-font)" }}>
             {source.retracted ? "Retracted" : "Expression of concern"}
           </div>
         )}
@@ -9203,7 +9262,7 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
         </button>
         <div style={{ minWidth: 0 }}>
           {(s.retracted || s.concern) && (
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: s.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: s.retracted ? STANCE_TOKENS.retracted : STANCE_TOKENS.concern, marginBottom: 4, fontFamily: "var(--cb-font)" }}>
               {s.retracted ? "Retracted" : "Expression of concern"}
             </div>
           )}
@@ -9488,7 +9547,7 @@ function AnswerSourcesPanel({ t, P, accent, onJumpToBibliography }) {
    relationship/mechanism questions a diagram would clarify, "Analyze a
    related document" only when the answer cites sources worth analyzing
    against. */
-function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, onAnalyzeDocument }) {
+function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, onAnalyzeDocument, bare = false }) {
   const [kept, setKept] = useState(false);
   const chips = [];
   if (onSaveInvestigation) {
@@ -9506,10 +9565,15 @@ function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, on
   }
   if (!chips.length) return null;
   return (
-    <div style={{ marginTop: 20 }} className="cb-fade">
-      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
-        Keep going
-      </div>
+    <div style={{ marginTop: bare ? 0 : 20 }} className="cb-fade">
+      {/* 2026-10-19 (S2 / M20): nested inside the Next steps block, the
+          chips carry no heading or margin of their own; the block's one
+          heading speaks for all four systems it folded in. */}
+      {!bare && (
+        <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+          Keep going
+        </div>
+      )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {chips.map((c) => (
           <UIButton P={P} variant="ghost" key={c.key} onClick={c.onClick}
@@ -9723,10 +9787,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   const [vote, setVote] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  // Share fallback: when neither the native share sheet nor the clipboard
-  // is available, show the link in a dialog the user can copy manually —
-  // sharing must never fail silently.
-  const [shareUrl, setShareUrl] = useState(null);
+  // Share card (2026-10-19, S2 / H15): tapping Share opens the designed
+  // card first, showing the payload built from the answer itself; the
+  // card's own action opens the system share sheet or copies the
+  // payload. The old bare URL in a mono input fallback is gone.
+  const [shareOpen, setShareOpen] = useState(false);
   // The labeled More menu: every demoted toolbar action stays one tap
   // away, each still labeled. Dividers at a boundary collapse out.
   /* Paper/print state lives ABOVE the overflowItems IIFE: the Paper menu
@@ -9961,45 +10026,64 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   </button>
                 )}
                 <button type="button" className="cb-ctlbtn"
-                  title={linkCopied ? "Link copied" : "Share"}
-                  onClick={async () => {
+                  title={linkCopied ? "Copied" : "Share"}
+                  onClick={() => {
                     if (!t.q) { toast("Nothing to share yet", { tone: "error" }); return; }
-                    const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
-                    // Prefer the native share sheet (real "sharing" — Messages,
-                    // Mail, social apps — on mobile and supporting desktop
-                    // browsers). navigator.share() requires a secure context and
-                    // can throw AbortError when the user just dismisses the
-                    // sheet, which is not a failure and shouldn't show an error.
-                    if (navigator.share && window.isSecureContext) {
-                      try { await navigator.share({ title: "Cerebrum", text: t.q, url }); return; }
-                      catch (err) { if (err && err.name === "AbortError") return; /* fall through to clipboard */ }
-                    }
-                    const ok = await copyToClipboard(url, "Link copied");
-                    if (ok) { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500); }
-                    else { setShareUrl(url); }
+                    /* 2026-10-19 (S2 / H15): the designed share card
+                       opens first. The payload it shows is the payload
+                       that gets shared. */
+                    setShareOpen(true);
                   }}
                 >
-                  {linkCopied ? "Link copied" : "Share"}
+                  {linkCopied ? "Copied" : "Share"}
                 </button>
-                {shareUrl && (
-                  <Dialog label="Share this answer" onClose={() => setShareUrl(null)} zIndex={230} width={440}>
-                    <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginBottom: 12, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
-                      Copy the link below to share this answer.
-                    </div>
-                    <input readOnly value={shareUrl} onFocus={(e) => e.target.select()}
-                      aria-label="Share link"
-                      style={{ width: "100%", minHeight: 44, padding: "12px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-mono)", boxSizing: "border-box" }} />
-                    <div style={{ display: "flex", gap: 10, marginTop: 14, justifyContent: "flex-end" }}>
-                      <button type="button" onClick={() => { copyToClipboard(shareUrl, "Link copied").then((ok) => { if (ok) setShareUrl(null); }); }}
-                        style={{ minHeight: 44, padding: "12px 16px", borderRadius: RADIUS.sm, background: accent, color: at, border: "none", fontWeight: 500, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
-                        Copy link
-                      </button>
-                      <button type="button" className="cb-textbtn" style={{ minHeight: 44, padding: "12px 16px" }} onClick={() => setShareUrl(null)}>
-                        Close
-                      </button>
-                    </div>
-                  </Dialog>
-                )}
+                {shareOpen && (() => {
+                  const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
+                  const shareText = buildShareText(t, url);
+                  const tops = shareTopSources(t);
+                  const figures = keyFiguresLine(t);
+                  const canNativeShare = !!(navigator.share && window.isSecureContext);
+                  const doShare = async () => {
+                    // Prefer the native share sheet (real "sharing" —
+                    // Messages, Mail, social apps). An AbortError is
+                    // the reader dismissing the sheet, not a failure.
+                    if (canNativeShare) {
+                      try { await navigator.share({ title: "Cerebrum", text: shareText, url }); setShareOpen(false); return; }
+                      catch (err) { if (err && err.name === "AbortError") { setShareOpen(false); return; } /* fall through to clipboard */ }
+                    }
+                    const ok = await copyToClipboard(shareText, "Share text copied");
+                    if (ok) { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500); setShareOpen(false); }
+                  };
+                  return (
+                    <Dialog label="Share this answer" onClose={() => setShareOpen(false)} zIndex={230} width={440}>
+                      <div style={{ fontFamily: "var(--cb-serif)", fontSize: 17, fontWeight: 500, color: P.ink, lineHeight: 1.4 }}>{t.q}</div>
+                      {figures && (
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", marginTop: 8, fontVariantNumeric: "tabular-nums" }}>{figures}</div>
+                      )}
+                      {tops.length > 0 && (
+                        <div style={{ marginTop: 16 }}>
+                          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 6 }}>Top sources</div>
+                          {tops.map((s, i) => (
+                            <div key={i} style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)", padding: "5px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+                              <span style={{ color: P.ink, fontWeight: 500 }}>{s.title}</span>
+                              {s.meta && <span style={{ color: P.faint }}> · {s.meta}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14, overflowWrap: "anywhere", lineHeight: 1.5 }}>{url}</div>
+                      <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                        <button type="button" className="cb-textbtn" style={{ minHeight: 44, padding: "12px 12px" }} onClick={() => { copyToClipboard(url, "Link copied").then((ok) => { if (ok) setShareOpen(false); }); }}>
+                          Copy link only
+                        </button>
+                        <button type="button" onClick={doShare}
+                          style={{ minHeight: 44, padding: "12px 16px", borderRadius: RADIUS.sm, background: accent, color: at, border: "none", fontWeight: 500, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                          {canNativeShare ? "Share" : "Copy share text"}
+                        </button>
+                      </div>
+                    </Dialog>
+                  );
+                })()}
                 {/* Sources: toggles the evidence drawer — the index is
                     a secondary surface now, not a column competing with the
                     answer. */}
@@ -10433,28 +10517,25 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       {interactive && done && t.responseKind === "no-results" && (
         <ZeroResultsRecovery t={t} P={P} accent={accent} evidenceFilter={evidenceFilter} onClearFilterAndRetry={onClearFilterAndRetry} onRelated={onRelated} />
       )}
-      {/* AI suggestions */}
-      {interactive && done && t.suggestions && t.suggestions.length > 0 && (
-        <div style={{ alignItems: "center", marginTop: 20, display: "flex", flexWrap: "wrap", gap: 8 }} className="cb-fade">
+      {/* Next steps (2026-10-19, S2 / M20): one block, one visual
+          language, one plain heading. The suggested chips, the related
+          questions, the discovery chips and Watch this topic used to
+          be four separate systems stacked under the answer, each with
+          its own heading and margins. They are one list now. */}
+      {interactive && done && ((t.suggestions && t.suggestions.length > 0) || (t.related && t.related.length > 0) || (last && t.responseKind !== "context") || (!synthFailed && answerText.trim())) && (
+        <div style={{ marginTop: 24 }} className="cb-fade">
+          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 12 }}>Next steps</div>
+          {t.suggestions && t.suggestions.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
           {t.suggestions.map((s, i) => (
             <UIButton P={P} variant="ghost" key={i} onClick={() => s.query && onRelated && onRelated(s.query)} disabled={!s.query}
               style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: s.query ? withAlpha(accent, 0.08) : "transparent", color: s.query ? accent : P.faint, border: `1px solid ${s.query ? withAlpha(accent, 0.25) : P.line}`, borderRadius: RADIUS.md, cursor: s.query ? "pointer" : "default", fontFamily: "inherit" }}>
               {s.label} {s.query && <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>}
             </UIButton>
           ))}
-        </div>
-      )}
-      {/* Commit 65 — "Watch this topic", placed at the end of a finished
-          answer because that is the one moment we know the reader cares
-          about this subject. Only on the LAST turn: repeating it under
-          every answer in a long thread turns a useful offer into nagging. */}
-      {interactive && done && last && t.responseKind !== "context" && (
-        <WatchTopicButton q={t.q} P={P} accent={accent} user={user} onChanged={onWatchChanged} />
-      )}
-      {/* Related questions */}
-      {interactive && done && t.related && t.related.length > 0 && (
-        <div style={S.relatedWrap} className="cb-fade">
-          <div style={S.relatedLabel}>Continue the investigation</div>
+          </div>
+          )}
+          {t.related && t.related.length > 0 && (
           <div style={S.relatedList}>
             {t.related.map((r, i) => (
               <button key={i} style={S.relatedBtn} onClick={() => onRelated(r)} onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = P.dark ? "none" : "none"; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
@@ -10462,20 +10543,25 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
               </button>
             ))}
           </div>
+          )}
+          {!synthFailed && answerText.trim() && (
+            <DiscoveryChips bare t={t} P={P} accent={accent}
+              onSaveInvestigation={onSaveInvestigation ? () => onSaveInvestigation(t) : null}
+              onCreateDiagram={onShowFlowchart}
+              onAnalyzeDocument={onOpenDocumentMode} />
+          )}
+          {/* Watch this topic stays last turn only (Commit 65): that is
+              the one moment we know the reader cares about the subject,
+              and repeating it under every answer in a thread would nag. */}
+          {last && t.responseKind !== "context" && (
+            <WatchTopicButton q={t.q} P={P} accent={accent} user={user} onChanged={onWatchChanged} />
+          )}
         </div>
       )}
       {/* #18: one line source count closing out the answer, with a
           jump link to the bibliography, the one source list (M16). */}
       {interactive && done && sources.length > 0 && t.responseKind !== "no-results" && (
         <AnswerSourcesPanel t={t} P={P} accent={accent} onJumpToBibliography={() => { setEvTab("biblio"); scrollToRef(bandSectionRef); }} />
-      )}
-      {/* #10: contextual discovery chips once the answer has completed —
-          each chip only renders when it is relevant to this answer. */}
-      {interactive && done && !synthFailed && answerText.trim() && (
-        <DiscoveryChips t={t} P={P} accent={accent}
-          onSaveInvestigation={onSaveInvestigation ? () => onSaveInvestigation(t) : null}
-          onCreateDiagram={onShowFlowchart}
-          onAnalyzeDocument={onOpenDocumentMode} />
       )}
       {/* Print-only academic layout — invisible in the normal UI (see the
           base ".cb-print-paper-doc { display: none }" rule) and only ever
@@ -24547,7 +24633,7 @@ function App() {
                   return (
                     <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
                       onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
-                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[data-cb-followup="true"]'); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
                     </div>
                   );
                 })}
@@ -24598,8 +24684,12 @@ function App() {
                   <div style={{ marginBottom: 6, display: "flex", justifyContent: isMobile ? "flex-start" : "center" }}>
                     <EvidenceFilter value={evidenceFilter} onChange={(v) => { sfx(); setEvidenceFilter(v); }} P={P} accent={accent} isMobile={isMobile} />
                   </div>
+                  {/* 2026-10-19 (S2 / M20): the follow up composer names
+                      the thread it continues, in its label and its
+                      placeholder. The first person product placeholder
+                      ("I remember the whole thread") is gone. */}
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
-                    <input style={S.searchInput} value={input} aria-label="Follow-up question" onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Follow up: I remember the whole thread" />
+                    <input style={S.searchInput} value={input} data-cb-followup="true" aria-label={turns[0] && turns[0].q ? `Follow up question on ${String(turns[0].q).slice(0, 80)}` : "Follow up question"} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={turns[0] && turns[0].q ? `Follow up on ${shortSubject(turns[0].q)}` : "Ask a follow up"} />
                     <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                     <MicButton onTranscript={(t) => setInput(t)} getInput={() => input} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
@@ -28484,8 +28574,8 @@ button.cb-cite { min-height: 0; min-width: 0; }
 }
 .cb-ledger-num { font-family: var(--cb-mono); font-size: 12px; font-weight: 500; padding-top: 2px; }
 .cb-ledger-row[data-rel="supports"] .cb-ledger-num { color: var(--cb-acc, #9fbd9f); }
-.cb-ledger-row[data-rel="conflicts"] .cb-ledger-num { color: #d99b86; }
-.cb-ledger-row[data-rel="qualifies"] .cb-ledger-num { color: #d7c27b; }
+.cb-ledger-row[data-rel="conflicts"] .cb-ledger-num { color: ${STANCE_TOKENS.retracted}; }
+.cb-ledger-row[data-rel="qualifies"] .cb-ledger-num { color: ${STANCE_TOKENS.concern}; }
 .cb-ledger-row[data-active="true"] { background: rgba(127,127,127,0.07); }
 
 /* Underlined editorial tab row — replaces pill tab bars everywhere. */
