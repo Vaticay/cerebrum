@@ -28,7 +28,8 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Icon, STATUS, FONT_SIZES, RADIUS, withAlpha, accentText } from "./designSystem.jsx";
+import { createPortal } from "react-dom";
+import { Icon, STATUS, FONT_SIZES, RADIUS, LAYOUT, SP, withAlpha, accentText } from "./designSystem.jsx";
 import { accentInk, useWindowWidth } from "./appUtils.js";
 import { NovaRive, appStateForActivity, quizStateForSheet, quizPointerFor, quizCategoryForState, searchCategoryForState } from "./NovaRive.jsx";
 import { useNovaSpeech, NovaBubble } from "./NovaSpeech.jsx";
@@ -1887,64 +1888,75 @@ export function novaBrainDecide(brain, ctx) {
   b.lastBehavior = behavior;
   return { brain: b, behavior, mood };
 }
-/* The feedback sheet's Nova (home restructure wave, reaction
-   beats extended by the presence wave, 2026-10-14): the sheet is
-   where Nova reacts, in three beats. Thinking while the answer
-   lands, then the verdict (pleased for a right answer, deadpan
-   for a miss, worried instead from the second miss in a row,
-   when a streak is building), then the face settles to
-   explaining, which is what the sheet itself is doing. The
-   timers only change which state class renders; the motion
-   itself is the avatar's CSS. A new sheet mounts a new Nova, so
-   the beats always start clean and never queue across cards. */
-function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed = null, anchorRef = null, opinionLine = null, teach = null, speech = null }) {
+/* The Player's one Nova (structural wave, 2026-10-19): a single
+   figure is mounted for the whole card session, in both the
+   answering state and the feedback sheet state, and only moves.
+   She used to be two mounts: a header figure the Player killed
+   the moment an answer was checked, and a second figure mounted
+   fresh inside the feedback sheet (SheetNova), so every card
+   paid two Rive restarts and the sheet beats restarted from a
+   cold canvas. Now one NovaRive lives inside this component for
+   the session, and a portal carries it between the header slot
+   and the sheet slot the Player renders; only her inputs, state,
+   size and anchor pose change across a check and Continue cycle.
+   The sheet pose is the old SheetNova, behavior for behavior:
+   thinking while the answer lands, then the verdict (pleased
+   for a right answer, deadpan for a miss, worried instead from
+   the second miss in a row), then explaining, on the same 650
+   and 2350 millisecond beats, started when the sheet pose begins
+   the way a fresh mount started them, with the same speech
+   offers, the same teaching beats, and the same opinion line,
+   all gated on the sheet pose so nothing fires while she stands
+   in the header. Her line still renders in flow in the sheet
+   body through the Player's own sheet bubble, never from this
+   figure: in the sheet pose she renders figure only, exactly as
+   the 2026-10-18 bubble repair settled it. */
+function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStreak = 0, quizFeed = null, opinionLine = null, teach = null, speech = null, anchorRef = null, headerSlot = null, sheetSlot = null }) {
   const [phase, setPhase] = useState(0);
-  useEffect(() => {
-    const t1 = setTimeout(() => setPhase(1), 650);
-    const t2 = setTimeout(() => setPhase(2), 2350);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, []);
-  /* Her speech on this sheet runs through the one controller
-     (2026-10-15, the speech unification). Ownership moved to
-     the Player on 2026-10-18 (the feedback sheet bubble
-     repair): the Player creates the controller and hands it
-     in, SheetNova still drives it (the offers below are
-     unchanged) and passes it to her NovaRive, which pulses
-     her mouth from it. The Player is the one who renders the
-     current line, as an in flow sheet bubble in the sheet
-     body; her figure here renders figure only. Until today
-     NovaRive rendered the line itself, always as a header
-     bubble floating centered on this 48px figure, and that
-     bubble hung over the sheet's text and past the sheet
-     column's left edge, where the sheet scroll box clipped
-     every line mid word. The controller object is fresh
-     every render, so the effects below reach it through a
-     ref and fire on value changes only. */
   const speechRef = useRef(speech);
   speechRef.current = speech;
-  /* An opinion from the quirks engine (a genuinely hard card
-     answered well, a very fast clean answer, a long easy streak)
-     can name the verdict face; without one the sheet's own
-     reading of the answer stands. */
-  const shown = phase === 0 ? "thinking"
-    : phase === 1 ? (face || (good ? "pleased" : streak >= 2 ? "worried" : "deadpan"))
-    : "explaining";
-  /* The Rive contract rides along (2026-10-15): the sheet's
-     phases map to quizState through quizStateForSheet (thinking
-     beat 1, or 2 while the learner's hover feed says suspense;
-     verdict 3, 4 on a miss, 5 when a correct streak reaches
-     three), and the Player's hover pointer feeds the joystick
-     inputs, so the shipped asset runs in a live state machine
-     on every sheet. */
-  const quizState = quizStateForSheet({ phase, good, correctStreak, hover: !!(quizFeed && quizFeed.hover) });
   /* Her teaching props, reached through refs like the
-     controller (2026-10-15): the Player rebuilds the teach
-     object every render, so the effects below read the latest
-     values without refiring on identity alone. */
+     controller: the Player rebuilds the teach object every
+     render, so the effects below read the latest values without
+     refiring on identity alone. */
   const teachRef = useRef(null);
   teachRef.current = teach;
   const opinionRef = useRef(null);
   opinionRef.current = opinionLine;
+  const shown = phase === 0 ? "thinking"
+    : phase === 1 ? (face || (good ? "pleased" : streak >= 2 ? "worried" : "deadpan"))
+    : "explaining";
+  /* The Rive contract rides along (2026-10-15): the poses map to
+     quizState through quizStateForSheet (thinking beat 1, or 2
+     while the learner's hover feed says suspense; verdict 3, 4
+     on a miss, 5 when a correct streak reaches three), and the
+     Player's hover pointer feeds the joystick inputs, so the
+     shipped asset runs in a live state machine in both poses.
+     The header pose is the sheet mapping at phase 0 with no
+     verdict, which is the call the header mount always made. */
+  const quizState = quizStateForSheet({ phase: inSheet ? phase : 0, good: inSheet ? good : false, correctStreak, hover: !!(quizFeed && quizFeed.hover) });
+  const quizStateRef = useRef(quizState);
+  quizStateRef.current = quizState;
+  /* The sheet beats start when the sheet pose begins, the way a
+     fresh SheetNova mount started them, and leaving the sheet
+     resets the clock and the speech bookkeeping, so the next
+     card's sheet starts clean and never queues across cards. */
+  const prevQuizRef = useRef(quizState);
+  const opinionSaidRef = useRef(null);
+  const teachFiredRef = useRef(null);
+  useEffect(() => {
+    if (!inSheet) {
+      setPhase(0);
+      opinionSaidRef.current = null;
+      teachFiredRef.current = null;
+      return undefined;
+    }
+    setPhase(0);
+    prevQuizRef.current = quizStateRef.current;
+    const t1 = setTimeout(() => setPhase(1), 650);
+    const t2 = setTimeout(() => setPhase(2), 2350);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [inSheet]);
   /* Quiz state transitions offer their category to the
      controller, the offer the retired quip engine used to make
      from inside NovaRive: thinking as the sheet opens its
@@ -1954,27 +1966,27 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
      teach line, though, these canned offers stand down: her
      teaching (the effect below) is the sheet's reaction now,
      and it lands on every answer instead of on a roll. */
-  const prevQuizRef = useRef(quizState);
   useEffect(() => {
     const prev = prevQuizRef.current;
     prevQuizRef.current = quizState;
+    if (!inSheet) return;
     if (prev === quizState) return;
     if (teachRef.current) return;
     const cat = quizCategoryForState(quizState);
     if (cat) speechRef.current.offerCategory(cat);
-  }, [quizState]);
+  }, [quizState, inSheet]);
   /* The opinion line, when the Player's quirks engine produced
      one for this answer, is said as a lesson line: caused, so
      it outranks ambient speech and is never cut off by typing.
      It used to render as static copy under the sheet's WHY;
      now it is speech, in her bubble, with her mouth moving. */
-  const opinionSaidRef = useRef(null);
   useEffect(() => {
+    if (!inSheet) return;
     if (opinionLine && opinionSaidRef.current !== opinionLine) {
       opinionSaidRef.current = opinionLine;
       speechRef.current.say({ source: "lesson", text: opinionLine });
     }
-  }, [opinionLine]);
+  }, [opinionLine, inSheet]);
   /* The teaching itself (2026-10-15, the owner: Nova is the
      one who teaches on right and wrong answers). As the
      verdict beat lands, she speaks in two beats through this
@@ -1989,9 +2001,8 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
      and the opener stays silent. The sheet still prints the
      full why as text; this is the same teaching in her voice,
      with her mouth moving. */
-  const teachFiredRef = useRef(null);
   useEffect(() => {
-    if (phase !== 1) return;
+    if (!inSheet || phase !== 1) return;
     const t = teachRef.current;
     if (!t || !t.line) return;
     if (teachFiredRef.current === t.line) return;
@@ -2001,11 +2012,15 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
       if (opener) speechRef.current.say({ source: "lesson", text: opener });
     }
     speechRef.current.say({ source: "lesson", text: t.line });
-  }, [phase]);
-  return (
-    <NovaRive state={shown} size={48} scanning={phase === 0} quizState={quizState}
-      pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={anchorRef} speech={speech} bubbleVariant={null} />
+  }, [phase, inSheet]);
+  const figure = (
+    <NovaRive state={inSheet ? shown : "thinking"} size={inSheet ? 48 : 40} scanning={inSheet ? phase === 0 : true}
+      quizState={quizState}
+      pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={anchorRef} speech={inSheet ? speech : null} bubbleVariant={inSheet ? null : undefined} />
   );
+  const target = inSheet ? (sheetSlot || headerSlot) : headerSlot;
+  if (!target) return null;
+  return createPortal(figure, target);
 }
 
 /* The completion screen's Nova (2026-10-15, the speech
@@ -2772,7 +2787,7 @@ export const NOVA_POKE_LINES = [
    one who teaches on right and wrong answers). The feedback
    sheet's reaction beat draws from these banks: one opener
    in her voice, then the card's own why follows as her
-   spoken teaching through the same controller (SheetNova).
+   spoken teaching through the same controller (the Player figure).
    Right answers never gush, wrong answers never mock; a
    miss is a falsified hypothesis, and she loves those. */
 export const NOVA_FEEDBACK_RIGHT_LINES = [
@@ -11006,7 +11021,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const [missStreak, setMissStreak] = useState(0);
   /* Consecutive correct answers, the mirror count: three or
      more in a row is her streak state on the Rive contract
-     (quizState 5), read by SheetNova at the verdict. */
+     (quizState 5), read by the Player figure at the verdict. */
   const [rightStreak, setRightStreak] = useState(0);
   /* Nova's quiz feed (Rive wiring, 2026-10-15): while a question
      is unanswered, hovering or focusing an answer option sets
@@ -11020,13 +11035,21 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const novaAnchorRef = useRef(null);
   /* The feedback sheet's speech controller (2026-10-18, the
      feedback sheet bubble repair): the Player owns it and
-     SheetNova drives it, so the Player can render the current
+     the Player figure drives it, so the Player can render the current
      line itself, in flow in the sheet body at the sheet
      column's full width. SheetNova used to own the controller
      and its NovaRive rendered the line as a floating header
      bubble on the 48px sheet figure; that bubble overlapped
      the sheet's text and was clipped at the column's edge. */
   const sheetSpeech = useNovaSpeech();
+  /* The one figure's two homes (structural wave, 2026-10-19):
+     the header slot in the top bar and the sheet slot inside
+     the feedback sheet. PlayerNovaFigure portals between them
+     and never unmounts across a check and Continue cycle. The
+     slots are state so the figure follows the commit that
+     renders or removes the sheet slot. */
+  const [novaHeaderSlot, setNovaHeaderSlot] = useState(null);
+  const [novaSheetSlot, setNovaSheetSlot] = useState(null);
   /* Nova's opinions (quirks wave, 2026-10-14): a card timer so
      answer speed is a fact, an easy streak so her raised brow
      has a count, and the opinion the quirks engine returned for
@@ -11457,14 +11480,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   if (finished) {
     return shell(
-      <div className="lv-screen" style={{ maxWidth: 620, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
+      <div className="lv-screen" style={{ maxWidth: LAYOUT.screen, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
         <div className="lv-rise">
           <svg width="64" height="64" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ margin: "0 auto 20px" }}>
             <circle cx="12" cy="12" r="11" stroke={accent} strokeWidth="1.6" />
             <path d="M7 12.5 L10.5 16 L17 8.5" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="lv-pop" />
           </svg>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>{course.builtin ? "PATH COMPLETE" : "COURSE COMPLETE"}</div>
-          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, margin: "0 0 12px", lineHeight: 1.2 }}>{course.title}</h2>
+          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 12px", lineHeight: 1.2 }}>{course.title}</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 440 }}>
             {course.builtin
               ? "Every lesson on this path is done. Progress is saved on the path, and daily practice keeps pulling from it."
@@ -11484,16 +11507,16 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           </div>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 36, flexWrap: "wrap" }}>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 26px" }}>
-              <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 500, color: accent }}>+{sessionXp}</div>
+              <div style={{ fontSize: FONT_SIZES.display, fontWeight: 500, color: accent }}>+{sessionXp}</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>XP this session</div>
             </div>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 26px" }}>
-              <div style={{ fontSize: FONT_SIZES.hero, fontWeight: 500 }}>{answered ? Math.round((right / answered) * 100) + "%" : "·"}</div>
+              <div style={{ fontSize: FONT_SIZES.display, fontWeight: 500 }}>{answered ? Math.round((right / answered) * 100) + "%" : "·"}</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>First try accuracy</div>
             </div>
           </div>
           {misses.length > 0 ? (
-            <div style={{ textAlign: "left", maxWidth: 520, margin: "0 auto 34px" }}>
+            <div style={{ textAlign: "left", maxWidth: LAYOUT.measure, margin: "0 auto 34px" }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORTH ANOTHER LOOK</div>
               {misses.map((m, i) => (
                 <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 18px", marginBottom: 10 }}>
@@ -11513,7 +11536,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, margin: "0 auto 34px" }}>Clean run. Nothing missed.</p>
           )}
           {course.vocab && course.vocab.length > 0 && (
-            <div style={{ textAlign: "left", maxWidth: 520, margin: "0 auto 34px" }}>
+            <div style={{ textAlign: "left", maxWidth: LAYOUT.measure, margin: "0 auto 34px" }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: accent, marginBottom: 12, textAlign: "center" }}>WORDS FROM THIS COURSE</div>
               {course.vocab.map((v, i) => (
                 <div key={i} style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "14px 18px", marginBottom: 10 }}>
@@ -11533,7 +11556,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   /* Lesson intro: one screen that names the idea before the cards. */
   if (showIntro) {
     return shell(
-      <div className="lv-screen" style={{ maxWidth: 620, margin: "0 auto", padding: "26px 24px 48px" }}>
+      <div className="lv-screen" style={{ maxWidth: LAYOUT.screen, margin: "0 auto", padding: "26px 24px 48px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 40 }}>
           <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 6, minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>✕</button>
           <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, letterSpacing: "0.05em" }}>LESSON {lessonIdx + 1} OF {course.lessons.length}</span>
@@ -11550,7 +11573,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           <div style={{ display: "flex", justifyContent: "center", margin: "26px 0 2px" }}>
             <NovaRive state="greeting" size={128} framing="full" />
           </div>
-          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, lineHeight: 1.2, margin: "18px 0 12px" }}>{lesson.title}</h2>
+          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, lineHeight: 1.2, margin: "18px 0 12px" }}>{lesson.title}</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 14px", maxWidth: 420 }}>{lesson.subtitle}</p>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.label, margin: "0 0 22px" }}>{lesson.cards.length} cards · about {Math.max(1, Math.round(lesson.cards.length * 0.4))} min</p>
           {(() => {
@@ -11634,14 +11657,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
        percent. */
     const doneLine = perfectLine ? null : pickNovaLine(NOVA_LESSON_DONE_LINES, hashStr(lesson.id || lesson.title || ""));
     return shell(
-      <div className="lv-screen" style={{ maxWidth: 620, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
+      <div className="lv-screen" style={{ maxWidth: LAYOUT.screen, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
         <div className="lv-rise">
           <svg width="60" height="60" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ margin: "0 auto 18px" }}>
             <circle cx="12" cy="12" r="11" stroke={accent} strokeWidth="1.6" />
             <path d="M7 12.5 L10.5 16 L17 8.5" stroke={accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="lv-pop" />
           </svg>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>LESSON COMPLETE</div>
-          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, margin: "0 0 10px", lineHeight: 1.25 }}>{lesson.title}</h2>
+          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 10px", lineHeight: 1.25 }}>{lesson.title}</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 30px", maxWidth: 400 }}>
             {course.builtin
               ? "+" + lessonXp + " XP. This lesson is marked on your path. The next one is open."
@@ -11739,10 +11762,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
      asked on this screen; the questions start on its button. */
   if (reviewRecap) {
     return shell(
-      <div className="lv-screen" style={{ maxWidth: 620, margin: "0 auto", padding: "48px 24px 48px" }}>
+      <div className="lv-screen" style={{ maxWidth: LAYOUT.screen, margin: "0 auto", padding: "48px 24px 48px" }}>
         <div className="lv-rise">
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.14em", color: accent, marginBottom: 10 }}>REVIEW WHAT YOU MISSED</div>
-          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, margin: "0 0 10px", lineHeight: 1.25 }}>The ideas first</h2>
+          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 10px", lineHeight: 1.25 }}>The ideas first</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 0 26px" }}>
             Read the idea behind each miss. Then the questions come again.
           </p>
@@ -11814,7 +11837,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
      fields by feedbackTeachLine. On a miss it states the
      correct answer first, resolved through the display order
      the learner actually saw, then carries the card's why.
-     SheetNova speaks it in two beats with her reaction
+     the Player figure speaks it in two beats with her reaction
      opener; the sheet below keeps printing the full why as
      text for rereading, unchanged. */
   const sheetTeach = checked && interactive && card ? {
@@ -11838,12 +11861,10 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
          sheet past the viewport and its top out of view. */
       maxHeight: "85dvh", display: "flex", flexDirection: "column", boxSizing: "border-box",
     }}>
-      <div style={{ maxWidth: 640, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+      <div style={{ maxWidth: LAYOUT.sheet, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
         <div className="lv-sheet-scroll" style={{ overflowY: "auto", minHeight: 0 }}>
-        <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
-          <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} teach={sheetTeach} speech={sheetSpeech} />
-        </div>
-        <div style={{ fontSize: FONT_SIZES.title, fontWeight: 500, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
+        <div ref={(el) => setNovaSheetSlot(el)} style={{ float: "left", marginRight: 14, marginBottom: 4 }} />
+        <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "match" ? (isRight ? "Every pair, first try." : "All pairs matched.")
             : card.kind === "order" || card.kind === "build" ? (orderResult && orderResult.perfect ? (card.kind === "build" ? "Built in the right order." : "In the right order.")
               : orderResult && orderResult.correctPositions > 0 ? orderResult.correctPositions + " of " + orderResult.total + " steps in the right place."
@@ -11856,7 +11877,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         </div>
         {/* Her line on the sheet, in flow (2026-10-18, the
             feedback sheet bubble repair): the current line of
-            the controller SheetNova drives, rendered here by
+            the controller the Player figure drives, rendered here by
             the Player as a sheet bubble under the verdict,
             clearing the floated figure, at the full width of
             the sheet's text column (the sheet variant's own
@@ -11934,7 +11955,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             )}
         </>
         {/* The opinion line is speech now (2026-10-15): it
-            reaches the sheet through SheetNova's opinionLine
+            reaches the sheet through the Player figure's opinionLine
             prop and is said through her controller, so it no
             longer renders as static copy here. */}
         {!sheetGood && (
@@ -11957,8 +11978,15 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   return shell(
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
+      {/* Her one figure for the whole card session (structural
+          wave, 2026-10-19): mounted here once, portaled between
+          the header slot below and the feedback sheet's slot.
+          The intro, lesson done, and course complete screens
+          above keep their own one off figures; this mount is
+          the card session's only one, in both its states. */}
+      <PlayerNovaFigure inSheet={checked} good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} teach={sheetTeach} speech={sheetSpeech} anchorRef={novaAnchorRef} headerSlot={novaHeaderSlot} sheetSlot={novaSheetSlot} />
       {/* top bar: close, segmented course progress, session XP */}
-      <div style={{ maxWidth: 680, width: "100%", margin: "0 auto", padding: "20px 24px 0", boxSizing: "border-box" }}>
+      <div style={{ maxWidth: LAYOUT.lesson, width: "100%", margin: "0 auto", padding: "20px 24px 0", boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <button onClick={onExit} aria-label="Close lesson" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: 21, lineHeight: 1, padding: 4, minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>✕</button>
           <div style={{ display: "flex", gap: 5, flex: 1 }}>
@@ -11984,15 +12012,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             line from two in a row; at three her quizState is
             already the streak state. */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
-          {/* One Nova at a time in the Player too (2026-10-15):
-              while the feedback sheet is open she is in the
-              sheet, so the header mount steps aside; the caption
-              line, streak included, stays. */}
-          {!checked && (
-            <NovaRive state="thinking" size={40} scanning
-              quizState={quizStateForSheet({ phase: 0, good: false, correctStreak: rightStreak, hover: !!(quizFeed && quizFeed.hover) })}
-              pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={novaAnchorRef} />
-          )}
+          {/* One Nova in the Player (structural wave,
+              2026-10-19): her one figure stands in this header
+              slot while a question is unanswered and moves to
+              the feedback sheet's slot when the sheet opens;
+              the figure itself is PlayerNovaFigure, rendered
+              once in this return and portaled here. The caption
+              line, streak included, stays either way. */}
+          <span ref={(el) => setNovaHeaderSlot(el)} style={{ display: "contents" }} />
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, letterSpacing: "0.05em" }}>
             {lesson.title.toUpperCase()} · CARD {cardIdx + 1} OF {lesson.cards.length}
             {rightStreak >= 2 ? " · " + rightStreak + " IN A ROW" : ""}
@@ -12001,7 +12028,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       </div>
 
       {/* card stage */}
-      <div style={{ flex: 1, width: "100%", maxWidth: 680, margin: "0 auto", padding: "26px 24px 8px", boxSizing: "border-box" }}>
+      <div style={{ flex: 1, width: "100%", maxWidth: LAYOUT.lesson, margin: "0 auto", padding: "26px 24px 8px", boxSizing: "border-box" }}>
         <div key={lessonIdx + "-" + cardIdx} className="lv-rise">
           {(card.kind === "quiz" || card.kind === "cloze") && course.img && (
             <div style={{ position: "relative", height: 92, borderRadius: 2, overflow: "hidden", marginBottom: 22, border: "1px solid " + P.line }}>
@@ -12028,7 +12055,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   <DiagramArt diagram={card.diagram} P={P} accent={accent} />
                 </>
               )}
-              <p style={{ fontSize: FONT_SIZES.title, color: P.ink2, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
+              <p style={{ fontSize: FONT_SIZES.subhead, color: P.ink2, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               {lesson.id === "vocab" && course.vocab && course.vocab.length > 0 && (
                 <div style={{ marginTop: 26 }}>
                   <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: P.faint, marginBottom: 12 }}>THE WORDS AHEAD</div>
@@ -12069,7 +12096,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               )}
               {card.prompt && (
                 <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: RADIUS.xl, padding: "17px 19px", margin: "4px 0 10px" }}>
-                  <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.6, margin: 0 }}><RichText text={card.prompt} /></p>
+                  <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.subhead, lineHeight: 1.6, margin: 0 }}><RichText text={card.prompt} /></p>
                 </div>
               )}
               <div className={card.vocab ? "lv-vocab-grid" : undefined} style={card.vocab
@@ -12090,7 +12117,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       style={{
                         appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
                         background: bg, backgroundColor: bg, border: "2px solid " + border, borderRadius: RADIUS.xl,
-                        padding: "15px 18px", fontSize: card.kind === "cloze" ? FONT_SIZES.title : FONT_SIZES.body, lineHeight: 1.5,
+                        padding: "15px 18px", fontSize: card.kind === "cloze" ? FONT_SIZES.subhead : FONT_SIZES.body, lineHeight: 1.5,
                         color, cursor: checked ? "default" : "pointer", textAlign: "left",
                         fontFamily: "var(--cb-font)", minHeight: 54, display: "flex", gap: 12, alignItems: "flex-start",
                       }}>
@@ -12113,7 +12140,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>TRUE OR FALSE</div>
               <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: RADIUS.xl, padding: "19px 21px", marginBottom: 20 }}>
-                <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.title, lineHeight: 1.55, margin: 0 }}><RichText text={card.statement} /></p>
+                <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.subhead, lineHeight: 1.55, margin: 0 }}><RichText text={card.statement} /></p>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 {(displayOptions || ["True", "False"]).map((label, i) => {
@@ -12128,7 +12155,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                       style={{
                         appearance: "none", WebkitAppearance: "none", background: bg, backgroundColor: bg,
                         border: "2px solid " + border, borderRadius: RADIUS.xl, padding: "18px 12px",
-                        fontSize: FONT_SIZES.title, fontWeight: 500, color, cursor: checked ? "default" : "pointer",
+                        fontSize: FONT_SIZES.subhead, fontWeight: 500, color, cursor: checked ? "default" : "pointer",
                         fontFamily: "var(--cb-font)", minHeight: 62,
                       }}>
                       {label}
@@ -12289,7 +12316,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>GO DEEPER · OPTIONAL</div>
               <div style={{ background: P.raised, border: "1px solid " + P.line, borderLeft: "4px solid " + accent, borderRadius: RADIUS.xl, padding: "20px 22px" }}>
-                <p style={{ fontSize: FONT_SIZES.title, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
+                <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               </div>
               <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "16px 0 0" }}>
                 This lesson stands on its own. The catalog on the Nova home teaches more subjects in this same style.
@@ -12301,7 +12328,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             <div>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.13em", color: accent, marginBottom: 14 }}>WRAP UP</div>
               <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, lineHeight: 1.25, margin: "0 0 16px" }}>{card.title}</h2>
-              <p style={{ fontSize: FONT_SIZES.title, color: P.ink2, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
+              <p style={{ fontSize: FONT_SIZES.subhead, color: P.ink2, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 24 }}>
                 <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "8px 15px" }}>{course.lessons.length} lessons</span>
                 {course.vocab && course.vocab.length > 0 && (
@@ -12320,7 +12347,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           the feedback sheet above. */}
       {checked ? sheet : (
         <div className="lv-actionbar" style={{ position: "sticky", bottom: 0, padding: "14px 24px 22px", background: P.bg }}>
-          <div style={{ maxWidth: 640, margin: "0 auto" }}>
+          <div style={{ maxWidth: LAYOUT.sheet, margin: "0 auto" }}>
             {card.kind === "match" ? (
               <button className="lv-btn" disabled
                 style={{ ...btnPrimary, width: "100%", opacity: 0.45, cursor: "default" }}>
@@ -12371,14 +12398,14 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
   const nextIdx = course.lessons.findIndex((l) => !done.has(l.id));
   const mem = memoryState(course, claims);
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", "--lv-accent": accent }}>
+    <div style={{ maxWidth: LAYOUT.lesson, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", "--lv-accent": accent }}>
       <style>{CSS}</style>
       <button onClick={onBack} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
         ← All courses
       </button>
       <div className="lv-rise">
         <Cover title={course.title} height={168} radius={22} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
-        <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{course.title}</h2>
+        <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{course.title}</h2>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, margin: "0 0 6px" }}>
           {course.lessons.length} lessons · {(course.vocab || []).length} terms · {course.xpEarned || 0} XP earned
         </p>
@@ -12420,7 +12447,7 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
                   padding: "16px 18px", fontFamily: "var(--cb-font)", color: P.ink,
                 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3 }}>{lesson.title}</span>
+                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, lineHeight: 1.3 }}>{lesson.title}</span>
                   <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.06em", color: isDone ? accent : P.faint, flexShrink: 0 }}>
                     {isDone ? "DONE" : isNext ? "UP NEXT" : lesson.cards.length + " CARDS"}
                   </span>
@@ -12459,14 +12486,14 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
   const store = (progress && progress.lessons) || {};
   const offsets = [0, 38, 56, 38, 0];
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", "--lv-accent": accent }}>
+    <div style={{ maxWidth: LAYOUT.lesson, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", "--lv-accent": accent }}>
       <style>{CSS}</style>
       <button onClick={onBack} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
         ← Nova home
       </button>
       <div className="lv-rise">
         <Cover title={path.title} height={168} radius={22} cat={CATALOG.find((c) => c.name === path.category) || null} />
-        <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{path.title}</h2>
+        <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, lineHeight: 1.22, margin: "22px 0 8px", color: P.ink }}>{path.title}</h2>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 6px" }}>{path.blurb}</p>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, margin: 0 }}>
           {pp.total} lessons · {path.units.length} unit{path.units.length === 1 ? "" : "s"} · about {pace.minutes} min · {pace.word} · taught directly
@@ -12494,7 +12521,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
             borderRadius: 2, padding: "16px 20px", marginBottom: 26,
           }}>
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: accent, marginBottom: 5 }}>UNIT {ui + 1}</div>
-            <div style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3, color: P.ink }}>{unit.title}</div>
+            <div style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, lineHeight: 1.3, color: P.ink }}>{unit.title}</div>
             <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.5, margin: "4px 0 0" }}>{unit.subtitle}</p>
           </div>
           {unit.lessons.map((lesson, li) => {
@@ -12507,7 +12534,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
             const isCurrent = unlocked && !isDone;
             const offset = offsets[(flatIdx + li) % offsets.length];
             return (
-              <div key={lesson.id} style={{ display: "flex", gap: 16, alignItems: "flex-start", marginLeft: offset, marginBottom: 22, maxWidth: 520 }}>
+              <div key={lesson.id} style={{ display: "flex", gap: 16, alignItems: "flex-start", marginLeft: offset, marginBottom: 22, maxWidth: LAYOUT.measure }}>
                 <div aria-hidden="true" className={isCurrent ? "lv-pulse" : ""}
                   style={{
                     flexShrink: 0, width: 56, height: 56, borderRadius: "50%",
@@ -12515,7 +12542,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
                     border: (fading ? "2px dashed " : "2px solid ") + (mastered || isDone || isCurrent ? accent : P.line),
                     display: "flex", alignItems: "center", justifyContent: "center",
                     color: mastered ? at : isDone || isCurrent ? accent : P.faint,
-                    fontWeight: 500, fontSize: FONT_SIZES.title, fontFamily: "var(--cb-font)",
+                    fontWeight: 500, fontSize: FONT_SIZES.subhead, fontFamily: "var(--cb-font)",
                     opacity: fading ? 0.72 : 1,
                   }}>
                   {isDone ? (
@@ -12536,7 +12563,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
                     opacity: unlocked ? 1 : 0.55,
                   }}>
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                    <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3 }}>{lesson.title}</span>
+                    <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, lineHeight: 1.3 }}>{lesson.title}</span>
                     <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.06em", color: mastered || isDone || isCurrent ? accent : P.faint, flexShrink: 0 }}>
                       {mastered ? "MASTERED" : fading ? "FADING" : isDone ? "DONE" : isCurrent ? "UP NEXT" : "LOCKED"}
                     </span>
@@ -12681,7 +12708,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
     border: "1.5px solid " + (active ? accent : P.line), textAlign: "left",
   });
   return (
-    <div style={{ maxWidth: 620, margin: "0 auto", padding: "48px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink, "--lv-accent": accent }}>
+    <div style={{ maxWidth: LAYOUT.screen, margin: "0 auto", padding: "48px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink, "--lv-accent": accent }}>
       <style>{CSS}</style>
       <div className="lv-rise">
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
@@ -12691,7 +12718,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           </span>
           <span style={{ marginLeft: 2 }}><NovaRive state="greeting" size={40} /></span>
         </div>
-        <h1 style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.hero, fontWeight: 500, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
+        <h1 style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 6px" }}>{CORTEX_TAGLINE}</p>
         {step === 0 ? (
           <>
@@ -13506,30 +13533,30 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           ? "Tomorrow, " + fadingAll.length + " finished lesson" + (fadingAll.length === 1 ? " is" : "s are") + " fading and due for review."
           : "Tomorrow, a fresh daily session will be waiting here.";
     return (
-      <div style={{ maxWidth: 620, margin: "0 auto", padding: "56px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink, textAlign: "center" }}>
+      <div style={{ maxWidth: LAYOUT.screen, margin: "0 auto", padding: "56px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink, textAlign: "center" }}>
         <style>{CSS}</style>
         <div className="lv-rise">
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
             <NovaCelebrateFigure size={128} />
           </div>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.14em", color: ink, marginBottom: 10 }}>DAILY SESSION COMPLETE</div>
-          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.hero, fontWeight: 500, margin: "0 0 12px", lineHeight: 1.2 }}>That is today, done properly.</h2>
+          <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 12px", lineHeight: 1.2 }}>That is today, done properly.</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 26px", maxWidth: 440 }}>
             Warmup, new ground, and a clear head to end on. Here is where today leaves you.
           </p>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 26, flexWrap: "wrap" }}>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 24px", minWidth: 130 }}>
-              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: ink }}>{rank.name}</div>
+              <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: ink }}>{rank.name}</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>
                 {rank.atTop ? "Top rank" : rank.xpToNext + " XP to " + rank.nextName}
               </div>
             </div>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 24px", minWidth: 130 }}>
-              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 500 }}>{profile ? profile.streak || 0 : 0} day streak</div>
+              <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500 }}>{profile ? profile.streak || 0 : 0} day streak</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>{profile ? profile.xp : 0} XP in all</div>
             </div>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 24px", minWidth: 130 }}>
-              <div style={{ fontSize: FONT_SIZES.title, fontWeight: 500 }}>{masteredTotal} mastered</div>
+              <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500 }}>{masteredTotal} mastered</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>{doneTotal} lessons finished</div>
             </div>
           </div>
@@ -13558,7 +13585,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
      changes what the controls do, only where they sit. */
   if (screen.name === "settings") {
     return (
-      <div style={{ maxWidth: 680, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink, "--lv-accent": accent }}>
+      <div style={{ maxWidth: LAYOUT.lesson, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", color: P.ink, "--lv-accent": accent }}>
         <style>{CSS}</style>
         <button onClick={() => setScreen({ name: "home" })} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
           ← Nova home
@@ -13634,7 +13661,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
   }
 
   return (
-    <div className="lv-home" style={{ maxWidth: 1120, margin: "0 auto", padding: "26px 24px 48px", fontFamily: "var(--cb-font)", color: P.ink, "--lv-accent": accent }}>
+    <div className="lv-home" style={{ maxWidth: LAYOUT.wide, margin: "0 auto", padding: "26px 24px 48px", fontFamily: "var(--cb-font)", color: P.ink, "--lv-accent": accent }}>
       <style>{CSS}</style>
       {tourOpen && <NovaTour P={P} accent={accent} at={at} onClose={finishTour} onSpotlight={spotlightTour} />}
       {/* While the tour runs, the home's resident Novas stand
@@ -13870,7 +13897,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   The header Nova is the screen's only resident;
                   the bench keeps its label, copy, and actions. */}
             </div>
-            <h2 style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Due for review</h2>
+            <h2 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Due for review</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
               {reviewDueCount > 0
                 ? reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". One tap plays exactly what is due."
@@ -14029,7 +14056,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           only, so the two surfaces stop redrawing each other. */}
       <div data-tour-anchor="paths" style={{ marginBottom: 30 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEARNING PATHS</div>
-        <h2 style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Your journey</h2>
+        <h2 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Your journey</h2>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
           Whole subjects, in order. Every lesson teaches first, then checks what stuck. None of it needs a search to start. Open a path to see its map and pick up where you stopped.
         </p>
@@ -14046,7 +14073,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               <Cover title={path.title} height={120} radius={0} cat={cat} />
               <span style={{ display: "block", padding: "16px 20px 18px" }}>
                 <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3 }}>{path.title}</span>
+                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, lineHeight: 1.3 }}>{path.title}</span>
                   <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: ink, flexShrink: 0 }}>
                     {pp.complete ? "Complete" : pp.done + " of " + pp.total + " stops"}
                   </span>
@@ -14102,7 +14129,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 }}>
                 <Cover title={t.t} height={104} radius={0} cat={cat} img={t.img} />
                 <span style={{ display: "block", padding: "14px 16px 16px" }}>
-                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3, display: "block" }}>{t.t}</span>
+                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, lineHeight: 1.3, display: "block" }}>{t.t}</span>
                   <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{t.b}</span>
                   {mastery > 0 && (
                     <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: ink, marginTop: 8 }}>
@@ -14131,7 +14158,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 }}>
                 {cat ? <CategoryArt motif={cat.motif} pair={cat.pair} height={104} radius={0} /> : <Cover title={e.title} height={104} radius={0} />}
                 <span style={{ display: "block", padding: "14px 16px 16px" }}>
-                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3, display: "block" }}>{e.title}</span>
+                  <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, lineHeight: 1.3, display: "block" }}>{e.title}</span>
                   <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, display: "block", marginTop: 5, minHeight: 39 }}>{e.blurb || e.query}</span>
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
                     <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, display: "inline-flex", alignItems: "center", gap: 5 }}>
@@ -14221,7 +14248,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   }}>
                   <Cover title={course.title} height={96} radius={0} fontSize={150} cat={CATALOG.find((c) => c.name === course.category) || null} img={course.img} />
                   <span style={{ display: "block", padding: "15px 18px 17px" }}>
-                    <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
+                    <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
                     <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, display: "block", marginTop: 4 }}>
                       {course.lessons.length} lessons · {(course.vocab || []).length} terms
                     </span>

@@ -26,19 +26,25 @@ export const FONT_SIZES = {
   // Plan scale, 2026-10-14: display 32/1.2/500, section 22/1.3/500,
   // subhead 17/1.4/500, body 15/1.55/400, label 13/1.4/400, caption
   // 12/1.3/400. Weights 400 and 500 only.
+  // Folded 2026-10-19 (design audit M1): the old title and heading
+  // size, 18, is a size the plan does not contain, so it is gone.
+  // Title folded into subhead (card titles, ledes, prompts) and
+  // heading folded into section. Every key below is either a plan
+  // role or an exact plan value alias.
   caption: 12,      // caption and meta, timestamps, metadata, badges
   label: 13,        // label and control, form inputs, chips, buttons
   body: 15,         // body, primary prose everywhere
-  title: 18,        // title, legacy lede and card title alias
+  subhead: 17,      // subhead, card titles, card subheads, ledes
   section: 22,      // section, plan role for section headings
-  subhead: 17,      // subhead, card subheads
   display: 32,      // display, mastheads, callouts, hero titles
-  hero: 32,         // hero, legacy alias of display
-  // Legacy aliases. New code uses the plan role names above, and
-  // surface waves migrate call sites to section 22 for section
-  // headings, since title stays as the legacy lede and card title
-  // alias.
-  micro: 12, small: 13, heading: 18,
+  // Exact plan value aliases, kept only because CerebrumApp.jsx
+  // still reads them; its sweep finishes at landing (2026-10-19).
+  // No other file reads these names, and new code never does.
+  title: 17,        // alias of subhead
+  heading: 22,      // alias of section
+  hero: 32,         // alias of display
+  small: 13,        // alias of label
+  micro: 12,        // alias of caption
 };
 
 // Plan palette on the existing dark backgrounds, 2026-10-14.
@@ -270,14 +276,22 @@ export const TRACKING = {
   tight: "0.01em",        // minimal positive (matches TYPE.label)
 };
 
+/* TYPE roles carry their size since 2026-10-19 (design audit M1):
+   a role spread now sets the full voice, family, size, weight and
+   leading together, so a call site cannot pair a role with a raw
+   numeric size and drift. Sizes are the plan sizes in FONT_SIZES.
+   heading is the section role under its older name, kept because
+   CerebrumApp.jsx reads TYPE.heading; section is the plan name. */
 export const TYPE = {
-  display: { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.2 },
-  heading: { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.3 },
-  subhead: { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
-  body:    { fontFamily: "var(--cb-font)", fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 },
-  reading: { fontFamily: "var(--cb-serif)", fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 }, // reading, answer body and lesson text only
-  label:   { fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
-  mono:    { fontFamily: "var(--cb-mono)", fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
+  display: { fontFamily: "var(--cb-font)", fontSize: 32, fontWeight: 500, letterSpacing: 0, lineHeight: 1.2 },
+  section: { fontFamily: "var(--cb-font)", fontSize: 22, fontWeight: 500, letterSpacing: 0, lineHeight: 1.3 },
+  heading: { fontFamily: "var(--cb-font)", fontSize: 22, fontWeight: 500, letterSpacing: 0, lineHeight: 1.3 },
+  subhead: { fontFamily: "var(--cb-font)", fontSize: 17, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
+  body:    { fontFamily: "var(--cb-font)", fontSize: 15, fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 },
+  reading: { fontFamily: "var(--cb-serif)", fontSize: 15, fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 }, // reading, answer body and lesson text only
+  label:   { fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
+  caption: { fontFamily: "var(--cb-font)", fontSize: 12, fontWeight: 400, letterSpacing: 0, lineHeight: 1.3 },
+  mono:    { fontFamily: "var(--cb-mono)", fontSize: 12, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
 };
 
 // 4px grid, rhythm 8/12/16/24/32/48.
@@ -287,9 +301,26 @@ export const LAYOUT = {
   prose: 720,
   answer: 1080,
   reader: 680,
-  sidebar: 220,
-  sidebarCollapsed: 56,
+  // Corrected to the shipped shell values, 2026-10-19 (design
+  // audit M2): the sidebar ships at 216 and collapses to 68.
+  sidebar: 216,
+  sidebarCollapsed: 68,
   sources: 280,
+  // Container widths in use, tokenized 2026-10-19 (M2). stage is
+  // the 1160 column the intro door and the search stage share.
+  // wide is the Nova home column, page the Settings column, stage
+  // and lesson the two widths the lesson Player and path views
+  // center on, screen the narrow centered screens (lesson intro,
+  // lesson done, course complete), sheet the feedback sheet and
+  // action bar column inside the lesson column, and measure the
+  // capped measure inside centered screens.
+  stage: 1160,
+  wide: 1120,
+  page: 760,
+  lesson: 680,
+  screen: 620,
+  sheet: 640,
+  measure: 520,
 };
 
 /* Z-index scale: every stacking layer in the app, named.
@@ -377,7 +408,7 @@ export function UIButton({
         // Keep minHeight 44: the standing touch target floor outranks the plan's 36 to 40px visual height.
         minHeight: 44,
         padding: pad, borderRadius: RADIUS.md, cursor: disabled ? "not-allowed" : "pointer",
-        fontSize: fs, ...TYPE.label, fontWeight: 500,
+        ...TYPE.label, fontSize: fs, fontWeight: 500,
         transition: "background-color 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out",
         width: full ? "100%" : undefined,
         opacity: disabled ? 0.5 : 1,
@@ -434,8 +465,8 @@ export function UIRow({ label, desc, control, onClick, P = null, accent, last, t
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: FONT_SIZES.body, ...TYPE.label, fontWeight: 500, color: tone === "bad" ? (pal.dark ? (paletteName === "Mid" ? "#ff7a7a" : STATUS.bad) : "#b92c31") : pal.ink, overflowWrap: "anywhere" }}>{label}</div>
-        {desc && <div style={{ fontSize: FONT_SIZES.small, fontWeight: 400, color: pal.ink2, lineHeight: 1.5, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
+        <div style={{ ...TYPE.label, fontSize: FONT_SIZES.body, fontWeight: 500, color: tone === "bad" ? (pal.dark ? (paletteName === "Mid" ? "#ff7a7a" : STATUS.bad) : "#b92c31") : pal.ink, overflowWrap: "anywhere" }}>{label}</div>
+        {desc && <div style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: pal.ink2, lineHeight: 1.5, marginTop: 2, overflowWrap: "anywhere" }}>{desc}</div>}
       </div>
       {control && <div style={{ flexShrink: 0 }}>{control}</div>}
     </div>
@@ -450,7 +481,7 @@ export function UIField({ value, onChange, placeholder, P = null, accent, multil
     border: `1px solid ${pal.dark ? COLOR.line : pal.line}`, color: pal.ink, outline: "none",
     /* 16px floor: iOS Safari zooms the viewport on focus for anything
        smaller, so every text input holds 16px on all viewports. */
-    fontSize: 16, ...TYPE.body, minWidth: 0, ...style,
+    ...TYPE.body, fontSize: 16, minWidth: 0, ...style,
   };
   const common = { value, onChange, placeholder, "aria-label": ariaLabel || placeholder, maxLength, onKeyDown, className: ("cb-field " + className).trim(), style: base };
   return multiline
@@ -599,7 +630,7 @@ function ProBadge({ style } = {}) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center",
-      fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
+      fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: PRO.actionInk,
       background: PRO.action,
       borderRadius: 2, padding: "2px 8px 2px 9px",
@@ -613,7 +644,7 @@ function TierBadge({ tier, style } = {}) {
   if (tier === "lite") return (
     <span style={{
       display: "inline-flex", alignItems: "center",
-      fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
+      fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#c99a2e",
       border: "1px solid rgba(212,164,55,0.55)",
       borderRadius: 2, padding: "1px 8px 1px 9px",
@@ -623,7 +654,7 @@ function TierBadge({ tier, style } = {}) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center",
-      fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
+      fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#9aa3a8",
       border: "1px solid rgba(150,160,165,0.4)",
       borderRadius: 2, padding: "1px 8px 1px 9px",

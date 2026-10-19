@@ -10,7 +10,7 @@
 import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import {
   FONT_SIZES, STATUS, COLOR, accentText, relLuminance, withAlpha, Icon,
-  TYPE, SP, SHADOW, UIButton, UICard, RADIUS, Z, TRACKING,
+  TYPE, SP, LAYOUT, SHADOW, UIButton, UICard, RADIUS, Z, TRACKING,
 } from "./designSystem.jsx";
 import { PALETTES } from "./palettes.js";
 import {
@@ -1054,7 +1054,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         borderBottom: "1px solid " + hairline,
       }}>
         <div style={{
-          maxWidth: 1160, margin: "0 auto", padding: "14px 24px",
+          maxWidth: LAYOUT.stage, margin: "0 auto", padding: "14px 24px",
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
@@ -1079,7 +1079,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         </div>
         {isMobile && navOpen && (
           <div id="cb-intro-navmenu" style={{
-            maxWidth: 1160, margin: "0 auto", padding: "0 24px 14px",
+            maxWidth: LAYOUT.stage, margin: "0 auto", padding: "0 24px 14px",
             display: "flex", gap: 4, flexWrap: "wrap",
           }}>
             {["About", "Privacy", "Terms", "Contact"].map((item) => (
@@ -1121,7 +1121,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           onFocus={() => setSpecimenHeld(true)}
           onBlur={() => setSpecimenHeld(false)}
           style={{
-            width: "100%", maxWidth: 1160, marginTop: isMobile ? 32 : 44,
+            width: "100%", maxWidth: LAYOUT.stage, marginTop: isMobile ? 32 : 44,
             display: "flex",
             flexDirection: isMobile ? "column" : "row",
             alignItems: "stretch",
@@ -1310,7 +1310,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         paddingBottom: "max(16px, env(safe-area-inset-bottom))",
       }}>
         <div style={{
-          maxWidth: 1160, margin: "0 auto", padding: "16px 24px 0",
+          maxWidth: LAYOUT.stage, margin: "0 auto", padding: `${SP.lg}px ${SP.xl}px 0`,
           display: "flex", alignItems: "center", flexWrap: "wrap",
           gap: "10px 22px",
           fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, letterSpacing: "normal",

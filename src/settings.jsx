@@ -7,7 +7,7 @@
  */
 
 import { APP_VERSION_LABEL, accentInk, apiAuth, apiDataAction, apiDataGet, apiDataPost, apiProPost, cbNotify, download, ensureDyslexicFont, kbdLabel, notifyPref, relativeTime, setNotifyPref, statusBad, statusWarn, statusGood, toast, useIsMobile } from "./appUtils.js";
-import { FONT_SIZES, Icon, PRO, ProBadge, RADIUS, SP, STATUS, TRACKING, TYPE, TierBadge, UIButton, UISelect, UIRow, Z, withAlpha } from "./designSystem.jsx";
+import { FONT_SIZES, Icon, LAYOUT, PRO, ProBadge, RADIUS, SP, STATUS, TRACKING, TYPE, TierBadge, UIButton, UISelect, UIRow, Z, withAlpha } from "./designSystem.jsx";
 import { isProPalette } from "./palettes.js";
 import { Sfx } from "./sfx.js";
 import { Dialog } from "./flowcharts.jsx";
@@ -38,7 +38,7 @@ function TtsVoiceSetting({ P, accent, at, S, sfx }) {
   return (
     <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
       {[["female", "Female"], ["male", "Male"]].map(([v, label]) => (
-        <UIButton P={P} variant="ghost" key={v} onClick={() => set(v)} style={{ minHeight: 44, flex: 1, padding: "9px 6px", fontSize: FONT_SIZES.small, fontWeight: 500, background: voice === v ? accent : "transparent", color: voice === v ? at : P.ink2, border: `1px solid ${voice === v ? accent : P.line}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "inherit" }}>{label}</UIButton>
+        <UIButton P={P} variant="ghost" key={v} onClick={() => set(v)} style={{ minHeight: 44, flex: 1, padding: "9px 6px", fontSize: FONT_SIZES.label, fontWeight: 500, background: voice === v ? accent : "transparent", color: voice === v ? at : P.ink2, border: `1px solid ${voice === v ? accent : P.line}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "inherit" }}>{label}</UIButton>
       ))}
     </div>
   );
@@ -144,7 +144,7 @@ function PasskeyPanel({ P, accent, at, Section, Row, sfx, onRegisterPasskey }) {
         <Row label="No passkeys yet"
           desc="Set one up on this device and skip the email code next time."
           control={
-            <button onClick={register} disabled={busy} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: accent, color: at, border: "none", borderRadius: RADIUS.md, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-font)" }}>
+            <button onClick={register} disabled={busy} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: accent, color: at, border: "none", borderRadius: RADIUS.md, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-font)" }}>
               {busy ? "Waiting…" : "Set up passkey"}
             </button>
           } last />
@@ -155,7 +155,7 @@ function PasskeyPanel({ P, accent, at, Section, Row, sfx, onRegisterPasskey }) {
             desc={c.lastUsedAt ? `Last used ${relativeTime(c.lastUsedAt)}` : "Registered, not used yet"}
             control={
               <button onClick={() => remove(c.id)} disabled={busy} aria-label={`Remove ${c.label || "passkey"}`}
-                style={{ minHeight: 44, padding: "8px 12px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "none", border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, color: P.ink2, cursor: busy ? "default" : "pointer", fontFamily: "var(--cb-font)" }}>
+                style={{ minHeight: 44, padding: "8px 12px", fontSize: FONT_SIZES.label, fontWeight: 500, background: "none", border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, color: P.ink2, cursor: busy ? "default" : "pointer", fontFamily: "var(--cb-font)" }}>
                 Remove
               </button>
             } />
@@ -163,7 +163,7 @@ function PasskeyPanel({ P, accent, at, Section, Row, sfx, onRegisterPasskey }) {
         <Row label="Add another device"
           desc="Register a passkey on this device too."
           control={
-            <button onClick={register} disabled={busy} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "none", border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, color: P.ink2, cursor: busy ? "default" : "pointer", fontFamily: "var(--cb-font)" }}>
+            <button onClick={register} disabled={busy} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: "none", border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, color: P.ink2, cursor: busy ? "default" : "pointer", fontFamily: "var(--cb-font)" }}>
               {busy ? "Waiting…" : "Add passkey"}
             </button>
           } last />
@@ -223,7 +223,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
   // Gold is the Pro identity color and never fills a button (M58).
   const proBtn = (label, onClick, disabled) => (
     <UIButton P={P} variant="ghost" onClick={onClick} disabled={disabled} style={{
-      padding: "9px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500,
+      padding: "9px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500,
       background: PRO.action, color: PRO.actionInk, border: "none", borderRadius: RADIUS.md,
       cursor: disabled ? "default" : "pointer", fontFamily: "var(--cb-font)",
       whiteSpace: "nowrap", flexShrink: 0, opacity: disabled ? 0.6 : 1,
@@ -231,7 +231,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
   );
   const quietBtn = (label, onClick, disabled) => (
     <UIButton P={P} variant="ghost" onClick={onClick} disabled={disabled} style={{
-      padding: "8px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500,
+      padding: "8px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500,
       background: "transparent", color: P.ink, border: `1px solid ${P.line2}`,
       borderRadius: RADIUS.md, cursor: disabled ? "default" : "pointer", fontFamily: "var(--cb-font)",
       whiteSpace: "nowrap", flexShrink: 0,
@@ -396,11 +396,11 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
     <Section title="API access" footer="Pro members can call /api/search with an API key instead of a browser session. Keys inherit your Pro quota (unlimited) and stop working if Pro lapses. Never share a key. It acts as you.">
       {newKey && (
         <div style={{ margin: "0 0 12px", padding: 14, borderRadius: RADIUS.lg, border: `1px solid ${STATUS.good}`, background: withAlpha(STATUS.good, 0.07) }}>
-          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 6 }}>
+          <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 6 }}>
             Your new key. Copy it now, it won't be shown again
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <code style={{ flex: 1, fontSize: FONT_SIZES.small, color: P.ink, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "8px 12px", overflowX: "auto", whiteSpace: "nowrap", fontFamily: TYPE.mono.fontFamily }}>
+            <code style={{ flex: 1, fontSize: FONT_SIZES.label, color: P.ink, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "8px 12px", overflowX: "auto", whiteSpace: "nowrap", fontFamily: TYPE.mono.fontFamily }}>
               {newKey.key}
             </code>
             <UIButton P={P} accent={accent} at={at} variant="ghost" onClick={copyKey} style={{ minHeight: 44, flexShrink: 0 }}>
@@ -408,7 +408,7 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
             </UIButton>
           </div>
           <div style={{ marginTop: 8 }}>
-            <UIButton P={P} variant="ghost" onClick={() => setNewKey(null)} style={{ minHeight: 44, fontSize: FONT_SIZES.small }}>
+            <UIButton P={P} variant="ghost" onClick={() => setNewKey(null)} style={{ minHeight: 44, fontSize: FONT_SIZES.label }}>
               Done
             </UIButton>
           </div>
@@ -423,7 +423,7 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
            them, in the Row's own padding and type. */
         <div style={{ padding: "9px 2px", minHeight: 44, borderBottom: (keys && keys.length) ? `1px solid ${P.line}` : "none" }}>
           <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>New API key</div>
-          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 400, color: P.faint, lineHeight: 1.5, marginTop: 2 }}>Up to 5 active keys. 60 requests per minute per key.</div>
+          <div style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.faint, lineHeight: 1.5, marginTop: 2 }}>Up to 5 active keys. 60 requests per minute per key.</div>
           <div style={{ marginTop: 10 }}>{keyNameControl}</div>
         </div>
       ) : (
@@ -434,7 +434,7 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
           last={!(keys && keys.length)} />
       )}
       {msg && (
-        <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.small, color: msg.tone === "good" ? "#3fb96c" : "#e5484d", fontFamily: "var(--cb-font)" }}>{msg.text}</div>
+        <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.label, color: msg.tone === "good" ? "#3fb96c" : "#e5484d", fontFamily: "var(--cb-font)" }}>{msg.text}</div>
       )}
       {keys == null ? (
         <Row label="Loading…" desc="" control={null} last />
@@ -452,11 +452,11 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
         }
         return (
         <Row key={k.id}
-          label={<span style={{ fontFamily: TYPE.mono.fontFamily, fontSize: FONT_SIZES.small }}>{k.keyPrefix}…</span>}
+          label={<span style={{ fontFamily: TYPE.mono.fontFamily, fontSize: FONT_SIZES.label }}>{k.keyPrefix}…</span>}
           desc={usageLine}
           control={
             <UIButton P={P} variant="ghost" onClick={() => revoke(k.id)} disabled={busy}
-              style={{ minHeight: 44, padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: "#e5484d", border: "1px solid rgba(229,72,77,0.4)", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+              style={{ minHeight: 44, padding: "6px 12px", fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: "#e5484d", border: "1px solid rgba(229,72,77,0.4)", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
               Revoke
             </UIButton>
           }
@@ -504,13 +504,13 @@ function ProGrantPanel({ P, accent, at, Section, Row, onProChanged }) {
             <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") run("grant", email); }}
               placeholder="name@example.com" type="email" autoComplete="off" aria-label="Email address to grant access"
               style={{ padding: "8px 12px", fontSize: 16, background: P.surface, color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, fontFamily: "var(--cb-font)", flex: "1 1 160px", minWidth: 0, maxWidth: 260 }} />
-            <UIButton P={P} variant="ghost" onClick={() => run("grant", email)} disabled={busy || !email.trim()} style={{ padding: "8px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500, background: busy ? P.raised : PRO.action, color: busy ? P.faint : PRO.actionInk, border: "none", borderRadius: RADIUS.md, cursor: busy || !email.trim() ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+            <UIButton P={P} variant="ghost" onClick={() => run("grant", email)} disabled={busy || !email.trim()} style={{ padding: "8px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: busy ? P.raised : PRO.action, color: busy ? P.faint : PRO.actionInk, border: "none", borderRadius: RADIUS.md, cursor: busy || !email.trim() ? "default" : "pointer", fontFamily: "var(--cb-font)", flexShrink: 0 }}>
               {busy ? "…" : "Grant"}
             </UIButton>
           </div>
         } />
       {msg && (
-        <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.small, color: msg.tone === "good" ? "#3fb96c" : "#e5484d", fontFamily: "var(--cb-font)" }}>{msg.text}</div>
+        <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.label, color: msg.tone === "good" ? "#3fb96c" : "#e5484d", fontFamily: "var(--cb-font)" }}>{msg.text}</div>
       )}
       <Row
         label="Lifetime Pro members"
@@ -519,7 +519,7 @@ function ProGrantPanel({ P, accent, at, Section, Row, onProChanged }) {
         last={!(list && list.length)} />
       {list && list.map((m) => (
         <Row key={m.email} label={m.email} desc={m.granted_at ? `Granted ${new Date(m.granted_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "Lifetime member"}
-          control={<UIButton P={P} variant="ghost" onClick={() => run("revoke", m.email)} disabled={busy} style={{ minHeight: 44, padding: "6px 12px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: "#e5484d", border: "1px solid rgba(229,72,77,0.4)", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Revoke</UIButton>}
+          control={<UIButton P={P} variant="ghost" onClick={() => run("revoke", m.email)} disabled={busy} style={{ minHeight: 44, padding: "6px 12px", fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: "#e5484d", border: "1px solid rgba(229,72,77,0.4)", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Revoke</UIButton>}
           last={m === list[list.length - 1]} />
       ))}
     </Section>
@@ -573,7 +573,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
   const [busy, setBusy] = useState("");
 
   const pillBtn = {
-    minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 500,
+    minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.label, fontWeight: 500,
     background: withAlpha(accent, 0.16), color: accent,
     border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: RADIUS.viewport,
     cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
@@ -584,7 +584,7 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
   };
   const statusPill = (text, color) => (
     <span style={{
-      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
+      fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "normal",
       padding: "4px 12px", borderRadius: RADIUS.viewport, color, background: withAlpha(color, 0.12),
       whiteSpace: "nowrap",
     }}>{text}</span>
@@ -791,9 +791,9 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
             display: "flex", alignItems: "baseline", gap: 8, padding: "8px 12px",
             background: P.dark ? "rgba(255,255,255,0.05)" : "#fff",
             border: `1px solid ${P.line}`, borderRadius: RADIUS.md,
-            fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
+            fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)",
           }}>
-            <span style={{ color: P.faint, fontSize: FONT_SIZES.micro, minWidth: 18 }}>{i + 1}</span>
+            <span style={{ color: P.faint, fontSize: FONT_SIZES.caption, minWidth: 18 }}>{i + 1}</span>
             <span style={{ color: P.ink, fontWeight: 500, userSelect: "all" }}>{w}</span>
           </div>
         ))}
@@ -807,12 +807,12 @@ function EncryptionSettings({ P, accent, at, sfx, Section, Row }) {
       )}
       {phraseMode === "setup" && challengeOn && (
         <div style={{ marginTop: 4 }}>
-          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)" }}>
+          <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)" }}>
             Prove you wrote them down. Type the requested words:
           </div>
           {challenges.map((c) => (
             <div key={c.index} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <label htmlFor={"cb-challenge-" + c.index} style={{ fontSize: FONT_SIZES.small, color: P.ink2, minWidth: 74, fontFamily: "var(--cb-font)" }}>Word {c.index + 1}</label>
+              <label htmlFor={"cb-challenge-" + c.index} style={{ fontSize: FONT_SIZES.label, color: P.ink2, minWidth: 74, fontFamily: "var(--cb-font)" }}>Word {c.index + 1}</label>
               <input
                 id={"cb-challenge-" + c.index}
                 value={c.typed}
@@ -950,7 +950,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
   const mode = vaultCtl.mode;
 
   const pillBtn = {
-    minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 500,
+    minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.label, fontWeight: 500,
     background: withAlpha(accent, 0.16), color: accent,
     border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: RADIUS.viewport,
     cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap",
@@ -962,7 +962,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
   const ghostBtn = { ...pillBtn, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2 };
   const statusPill = (text, color) => (
     <span style={{
-      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
+      fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "normal",
       padding: "4px 12px", borderRadius: RADIUS.viewport, color, background: withAlpha(color, 0.12),
       whiteSpace: "nowrap",
     }}>{text}</span>
@@ -972,7 +972,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
     borderTop: `1px solid ${P.line}`,
   };
   const warnLine = {
-    display: "flex", alignItems: "flex-start", gap: 8, fontSize: FONT_SIZES.small,
+    display: "flex", alignItems: "flex-start", gap: 8, fontSize: FONT_SIZES.label,
     color: P.ink2, lineHeight: 1.5, marginBottom: 10, fontFamily: "var(--cb-font)",
   };
   const fieldLabel = {
@@ -1352,7 +1352,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         )}
         {enableStep === "warnings" && (
           <div style={noteBox}>
-            <div style={{ ...fieldLabel, fontSize: FONT_SIZES.small, color: P.ink, marginBottom: 10 }}>Before you turn this on, three things you should know:</div>
+            <div style={{ ...fieldLabel, fontSize: FONT_SIZES.label, color: P.ink, marginBottom: 10 }}>Before you turn this on, three things you should know:</div>
             <div style={warnLine}>
               <Icon name="warning" size={15} style={{ color: STATUS.bad, flexShrink: 0, marginTop: 1 }} />
               <span>If you lose your recovery phrase and lose all your devices, your saved papers and investigations are gone forever. Cerebrum cannot get them back. There is no backdoor, and support can't override this.</span>
@@ -1395,7 +1395,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
         )}
         {enableStep === "migrating" && (
           <div style={noteBox}>
-            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+            <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
               Making your library private: encrypting everything on this device, uploading it, then removing the old readable copies. Keep this tab open.
             </div>
           </div>
@@ -1475,7 +1475,7 @@ function PrivateVaultSettings({ P, accent, sfx, Section, Row, user, saved, setSa
                 type="checkbox" checked={disableConsent} onChange={(e) => { sfx(); setDisableConsent(e.target.checked); }}
                 style={{ width: 20, height: 20, marginTop: 2, accentColor: accent, flexShrink: 0, cursor: "pointer" }}
               />
-              <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
+              <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
                 Also write my library back to my account as readable data, so my other devices see it again. Cerebrum's servers will be able to read it.
               </span>
             </label>
@@ -1588,7 +1588,7 @@ function LocalSlider({ label, value, min, max, step, format, onCommit, accent, P
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-        <span style={{ fontSize: FONT_SIZES.small, color: P.ink2 }}>{label}</span>
+        <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>{label}</span>
         <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{format(local)}</span>
       </div>
       <div style={{ minHeight: 44, display: "flex", alignItems: "center" }}>
@@ -1700,13 +1700,13 @@ function SystemStatus({ P, accent }) {
       {(rows || []).map((r) => (
         <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderBottom: `1px solid ${P.line}` }}>
           <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: tone(r.state), flexShrink: 0 }} />
-          <span style={{ fontSize: FONT_SIZES.small, color: P.ink, flex: 1 }}>{r.label}</span>
+          <span style={{ fontSize: FONT_SIZES.label, color: P.ink, flex: 1 }}>{r.label}</span>
           <span style={{ fontSize: FONT_SIZES.caption, color: r.state === "ok" ? P.faint : tone(r.state), fontFamily: "var(--cb-font)" }}>
             {r.state === "ok" ? "live" : r.detail || r.state}
           </span>
         </div>
       ))}
-      {!rows && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "12px 0" }}>Checking…</div>}
+      {!rows && <div style={{ fontSize: FONT_SIZES.label, color: P.faint, padding: "12px 0" }}>Checking…</div>}
       <UIButton P={P} variant="ghost" onClick={check} style={{ minHeight: 44,
         marginTop: 14, padding: "8px 16px", borderRadius: RADIUS.viewport, cursor: "pointer",
         background: "transparent", border: `1px solid ${P.line2}`, color: P.ink2,
@@ -1742,20 +1742,20 @@ function ConfigStatus({ P, accent }) {
   useEffect(() => { load(); }, [load]);
 
   if (state.status === "loading") {
-    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "12px 0" }}>Checking configuration…</div>;
+    return <div style={{ fontSize: FONT_SIZES.label, color: P.faint, padding: "12px 0" }}>Checking configuration…</div>;
   }
   if (state.status === "forbidden") {
-    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "12px 0", lineHeight: 1.6 }}>
+    return <div style={{ fontSize: FONT_SIZES.label, color: P.faint, padding: "12px 0", lineHeight: 1.6 }}>
       Configuration is visible to the account listed in FOUNDER_EMAIL. If that should be you, check that the variable is set in Cloudflare and matches the address you signed in with.
     </div>;
   }
   if (state.status === "missing") {
-    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "12px 0", lineHeight: 1.6 }}>
+    return <div style={{ fontSize: FONT_SIZES.label, color: P.faint, padding: "12px 0", lineHeight: 1.6 }}>
       /api/config isn't answering. It may not be deployed yet.
     </div>;
   }
   if (state.status !== "ready" || !state.data) {
-    return <div style={{ fontSize: FONT_SIZES.small, color: P.faint, padding: "12px 0" }}>
+    return <div style={{ fontSize: FONT_SIZES.label, color: P.faint, padding: "12px 0" }}>
       Couldn't read the configuration just now{state.detail ? ` (${state.detail})` : ""}. <button onClick={load} style={{ background: "none", border: "none", color: accent, cursor: "pointer", font: "inherit", textDecoration: "underline", padding: 0 }}>Try again</button>
     </div>;
   }
@@ -1771,7 +1771,7 @@ function ConfigStatus({ P, accent }) {
 
   const pill = (ok, label) => (
     <span style={{
-      flexShrink: 0, fontSize: FONT_SIZES.micro, fontWeight: 500, fontFamily: "var(--cb-font)",
+      flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
       padding: "2px 9px", borderRadius: RADIUS.pill,
       color: ok ? accent : P.faint,
       background: ok ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"),
@@ -1808,7 +1808,7 @@ function ConfigStatus({ P, accent }) {
 
       {groups.map((g) => (
         <div key={g.name}>
-          <div style={{ fontSize: FONT_SIZES.caption, ...TYPE.label, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: SP.sm }}>{g.name}</div>
+          <div style={{ ...TYPE.label, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: SP.sm }}>{g.name}</div>
           {g.items.map((v, i) => (
             <div key={v.name} style={{
               display: "flex", alignItems: "flex-start", gap: 12, padding: "9px 0",
@@ -1816,7 +1816,7 @@ function ConfigStatus({ P, accent }) {
             }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: v.present ? P.ink : P.ink2, fontFamily: "var(--cb-font)" }}>{v.name}</div>
-                <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 3, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
                   {v.present ? v.does : v.breaks}
                 </div>
               </div>
@@ -2197,9 +2197,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     <div style={{ marginBottom: 28 }}>
       {/* Section headers are small caps captions — they name the table
           that follows rather than competing with it. */}
-      {title && <div style={{ fontSize: FONT_SIZES.caption, ...TYPE.label, fontWeight: 500, color: P.faint, marginBottom: SP.sm, textTransform: "none", letterSpacing: "normal", fontFamily: "var(--cb-font)" }}>{title}</div>}
+      {title && <div style={{ ...TYPE.label, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, marginBottom: SP.sm, textTransform: "none", letterSpacing: "normal", fontFamily: "var(--cb-font)" }}>{title}</div>}
       <div>{children}</div>
-      {footer && <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 8, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>{footer}</div>}
+      {footer && <div style={{ fontSize: FONT_SIZES.label, color: P.faint, marginTop: 8, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>{footer}</div>}
     </div>
   );
 
@@ -2331,7 +2331,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           760px on every viewport. A wider column turned the short tabs
           into a small block of controls beside a void; 760 keeps the table
           dense and readable. */}
-      <div style={{ width: "100%", maxWidth: 760, margin: "0 auto", padding: isMobile ? "62px 18px 48px" : "34px 24px 68px", display: "flex", flexDirection: "column", fontFamily: "var(--cb-font)" }}>
+      <div style={{ width: "100%", maxWidth: LAYOUT.page, margin: "0 auto", padding: isMobile ? "62px 18px 48px" : "34px 24px 68px", display: "flex", flexDirection: "column", fontFamily: "var(--cb-font)" }}>
 
         {/* Header. Settings became a full page (not a dialog) in Commit 62,
             but kept the dialog's horizontally-scrolling tab strip — a
@@ -2347,7 +2347,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <NovaLive size={66} />
               </span>
-              <div style={{ fontSize: FONT_SIZES.display, ...TYPE.heading, color: P.ink, fontFamily: "var(--cb-font)" }}>Settings</div>
+              <div style={{ ...TYPE.heading, fontSize: FONT_SIZES.display, color: P.ink, fontFamily: "var(--cb-font)" }}>Settings</div>
             </div>
 
             {/* Commit 67 — search. See SETTINGS_INDEX. */}
@@ -2377,7 +2377,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   boxShadow: "none", overflow: "hidden",
                 }}>
                   {searchHits.length === 0 ? (
-                    <div style={{ padding: "12px 16px", fontSize: FONT_SIZES.small, color: P.faint }}>
+                    <div style={{ padding: "12px 16px", fontSize: FONT_SIZES.label, color: P.faint }}>
                       Nothing matches that.
                     </div>
                   ) : searchHits.map((h) => (
@@ -2386,8 +2386,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       padding: "12px 16px", background: "transparent", border: "none", cursor: "pointer",
                       textAlign: "left", fontFamily: "var(--cb-font)",
                     }}>
-                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>{h.label}</span>
-                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, whiteSpace: "nowrap" }}>{tabLabel(h.tabId)}</span>
+                      <span style={{ fontSize: FONT_SIZES.label, color: P.ink, fontWeight: 500 }}>{h.label}</span>
+                      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, whiteSpace: "nowrap" }}>{tabLabel(h.tabId)}</span>
                     </button>
                   ))}
                 </div>
@@ -2430,7 +2430,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     display: "flex", alignItems: "center", gap: 11, width: "100%",
                     padding: "12px 12px", borderRadius: RADIUS.md, border: "none", cursor: "pointer",
                     textAlign: "left", fontFamily: "var(--cb-font)",
-                    fontSize: FONT_SIZES.small, fontWeight: 500,
+                    fontSize: FONT_SIZES.label, fontWeight: 500,
                     letterSpacing: TYPE.heading.letterSpacing,
                     background: tab === id ? withAlpha(accent, 0.11) : "transparent",
                     color: tab === id ? P.ink : P.ink2,
@@ -2452,7 +2452,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <>
               <Section title="Account" footer="An account syncs your library across devices. Guest mode keeps working forever if you'd rather not.">
                 <Row label="You're browsing as a guest" desc="Nothing here leaves this browser." control={
-                  <button onClick={() => onOpenAuth("login")} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: accent, color: at, border: "none", borderRadius: RADIUS.md, cursor: "pointer" }}>Sign in</button>
+                  <button onClick={() => onOpenAuth("login")} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: accent, color: at, border: "none", borderRadius: RADIUS.md, cursor: "pointer" }}>Sign in</button>
                 } last />
               </Section>
               <ProAccountSection P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={onOpenPro} Section={Section} Row={Row} />
@@ -2524,7 +2524,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     desc={founderStatus.configured ? `Set to ${founderStatus.configuredValue}` : "Not set on the server"}
                     control={
                       <span style={{
-                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
+                        fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "normal",
                         padding: "4px 12px", borderRadius: RADIUS.viewport,
                         color: founderStatus.configured ? statusGood(P) : statusBad(P, paletteName),
                         background: withAlpha(founderStatus.configured ? STATUS.good : STATUS.bad, 0.12),
@@ -2537,7 +2537,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     desc={founderStatus.matchedUser ? `Resolves to @${founderStatus.matchedUser}` : "No account matches that address"}
                     control={
                       <span style={{
-                        fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
+                        fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "normal",
                         padding: "4px 12px", borderRadius: RADIUS.viewport,
                         color: founderStatus.youAreFounder ? statusGood(P) : P.faint,
                         background: withAlpha(founderStatus.youAreFounder ? STATUS.good : P.faint, 0.12),
@@ -2607,7 +2607,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       }}>
                       <span style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
                         <Icon name={prof.icon} size={18} style={{ color: isActive ? accent : P.ink2, flexShrink: 0 }} />
-                        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink }}>{prof.label}</span>
+                        <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink }}>{prof.label}</span>
                         {isActive && (
                           <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "none", color: accent }}>Active</span>
                         )}
@@ -2619,8 +2619,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               </div>
               {effectiveProfile === "custom" && (
                 <div style={{ padding: "8px 2px 0", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)" }}>Customized. You tweaked a profile by hand.</span>
-                  <button type="button" onClick={clearReadingProfile} style={{ background: "none", border: "none", padding: 0, color: accent, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, minHeight: 44 }}>Clear profile</button>
+                  <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)" }}>Customized. You tweaked a profile by hand.</span>
+                  <button type="button" onClick={clearReadingProfile} style={{ background: "none", border: "none", padding: 0, color: accent, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, minHeight: 44 }}>Clear profile</button>
                 </div>
               )}
               <div style={{ padding: "4px 2px 12px" }}>
@@ -2638,7 +2638,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       <span style={{ width: 22, height: 22, borderRadius: RADIUS.md, background: PALETTES[pn].surface, border: `1px solid ${PALETTES[pn].line2}` }} />
                       <span style={{ width: 22, height: 22, borderRadius: RADIUS.md, background: accent }} />
                     </div>
-                    <span style={{ fontSize: FONT_SIZES.small, color: PALETTES[pn].ink, fontWeight: 500, fontFamily: "var(--cb-font)" }}>{pn}</span>
+                    <span style={{ fontSize: FONT_SIZES.label, color: PALETTES[pn].ink, fontWeight: 500, fontFamily: "var(--cb-font)" }}>{pn}</span>
                   </button>
                 ))}
               </div>
@@ -2735,12 +2735,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       try {
                         Notification.requestPermission().then((perm) => setNotifPerm(perm));
                       } catch { setNotifPerm("unsupported"); }
-                    }} style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                    }} style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                       Allow
                     </button>
                   ) : (
                     <span style={{
-                      fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal",
+                      fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "normal",
                       padding: "4px 12px", borderRadius: RADIUS.viewport,
                       color: notifPerm === "granted" ? statusGood(P) : P.faint,
                       background: withAlpha(notifPerm === "granted" ? STATUS.good : P.faint, 0.12),
@@ -2768,7 +2768,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     notifPerm === "granted" ? (
                       <button onClick={() => setPushEnabled(true)}
                         aria-label="Enable background notifications"
-                        style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                        style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                         Enable
                       </button>
                     ) : (
@@ -2777,7 +2777,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       </span>
                     )
                   ) : (
-                    <span style={{ fontSize: FONT_SIZES.micro, fontFamily: "var(--cb-font)", letterSpacing: "normal", padding: "4px 12px", borderRadius: RADIUS.viewport, color: P.faint, background: withAlpha(P.faint, 0.12) }}>
+                    <span style={{ fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "normal", padding: "4px 12px", borderRadius: RADIUS.viewport, color: P.faint, background: withAlpha(P.faint, 0.12) }}>
                       {pushState === "unsupported" ? "Unavailable" : "…"}
                     </span>
                   )
@@ -2890,7 +2890,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Row label="Saved articles" desc={`${saved.length} article${saved.length === 1 ? "" : "s"} saved`} last={(history || []).length === 0} />
               {(history || []).length > 0 && (
                 <Row label="Clear conversation history" destructive control={
-                  <button onClick={() => { if (window.confirm("Clear your conversation history? This can't be undone.")) { setHistory([]); sfx(); } }} style={{ padding: "6px 16px", minHeight: 44, fontSize: FONT_SIZES.small, color: statusBad(P, paletteName), background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-font)" }}>Clear</button>
+                  <button onClick={() => { if (window.confirm("Clear your conversation history? This can't be undone.")) { setHistory([]); sfx(); } }} style={{ padding: "6px 16px", minHeight: 44, fontSize: FONT_SIZES.label, color: statusBad(P, paletteName), background: "transparent", border: "none", cursor: "pointer", fontWeight: 500, fontFamily: "var(--cb-font)" }}>Clear</button>
                 } last />
               )}
             </Section>
@@ -2927,7 +2927,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                           setWatchlist((prev) => prev.filter((x) => x.id !== w.id));
                           try { await apiDataAction("unwatch-topic", { topic: w.topic }); }
                           catch { loadWatchlist(); }
-                        }} style={{ minHeight: 44, padding: "5px 12px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                        }} style={{ minHeight: 44, padding: "5px 12px", fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                           Unwatch
                         </UIButton>
                       }
@@ -2957,10 +2957,10 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   URL.revokeObjectURL(url);
                   sfx();
                   toast("Workspace exported.");
-                }} style={{ minHeight: 44, padding: "6px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Export JSON</button>
+                }} style={{ minHeight: 44, padding: "6px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Export JSON</button>
               } />
               <Row label="Import workspace" desc="Restore from a previously exported file" control={
-                <label style={{ minHeight: 44, display: "inline-flex", alignItems: "center", padding: "6px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                <label style={{ minHeight: 44, display: "inline-flex", alignItems: "center", padding: "6px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                   Import
                   <input type="file" accept=".json" style={{ display: "none" }} onChange={(e) => {
                     const file = e.target.files?.[0];
@@ -3036,7 +3036,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 {[[kbdLabel("K"), "Search"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], [kbdLabel("D"), "Toggle light / dark"], ["Esc", "Back to search"]].map(([key, desc], i, arr) => (
                   <div key={desc} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: i < arr.length - 1 ? `1px solid ${divider}` : "none" }}>
                     <span style={{ fontSize: FONT_SIZES.body, color: P.ink, fontWeight: 500, fontFamily: "var(--cb-font)" }}>{desc}</span>
-                    <kbd style={{ fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: RADIUS.md, fontWeight: 500 }}>{key}</kbd>
+                    <kbd style={{ fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: RADIUS.md, fontWeight: 500 }}>{key}</kbd>
                   </div>
                 ))}
               </div>
@@ -3074,12 +3074,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 400, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
             Clear your conversations, saved articles, and search history, in this browser and in your account's synced copy.
           </p>
-          <p style={{ fontSize: FONT_SIZES.small, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Preferences, watched topics, collections, documents, and this device's encryption keys are kept. This can't be undone.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
-            <UIButton P={P} variant="ghost" onClick={() => setClearOpen(false)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my data</UIButton>
-            <UIButton P={P} variant="ghost" onClick={() => { setSessions([]); setSaved([]); setHistory([]); setClearOpen(false); sfx(); }} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500, background: "#d13438", color: "#fff", border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Clear everything</UIButton>
+            <UIButton P={P} variant="ghost" onClick={() => setClearOpen(false)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my data</UIButton>
+            <UIButton P={P} variant="ghost" onClick={() => { setSessions([]); setSaved([]); setHistory([]); setClearOpen(false); sfx(); }} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: "#d13438", color: "#fff", border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Clear everything</UIButton>
           </div>
         </Dialog>
       )}
@@ -3088,12 +3088,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 400, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
             Put every preference back to its default: theme, accent, sounds, motion, answer style, notifications, everything on the Appearance, Sound & motion, and Answers tabs.
           </p>
-          <p style={{ fontSize: FONT_SIZES.small, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Your library, history and watchlist are untouched.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
-            <UIButton P={P} variant="ghost" onClick={() => setResetOpen(false)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Cancel</UIButton>
-            <button onClick={() => { resetAllSettings(); setResetOpen(false); }} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500, background: accent, color: at, border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Reset settings</button>
+            <UIButton P={P} variant="ghost" onClick={() => setResetOpen(false)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Cancel</UIButton>
+            <button onClick={() => { resetAllSettings(); setResetOpen(false); }} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: accent, color: at, border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Reset settings</button>
           </div>
         </Dialog>
       )}
@@ -3102,14 +3102,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 400, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
             Permanently delete your account and all its data: email, library, history, everything on our servers.
           </p>
-          <p style={{ fontSize: FONT_SIZES.small, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Immediately, and for good. If you have an active subscription,{" "}
             <button onClick={async () => { try { const r = await apiProPost("create-portal", {}); window.location.href = r.url; } catch { toast("Couldn't open billing. Try again?", { tone: "error" }); } }} style={{ background: "none", border: "none", padding: 0, color: accent, cursor: "pointer", fontSize: "inherit", fontWeight: 500, fontFamily: "var(--cb-font)", textDecoration: "underline" }}>cancel it in the billing portal</button>{" "}
             first. Deletion doesn't stop billing.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
-            <UIButton P={P} variant="ghost" onClick={() => setDeleteOpen(false)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my account</UIButton>
-            <button onClick={async () => { await submitDeleteAccount(); }} disabled={delBusy} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500, background: "#d13438", color: "#fff", border: "none", borderRadius: RADIUS.md, cursor: delBusy ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: delBusy ? 0.6 : 1 }}>{delBusy ? "Deleting…" : "Delete my account"}</button>
+            <UIButton P={P} variant="ghost" onClick={() => setDeleteOpen(false)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my account</UIButton>
+            <button onClick={async () => { await submitDeleteAccount(); }} disabled={delBusy} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: "#d13438", color: "#fff", border: "none", borderRadius: RADIUS.md, cursor: delBusy ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: delBusy ? 0.6 : 1 }}>{delBusy ? "Deleting…" : "Delete my account"}</button>
           </div>
         </Dialog>
       )}
