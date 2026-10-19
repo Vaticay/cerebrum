@@ -17542,7 +17542,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   // and must not commit state once it has moved on — otherwise the old
   // document's result (or its abort error) lands on the new document.
   const docGen = useRef(0);
-  const docEyebrow = { ...TYPE.label, fontSize: FONT_SIZES.caption, fontWeight: 500, // 2026-10-19 landing: spread first so the written caption size (12) is the rendered one; the old order let TYPE.label silently override it to 13 letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" };
+  // 2026-10-19 landing: the spread comes first so the written caption
+  // size (12) is the rendered one; the old order let TYPE.label
+  // silently override it to 13.
+  const docEyebrow = { ...TYPE.label, fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" };
   /* Sep 2026: the source (intake) pane sits over Document Mode's own film.
      Bare content on the page scrim let video texture ghost through behind
      dimmed text — so the intake pane gets the same opaque card treatment
@@ -28650,8 +28653,9 @@ button.cb-cite { min-height: 0; min-width: 0; }
      band the JS mode already claims, 721 to 900 included. */
   .cb-claim { grid-template-columns: 1fr; }
   .cb-claim-refs {
+    /* M15 (2026-10-19): no rule under every cited paragraph; the refs
+       stack plainly above the claim in the collapsed rail. */
     text-align: left; border-right: none;
-    border-bottom: 1px solid var(--cb-line, rgba(128,128,128,0.22));
     padding: 0 0 6px; margin-bottom: 2px;
   }
 }
@@ -28722,14 +28726,16 @@ button.cb-cite { min-height: 0; min-width: 0; }
 @media (max-width: 900px) {
   .cb-answer-wrap { padding-left: 16px; padding-right: 16px; }
   .cb-answer-wrap .cb-article { font-size: 17px !important; line-height: 1.75 !important; }
-  .cb-answer-wrap .cb-article p { margin-bottom: 1.1em; }
+  /* M15 closed at landing (2026-10-19): the reading size now lands at
+     paragraph level. The paragraphs carry inline 15px and 1.55, which
+     the container rule above could never beat; the same sizes ride on
+     the p rule itself, where the cascade reaches them. */
+  .cb-answer-wrap .cb-article p { font-size: 17px !important; line-height: 1.75 !important; margin-bottom: 1.1em; }
   .cb-sect { margin: 40px 0 16px; gap: 10px; }
   .cb-sect-label { font-size: 18px; letter-spacing: 0.04em; white-space: normal; }
   .cb-sect-sub { margin: 26px 0 10px; font-size: 15px; }
-  .cb-cite { min-width: 18px; height: 16px; padding: 0 3px; font-size: 10px; margin: 0 1px; }
-  /* Mobile glyph is 18×16, so the hit pseudo-element extends further to
-     hold the same 44×44 target (16 + 2×14 tall, 18 + 2×13 wide). */
-  .cb-cite::after { inset: -14px -13px; }
+  /* M15 (2026-10-19): the citation chip no longer shrinks below the
+     caption floor on phones; it keeps its desktop size and hit area. */
   .cb-controls { flex-direction: column; align-items: stretch; gap: 0; }
   .cb-ctlbtn { width: 100%; min-height: 48px; font-size: 13px; text-align: center; border: none; border-bottom: 1px solid var(--cb-line, rgba(128,128,128,0.22)); padding: 0 12px; }
   .cb-claim { gap: 10px; }

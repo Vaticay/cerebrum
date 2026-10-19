@@ -68,7 +68,11 @@ await test("neon middle purple is gone; the contesting color is muted clay", () 
   assert.ok(!/VENN_MIDDLE/.test(src), "VENN_MIDDLE still referenced");
   assert.ok(!/VENN_CLAY/.test(src), "VENN_CLAY still referenced");
   // The clay lives in STANCE_COLORS now: a muted rust for contesting.
-  assert.ok(/STANCE_COLORS\s*=\s*\{[^}]*contrasting: "#B0472B"/.test(src), "muted clay contrasting color missing");
+  // Updated 2026-10-19 (design audit M24): STANCE_TOKENS is the one
+  // definition and STANCE_COLORS is fed from it, so the clay is pinned
+  // at the token and at the feed, not at a second literal.
+  assert.ok(/STANCE_TOKENS\s*=\s*\{[^}]*contest: "#B0472B"/.test(src), "muted clay contesting token missing");
+  assert.ok(/contrasting: STANCE_TOKENS\.contest/.test(src), "STANCE_COLORS is not fed from the contest token");
   assert.ok(/numColor: STANCE_COLORS\.contrasting/.test(ledger), "contesting group not on the clay numeral");
 });
 

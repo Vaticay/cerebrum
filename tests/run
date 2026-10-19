@@ -586,10 +586,12 @@ await test("search loader: The Dive, honest stages, no fake progress", async () 
   assert.match(searchSrc, /onDbProgress/, "backend does not report per-database progress");
   assert.match(searchSrc, /answered, total/, "progress payload lacks answered/total");
   // The 190-particle canvas is out of the loading path (it stays with the
-  // intro). The Dive uses a light CSS snow field that densifies with depth.
+  // intro). Updated 2026-10-19 (design audit H9): the CSS snow field the
+  // Dive used is deleted with the pulse and glow; the room runs on
+  // palette tokens with the rail, the real counts and the elapsed line.
   assert.ok(!appSrc.includes("<DiveParticles"), "heavy particle canvas still in the loader");
-  assert.match(appSrc, /@keyframes cbSnowDrift/, "snow drift keyframes missing");
-  assert.match(appSrc, /cb-dive-mote/, "snow motes missing");
+  assert.ok(!appSrc.includes("cbSnowDrift"), "snow drift keyframes survived the H9 fix");
+  assert.ok(!appSrc.includes("cb-dive-mote"), "snow motes survived the H9 fix");
   // No fake geometry: Skeleton and AnswerSkeleton (including its empty
   // citation chips) are deleted, not deprecated.
   assert.ok(!appSrc.includes("function Skeleton("), "Skeleton survived");
@@ -609,7 +611,6 @@ await test("search loader: The Dive, honest stages, no fake progress", async () 
   assert.match(appSrc, /cb_dive_honesty/, "honesty caption is not first-run gated");
   // Reduced motion: static stage list, no snow, no traveler pulse, no
   // descent animation. The stage names and the database count carry it.
-  assert.match(appSrc, /\.cb-dive-mote \{ animation: none; \}/, "reduced-motion does not silence the snow");
   assert.match(appSrc, /\.cb-dive-traveler \{ animation: none; \}/, "reduced-motion does not silence the traveler");
   // The kicker says Query — the lab-jargon "Query / Specimen" is gone.
   assert.ok(!appSrc.includes("Query / Specimen"), "specimen kicker survived");

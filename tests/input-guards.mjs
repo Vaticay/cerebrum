@@ -288,7 +288,9 @@ await test("no field style anywhere in src carries an alpha background", () => {
 await test("the font size checker is not vacuous: it flags planted small fields and spares legal ones", () => {
   const planted = [
     `const a = <input style={{ fontSize: 13 }} />;`,
-    `const b = <select style={{ fontSize: FONT_SIZES.small }} />;`,
+    // 2026-10-19: the planted token is a live plan role now; the
+    // retired alias FONT_SIZES.small no longer resolves by design (M1).
+    `const b = <select style={{ fontSize: FONT_SIZES.label }} />;`,
     `const c = <input style={{ fontSize: 16 }} />;`,
     `const d = <input type="checkbox" style={{ fontSize: 10 }} />;`,
     `const e = <textarea style={{ fontSize: FONT_SIZES.body }} />;`,

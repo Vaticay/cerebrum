@@ -449,9 +449,15 @@ await test("the panel renders nothing without _coverage or _record", () => {
   assert.match(appSrc, /if \(!sentence && !record\) return null;/, "empty state guard missing");
 });
 
-await test("the printed PDF methods carry the coverage sentence", () => {
-  assert.match(appSrc, /const coverageLine = coverageSentence\(t\._coverage\);/, "PDF methods do not compute the coverage line");
-  assert.match(appSrc, /mrows\.push\(\["Coverage", coverageLine\]\)/, "PDF methods do not print the coverage row");
+await test("the printed PDF carries no manufactured methods table; the coverage sentence lives on the record", () => {
+  // Updated 2026-10-19 (design audit H14): the old PDF imposed a
+  // Methods section built from diagnostics, and the coverage row rode
+  // inside it. H14 deletes the manufactured structure; the PDF prints
+  // the answer's own blocks. The coverage sentence stays computed for
+  // the Search record panel and its exports, which is where the
+  // honesty disclosure belongs.
+  assert.match(appSrc, /const sentence = coverage \? coverageSentence\(coverage\) : "";/, "the record panel no longer computes the coverage sentence");
+  assert.ok(!appSrc.includes("mrows"), "the manufactured PDF methods table is back");
 });
 
 await test("new user visible copy carries no dash characters", () => {

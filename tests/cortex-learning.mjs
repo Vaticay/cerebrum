@@ -3424,8 +3424,15 @@ await test("the old Nova models are purged: one character, the v3 canvas, everyw
   assert.equal((learnSrc.match(/<NovaCelebrateFigure size=\{128\} \/>/g) || []).length, 2,
     "course completion and the daily payoff must both render the celebration figure");
   assert.ok(learnSrc.includes("celebrateN={celebrateN}"), "the celebration figure does not fire the celebrate trigger");
-  assert.ok(learnSrc.includes('<NovaRive state="greeting" size={40} />'),
-    "the onboarding header does not render the canvas at 40px");
+  // Updated 2026-10-19 (design audit tail 26): onboarding no longer
+  // meets her as a 40px bust thumbnail in the eyebrow row; it renders
+  // the same 128 full framing figure as the lesson intro.
+  const onbStart = learnSrc.indexOf("function OnboardingFlow");
+  const onbSrc = learnSrc.slice(onbStart, onbStart + 9000);
+  assert.ok(onbSrc.includes('<NovaRive state="greeting" size={128} framing="full" />'),
+    "the onboarding does not render the canvas at 128 full framing");
+  assert.ok(!onbSrc.includes('size={40}'),
+    "the onboarding still renders the retired 40px thumbnail");
   // The share card draws the canonical v3 model sheet, the
   // ground stripped copy the link card treatment established,
   // and no longer reads a pose table.
@@ -4865,7 +4872,9 @@ await test("the Player mounts exactly one Nova figure across the answering and f
 group("Audit fixes (2026-10-15): the live Nova audit, fixed in LearnView");
 
 await test("the lesson actions clear the mobile bottom bar at mobile widths only", () => {
-  const mobile = learnSrc.slice(learnSrc.indexOf("@media (max-width: 899px)"), learnSrc.indexOf("@media (max-width: 899px)") + 700);
+  // Updated 2026-10-19 (one breakpoint convention): the block sits on
+  // the shared 900 line now, inclusive, where it used to sit at 899.
+  const mobile = learnSrc.slice(learnSrc.indexOf("@media (max-width: 900px)"), learnSrc.indexOf("@media (max-width: 900px)") + 700);
   assert.ok(mobile.includes(".lv-actionbar") && mobile.includes("72px + env(safe-area-inset-bottom"), "the action bar carries no tab bar clearance");
   assert.ok(mobile.includes(".lv-sheet"), "the feedback sheet carries no tab bar clearance");
   assert.ok(mobile.includes(".lv-screen"), "the Player full screens carry no tab bar clearance");
