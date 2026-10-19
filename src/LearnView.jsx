@@ -12716,10 +12716,17 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: P.faint }}>
             WELCOME TO NOVA · {step + 1} OF 3
           </span>
-          <span style={{ marginLeft: 2 }}><NovaRive state="greeting" size={40} /></span>
         </div>
-        <h1 style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
-        <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 6px" }}>{CORTEX_TAGLINE}</p>
+        {/* Tail 26 (2026-10-19 landing): she is met at the lesson
+            intro's full framing and size, not a 40px bust thumbnail
+            in the eyebrow row. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+          <NovaRive state="greeting" size={128} framing="full" />
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 6px" }}>{CORTEX_TAGLINE}</p>
+          </div>
+        </div>
         {step === 0 ? (
           <>
             <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "26px 0 10px", lineHeight: 1.3 }}>What are you curious about?</h2>
@@ -14287,7 +14294,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") buildCourse(); }}
-            placeholder="e.g. black soldier fly larvae gut microbiome"
+            placeholder="e.g. how bees find their way home"
             aria-label="Course topic"
             style={{
               flex: "1 1 320px", background: P.bg, border: "1px solid " + P.line, borderRadius: RADIUS.lg,
