@@ -189,7 +189,7 @@ await test("the old worked-example section is gone — the specimen is the examp
 // ══════════════════════════════════════════════════════════════════════════
 group("The door in the app language (rebuilt 2026-10-16)");
 
-await test("the door mounts no film: it is a flat page of the app", () => {
+await test("the door mounts no film: the reel and the grain stay off the door", () => {
   // 2026-10-16: this pin replaces the film mount pin of the restored
   // door. The rebuilt door mounts no reel, no atmosphere, and no
   // grain; its ground is the palette's flat background and it renders
@@ -197,6 +197,10 @@ await test("the door mounts no film: it is a flat page of the app", () => {
   // the first screen. (The reel component itself is untouched and
   // still serves the workspace; see the media truth test below and
   // core-identity.)
+  // 2026-10-19: the redesign restored atmosphere only, the dot
+  // field and the blurred haze behind the chrome (pinned in the
+  // redesign group below). The reel, the grain, and the old
+  // atmosphere fields stay banned by the assertions here.
   assert.ok(!introFn.includes("<CinematicFilm"), "the door mounts the film reel again");
   assert.ok(!introFn.includes("cb-intro-atmosphere"), "the door's atmosphere fields are back");
   assert.ok(!introFn.includes("cb-intro-grain"), "the door's grain layer is back");
@@ -307,9 +311,15 @@ await test("the intro never summons the consent gate", () => {
 // ══════════════════════════════════════════════════════════════════════════
 group("Retired plate furniture — gone from the door, kept for other surfaces");
 
-await test("the door renders no plate frame, dot field, or running head", () => {
+await test("the door renders no plate frame or running head", () => {
   assert.ok(!introFn.includes("<PlateFrame"), "the door still renders inside the plate frame");
-  assert.ok(!introFn.includes("<DotField"), "the door still mounts the dot field");
+  /* Pin updated 2026-10-19 (intro redesign, owner order): the dot
+     field ban retired with the flat door. The redesign put the
+     calm air back within the 2026-10-08 ruling, and the field is
+     the door's atmosphere again, mounted behind the chrome and
+     stilled under reduced motion. PlateFrame and the running
+     head stay retired. */
+  assert.ok(introFn.includes("<DotField"), "the redesigned door lost its citation field");
   assert.ok(!introFn.includes("Plate I · Entrance"), "plate label still on the door");
   assert.ok(!introFn.includes("Scientific literature, traced"), "running head still on the door");
   assert.ok(!introFn.includes("Fig. {specimenIdx"), "figure label still on the door");
@@ -402,6 +412,32 @@ await test("the paper is reachable the way the old door linked it", () => {
   assert.ok(introFn.includes("href={spec.doi}"), "the link does not use the specimen's DOI");
 });
 
+// ════════════════════════════════════════════════════════════════
+group("The redesign (2026-10-19) — the room, the ledger, and Nova");
+
+await test("the sentence survives word for word as the room's headline", () => {
+  assert.ok(introFn.includes("Ask a question and get an answer from the research papers, with the sources attached."), "the stage sentence changed");
+});
+
+await test("the specimens render as a numbered ledger under a ruled header", () => {
+  assert.ok(introFn.includes("Specimens on the table"), "ledger header missing");
+  assert.ok(introFn.includes('padStart(2, "0")'), "the records are not numbered");
+});
+
+await test("the calm air is the dot field and the blurred haze", () => {
+  assert.ok(introFn.includes('className="cb-intro-haze"'), "haze layer missing from the door");
+  assert.ok(appSrc.includes("@keyframes cbHazeDrift"), "haze drift keyframes missing");
+  assert.ok(introFn.includes('still={reduced || animationMode === "off"}'), "the field does not still under reduced motion");
+});
+
+await test("Nova has exactly one section and one figure on the door", () => {
+  const mounts = (introFn.match(/<NovaDoorSection/g) || []).length;
+  assert.equal(mounts, 1, `NovaDoorSection mounts ${mounts} times on the door`);
+  const figures = (src.match(/<NovaRive/g) || []).length;
+  assert.equal(figures, 1, `the door draws ${figures} Nova figures`);
+  assert.ok(src.includes("Good specimens, these."), "her line is missing");
+  assert.ok(src.includes("Science, one spark at a time."), "her tagline is missing");
+});
 // ══════════════════════════════════════════════════════════════════════════
 group("Returning visitors and reduced motion — the composed door");
 
@@ -424,7 +460,7 @@ await test("reduced motion is one still, composed frame", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("DotField discipline (component retained; no longer the door's ambient)");
+group("DotField discipline (component retained; the door's ambient again since the 2026-10-19 redesign)");
 
 await test("the field is capped, pausable, and faint", () => {
   assert.ok(src.includes("Math.min(window.devicePixelRatio || 1, 1.5)"), "DPR not capped at 1.5");

@@ -19,6 +19,7 @@ import {
 import { safeHref } from "./textUtils.js";
 import { staticFieldCss } from "./cerebrumField.js";
 import { SCHOLARLY_SOURCES } from "../functions/lib/product.js";
+import { NovaRive } from "./NovaRive.jsx";
 import { cbMotionOff, Dialog } from "./flowcharts.jsx";
 
 function InvestigationOpening({ accent, animationMode }) {
@@ -855,6 +856,50 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
    grain: calm, dark, slow, atmospheric, per the standing ruling. The
    film reel still serves the workspace; it no longer plays the door.
    ════════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   NovaDoorSection (2026-10-19 redesign): the Nova specific intro
+   the owner asked to try. One section, self contained: her figure
+   (figure only, no speech controller, no bubble), the NOVA
+   wordmark in the face reserved for that word, one short line in
+   her voice presenting the specimens on the table, and one plain
+   line saying what she is inside the product, the tagline
+   included. The text sits on the solid card surface, like every
+   text carrying surface in the app. One figure on the screen:
+   nothing else on the door draws her. She is a candidate for the
+   owner's live check, not a settled taste call: delete this
+   component and its one mount in Intro and the rest of the door
+   is untouched.
+   ════════════════════════════════════════════════════════════ */
+function NovaDoorSection({ pal, surface, cardLine, ink, isMobile, reduced, animationMode }) {
+  return (
+    <section aria-label="Nova, the teaching side of Cerebrum" style={{
+      background: surface, border: "1px solid " + cardLine, borderRadius: RADIUS.lg,
+      padding: isMobile ? "18px" : "20px 22px",
+      display: "grid", gridTemplateColumns: "auto 1fr",
+      gap: isMobile ? 14 : 18, alignItems: "center",
+    }}>
+      <span aria-hidden="true" style={{ display: "block" }}>
+        <NovaRive size={isMobile ? 92 : 116} framing="full" bubbleVariant={null} quips={false}
+          reducedMotion={reduced || animationMode === "off"} />
+      </span>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontFamily: "'Orbitron', 'Inter Tight', ui-sans-serif, system-ui, sans-serif", fontWeight: 800, fontSize: 15, letterSpacing: "0.22em", color: ink, lineHeight: 1.2 }}>NOVA</div>
+        <p style={{
+          fontFamily: "var(--cb-serif)", fontSize: isMobile ? 16 : 17, fontWeight: 400,
+          lineHeight: 1.5, color: ink, margin: "10px 0 0",
+        }}>
+          Good specimens, these. Every claim on the table opens into the paper behind it.
+        </p>
+        <p style={{
+          fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 400,
+          lineHeight: 1.55, color: pal.ink2, margin: "10px 0 0",
+        }}>
+          Nova teaches science inside Cerebrum, in short lessons with real quizzes. Science, one spark at a time.
+        </p>
+      </div>
+    </section>
+  );
+}
 /* ════════════════════════════════════════════════════════════════════
    Intro — the door in the app's own design language (2026-10-16).
 
@@ -909,6 +954,27 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
    - Returning visitors (sessionStorage cerebrum-entered): composed
      entry, no entrance choreography, the way in autofocused.
    - Reduced motion: no rotation, one still composed frame.
+
+   2026-10-19 (owner order, the same day as this note): keep the
+   core elements, completely reimagine the screen, make it more
+   Cerebrum like, and try a specific intro with Nova. The flat
+   centered column is retired. The door is now a room in two
+   columns: a threshold column carrying the same sentence as a
+   serif headline with the way in under it, an evidence ledger
+   carrying the same rotating specimens as numbered records, and
+   NovaDoorSection below the threshold. The calm air is back
+   within the 2026-10-08 ruling (very slow, very dark, heavily
+   blurred, nothing recognizable, nothing competing): the
+   DotField citation field and two blurred accent fields behind
+   the chrome, still under reduced motion. Every core element
+   from the 2026-10-16 door survives, restaged: the masthead
+   lockup and quiet links, the sentence word for word, the three
+   specimens with their traced lines, real citations, live DOIs
+   and the proof line, the rotation with its steppers and
+   pauses, the single Start researching way in with How it works
+   under it, and the footer. The Nova section is a candidate for
+   the owner's live check and lifts out cleanly if it reads
+   wrong.
    ════════════════════════════════════════════════════════════════════ */
 function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   const isMobile = useIsMobile();
@@ -1037,12 +1103,22 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       display: "flex", flexDirection: "column",
       fontFamily: "var(--cb-font)", background: pal.bg, color: ink,
     }}>
-      {/* The ground is the app's ground: the flat palette background,
-          nothing layered over it. The film reel, the atmosphere
-          fields, and the grain that used to sit here were the old
-          door's cinema; the 2026-10-16 rebuild retired them from the
-          door so the first screen is a page of the app itself. The
-          reel still serves the workspace, unchanged. */}
+      {/* The ground (2026-10-19 redesign): the palette background
+          stays the door's ground, and over it, behind every piece
+          of chrome, the calm air the owner ruled for on 2026-10-08
+          and asked back for in this redesign: the citation field
+          (DotField, the plate ambient, five to eight percent
+          opacity on a forty to sixty second drift) and two heavily
+          blurred fields of the door accent moving almost too
+          slowly to see (the cb-intro-haze rules in the app
+          stylesheet). Nothing recognizable, nothing bright,
+          nothing competing with the evidence: every text on the
+          door still reads against the palette ground alone, and
+          reduced motion stills both layers. The film reel stays
+          off the door and still serves the workspace, unchanged. */}
+      <DotField still={reduced || animationMode === "off"}
+        dotRgb={pal.dark ? "203,213,205" : "34,37,42"} accentRgb="139,168,136" count={56} />
+      <div className="cb-intro-haze" aria-hidden="true"><i /><i /></div>
 
       {/* ── Header: the masthead lockup and quiet links, on the
           stage's own measure. The lockup is the search home stage's
@@ -1089,216 +1165,250 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         )}
       </header>
 
-      {/* ── The claims, on app cards ──
-          Three verified claims at a time, carried the way the app
-          carries evidence: the palette surface, a 1px border, radius
-          2, no shadow, no tilt, no fan. Equal cards in a row on
-          desktop, stacked on mobile. The set crossfades every 9s
-          (desktop) / 12s (mobile); hover and focus pause it. Inside,
-          the claim is set in the reading serif, and the citation and
-          proof line in the interface face, the way an answer card
-          inside the app carries its sources. */}
+      {/* ── The room (2026-10-19 redesign) ──
+          Two columns on desktop. Left, the threshold: the stage's
+          own sentence set as the room's headline in the reading
+          serif, and the single way in under it. Right, the
+          evidence ledger: the rotating set of three carried as
+          specimen records in a ruled list, each with its number,
+          its claim, its traced line, and its paper one tap away,
+          and the honest proof line under the set. Nova sits below
+          the threshold on desktop and after the ledger on phones.
+          Phones stack in reading order, sentence, way in, ledger,
+          Nova, and the way in still lands inside the first
+          screenful at 360 by 667: header near 57, main padding 26,
+          the serif sentence near four lines (140), a 26 gap, and
+          the 48 tall button ends near 337 from the top. */}
       <main className="cb-intro-chrome" style={{
         position: "relative", zIndex: 20, flex: 1,
-        display: "flex", flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: isMobile ? "28px 20px 40px" : "72px 24px 56px",
+        display: "flex", flexDirection: "column", justifyContent: "center",
+        padding: isMobile ? "26px 20px 36px" : "56px 24px 48px",
         animation: ceremony ? "cbIntroStillIn 0.7s ease both" : undefined,
       }}>
-        {/* One plain line about what this is: the search home stage's
-            own sentence, then the evidence, then the way in. */}
-        <p style={{
-          margin: 0, maxWidth: "62ch", textAlign: "center",
-          fontSize: FONT_SIZES.body, lineHeight: 1.55, color: pal.ink2,
+        <div style={{
+          width: "100%", maxWidth: LAYOUT.stage, margin: "0 auto",
+          display: "grid",
+          gridTemplateColumns: isMobile ? "1fr" : "minmax(350px, 5fr) 7fr",
+          gap: isMobile ? 36 : 64,
+          alignItems: "start",
         }}>
-          Ask a question and get an answer from the research papers, with the sources attached.
-        </p>
-        <div
-          ref={specimenWrapRef}
-          onMouseEnter={() => setSpecimenHeld(true)}
-          onMouseLeave={() => setSpecimenHeld(false)}
-          onFocus={() => setSpecimenHeld(true)}
-          onBlur={() => setSpecimenHeld(false)}
-          style={{
-            width: "100%", maxWidth: LAYOUT.stage, marginTop: isMobile ? 32 : 44,
-            display: "flex",
-            flexDirection: isMobile ? "column" : "row",
-            alignItems: "stretch",
-            justifyContent: "center",
-            gap: isMobile ? 16 : 20,
-            /* Phone order (layout audit, 2026-10-16): the stacked set
-               runs long, so on phones the way in (order 1, below)
-               leads and the claims follow as the evidence under it.
-               The enter control sits inside the first screenful at
-               360 by 667 instead of hundreds of pixels under the
-               fold, and nothing on the door exceeds the viewport
-               width. Desktop keeps evidence first, then the way in. */
-            order: isMobile ? 2 : undefined,
-          }}>
-          {specimenSet.map((spec, k) => (
+          {/* The threshold column: one plain line about what this
+              is, the search home stage's own sentence word for
+              word, then the way in. Only the staging changed. */}
+          <div>
+            <p style={{
+              margin: 0,
+              fontFamily: "var(--cb-serif)",
+              fontSize: isMobile ? 26 : 31, fontWeight: 400, lineHeight: 1.35,
+              color: ink, textAlign: "left",
+            }}>
+              Ask a question and get an answer from the research papers, with the sources attached.
+            </p>
+
+            {/* The single way in: the app's primary button, the
+                flat accent fill with its contrast ink (the
+                UIButton primary treatment), nothing else on the
+                door competes with it. */}
+            <div>
+              <button type="button" onClick={() => go("", false)} className="cb-intro-go"
+                autoFocus={enteredBefore || undefined}
+                onMouseEnter={() => setDoorHover(true)}
+                onMouseLeave={() => setDoorHover(false)}
+                style={{
+                marginTop: isMobile ? 26 : 34, cursor: "pointer",
+                textTransform: "none", whiteSpace: "nowrap", letterSpacing: "normal",
+                background: doorHover
+                  ? "color-mix(in srgb, " + introAccent + " 86%, " + (pal.dark ? "#ffffff" : "#000000") + ")"
+                  : introAccent,
+                color: accentText(introAccent),
+                border: "1px solid transparent", borderRadius: RADIUS.md,
+                boxShadow: "none",
+                padding: isMobile ? "14px 34px" : "14px 44px", minHeight: 48,
+                fontSize: FONT_SIZES.body, fontWeight: 500, fontFamily: "var(--cb-font)",
+                transition: "background-color 150ms ease-out",
+              }}>Start researching</button>
+              <div style={{ marginTop: 18 }}>
+                <button type="button" onClick={() => setHowOpen(true)} style={{
+                  background: "none", border: "none", cursor: "pointer",
+                  fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, letterSpacing: "normal",
+                  color: pal.ink2, textDecoration: "underline", textUnderlineOffset: 5,
+                  textTransform: "none", padding: "10px 8px", marginLeft: -8,
+                }}>How it works</button>
+              </div>
+            </div>
+          </div>
+
+          {/* The evidence ledger: three verified claims at a time,
+              carried as records in a ruled list rather than a row
+              of equal cards. Each record keeps the app's card
+              treatment (the palette surface, a 1px border, the
+              plan radius) and the contents the door has always
+              carried: the claim in the reading serif, the traced
+              line, and the citation with the paper one tap away.
+              The set crossfades every 9s (desktop) and 12s
+              (mobile); hover and focus pause it. */}
+          <div style={isMobile ? undefined : { gridRow: "1 / span 2" }}>
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
+              paddingBottom: 12, borderBottom: "1px solid " + hairline,
+            }}>
+              <span style={plateHead(pal.ink2)}>Specimens on the table</span>
+              {!isMobile ? (
+                /* Stepper: moves by a full set of three. Square
+                   ghost buttons, the shape the plan radius gives
+                   every control in the app. */
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button type="button" aria-label="Previous three claims"
+                    onClick={() => setSpecimenIdx((i) => (i - setSize + specimenCount) % specimenCount)}
+                    style={{
+                      width: 44, height: 44, borderRadius: RADIUS.md, cursor: "pointer",
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      fontFamily: "var(--cb-font)", fontSize: 17,
+                      color: pal.ink2,
+                      background: "transparent",
+                      border: "1px solid " + cardLine,
+                    }}>
+                    &#8592;
+                  </button>
+                  <span style={{
+                    fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, lineHeight: 1.5,
+                    color: pal.ink2, minWidth: 76, textAlign: "center",
+                  }}>
+                    Set {setCurrent} of {setTotal}
+                  </span>
+                  <button type="button" aria-label="Next three claims"
+                    onClick={() => setSpecimenIdx((i) => (i + setSize) % specimenCount)}
+                    style={{
+                      width: 44, height: 44, borderRadius: RADIUS.md, cursor: "pointer",
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      fontFamily: "var(--cb-font)", fontSize: 17,
+                      color: pal.ink2,
+                      background: "transparent",
+                      border: "1px solid " + cardLine,
+                    }}>
+                    &#8594;
+                  </button>
+                </div>
+              ) : (
+                /* Set position on phones, where there are no
+                   steppers: the same quiet caption, in the ledger
+                   header. */
+                <span style={{
+                  fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, lineHeight: 1.5,
+                  color: pal.ink2,
+                }}>
+                  Set {setCurrent} of {setTotal}
+                </span>
+              )}
+            </div>
+
             <div
-              key={specimenIdx + "-" + k}
-              className={animate ? "cb-specimen-in" : undefined}
+              ref={specimenWrapRef}
+              onMouseEnter={() => setSpecimenHeld(true)}
+              onMouseLeave={() => setSpecimenHeld(false)}
+              onFocus={() => setSpecimenHeld(true)}
+              onBlur={() => setSpecimenHeld(false)}
               style={{
-                flex: "1 1 0",
-                width: isMobile ? "100%" : undefined,
-                padding: "24px 24px 20px",
-                background: surface,
-                border: "1px solid " + cardLine,
-                borderRadius: RADIUS.lg,
-                animationDelay: (0.08 + k * 0.12) + "s",
-              }}
-            >
-              <p style={{
-                fontFamily: "var(--cb-serif)",
-                fontSize: FONT_SIZES.section,
-                fontWeight: 400, lineHeight: 1.55,
-                color: ink, margin: 0,
-                textAlign: "left",
+                display: "flex", flexDirection: "column", gap: 12, marginTop: 16,
               }}>
-                &ldquo;{spec.claim}&rdquo;
-              </p>
-              <div style={{
-                marginTop: 16, display: "flex", alignItems: "center",
-                justifyContent: "flex-start", gap: 8,
-              }}>
+              {specimenSet.map((spec, k) => (
+                <div
+                  key={specimenIdx + "-" + k}
+                  className={animate ? "cb-specimen-in" : undefined}
+                  style={{
+                    background: surface,
+                    border: "1px solid " + cardLine,
+                    borderRadius: RADIUS.lg,
+                    padding: isMobile ? "18px" : "20px 22px",
+                    display: "grid",
+                    gridTemplateColumns: isMobile ? "1fr" : "40px 1fr",
+                    gap: isMobile ? 6 : 16,
+                    animationDelay: (0.08 + k * 0.12) + "s",
+                  }}
+                >
+                  <span aria-hidden="true" style={{
+                    fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, fontWeight: 500,
+                    color: introAccent, paddingTop: isMobile ? 0 : 7,
+                    fontVariantNumeric: "tabular-nums",
+                  }}>
+                    {String(((specimenIdx + k) % specimenCount) + 1).padStart(2, "0")}
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{
+                      fontFamily: "var(--cb-serif)",
+                      fontSize: isMobile ? 19 : 20,
+                      fontWeight: 400, lineHeight: 1.5,
+                      color: ink, margin: 0,
+                      textAlign: "left",
+                    }}>
+                      &ldquo;{spec.claim}&rdquo;
+                    </p>
+                    <div style={{
+                      marginTop: 12, display: "flex", alignItems: "center", gap: 8,
+                    }}>
+                      <span aria-hidden="true" style={{
+                        width: 7, height: 7, flex: "0 0 auto",
+                        background: introAccent,
+                      }} />
+                      <span style={{
+                        fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500,
+                        color: pal.ink2,
+                      }}>
+                        Traced to a direct finding
+                      </span>
+                    </div>
+                    <p style={{
+                      margin: "12px 0 0", paddingTop: 12,
+                      borderTop: "1px solid " + hairline,
+                      fontSize: FONT_SIZES.label, lineHeight: 1.6,
+                      color: pal.ink2, textAlign: "left",
+                    }}>
+                      {spec.paper}{" "}
+                      <a href={spec.doi} target="_blank" rel="noopener noreferrer"
+                        style={{
+                          color: linkInk, fontWeight: 500,
+                          textDecoration: "none", whiteSpace: "nowrap",
+                          borderBottom: "1px solid " + accentA(0.4),
+                        }}>
+                        Open the paper &#8599;
+                      </a>
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* The honest proof, once, under the set: the claims
+                trace to the real papers linked on each record, and
+                the index count is the product's real source list,
+                the same SCHOLARLY_SOURCES the workspace searches.
+                The line opens the Research sources dialog, so the
+                count can be checked against the list. */}
+            <div style={{ marginTop: 18 }}>
+              <button type="button" onClick={() => setSourcesOpen(true)} aria-label="Research sources"
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  background: "none", border: "none", cursor: "pointer",
+                  padding: "10px 8px", marginLeft: -8,
+                  fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 400,
+                  lineHeight: 1.5, color: pal.ink2,
+                }}>
                 <span aria-hidden="true" style={{
                   width: 7, height: 7, flex: "0 0 auto",
                   background: introAccent,
                 }} />
-                <span style={{
-                  fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500,
-                  color: pal.ink2,
-                }}>
-                  Traced to a direct finding
-                </span>
-              </div>
-              <p style={{
-                margin: "16px 0 0", paddingTop: 16,
-                borderTop: "1px solid " + hairline,
-                fontSize: FONT_SIZES.label, lineHeight: 1.6,
-                color: pal.ink2, textAlign: "left",
-              }}>
-                {spec.paper}{" "}
-                <a href={spec.doi} target="_blank" rel="noopener noreferrer"
-                  style={{
-                    color: linkInk, fontWeight: 500,
-                    textDecoration: "none", whiteSpace: "nowrap",
-                    borderBottom: "1px solid " + accentA(0.4),
-                  }}>
-                  Open the paper &#8599;
-                </a>
-              </p>
+                <span>Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes</span>
+              </button>
             </div>
-          ))}
-        </div>
-
-        {/* The honest proof, once, under the set of cards: the claims
-            trace to the real papers linked on each card, and the
-            index count is the product's real source list, the same
-            SCHOLARLY_SOURCES the workspace searches. The line wears
-            the door's traced pattern and opens the Research sources
-            dialog, so the count can be checked against the list. */}
-        <div style={{ marginTop: 20, textAlign: "center", order: isMobile ? 2 : undefined }}>
-          <button type="button" onClick={() => setSourcesOpen(true)} aria-label="Research sources"
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              background: "none", border: "none", cursor: "pointer",
-              padding: "10px 8px",
-              fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 400,
-              lineHeight: 1.5, color: pal.ink2,
-            }}>
-            <span aria-hidden="true" style={{
-              width: 7, height: 7, flex: "0 0 auto",
-              background: introAccent,
-            }} />
-            <span>Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes</span>
-          </button>
-        </div>
-
-        {/* Set position on phones, where there are no steppers: the
-            same quiet caption the desktop stepper carries. */}
-        {isMobile && (
-          <div style={{
-            marginTop: 12, order: 2, textAlign: "center",
-            fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, lineHeight: 1.5,
-            color: pal.ink2,
-          }}>
-            Set {setCurrent} of {setTotal}
           </div>
-        )}
 
-        {/* Stepper: moves by a full set of three. Desktop only.
-            Square ghost buttons, the shape the plan radius gives
-            every control in the app. */}
-        {!isMobile && (
-          <div style={{
-            marginTop: 24, display: "flex", alignItems: "center", justifyContent: "center",
-            gap: 8,
-          }}>
-            <button type="button" aria-label="Previous three claims"
-              onClick={() => setSpecimenIdx((i) => (i - setSize + specimenCount) % specimenCount)}
-              style={{
-                width: 44, height: 44, borderRadius: RADIUS.md, cursor: "pointer",
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                fontFamily: "var(--cb-font)", fontSize: 17,
-                color: pal.ink2,
-                background: "transparent",
-                border: "1px solid " + cardLine,
-              }}>
-              &#8592;
-            </button>
-            <span style={{
-              fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, lineHeight: 1.5,
-              color: pal.ink2, minWidth: 76, textAlign: "center",
-            }}>
-              Set {setCurrent} of {setTotal}
-            </span>
-            <button type="button" aria-label="Next three claims"
-              onClick={() => setSpecimenIdx((i) => (i + setSize) % specimenCount)}
-              style={{
-                width: 44, height: 44, borderRadius: RADIUS.md, cursor: "pointer",
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                fontFamily: "var(--cb-font)", fontSize: 17,
-                color: pal.ink2,
-                background: "transparent",
-                border: "1px solid " + cardLine,
-              }}>
-              &#8594;
-            </button>
-          </div>
-        )}
-
-        {/* The single way in: the app's primary button, the flat
-            accent fill with its contrast ink (the UIButton primary
-            treatment), nothing else on the door competes with it. */}
-        <div className="cb-intro-chrome" style={{ textAlign: "center", order: isMobile ? 1 : undefined }}>
-          <button type="button" onClick={() => go("", false)} className="cb-intro-go"
-            autoFocus={enteredBefore || undefined}
-            onMouseEnter={() => setDoorHover(true)}
-            onMouseLeave={() => setDoorHover(false)}
-            style={{
-            marginTop: isMobile ? 28 : 44, cursor: "pointer",
-            textTransform: "none", whiteSpace: "nowrap", letterSpacing: "normal",
-            background: doorHover
-              ? "color-mix(in srgb, " + introAccent + " 86%, " + (pal.dark ? "#ffffff" : "#000000") + ")"
-              : introAccent,
-            color: accentText(introAccent),
-            border: "1px solid transparent", borderRadius: RADIUS.md,
-            boxShadow: "none",
-            padding: isMobile ? "14px 34px" : "14px 44px", minHeight: 48,
-            fontSize: FONT_SIZES.body, fontWeight: 500, fontFamily: "var(--cb-font)",
-            transition: "background-color 150ms ease-out",
-          }}>Start researching</button>
-          <div style={{ marginTop: 20 }}>
-            <button type="button" onClick={() => setHowOpen(true)} style={{
-              background: "none", border: "none", cursor: "pointer",
-              fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, letterSpacing: "normal",
-              color: pal.ink2, textDecoration: "underline", textUnderlineOffset: 5,
-              textTransform: "none", padding: "10px 8px",
-            }}>How it works</button>
-          </div>
+          {/* Nova: one grid child, one mount. Below the threshold
+              on desktop (the ledger spans both rows beside her),
+              after the ledger on phones. Self contained in
+              NovaDoorSection above; removing her does not touch
+              anything else in this room. */}
+          <NovaDoorSection pal={pal} surface={surface} cardLine={cardLine} ink={ink}
+            isMobile={isMobile} reduced={reduced} animationMode={animationMode} />
         </div>
       </main>
 

@@ -26484,6 +26484,36 @@ summary::-webkit-details-marker { display: none; }
 }
 #cb-intro-wrap .cb-intro-go:hover { box-shadow: none; transform: none !important; }
 .cb-intro-go:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; }
+/* ── Intro door, the calm air (2026-10-19 redesign) ──
+   Two heavily blurred fields of the door accent behind the door
+   chrome, drifting on cycles of about two and three minutes,
+   alternating, so the motion is felt rather than seen. Very dark,
+   very slow, nothing recognizable, nothing bright: the fields sit
+   at a fraction of the accent's strength over the palette ground,
+   and every text on the door still reads against that ground
+   alone. This is the atmosphere half of the door's ambient; the
+   citation dot field is the other half (DotField in intro.jsx).
+   Reduced motion stills the drift; touch devices keep it, since
+   the fields are two blurred gradients, not footage. */
+.cb-intro-haze { position: absolute; inset: 0; overflow: hidden; z-index: 0; pointer-events: none; }
+.cb-intro-haze i { position: absolute; display: block; border-radius: 50%; filter: blur(90px); }
+.cb-intro-haze i:first-child {
+  width: 56vmax; height: 56vmax; left: -18vmax; top: -22vmax; opacity: 0.55;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--cb-acc, #8ba888) 15%, transparent), transparent 72%);
+  animation: cbHazeDrift 130s ease-in-out infinite alternate;
+}
+.cb-intro-haze i:last-child {
+  width: 48vmax; height: 48vmax; right: -14vmax; bottom: -18vmax; opacity: 0.45;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--cb-acc, #8ba888) 11%, transparent), transparent 72%);
+  animation: cbHazeDrift 175s ease-in-out infinite alternate-reverse;
+}
+@keyframes cbHazeDrift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(5vmax, 4vmax, 0) scale(1.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-intro-haze i { animation: none; }
+}
 /* ── Intro, quiet sci-fi pass ──
    Restraint: the type choreography is blur/opacity only, on the one shared
    cbFocusIn entrance; the button is a quiet outline with no sweep. */
