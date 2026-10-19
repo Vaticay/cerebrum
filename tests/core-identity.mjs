@@ -66,7 +66,12 @@ await test("workspace CinematicFilm mount exists, darker than before", () => {
   const introFn = introSrc.slice(introSrc.indexOf("function Intro({"), introSrc.indexOf("function CerebrumFieldCanvas"));
   assert.ok(!introFn.includes("<CinematicFilm"), "the rebuilt intro mounts the film reel again");
   assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
-  assert.match(appSrc, /brightness\(0\.72\)/, "extra CSS grade missing on the workspace reel wrapper");
+  /* Pin updated 2026-10-19 (S7 shell lane, audit H6): the workspace reel
+     no longer grades brighter than the search home. Both wrappers carry
+     the one grade, dark and blurred, so this asserts the unified grade
+     and the absence of the old brighter one. */
+  assert.match(appSrc, /brightness\(0\.30\) saturate\(0\.60\) blur\(12px\)/, "the unified film grade is missing");
+  assert.ok(!appSrc.includes("brightness(0.72)"), "the brighter workspace grade is still present");
 });
 await test("generated field is the fallback when film is blocked", () => {
   assert.match(appSrc, /<CerebrumFieldCanvas/, "CerebrumFieldCanvas mount missing");
