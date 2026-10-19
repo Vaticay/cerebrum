@@ -94,7 +94,9 @@ await test("paper rows carry titles, joined authors and a real hyperlink", async
   const r1 = ws.getRow(6);
   assert.equal(r1.getCell(1).value, 1);
   assert.match(r1.getCell(2).value, /CRISPR–Cas9 structures/);
-  const link = r1.getCell(6).value;
+  // Pin updated 2026-10-19 (S2 / M18): the Link column moved from 6 to
+  // 9 when the DOI, Citations and Stance columns were added.
+  const link = r1.getCell(9).value;
   assert.equal(link.text, "Open");
   assert.equal(link.hyperlink, "https://doi.org/10.1146/annurev-biophys-062215-010822");
   // Array authors are joined; numeric year is stringified.
@@ -114,8 +116,10 @@ await test("missing fields never crash and hostile URLs are not linked", async (
     {}
   );
   const ws = workbook.getWorksheet("Top papers");
-  assert.equal(ws.getRow(6).getCell(6).value, null, "javascript: URL became a cell value");
-  assert.equal(ws.getRow(7).getCell(6).value, null, "data: URL became a cell value");
+  // Pin updated 2026-10-19 (S2 / M18): the Link column is 9 now (see
+  // the hyperlink test above); these assert against the Link cell.
+  assert.equal(ws.getRow(6).getCell(9).value, null, "javascript: URL became a cell value");
+  assert.equal(ws.getRow(7).getCell(9).value, null, "data: URL became a cell value");
   assert.doesNotThrow(() => ws.getRow(8).getCell(2).value);
 });
 
@@ -135,6 +139,30 @@ await test("custom title, subtitle and filename flow through", async () => {
   assert.equal(ws.getCell("A3").value, "my query · 2026-09-12");
   const res = await exportPapersToExcel(FAKE_PAPERS, { filename: "custom.xlsx" });
   assert.deepEqual(res, { count: 3, filename: "custom.xlsx" });
+});
+
+await test("DOI, citation count and stance columns are populated, in Inter", async () => {
+  // 2026-10-19 (S2 / M18): the three new columns, the workbook face,
+  // and the accent tinted banding.
+  const { workbook } = await buildPapersWorkbook(
+    [
+      { title: "T", doi: "https://doi.org/10.1000/xyz123", citations: 412 },
+      { title: "Second paper, the banded row" },
+    ],
+    { stances: ["Supports", "Qualifies"], accent: "#8ba888" }
+  );
+  const ws = workbook.getWorksheet("Top papers");
+  const r = ws.getRow(6);
+  assert.equal(r.getCell(6).value.text, "10.1000/xyz123");
+  assert.equal(r.getCell(6).value.hyperlink, "https://doi.org/10.1000/xyz123");
+  assert.equal(r.getCell(7).value, 412);
+  assert.equal(r.getCell(8).value, "Supports");
+  assert.equal(r.getCell(2).font.name, "Inter", "body cells are not set in Inter");
+  assert.equal(ws.getRow(5).getCell(6).value, "DOI");
+  assert.equal(ws.getRow(5).getCell(8).value, "Stance");
+  const banded = ws.getRow(7);
+  assert.ok(banded.getCell(2).fill && banded.getCell(2).fill.fgColor, "banded row has no fill");
+  assert.notEqual(banded.getCell(2).fill.fgColor.argb, "FFF8FAFC", "banded fill is still the old fixed slate tint");
 });
 
 await test("exportPapersToExcel defaults the filename and counts papers", async () => {

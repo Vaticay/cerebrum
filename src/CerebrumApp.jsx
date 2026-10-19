@@ -382,7 +382,7 @@ function cerebrumLogoSvg(accent) {
 /* Top-20 papers → branded .xlsx. exceljs is lazy-loaded so the main
    bundle never pays for it; the workbook builder lives in
    src/exportExcel.js and caps defensively at 20 rows. */
-async function exportTopPapersExcel(papers, { accent, title, subtitle, filename }) {
+async function exportTopPapersExcel(papers, { accent, title, subtitle, filename, stances }) {
   const total = (papers || []).length;
   const list = (papers || []).slice(0, 20);
   if (!list.length) return { count: 0, total: 0, capped: false };
@@ -393,6 +393,8 @@ async function exportTopPapersExcel(papers, { accent, title, subtitle, filename 
     filename: filename || "cerebrum-papers.xlsx",
     logoSvg: cerebrumLogoSvg(accent),
     accent,
+    /* Stance words parallel to the capped list (2026-10-19, S2 / M18). */
+    stances: Array.isArray(stances) ? stances.slice(0, 20) : undefined,
   });
   return { ...result, total, capped: total > 20 };
 }
@@ -6185,9 +6187,20 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
     // 2026-09-14: Surface export failures. The empty catch left the button
     // flipping "Building…"→"Excel" with zero feedback when the export failed.
     try {
-      const excelResult = await exportTopPapersExcel(sources, { accent });
+      /* Stance words from the same classification the ledger rows
+         carry (2026-10-19, S2 / M18), in the ledger's own vocabulary. */
+      const relWord = { supports: "Supports", qualifies: "Qualifies", conflicts: "Contests" };
+      const stances = relOf ? sources.map((_, i) => relWord[relOf(i + 1)] || "") : undefined;
+      const excelResult = await exportTopPapersExcel(sources, { accent, stances });
       logExport("Excel", "cerebrum-papers.xlsx");
-      if (excelResult && excelResult.capped) toast(`Exported the top 20 of ${excelResult.total} papers.`, { tone: "info" });
+      /* Tail 15: the toast always states the exported count, capped
+         or not. Silence on an uncapped export read as nothing having
+         happened. */
+      if (excelResult) {
+        toast(excelResult.capped
+          ? `Exported the top 20 of ${excelResult.total} papers.`
+          : `Exported ${excelResult.count} paper${excelResult.count === 1 ? "" : "s"}.`, { tone: "info" });
+      }
     }
     catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); }
     setExcelBusy(false);

@@ -11,8 +11,10 @@
  * and an autofilter. `buildPapersWorkbook(papers, opts)` exposes the workbook
  * itself for tests and non-download consumers.
  *
- * Paper shape: { title, authors, journal, year, url }. `authors` is normally
- * a pre-joined string but an array is tolerated. Every field is optional.
+ * Paper shape: { title, authors, journal, year, url, doi, citations }.
+ * `authors` is normally a pre-joined string but an array is tolerated.
+ * Every field is optional. opts.stances, when passed, is an array of
+ * stance words parallel to the papers (2026-10-19, S2 / M18).
  */
 
 import ExcelJS from "exceljs";
@@ -22,14 +24,23 @@ const DEFAULT_FILENAME = "cerebrum-papers.xlsx";
 const DEFAULT_TITLE = "Cerebrum: Top papers";
 const DEFAULT_ACCENT = "#475569"; // slate; the app passes the user's accent via opts.accent
 
+/* 2026-10-19 (S2 / M18): the sheet gains DOI, citation count and
+   stance columns. Stance words arrive via opts.stances, a plain array
+   parallel to the papers, so this module stays free of app state. */
 const COLUMNS = [
   { key: "n", header: "#", width: 5 },
   { key: "title", header: "Title", width: 62 },
   { key: "authors", header: "Authors", width: 42 },
   { key: "journal", header: "Journal", width: 30 },
   { key: "year", header: "Year", width: 9 },
+  { key: "doi", header: "DOI", width: 30 },
+  { key: "citations", header: "Citations", width: 11 },
+  { key: "stance", header: "Stance", width: 13 },
   { key: "link", header: "Link", width: 11 },
 ];
+
+/* One typeface for the whole workbook: Inter, the app's own face. */
+const FONT_NAME = "Inter";
 
 /* Only http(s) URLs become hyperlinks — a javascript: or data: URL in a
    paper record must never turn into a clickable cell. */
@@ -53,6 +64,42 @@ function accentArgb(accent) {
   const m = typeof accent === "string" && accent.match(/^#([0-9a-f]{6})$/i);
   const hex = m ? m[1] : DEFAULT_ACCENT.slice(1);
   return "FF" + hex.toUpperCase();
+}
+
+/* A pale tint of the active accent for the banded rows, mixed toward
+   white so the sheet's fills all come from the one accent (M18). */
+function accentTintArgb(accent) {
+  const m = typeof accent === "string" && accent.match(/^#([0-9a-f]{6})$/i);
+  const hex = m ? m[1] : DEFAULT_ACCENT.slice(1);
+  const mix = (i) => {
+    const v = parseInt(hex.slice(i, i + 2), 16);
+    return Math.round(v + (255 - v) * 0.92).toString(16).padStart(2, "0").toUpperCase();
+  };
+  return "FF" + mix(0) + mix(2) + mix(4);
+}
+
+/* A paper's DOI as the bare identifier, or null. Same normalization
+   the app applies everywhere: strip a doi.org prefix and trailing
+   punctuation, then require the 10.registrant shape. */
+function doiOf(paper) {
+  const raw = String((paper && (paper.doi || paper.DOI)) || "")
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
+  return /^10\.\d{4,9}\//.test(raw) ? raw : null;
+}
+
+/* The logo's intrinsic aspect ratio, from its viewBox or its
+   width/height attributes. Square when nothing readable is present. */
+function svgAspect(svgMarkup) {
+  if (typeof svgMarkup !== "string") return 1;
+  const vb = svgMarkup.match(/viewBox\s*=\s*"([-\d.\s]+)"/);
+  if (vb) {
+    const p = vb[1].trim().split(/\s+/).map(Number);
+    if (p.length === 4 && p[2] > 0 && p[3] > 0) return p[2] / p[3];
+  }
+  const w = svgMarkup.match(/\bwidth\s*=\s*"(\d+(?:\.\d+)?)"/);
+  const h = svgMarkup.match(/\bheight\s*=\s*"(\d+(?:\.\d+)?)"/);
+  if (w && h && Number(h[1]) > 0) return Number(w[1]) / Number(h[1]);
+  return 1;
 }
 
 /* Render an SVG markup string to a PNG buffer via canvas. DOM-only: callers
@@ -79,7 +126,14 @@ async function svgToPngBuffer(svgMarkup, cssWidth, cssHeight) {
       canvas.height = Math.round(cssHeight * scale);
       const ctx = canvas.getContext("2d");
       if (!ctx) return null;
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      /* Letterboxed, never squeezed (2026-10-19, S2 / M18): the mark
+         is square and the slot is wide, so the old full box draw
+         stretched it flat. Fit inside the box at the mark's own
+         aspect, centered, with the rest of the box left empty. */
+      const aspect = svgAspect(svg);
+      let dw = cssWidth, dh = cssWidth / aspect;
+      if (dh > cssHeight) { dh = cssHeight; dw = cssHeight * aspect; }
+      ctx.drawImage(img, ((cssWidth - dw) / 2) * scale, ((cssHeight - dh) / 2) * scale, dw * scale, dh * scale);
       const out = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
       if (!out) return null;
       return await out.arrayBuffer();
@@ -103,6 +157,8 @@ export async function buildPapersWorkbook(papers, opts = {}) {
       ? opts.subtitle
       : `Exported from Cerebrum · ${new Date().toLocaleDateString()}`;
   const headerFill = accentArgb(opts.accent);
+  const bandFill = accentTintArgb(opts.accent);
+  const stances = Array.isArray(opts.stances) ? opts.stances : [];
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "Cerebrum";
@@ -121,17 +177,17 @@ export async function buildPapersWorkbook(papers, opts = {}) {
   }
 
   /* ── Title / subtitle ── */
-  ws.mergeCells("A2:F2");
+  ws.mergeCells("A2:I2");
   const titleCell = ws.getCell("A2");
   titleCell.value = title;
-  titleCell.font = { size: 16, bold: true, color: { argb: "FF1F2937" } };
+  titleCell.font = { name: FONT_NAME, size: 16, bold: true, color: { argb: "FF1F2937" } };
   titleCell.alignment = { vertical: "middle" };
   ws.getRow(2).height = 28;
 
-  ws.mergeCells("A3:F3");
+  ws.mergeCells("A3:I3");
   const subCell = ws.getCell("A3");
   subCell.value = subtitle;
-  subCell.font = { size: 10, color: { argb: "FF6B7280" } };
+  subCell.font = { name: FONT_NAME, size: 10, color: { argb: "FF6B7280" } };
   subCell.alignment = { vertical: "middle" };
   ws.getRow(3).height = 18;
 
@@ -142,7 +198,7 @@ export async function buildPapersWorkbook(papers, opts = {}) {
   COLUMNS.forEach((c, i) => {
     const cell = headerRow.getCell(i + 1);
     cell.value = c.header;
-    cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+    cell.font = { name: FONT_NAME, bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: headerFill } };
     cell.alignment = { vertical: "center", horizontal: i === 0 ? "center" : "left" };
     cell.border = {
@@ -150,10 +206,11 @@ export async function buildPapersWorkbook(papers, opts = {}) {
     };
   });
   ws.columns = COLUMNS.map((c) => ({ width: c.width }));
-  ws.autoFilter = "A5:F5";
+  ws.autoFilter = "A5:I5";
   headerRow.height = 20;
 
   /* ── Paper rows ── */
+  const bodyFont = { name: FONT_NAME, size: 11 };
   list.forEach((p, idx) => {
     const paper = p && typeof p === "object" ? p : {};
     const row = ws.getRow(6 + idx);
@@ -175,19 +232,37 @@ export async function buildPapersWorkbook(papers, opts = {}) {
     row.getCell(5).value = year;
     row.getCell(5).alignment = { vertical: "center", horizontal: "center" };
 
-    const linkCell = row.getCell(6);
+    const doi = doiOf(paper);
+    const doiCell = row.getCell(6);
+    if (doi) {
+      doiCell.value = { text: doi, hyperlink: "https://doi.org/" + doi };
+      doiCell.font = { ...bodyFont, color: { argb: headerFill }, underline: true };
+    }
+    doiCell.alignment = { vertical: "center", wrapText: true };
+
+    const citeCell = row.getCell(7);
+    if (typeof paper.citations === "number" && Number.isFinite(paper.citations)) {
+      citeCell.value = paper.citations;
+    }
+    citeCell.alignment = { vertical: "center", horizontal: "center" };
+
+    row.getCell(8).value = cleanText(stances[idx]);
+    row.getCell(8).alignment = { vertical: "center", horizontal: "center" };
+
+    const linkCell = row.getCell(9);
     if (url) {
       linkCell.value = { text: "Open", hyperlink: url };
-      linkCell.font = { color: { argb: "FF2563EB" }, underline: true };
+      linkCell.font = { ...bodyFont, color: { argb: headerFill }, underline: true };
     }
     linkCell.alignment = { vertical: "center", horizontal: "center" };
 
     row.height = 30;
-    if (idx % 2 === 1) {
-      row.eachCell((cell) => {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
-      });
-    }
+    row.eachCell((cell) => {
+      if (!cell.font || !cell.font.name) cell.font = { ...bodyFont, ...(cell.font || {}) };
+      if (idx % 2 === 1) {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: bandFill } };
+      }
+    });
   });
 
   return { workbook: wb, count: list.length };
