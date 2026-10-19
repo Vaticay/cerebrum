@@ -16,13 +16,31 @@ import { NovaLive } from "./LearnView.jsx";
 
 /* Group threads need to tell speakers apart at a glance. One stable
    color per person, hashed from their id, so the same researcher is
-   the same color in every group and on every visit. */
-const SENDER_COLORS = ["#7c6cf0", "#2f9e6e", "#d97706", "#c2506b", "#2f7fc1", "#8a9a2f", "#0e9594", "#b25cd6"];
-function senderColor(seed) {
+   the same color in every group and on every visit.
+   2026-10-19 (S7b, tail 28): the colors are derived from the active
+   accent instead of eight hardcoded hues that belonged to no palette.
+   Each person keeps a fixed hue offset from the accent, and the
+   lightness follows the palette ground (lighter on dark grounds,
+   darker on light ones), so every palette reads correctly. */
+const SENDER_COLORS = [0, 45, 90, 135, 180, 225, 270, 315];
+function senderColor(seed, accentHex, P) {
   const s = String(seed || "");
   let h = 0;
   for (let i = 0; i < s.length; i++) h = ((h * 31) + s.charCodeAt(i)) >>> 0;
-  return SENDER_COLORS[h % SENDER_COLORS.length];
+  const offset = SENDER_COLORS[h % SENDER_COLORS.length];
+  const hex = typeof accentHex === "string" && /^#[0-9a-fA-F]{6}$/.test(accentHex) ? accentHex : "#8ba888";
+  const r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2;
+  let hue = 0;
+  if (d) {
+    if (mx === r) hue = ((g - b) / d) % 6;
+    else if (mx === g) hue = (b - r) / d + 2;
+    else hue = (r - g) / d + 4;
+    hue *= 60; if (hue < 0) hue += 360;
+  }
+  const sat = d ? Math.min(0.7, Math.max(0.35, d / (1 - Math.abs(2 * l - 1) || 1))) : 0.45;
+  const light = P && P.dark ? 68 : 32;
+  return `hsl(${Math.round((hue + offset) % 360)}, ${Math.round(sat * 100)}%, ${light}%)`;
 }
 
 /* One idempotency key per send the reader initiates. It is born
@@ -1819,15 +1837,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 <NovaLive size={66} />
               </span>
               <div style={{ minWidth: 0 }}>
-                <h1 style={{ margin: 0, fontSize: FONT_SIZES.heading, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Inbox</h1>
+                <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, lineHeight: TYPE.heading.lineHeight }}>Inbox</h1>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>Messages and shared papers</div>
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            <button onClick={() => setGroupModalOpen(true)} aria-label="New group" title="New group" style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <button onClick={() => setGroupModalOpen(true)} aria-label="New group" title="New group" style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Icon name="network" size={16} />
             </button>
-            <button onClick={onCompose} aria-label="New message" title="New message" style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <button onClick={onCompose} aria-label="New message" title="New message" style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Icon name="edit" size={15} />
             </button>
             </div>
@@ -1938,7 +1956,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       </span>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                         {t.unreadCount > 0 && (
-                          <span aria-label={`${t.unreadCount} unread`} style={{ minWidth: 19, height: 19, borderRadius: 2, background: STATUS.bad, color: "#fff", fontSize: 10, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px", fontVariantNumeric: "tabular-nums" }}>{t.unreadCount > 99 ? "99+" : t.unreadCount}</span>
+                          <span aria-label={`${t.unreadCount} unread`} style={{ minWidth: 20, height: 20, borderRadius: RADIUS.md, background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px", fontVariantNumeric: "tabular-nums" }}>{t.unreadCount > 99 ? "99+" : t.unreadCount}</span>
                         )}
                         <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>{relativeTime(t.lastMessage?.createdAt)}</span>
                       </span>
@@ -1994,7 +2012,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             <div style={{ padding: "13px 18px", borderBottom: `1px solid ${P.line}`, background: P.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                 {isMobile && (
-                  <button onClick={() => setActiveId(null)} aria-label="Back to conversations" style={{ background: "none", border: `1px solid ${P.line}`, borderRadius: "50%", color: P.ink2, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <button onClick={() => setActiveId(null)} aria-label="Back to conversations" style={{ background: "none", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink2, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="arrowRight" size={16} style={{ transform: "rotate(180deg)" }} />
                   </button>
                 )}
@@ -2057,7 +2075,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     aria-label="Group calls aren't supported yet"
                     title="Group calls aren't supported yet. Calls work in direct messages"
                     style={{
-                      background: withAlpha(accent, 0.05), border: "none", borderRadius: "50%", color: P.faint,
+                      background: withAlpha(accent, 0.05), border: "none", borderRadius: RADIUS.md, color: P.faint,
                       cursor: "default", opacity: 0.4,
                       width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
                     }}
@@ -2067,7 +2085,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     aria-label="Group calls aren't supported yet"
                     title="Group calls aren't supported yet. Calls work in direct messages"
                     style={{
-                      background: withAlpha(accent, 0.05), border: "none", borderRadius: "50%", color: P.faint,
+                      background: withAlpha(accent, 0.05), border: "none", borderRadius: RADIUS.md, color: P.faint,
                       cursor: "default", opacity: 0.4,
                       width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
                     }}
@@ -2078,7 +2096,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   disabled={activeThread.blocked}
                   aria-label="Start an audio call" title="Audio call"
                   style={{
-                    background: withAlpha(accent, 0.1), border: "none", borderRadius: "50%", color: accent,
+                    background: withAlpha(accent, 0.1), border: "none", borderRadius: RADIUS.md, color: accent,
                     cursor: activeThread.blocked ? "default" : "pointer", opacity: activeThread.blocked ? 0.4 : 1,
                     width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
                   }}
@@ -2089,7 +2107,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   aria-label={activeThread.blocked ? "You've blocked this person: calling unavailable" : activeHuddleRoomSeed === activeId ? "Return to call" : "Start a video call"}
                   title={activeThread.blocked ? "You've blocked this person" : activeHuddleRoomSeed === activeId ? "Return to call" : "Video call"}
                   style={{
-                    background: withAlpha(accent, activeHuddleRoomSeed === activeId ? 0.22 : 0.1), border: "none", borderRadius: "50%", color: accent,
+                    background: withAlpha(accent, activeHuddleRoomSeed === activeId ? 0.22 : 0.1), border: "none", borderRadius: RADIUS.md, color: accent,
                     cursor: activeThread.blocked ? "default" : "pointer", opacity: activeThread.blocked ? 0.4 : 1,
                     width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
                   }}
@@ -2207,7 +2225,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 keeps a short thread resting on the composer, exactly as it
                 does everywhere else, and has no effect once the thread is
                 long enough to scroll. */}
-            <div ref={msgPaneRef} onScroll={handleMsgScroll} style={{ flex: 1, overflowY: "auto", padding: isMobile ? "18px 14px" : "22px 24px", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0, background: P.bg }}>
+            <div ref={msgPaneRef} onScroll={handleMsgScroll} style={{ flex: 1, overflowY: "auto", padding: isMobile ? "18px 14px" : "22px 24px", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0, background: P.surface }}>
               {(activeThread.messages || []).length === 0 && (
                 <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small, marginTop: 20 }}>No messages yet. Say hello.</div>
               )}
@@ -2290,20 +2308,20 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   {activeThread?.kind === "group" && !m.mine && m.who && !groupedWithPrev && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, paddingLeft: 2 }}>
                       <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: "50%", ...avatarSkin(senderKey), display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 500, fontFamily: "var(--cb-font)" }}>{(m.who || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()}</span>
-                      <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: senderColor(senderKey), fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{m.who}</span>
+                      <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: senderColor(senderKey, accent, P), fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{m.who}</span>
                     </div>
                   )}
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: m.mine ? "row-reverse" : "row" }}>
                     <div style={{ minWidth: 0 }}>
                       {bubbleText && (
                         <div style={{
-                          padding: "11px 15px", fontSize: FONT_SIZES.body, lineHeight: 1.6,
+                          padding: "11px 15px", fontSize: FONT_SIZES.body, lineHeight: 1.55,
                           borderRadius: m.mine ? `${RADIUS.xl}px ${RADIUS.xl}px ${RADIUS.sm}px ${RADIUS.xl}px` : `${RADIUS.xl}px ${RADIUS.xl}px ${RADIUS.xl}px ${RADIUS.sm}px`,
                           color: m.mine ? at : P.ink,
                           background: m.mine ? accent : (P.raised || P.surface),
                           border: m.mine ? "none" : `1px solid ${P.line}`,
-                          ...(e2eeError ? { fontStyle: "italic", opacity: 0.72 } : {}),
-                        }}>{e2eeError ? bubbleText : renderLinkedText(bubbleText)}</div>
+                          ...(e2eeError ? { color: P.ink2 } : {}),
+                        }}>{e2eeError ? (<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="lock" size={13} style={{ flexShrink: 0 }} />{bubbleText}</span>) : renderLinkedText(bubbleText)}</div>
                       )}
                       {/* Image: shown at real size in the thread (a figure
                           you have to click to evaluate is a figure you
@@ -2493,7 +2511,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     onClick={() => imageInputRef.current?.click()}
                     disabled={attachBusy}
                     aria-label="Attach an image" title="Attach an image"
-                    style={{ width: 44, height: 44, borderRadius: "50%", flexShrink: 0, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    style={{ width: 44, height: 44, borderRadius: RADIUS.md, flexShrink: 0, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                   ><Icon name={attachBusy ? "refresh" : "image"} size={16} className={attachBusy ? "cb-spin" : undefined} /></UIButton>
                   <textarea
                     ref={composerRef}
@@ -2523,7 +2541,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       color: recording ? "#fff" : P.ink2,
                     }}
                   ><Icon name={recording ? "send" : "mic"} size={16} /></UIButton>
-                  {!recording && <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ width: 44, height: 44, borderRadius: "50%", background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {!recording && <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ width: 44, height: 44, borderRadius: RADIUS.md, background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="send" size={16} />
                   </button>}
                 </div>
@@ -2693,7 +2711,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>GROUP NAME</div>
+            <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "normal", marginBottom: 6 }}>Group name</div>
             <input
               value={groupName}
               onChange={(e) => setGroupName(e.target.value.slice(0, 80))}
@@ -2708,7 +2726,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             />
           </div>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>ADD PEOPLE ({groupMembers.length})</div>
+            <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "normal", marginBottom: 6 }}>Add people ({groupMembers.length})</div>
             {groupMembers.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
                 {groupMembers.map((m) => (
@@ -2758,7 +2776,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             )}
           </div>
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
-            Group messages aren't end-to-end encrypted yet.
+            Group messages aren't encrypted end to end yet.
           </div>
           <UIButton
             P={P} variant="primary" accent={accent} at={at}
@@ -2783,7 +2801,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>GROUP NAME</div>
+            <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "normal", marginBottom: 6 }}>Group name</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 value={settingsName}
@@ -2806,7 +2824,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
           </div>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>MEMBERS ({(activeThread.members || []).length})</div>
+            <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "normal", marginBottom: 6 }}>Members ({(activeThread.members || []).length})</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 260, overflowY: "auto" }}>
               {(activeThread.members || []).map((m) => (
                 <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", minHeight: 44 }}>
@@ -2853,7 +2871,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
           </div>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>ADD PEOPLE</div>
+            <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "normal", marginBottom: 6 }}>Add people</div>
             <input
               value={settingsQuery}
               onChange={(e) => setSettingsQuery(e.target.value)}
@@ -2887,7 +2905,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             )}
           </div>
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
-            Group messages aren't end-to-end encrypted yet. There are no admins: any member can rename the group or remove people.
+            Group messages aren't encrypted end to end yet. There are no admins: any member can rename the group or remove people.
           </div>
           <UIButton
             P={P} variant="ghost"
