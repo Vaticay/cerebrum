@@ -5868,12 +5868,14 @@ function LegalProgress({ accent }) {
 }
 
 function InfoPage({ page }) {
-  const paletteName = (() => { try { return getCookie("cb_pal") || "Dark"; } catch { return "Dark"; } })();
+  /* 2026-10-19 (S7b, M60): the default is Sage, the same palette the app
+     opens in, not Dark. A saved palette cookie still wins. */
+  const paletteName = (() => { try { return getCookie("cb_pal") || "Sage"; } catch { return "Sage"; } })();
   // The Pro palette is a members-only entitlement resolved from the signed-in
   // account inside App(). This standalone route has no account context, so a
   // stale cb_palette cookie (set while Pro, kept after logout/revocation)
   // must fall back to Dark — never render member-only chrome to a stranger.
-  const P = PALETTES[isProPalette(paletteName) ? "Dark" : paletteName] || PALETTES.Dark;
+  const P = PALETTES[isProPalette(paletteName) ? "Dark" : paletteName] || PALETTES.Sage;
   // ACCENTS was collapsed to a single { Mono } entry when the app moved to
   // its current monochrome accent direction (App()'s own accentName state,
   // a few thousand lines down, already defaults to "Mono" to match) — this
@@ -5932,10 +5934,10 @@ function InfoPage({ page }) {
         @media (hover: none) { .cb-info-block .cb-anchor { opacity: 1; } }
         .cb-toc-link:hover { color: ${accent}; }
         .cb-legal-progress { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: ${accent}; z-index: ${Z.dropdown}; transform-origin: left; }
-        .cb-info-block h2 { font-size: 20px; font-weight: 500; letter-spacing: -0.015em; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-font); }
-        .cb-info-block p { font-size: 16px; line-height: 1.7; color: ${P.ink2}; margin: 0; }
+        .cb-info-block h2 { font-size: ${FONT_SIZES.section}px; font-weight: 500; letter-spacing: 0; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-font); }
+        .cb-info-block p { font-size: ${FONT_SIZES.body}px; line-height: 1.55; color: ${P.ink2}; margin: 0; }
         .cb-info-block ul { margin: 0; padding: 0; list-style: none; }
-        .cb-info-block li { font-size: 15px; line-height: 1.65; color: ${P.ink2}; padding: 10px 0 10px 24px; position: relative; border-bottom: 1px solid ${P.line}; }
+        .cb-info-block li { font-size: ${FONT_SIZES.body}px; line-height: 1.55; color: ${P.ink2}; padding: 10px 0 10px 24px; position: relative; border-bottom: 1px solid ${P.line}; }
         .cb-info-block li:last-child { border-bottom: none; }
         .cb-info-block li:before { content: ""; position: absolute; left: 6px; top: 18px; width: 5px; height: 5px; border-radius: 50%; background: ${accent}; }
         .cb-info-navlink { position: relative; transition: color .15s ease; }
@@ -6020,7 +6022,7 @@ function InfoPage({ page }) {
                       <span style={{ position: "absolute", top: -11, left: 16, padding: "3px 12px", borderRadius: RADIUS.viewport, background: accent, color: "#0b0b0e", fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: TRACKING.label, fontFamily: "var(--cb-font)" }}>RECOMMENDED</span>
                     )}
                     <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, fontFamily: "var(--cb-font)" }}>{tier.persona}</div>
-                    <div style={{ fontSize: 20, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", marginTop: 4 }}>{tier.name}</div>
+                    <div style={{ fontSize: FONT_SIZES.section, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", marginTop: 4 }}>{tier.name}</div>
                     <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", marginTop: 2 }}>{tier.price}</div>
                     <p style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, margin: "10px 0 0" }}>{tier.line}</p>
                     <a href="/" style={{ display: "inline-block", marginTop: 14, fontSize: FONT_SIZES.caption, fontWeight: 500, color: tier.recommended ? accent : P.ink, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
@@ -6057,11 +6059,11 @@ function InfoPage({ page }) {
                cannot drift. The id matches the #frequently-asked-questions
                anchor published in public/llms.txt. */
             <div id="frequently-asked-questions" className="cb-fadein" style={{ marginTop: 56, scrollMarginTop: 90 }}>
-              <h2 style={{ fontSize: 20, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, margin: "0 0 8px", color: P.ink, fontFamily: "var(--cb-font)" }}>Frequently asked questions</h2>
+              <h2 style={{ fontSize: FONT_SIZES.section, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, margin: "0 0 8px", color: P.ink, fontFamily: "var(--cb-font)" }}>Frequently asked questions</h2>
               <div style={{ display: "flex", flexDirection: "column", gap: 28, marginTop: 20 }}>
                 {data.faq.map((item, i) => (
                   <div key={i} className="cb-info-block">
-                    <h2 style={{ fontSize: FONT_SIZES.title }}>{item.q}</h2>
+                    <h2>{item.q}</h2>
                     <p>{item.a}</p>
                   </div>
                 ))}
@@ -6931,14 +6933,14 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                 ["30 document reads every 5 days", "Free: 3 every 5 days"],
                 ["10 flowchart saves every 5 days", "Free: 1 every 5 days"],
                 ["A set allowance, not unlimited", "Pro removes the limit entirely"],
-                ["No Pro badge or theme", "Those stay Pro-only"],
+                ["No Pro badge or theme", "Those are part of Pro"],
               ] : [
                 ["Answer as many questions as you want", "Free: 50 every 5 days"],
                 ["Read as many documents as you want", "Free: 3 every 5 days"],
                 ["Save as many flowcharts as you want", "Free: 1 every 5 days"],
                 ["A Pro badge on your profile", "Shows wherever your name appears"],
                 ["Four Pro themes", "Pro, Pro Violet, Pro Abyss, Pro Ember. Members only."],
-                ["Deeper Pro search", "2x semantic rerank pool, 50 papers, stronger models, no cheap-first"],
+                ["Deeper Pro search", "Searches a wider pool of papers and ranks them more carefully, so the strongest sources surface first"],
                 ["Answer PDF export", "Clean PDFs with citations for your thesis"],
               ]).map(([t, d]) => (
                 <li key={t} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -6961,7 +6963,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
               </div>
             ) : plan === "student" ? (
               /* Student checkout is gated behind .edu verification: email →
-                 6-digit code → verified → Stripe checkout with the student
+                 6 digit code, then verified, then Stripe checkout with the student
                  coupon ($7.99/mo for 12 months, then the standard rate). */
               <div style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 16, background: P.surface }}>
                 {studentStep === "verified" ? (
@@ -6972,7 +6974,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                       </span>
                       <div>
                         <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>Student status verified</div>
-                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{studentEmail} · one-time discount, applied at checkout</div>
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{studentEmail} · one time discount, applied at checkout</div>
                       </div>
                     </div>
                     <UIButton P={P} variant="ghost" onClick={startCheckout} disabled={busy} style={{ width: "100%", padding: "13px", fontSize: FONT_SIZES.body, fontWeight: 500, color: PRO.emeraldInk, background: busy ? P.raised : PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: busy ? "wait" : "pointer", fontFamily: "var(--cb-font)" }}>
@@ -6983,7 +6985,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                   <>
                     <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 4 }}>Check your college inbox</div>
                     <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 12 }}>
-                      We sent a 6-digit code to <span style={{ color: P.ink, fontWeight: 500 }}>{studentEmail}</span>. It expires in 15 minutes.
+                      We sent a 6 digit code to <span style={{ color: P.ink, fontWeight: 500 }}>{studentEmail}</span>. It expires in 15 minutes.
                     </div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <input value={studentCode} onChange={(e) => setStudentCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
@@ -12371,7 +12373,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
     const pct = unlimited ? 100 : cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
     const left = unlimited ? null : Math.max(0, cap - used);
     const state = unlimited ? "unlimited" : left === 0 ? "empty" : pct >= 80 ? "low" : "ok";
-    const fill = state === "empty" ? "#e5484d" : state === "low" ? "#e8a13c" : accent;
+    const fill = state === "low" ? "#e8a13c" : accent;
     const stateLine = state === "unlimited" ? `${used} this period. No cap.`
       : state === "empty" ? `Empty. Refills in ${fmtRemaining(remainingMs)}`
       : state === "low" ? `${left} remaining. Running low.`
@@ -12399,14 +12401,18 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: FONT_SIZES.caption, fontWeight: state === "ok" || state === "unlimited" ? 500 : 500, color: state === "empty" ? statusBad(P) : state === "low" ? statusWarn(P) : P.faint, fontFamily: "var(--cb-font)" }}>{stateLine}</span>
-          {sub && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{sub}</span>}
+          {/* 2026-10-19 (S7b, tail 35): the upgrade line appears only at
+              the same low and empty moments as the upgrade button. At
+              every other level the sub line stays factual: used, cap,
+              refill, which stateLine above already carries. */}
+          {sub && showUpgrade && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{sub}</span>}
         </div>
         {showUpgrade && (
           <UIButton P={P} variant="ghost" onClick={() => onOpenPro(upgradePlan)} style={{
             marginTop: 10, minHeight: 44, padding: "12px 24px", borderRadius: RADIUS.sm,
             border: state === "empty" ? "none" : `1px solid ${withAlpha("#d4a437", 0.55)}`,
-            background: state === "empty" ? "#e5484d" : "transparent",
-            color: state === "empty" ? "#fff" : P.ink,
+            background: state === "empty" ? accent : "transparent",
+            color: state === "empty" ? at : P.ink,
             fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer",
           }}>{upgrade}</UIButton>
         )}
@@ -13548,7 +13554,7 @@ function FcNodeShape({ n, P, accent, selected, pending }) {
 
 /* Moved to src/flowcharts.jsx: FlowchartStudio+Mermaid */
 
-// Accounts modal — a single 6-digit-code sign-in flow. Talks to /api/auth
+// Accounts modal — a single 6 digit code sign in flow. Talks to /api/auth
 // (see functions/api/auth.js). `onAuthed(user)` fires once verify-code
 // succeeds; the caller (App) decides what to do with the account's data
 // (pull it down, offer to import local data, etc.) — this component only
@@ -13742,10 +13748,10 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
               Email
               <input type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="you@example.com" aria-label="Email" />
             </label>
-            <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>{intent === "signup" ? "No password to pick. We'll email you a 6-digit code and your account is made." : "No password to remember. We'll email you a 6-digit code that signs you in."}</div>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.faint, marginTop: 10, lineHeight: 1.5 }}>{intent === "signup" ? "No password to pick. We'll email you a 6 digit code and your account is made." : "No password to remember. We'll email you a 6 digit code that signs you in."}</div>
             {error && <div role="alert" style={{ marginTop: 14, padding: "9px 12px", borderRadius: RADIUS.md, background: withAlpha(STATUS.bad, 0.1), color: statusBad(P), fontSize: FONT_SIZES.small, lineHeight: 1.5 }}>{error}</div>}
             <UIButton P={P} variant="ghost" type="submit" disabled={busy} style={{ width: "100%", marginTop: 18, padding: "12px", fontSize: FONT_SIZES.body, fontWeight: 500, background: accent, color: at, border: "none", borderRadius: RADIUS.md, cursor: busy ? "default" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: "var(--cb-font)" }}>
-              {busy ? "Sending…" : "Send sign-in code"}
+              {busy ? "Sending…" : "Send sign in code"}
             </UIButton>
             {passkeySupported && (
               <button type="button" onClick={signInWithPasskey} disabled={passkeyBusy || busy}
@@ -13759,7 +13765,7 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
           </form>
         ) : (
           <div style={{ paddingTop: 4 }}>
-            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 18 }}>We sent a 6-digit code to <strong>{email}</strong>. It expires in 15 minutes.</div>
+            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, marginBottom: 18 }}>We sent a 6 digit code to <strong>{email}</strong>. It expires in 15 minutes.</div>
             <div key={shakeKey} style={{ display: "flex", gap: 8, justifyContent: "center", animation: shakeKey > 0 ? "cb-otp-shake 320ms cubic-bezier(0.16, 1, 0.3, 1)" : "none" }} onPaste={(e) => onBoxPaste(0, e)}>
               {digits.map((d, i) => (
                 <input
@@ -16013,25 +16019,15 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           from the workspace) so the name never slides under the button. */}
       <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "68px 18px 56px" : "18px 28px 72px" }}>
 
-        {/* Cover and avatar: the social layer (2026-10-12 overhaul). The
-            cover is generated from the account's own accent, never a
-            stock photo, and the arcs on it are the Cortex mark at banner
-            scale: your research identity, drawn from your own colors. */}
+        {/* Cover and avatar: the social layer (2026-10-12 overhaul).
+            2026-10-19 (S7b, M61): the cover is now a flat P.raised panel
+            with a bottom border. The stacked radial and linear gradients
+            and the large arc that sat over them are gone; it was the one
+            gradient surface left in the account territory. */}
         <div aria-hidden="true" style={{
           height: isMobile ? 116 : 148, borderRadius: 2, position: "relative", overflow: "hidden",
-          border: "1px solid " + P.line, background: P.raised,
-        }}>
-          <div style={{ position: "absolute", inset: 0, background:
-            "radial-gradient(120% 170% at 10% 0%, " + withAlpha(accent, 0.30) + ", rgba(0,0,0,0) 55%)," +
-            "radial-gradient(110% 150% at 90% 0%, " + withAlpha(accent, 0.18) + ", rgba(0,0,0,0) 52%)," +
-            "linear-gradient(155deg, " + P.raised + " 0%, " + P.bg + " 90%)" }} />
-          <svg viewBox="0 0 400 240" width="340" height="204" preserveAspectRatio="xMidYMid meet" aria-hidden="true"
-            style={{ position: "absolute", right: -30, top: -28, opacity: 0.55 }}>
-            <path d="M261 47 A95 95 0 1 0 261 193" fill="none" stroke={withAlpha(accent, 0.65)} strokeWidth="3" strokeLinecap="round" />
-            <path d="M240 79 A62 62 0 1 0 240 161" fill="none" stroke={withAlpha(accent, 0.4)} strokeWidth="3" strokeLinecap="round" />
-            <circle cx="196" cy="120" r="10" fill={withAlpha(accent, 0.8)} />
-          </svg>
-        </div>
+          border: "1px solid " + P.line, borderBottom: "1px solid " + P.line2, background: P.raised,
+        }} />
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: -36, marginBottom: 16, paddingLeft: 18, position: "relative" }}>
           {profile.avatar_base64 && !avatarFailed ? (
             <img src={profile.avatar_base64} alt="" onError={() => setAvatarFailed(true)}
@@ -16056,13 +16052,13 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
                 placeholder={displayName}
                 aria-label="Your name"
-                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: 30, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.display.letterSpacing, outline: "none" }}
+                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.display.letterSpacing, outline: "none" }}
               />
             ) : (
               <h1 style={{
-                margin: 0, fontSize: isMobile ? 30 : 36, fontWeight: 500,
+                margin: 0, fontSize: FONT_SIZES.display, fontWeight: 500,
                 color: P.ink, fontFamily: "var(--cb-font)",
-                letterSpacing: TYPE.display.letterSpacing, lineHeight: 1.02,
+                letterSpacing: TYPE.display.letterSpacing, lineHeight: TYPE.display.lineHeight,
               }}><span style={{ overflowWrap: "anywhere" }}>{displayName}</span></h1>
             )}
             <div style={{ marginTop: 5, fontSize: FONT_SIZES.small, fontWeight: 400, color: P.faint, fontFamily: "var(--cb-font)" }}>
@@ -16091,7 +16087,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             is granted by the founder, by email, from Cortex itself. */}
         {!editing && markers.length > 0 && (
           <div style={{ marginTop: 22 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 500, letterSpacing: "0.12em", color: P.faint, marginBottom: 10 }}>BADGES</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "normal", color: P.faint, marginBottom: 10 }}>Badges</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {markers.map((m) => {
                 const d = BADGE_DISPLAY[m.key];
@@ -16843,7 +16839,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
       scrimStyle={isMobile ? { alignItems: "flex-end", padding: 0 } : {}}
       panelStyle={{
         background: P.surface, border: `1px solid ${P.line}`,
-        borderRadius: isMobile ? "2px 2px 0 0" : RADIUS.lg,
+        borderRadius: isMobile ? `${RADIUS.lg}px ${RADIUS.lg}px 0 0` : RADIUS.lg,
         maxHeight: isMobile ? "92dvh" : "86dvh",
         display: "flex", flexDirection: "column", overflow: "hidden", outline: "none",
         boxShadow: "none",
