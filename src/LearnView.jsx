@@ -12493,7 +12493,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
             background: withAlphaSafe(accent, P.dark ? 0.16 : 0.1), border: "1px solid " + P.line,
             borderRadius: 2, padding: "16px 20px", marginBottom: 26,
           }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: accent, marginBottom: 5 }}>UNIT {ui + 1}</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: accent, marginBottom: 5 }}>UNIT {ui + 1}{unit.advanced ? <span style={{ color: P.ink2 }}> · ADVANCED · COLLEGE LEVEL</span> : null}</div>
             <div style={{ fontFamily: SANS, fontSize: FONT_SIZES.title, fontWeight: 500, lineHeight: 1.3, color: P.ink }}>{unit.title}</div>
             <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.5, margin: "4px 0 0" }}>{unit.subtitle}</p>
           </div>
