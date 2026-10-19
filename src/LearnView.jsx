@@ -293,6 +293,19 @@ function cortexCourseProblem(course) {
         || !Number.isInteger(card.correct) || card.correct !== (card.answer ? 0 : 1))) {
         return "That file's courses section holds a true or false card with no answer. Nothing was imported.";
       }
+      /* Quiz repeat rules (2026-10-18): a card whose options repeat
+         one passage, or whose correct option repeats its why, is
+         the photographed defect in file form and is rejected. */
+      const internalRepeat = cardInternalRepeat(card);
+      if (internalRepeat) {
+        return "That file's courses section holds a question card where " + internalRepeat + ". Nothing was imported.";
+      }
+    }
+    /* Across the lesson (2026-10-18): one passage may serve as a
+       correct answer or a why at most once in a lesson. */
+    const lessonRepeat = lessonRepeatProblem(lesson.cards);
+    if (lessonRepeat) {
+      return "That file's courses section holds a lesson where " + lessonRepeat + ". Nothing was imported.";
     }
   }
   if (course.doneLessons != null && !cortexIsStringArray(course.doneLessons)) return "That file's courses section holds a course whose finished lessons list is not readable. Nothing was imported.";
@@ -626,6 +639,148 @@ function normKey(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/* ── passage similarity: one passage must not do two jobs ─────────
+   Quiz repeat defect (2026-10-18, the owner's photo): a search built
+   lesson on the black soldier fly microbiome whose fourth card's
+   correct option, and its why, were the same long passage about the
+   microbiome complementing innate immunity and cathepsin L, and the
+   feedback sheet then printed and spoke that passage again and
+   again. His words: the quiz's answers kinda just repeat themselves
+   too, improve quiz logic.
+
+   The measure, stated plainly: normalize both texts (lowercase,
+   markup and punctuation stripped, whitespace collapsed, a light
+   stopword list dropped), take the set of consecutive token
+   bigrams, and score the Jaccard similarity of the two sets. A pure
+   word order restatement keeps some bigrams but loses the joins; a
+   verbatim or near verbatim copy keeps almost all of them. Texts
+   too short to form a bigram (a cloze value, a single term) score 1
+   only when their normalized tokens are exactly equal, else 0.
+   Two passages also repeat when one's normalized token sequence
+   contains the other's whole sequence, the verbatim containment
+   case. Containment needs a full passage, eight content tokens or
+   more: a short correct phrase (the retina, the back wall of the
+   eye) naturally sits inside its own explanation sentence, and
+   that is an explanation doing its job, not a repeat.
+
+   The maximum allowed similarity is QUIZ_SIMILARITY_MAX, 0.85.
+   Why that line: measured 2026-10-18 over every authored option
+   card (474 cards: 258 learning path, 216 topic), legitimate
+   options sharing a topic's vocabulary top out at 0.50 pairwise and
+   0.50 correct against why, and cross card motif reuse at 0.70, so
+   0.85 sits clear of real teaching while a copy with at most a
+   word or two changed in a passage still lands at or above it.
+   The rules this measure enforces, in code not just in words:
+   options of one card are substantively distinct statements, the
+   correct option is not the why passage restated near word for
+   word, and one passage serves as a correct answer or a why at
+   most once in a lesson. */
+export const QUIZ_SIMILARITY_MAX = 0.85;
+const SIMILARITY_STOPWORDS = new Set([
+  "the", "a", "an", "of", "to", "in", "on", "and", "or", "is", "are", "it", "its",
+  "that", "this", "with", "for", "from", "by", "as", "at", "be", "can", "not", "but",
+  "so", "than", "then", "when", "which", "what", "who", "how", "why", "into", "over",
+  "after", "before", "about", "their", "they", "them", "one", "two", "all", "any",
+  "each", "more", "most", "some", "such", "own", "our", "your", "you", "only", "also",
+  "just", "even", "still", "every", "both", "was", "were", "has", "have", "had",
+  "will", "would", "do", "does", "did", "if", "while", "during", "per",
+]);
+export function similarityTokenList(text) {
+  return String(text || "").toLowerCase()
+    .replace(/[*_#`>]/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w && !SIMILARITY_STOPWORDS.has(w));
+}
+function similarityBigramSet(tokens) {
+  const out = new Set();
+  for (let i = 0; i + 1 < tokens.length; i++) out.add(tokens[i] + " " + tokens[i + 1]);
+  return out;
+}
+export function cardTextSimilarity(a, b) {
+  const ta = similarityTokenList(a);
+  const tb = similarityTokenList(b);
+  const A = similarityBigramSet(ta);
+  const B = similarityBigramSet(tb);
+  if (!A.size || !B.size) {
+    return ta.length && tb.length && ta.join(" ") === tb.join(" ") ? 1 : 0;
+  }
+  let shared = 0;
+  for (const g of A) if (B.has(g)) shared++;
+  return shared / (A.size + B.size - shared);
+}
+export function textContainsPassage(haystack, needle) {
+  const h = similarityTokenList(haystack);
+  const n = similarityTokenList(needle);
+  if (n.length < 8 || h.length < n.length) return false;
+  for (let i = 0; i + n.length <= h.length; i++) {
+    let ok = true;
+    for (let j = 0; j < n.length; j++) if (h[i + j] !== n[j]) { ok = false; break; }
+    if (ok) return true;
+  }
+  return false;
+}
+export function passagesRepeat(a, b) {
+  if (!a || !b) return false;
+  return cardTextSimilarity(a, b) >= QUIZ_SIMILARITY_MAX
+    || textContainsPassage(a, b) || textContainsPassage(b, a);
+}
+
+/* Within one card (2026-10-18): the pairwise option check and the
+   correct against why check. Statement option kinds (quiz, visualq,
+   predict) get both; cloze options are bare values, so they get the
+   pairwise check only, and their why is the full statement the
+   value completes by design. True or false options are the words
+   True and False and carry nothing to compare. Returns a plain
+   fragment naming the repeat, or null. */
+export function cardInternalRepeat(card) {
+  if (!card || !Array.isArray(card.options)) return null;
+  const statement = card.kind === "quiz" || card.kind === "visualq" || card.kind === "predict";
+  if (statement || card.kind === "cloze") {
+    for (let i = 0; i < card.options.length; i++) {
+      for (let j = i + 1; j < card.options.length; j++) {
+        if (passagesRepeat(card.options[i], card.options[j])) return "two of its options repeat the same passage";
+      }
+    }
+  }
+  if (statement && Number.isInteger(card.correct) && card.options[card.correct] && card.why) {
+    if (passagesRepeat(card.options[card.correct], card.why)) return "its correct option repeats its why passage";
+  }
+  return null;
+}
+
+/* Across one lesson (2026-10-18): the same passage must not serve
+   as a correct answer or a why in two cards. Tracked passages are
+   the correct option of statement and cloze cards, the corrected
+   piece of a spot the error card, and every card's why. A true or
+   false card's statement is not tracked: its answer is the word
+   True or False, and a lesson's true then false pair judges two
+   statements on one fact by design. Returns a plain fragment
+   naming the repeat, or null. */
+export function lessonRepeatProblem(cards) {
+  const seen = [];
+  for (const card of cards || []) {
+    if (!card) continue;
+    const mine = [];
+    if ((card.kind === "quiz" || card.kind === "visualq" || card.kind === "predict" || card.kind === "cloze")
+      && Array.isArray(card.options) && Number.isInteger(card.correct) && card.options[card.correct]) {
+      mine.push({ label: "correct answer", text: card.options[card.correct] });
+    } else if (card.kind === "spoterror" && card.fix) {
+      mine.push({ label: "correct answer", text: card.fix });
+    }
+    if (typeof card.why === "string" && card.why) mine.push({ label: "why", text: card.why });
+    for (const m of mine) {
+      for (const prev of seen) {
+        if (passagesRepeat(m.text, prev.text)) {
+          return "a card's " + m.label + " repeats an earlier card's " + prev.label + " passage";
+        }
+      }
+    }
+    seen.push(...mine);
+  }
+  return null;
+}
+
 /* Pull cited findings out of an answer's markdown. Each claim keeps
    the index of the source it cites. Sections that are not findings
    (Sources, Try asking, Related topics) are skipped. */
@@ -874,6 +1029,19 @@ function nearestClaims(claim, allClaims, n) {
 }
 
 /* ── restatement: quiz options are paraphrases, never lifts ──────
+   Generation instructions for every card built below (2026-10-18,
+   the quiz repeat defect): options of one card must be
+   substantively distinct statements, never one passage lightly
+   reworded; the correct option must not be the why passage near
+   word for word; and one passage may serve as a correct answer or
+   a why at most once in a whole lesson. These rules are enforced
+   in code by cardTextSimilarity, cardInternalRepeat, and
+   lessonRepeatProblem (similarity maximum QUIZ_SIMILARITY_MAX),
+   in quizCard's candidate screen and final gate and in
+   createCourseFromResults' per lesson drop, because instructions
+   alone have failed before. The validator pair
+   (validateCurriculum, cortexCourseProblem) rejects cards and
+   lessons that break them.
    Quiz options used to be the finding's own sentence, word for
    word, and the distractors were that sentence with one fact
    changed or another paper's sentence untouched. The player had
@@ -940,6 +1108,26 @@ function rotateMidClause(text) {
   if (head.length < 12 || tail.length < 12) return null;
   return mid[0].toUpperCase() + mid.slice(1) + ", " + head[0].toLowerCase() + head.slice(1) + ", " + tail;
 }
+/* Last restatement resort (2026-10-18): a plain statement with no
+   report frame, no swap word, and no front clause can survive
+   every transform above untouched, or changed by a single word,
+   so its quiz option would be the why passage verbatim or near
+   word for word, the photographed repeat. Fronting its trailing
+   phrase ("...in the trial cohort" becoming the opener) gives the
+   statement a genuinely different surface while saying the same
+   thing. This is the rebuild step of the generation gate: it runs
+   whenever the restatement so far is still at or over
+   QUIZ_SIMILARITY_MAX against the original, and the gate in
+   quizCard drops the card when even this cannot separate the
+   option from the why. */
+function moveTrailingPhrase(text) {
+  const m = text.match(/^(.{24,}?)[,;]?\s+((?:in|on|at|over|during|after|before|within|across|among|for|with|by)\s+[^.!?]{3,48})[.!?]?$/s);
+  if (!m) return null;
+  const main = m[1].trim();
+  const tail = m[2].trim();
+  if (main.length < 24 || tail.length < 6) return null;
+  return tail[0].toUpperCase() + tail.slice(1) + ", " + main[0].toLowerCase() + main.slice(1) + ".";
+}
 function restateClaim(text) {
   const orig = String(text || "").trim();
   if (!orig) return orig;
@@ -947,6 +1135,9 @@ function restateClaim(text) {
   out = swapRestateWords(out);
   if (firstWordsOf(out, 3) === firstWordsOf(orig, 3)) {
     out = moveFrontClause(out) || rotateMidClause(out) || out;
+  }
+  if (out === orig || cardTextSimilarity(out, orig) >= QUIZ_SIMILARITY_MAX) {
+    out = moveTrailingPhrase(out) || out;
   }
   return out;
 }
@@ -977,12 +1168,18 @@ function quizCard(claim, allClaims, sources, opts = {}) {
     const k = normKey(r);
     if (!r || seenOpt.has(k)) continue;
     if (!withinOptionBand(r.length, answer.length)) continue;
+    /* Distinctness (2026-10-18): a candidate that repeats the
+       answer's passage, or a distractor already chosen, near word
+       for word is skipped, not shipped. Another claim's statement
+       is a substantively distinct distractor; the same passage
+       lightly reworded is a repeat. */
+    if (passagesRepeat(r, answer) || distract.some((d) => passagesRepeat(r, d))) continue;
     seenOpt.add(k);
     distract.push(r);
   }
   if (distract.length < 3) return null;
   const options = seededShuffle([answer, ...distract], salt + 7);
-  return {
+  const card = {
     kind: "quiz",
     claimId: "cl" + salt + "-" + (claimSeq++),
     question: opts.question || "Which of these statements is correct?",
@@ -993,6 +1190,13 @@ function quizCard(claim, allClaims, sources, opts = {}) {
        lesson, and the explanation is the lesson said again. */
     why: claim.text,
   };
+  /* The final gate (2026-10-18): when the restatement still reads
+     as the why passage near word for word, which is what happened
+     to the microbiome passage in the owner's photo, the card is
+     dropped and counted by the caller instead of shipped as a
+     question whose answer and explanation are one passage twice. */
+  if (cardInternalRepeat(card)) return null;
+  return card;
 }
 function clozeCard(claim, allClaims, sources) {
   const m = claim.text.match(NUMBER_RE);
@@ -1125,6 +1329,12 @@ function RichText({ text }) {
    background only: the answer's statements become plain teaching
    text, the lessons read them first and then quiz the concepts, and
    nothing in the flow displays a paper, a finding, or a citation.
+   Card generation follows the distinctness instructions stated at
+   the restatement section above (2026-10-18): distinct options, no
+   correct option that is its why near word for word, and no
+   passage serving as a correct answer or a why twice in one
+   lesson, all enforced in code, with offending checks dropped and
+   counted on the course record as droppedChecks.
    Returns null when the search did not produce enough statements
    to teach from honestly. The conflicts argument is still accepted
    for caller compatibility; the old claim battle lesson quoted two
@@ -1167,14 +1377,31 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     if (!q) droppedChecks++;
     return q;
   };
+  /* No passage twice in one lesson (2026-10-18): a check whose
+     correct answer or why repeats a passage an earlier kept check
+     in the same lesson already used is dropped here and counted,
+     the generation side of lessonRepeatProblem. The teaching note
+     is not a check and never counts as a use. */
+  const dropLessonRepeats = (cards) => {
+    const kept = [];
+    for (const card of cards) {
+      if (card && card.kind !== "note" && card.kind !== "summary"
+        && lessonRepeatProblem([...kept, card])) {
+        droppedChecks++;
+        continue;
+      }
+      kept.push(card);
+    }
+    return kept;
+  };
   /* A teaching lesson: one reading passage that states the ideas
      in plain words, then one check per idea, in the same order. */
   const teachLesson = (id, title, subtitle, kicker, heading, chunk) => ({
     id, title, subtitle,
-    cards: [
+    cards: dropLessonRepeats([
       { kind: "note", kicker, title: heading, text: chunk.map((c) => c.text).join(" ") },
       ...chunk.map(checkFor).filter(Boolean),
-    ],
+    ]),
   });
 
   const first = claims.slice(0, 3);
@@ -1194,7 +1421,7 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
       const vc = vocabCard(entry, vocab, srcs);
       if (vc) cards.push(vc);
     }
-    if (cards.length > 1) lessons.push({ id: "vocab", title: "Vocabulary", subtitle: "Terms in context", cards });
+    if (cards.length > 1) lessons.push({ id: "vocab", title: "Vocabulary", subtitle: "Terms in context", cards: dropLessonRepeats(cards) });
   }
 
   // Final lesson: every taught idea asked again, then the wrap.
@@ -1213,7 +1440,7 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
         (vocab.length ? " and " + vocab.length + " terms from the field" : "") +
         ". The questions you answered are on a review schedule now. They come back as they start to fade.",
     });
-    lessons.push({ id: "review", title: "Review", subtitle: "Every idea, asked again", cards });
+    lessons.push({ id: "review", title: "Review", subtitle: "Every idea, asked again", cards: dropLessonRepeats(cards) });
   }
 
   const course = {
@@ -2645,7 +2872,21 @@ export function feedbackCorrectionFor(card, { good = false, correctText = null }
 export function feedbackTeachLine(card, ctx = {}) {
   const why = plainSpeechText(card && card.why);
   const correction = feedbackCorrectionFor(card, ctx);
-  if (correction && why) return correction + " " + why;
+  if (correction && why) {
+    /* No passage twice in one breath (2026-10-18, the quiz repeat
+       defect): when the why already carries the correct passage,
+       verbatim inside it or near word for word, the correction
+       plus the why reads the same passage twice, which is exactly
+       what her speech bubble did in the owner's photo. The why
+       already states the answer and the reason together there, so
+       she speaks it once and the separate correction stands down.
+       When the two are genuinely different passages she still
+       carries the correction briefly, then the reason. */
+    const correctText = ctx && ctx.correctText ? plainSpeechText(ctx.correctText) : "";
+    const correctionBody = correction.replace(/^(It should say:|The answer was:|The right order:)\s+/, "");
+    if ((correctText && passagesRepeat(correctText, why)) || passagesRepeat(correctionBody, why)) return why;
+    return correction + " " + why;
+  }
   return correction || why || null;
 }
 
@@ -4790,12 +5031,17 @@ export const LEARNING_PATHS = [
               mkMatch("Match each senses word to its job.",
                 [["Lens", "Focuses light onto the back wall of the eye"], ["Eardrum", "The tight drum that shakes when sound arrives"], ["Taste buds", "Report the basic tastes from the tongue"], ["Sensors", "Skin parts that report touch, heat, and damage"]],
                 "Lens focuses, eardrum shakes, taste buds report tastes, and sensors report the skin world."),
-              mkVisualQ("In the picture, where is light turned into signals?",
+              /* Rewritten 2026-10-18 (quiz repeat defect): this card
+                 used to ask the same retina fact as card 1 of this
+                 checkpoint, with the same passage as its correct
+                 answer. It now checks the eye's other taught door:
+                 where light first enters. */
+              mkVisualQ("In the picture, where does light first enter the eye?",
                 "/cortex/lessons/body/u6-l1-eye.webp",
                 null,
-                ["On the lens, at the front of the eye", "On the retina, the back wall of the eye", "In the window where the light comes in", "In the nerve road that carries signals away from the eye"],
-                1,
-                "Light lands focused on the retina at the back, and the retina is where it becomes signals."),
+                ["Through the clear window at the front of the eye", "On the retina lining the back wall of the eye", "In the lens sitting just behind the colored ring", "Along the nerve road carrying signals to the brain"],
+                0,
+                "The clear window at the front is where light enters. The lens then focuses it onto the back wall."),
               mkTrueFalse("The brain builds what you see and what you hear.",
                 true,
                 "Eyes and ears both send signals. The brain builds sights and sounds from those signals, never receiving either one finished."),
@@ -7593,7 +7839,10 @@ export const TOPIC_COURSES = [
             ["After a meal, extra sugar is stored as glycogen and fat.", "Low insulin is the permission slip for the stores to open.", "Hunger comes in waves at the times you usually eat.", "Insulin rises during a fast and orders the stores to open wider."],
             3,
             "When you fast, insulin falls, and the stores open to spend fuel.",
-            "High insulin means store and low insulin means spend. A fast is spending time, so insulin falls while it runs.")
+            /* Rewritten 2026-10-18 (quiz repeat defect): this why
+               used to repeat card 4's why in this checkpoint word
+               for word. It now explains this card's own error. */
+            "The wrong piece flips the direction. In a fast insulin falls, and that fall is the permission for the stores to open.")
         ]
       },
     ] }],
@@ -9950,6 +10199,11 @@ export function validateCurriculum(paths = LEARNING_PATHS) {
     } else {
       problems.push(where + ": unknown card kind " + card.kind);
     }
+    /* Quiz repeat rules (2026-10-18): options of one card must be
+       substantively distinct statements, and the correct option
+       must not be the why passage near word for word. */
+    const internalRepeat = cardInternalRepeat(card);
+    if (internalRepeat) problems.push(where + ": " + card.kind + " " + internalRepeat);
   };
   for (const path of paths || []) {
     if (!path.id || !path.title) problems.push("a path is missing its id or title");
@@ -9971,6 +10225,10 @@ export function validateCurriculum(paths = LEARNING_PATHS) {
         const interactive = (lesson.cards || []).filter(isInteractiveCard).length;
         if (interactive < 3) problems.push(where + ": lesson needs at least 3 interactive cards, has " + interactive);
         (lesson.cards || []).forEach((c, i) => cardCheck(c, where + " card " + (i + 1)));
+        /* Across the lesson (2026-10-18): one passage may serve as
+           a correct answer or a why at most once in a lesson. */
+        const lessonRepeat = lessonRepeatProblem(lesson.cards || []);
+        if (lessonRepeat) problems.push(where + ": lesson " + lessonRepeat);
       }
     }
   }
@@ -11642,15 +11900,32 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                 before the why. Predict cards already carry this
                 section as their outcome; spot the error carries
                 it as the fix below. */}
+            {/* No passage twice on one sheet (2026-10-18, the quiz
+                repeat defect): when the why already carries the
+                correct option's passage, verbatim inside it or near
+                word for word, the recap section stands down and the
+                why below prints it once. In the owner's photo the
+                recap and the why were the same microbiome passage,
+                so the sheet body showed it twice before her speech
+                said it again. The dedup drops a whole section at
+                composition, never a truncated text. */}
             {!isRight && displayOptions && displayCorrect !== null && displayCorrect !== undefined
-              && (card.kind === "quiz" || card.kind === "cloze" || card.kind === "visualq" || card.kind === "truefalse") && (
+              && (card.kind === "quiz" || card.kind === "cloze" || card.kind === "visualq" || card.kind === "truefalse")
+              && !(card.why && passagesRepeat(displayOptions[displayCorrect], card.why)) && (
               <>
                 <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHAT ACTUALLY HAPPENS</p>
                 <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 0 12px", color: P.ink }}><RichText text={displayOptions[displayCorrect]} /></p>
               </>
             )}
-            <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHY</p>
-            <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: 0, color: P.ink }}><RichText text={card.why} /></p>
+            {/* The same dedup from the other side (2026-10-18): a
+                predict card's outcome section above already prints
+                its passage, so a why that repeats it stands down. */}
+            {!(card.kind === "predict" && card.outcome && card.why && passagesRepeat(card.outcome, card.why)) && (
+              <>
+                <p style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.1em", color: P.faint, margin: "0 0 4px" }}>WHY</p>
+                <p style={{ fontFamily: SERIF, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: 0, color: P.ink }}><RichText text={card.why} /></p>
+              </>
+            )}
             {card.kind === "spoterror" && (
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "10px 0 0", color: P.ink }}>
                 The wrong piece says: <span style={{ fontWeight: 500 }}><RichText text={card.parts[card.wrong]} /></span><br />

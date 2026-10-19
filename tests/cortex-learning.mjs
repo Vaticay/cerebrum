@@ -72,10 +72,15 @@ const WANTED = [
   "cortexCourseProblem", "cortexClaimProblem", "cortexProgressRecordProblem",
   "buildCortexExport", "parseCortexImport", "applyCortexImport",
   "normKey", "protectPeriods", "looksLikeFragment", "extractClaims",
+  /* Quiz repeat helpers (2026-10-18): the similarity measure and
+     the within card and across lesson repeat checks that
+     cortexCourseProblem, validateCurriculum, and quizCard now call. */
+  "QUIZ_SIMILARITY_MAX", "SIMILARITY_STOPWORDS", "similarityTokenList", "similarityBigramSet",
+  "cardTextSimilarity", "textContainsPassage", "passagesRepeat", "cardInternalRepeat", "lessonRepeatProblem",
   "NUMBER_RE", "numbersIn", "hasAttributionShape", "claimSeq",
   "FLIP_WORDS", "flipDirection", "scaleNumberIn", "mutatedVariants", "nearestClaims",
   "RESTATE_WORDS", "firstWordsOf", "swapRestateWords", "stripReportFrame",
-  "moveFrontClause", "rotateMidClause", "restateClaim", "withinOptionBand",
+  "moveFrontClause", "rotateMidClause", "moveTrailingPhrase", "restateClaim", "withinOptionBand",
   "shuffledOptionsForCard",
   "quizCard", "clozeCard",
   "VOCAB_STOP", "extractVocab", "vocabCard",
@@ -171,6 +176,7 @@ const {
   CORTEX_EXPORT_FORMAT, CORTEX_EXPORT_VERSION, buildCortexExport, parseCortexImport,
   applyCortexImport, restateClaim, quizCard, clozeCard, extractClaims, firstWordsOf, normKey,
   hasAttributionShape, createCourseFromResults, looksLikeFragment,
+  QUIZ_SIMILARITY_MAX, cardTextSimilarity, textContainsPassage, passagesRepeat, cardInternalRepeat, lessonRepeatProblem,
   hashStr, seededShuffle, shuffledOptionsForCard,
   INTERACTIVE_KINDS, CORTEX_TAGLINE, RANK_LADDER, rankForXp, topicMasteryLevel,
   FADING_AFTER_DAYS, MASTERED_FADING_AFTER_DAYS, lessonLastActivityMs, isLessonFading,
@@ -1573,11 +1579,20 @@ await test("a generated quiz offers restatements only, with the verbatim finding
   assert.equal(card.paperTitle, undefined, "a generated quiz card still carries a paper title");
 });
 
+/* Changed 2026-10-18 (quiz repeat defect): the length band, opening
+   words, and position pins below now run over the three claims
+   whose restatements clear the new similarity gate. The fourth
+   fixture claim (the supplement claim) no longer builds a card at
+   all: its only restatement is a rotation of its own why passage
+   (similarity 0.875 against the 0.85 maximum), so quizCard drops
+   it, which the new repeat group below pins directly. */
+const BUILDABLE_CLAIMS = [CLAIM_TRIAL, CLAIM_DREAM, CLAIM_RESIDENT];
+
 await test("quiz options sit in one length band around the answer", () => {
   // The stated band: every option is at least half and at most
   // double the correct option's length, so length alone cannot
   // single the answer out.
-  for (const claim of QUIZ_CLAIMS) {
+  for (const claim of BUILDABLE_CLAIMS) {
     const card = quizCard(claim, QUIZ_CLAIMS, QUIZ_SOURCES);
     assert.equal(card.options.length, 4, `quiz for "${claim.text.slice(0, 30)}" shipped ${card.options.length} options`);
     const ref = card.options[card.correct].length;
@@ -1590,7 +1605,8 @@ await test("quiz options sit in one length band around the answer", () => {
 
 await test("no generated option opens with any course finding's words", () => {
   const seenOpenings = new Set(QUIZ_CLAIMS.map((c) => firstWordsOf(c.text, 3)));
-  for (const claim of QUIZ_CLAIMS) {
+  // Buildable subset only (changed 2026-10-18, see BUILDABLE_CLAIMS).
+  for (const claim of BUILDABLE_CLAIMS) {
     const card = quizCard(claim, QUIZ_CLAIMS, QUIZ_SOURCES);
     for (const opt of card.options) {
       assert.ok(!seenOpenings.has(firstWordsOf(opt, 3)),
@@ -1601,7 +1617,8 @@ await test("no generated option opens with any course finding's words", () => {
 });
 
 await test("the correct option's position is not fixed across questions", () => {
-  const positions = new Set(QUIZ_CLAIMS.map((c) => quizCard(c, QUIZ_CLAIMS, QUIZ_SOURCES).correct));
+  // Buildable subset only (changed 2026-10-18, see BUILDABLE_CLAIMS).
+  const positions = new Set(BUILDABLE_CLAIMS.map((c) => quizCard(c, QUIZ_CLAIMS, QUIZ_SOURCES).correct));
   assert.ok(positions.size >= 2, `the answer sat in the same slot for every question: ${[...positions]}`);
 });
 
@@ -1803,6 +1820,181 @@ await test("cloze keeps its shape: the value is the question, the quote stays in
   assert.ok(card.prompt.includes("_____"), "the cloze prompt does not blank the value");
   assert.equal(card.options[card.correct], "23%", "the cloze answer is not the finding's value");
   assert.equal(card.why, CLAIM_TRIAL.text, "cloze feedback must quote the finding verbatim");
+});
+
+
+group("Quiz repeat defect: no passage does two jobs (2026-10-18)");
+
+/* The owner's photo (2026-10-18): a search built lesson on the
+   black soldier fly microbiome, card 4 of 4, answered wrong. The
+   picked option, the correct answer, and the why all recycled one
+   long passage about the microbiome complementing innate immunity
+   and cathepsin L, and the why passage appeared twice inside the
+   feedback sheet itself. These pins hold the fix: a stated
+   similarity measure with a stated maximum, enforced within a
+   card, across a lesson, in generation, and in the feedback
+   composition. */
+const REPEAT_PASSAGE = "The microbiome complements the innate immunity of the host, and exposure to Escherichia coli induces up regulation of the cysteine protease cathepsin L in the gut, a response modulated by microbial signals that helps to control pathogen load.";
+const repeatCard = () => ({
+  kind: "quiz", question: "Which of these statements is correct?",
+  options: [
+    "Starvation causes a loss of microbial diversity in the gut over time",
+    REPEAT_PASSAGE,
+    "A core microbiome of a handful of taxa persists on almost any diet",
+    "Larvae grow fastest when the gut carries no microbes at all",
+  ],
+  correct: 1, why: REPEAT_PASSAGE,
+});
+const repeatImportDoc = (card) => buildCortexExport({
+  courses: [{ id: "course-repeat", title: "Repeat", lessons: [{ id: "l1", title: "Lesson", cards: [card] }] }],
+  claims: {}, profile: { xp: 0, days: [] }, builtinProgress: { lessons: {} }, sound: false,
+}, new Date());
+
+await test("the similarity measure: verbatim scores 1, a one word change in a passage still repeats, distinct statements pass", () => {
+  // The stated measure (2026-10-18): normalized token bigram
+  // Jaccard, maximum QUIZ_SIMILARITY_MAX.
+  assert.equal(QUIZ_SIMILARITY_MAX, 0.85, "the stated similarity maximum moved");
+  assert.equal(cardTextSimilarity(REPEAT_PASSAGE, REPEAT_PASSAGE), 1, "a verbatim passage does not score 1");
+  const oneWordChanged = REPEAT_PASSAGE.replace("pathogen load", "pathogen burden");
+  assert.ok(cardTextSimilarity(REPEAT_PASSAGE, oneWordChanged) >= QUIZ_SIMILARITY_MAX,
+    `a one word change in a passage scored ${cardTextSimilarity(REPEAT_PASSAGE, oneWordChanged)}, under the maximum`);
+  assert.ok(passagesRepeat(REPEAT_PASSAGE, oneWordChanged), "a one word change in a passage is not a repeat");
+  const distinct = "Sleep loss raised next day sleepiness scores in residents working overnight shifts at a teaching hospital.";
+  assert.ok(cardTextSimilarity(REPEAT_PASSAGE, distinct) < QUIZ_SIMILARITY_MAX, "a distinct statement scored as a repeat");
+  assert.ok(!passagesRepeat(REPEAT_PASSAGE, distinct), "a distinct statement is flagged as a repeat");
+  // Verbatim containment: the why carrying the correct passage
+  // whole, plus more, repeats it even though the longer text
+  // dilutes the bigram score below the maximum.
+  const whyLong = REPEAT_PASSAGE + " Sleep, by contrast, is governed by circadian signals deep in the brain.";
+  assert.ok(cardTextSimilarity(REPEAT_PASSAGE, whyLong) < QUIZ_SIMILARITY_MAX, "the containment fixture should score under the maximum on bigrams alone");
+  assert.ok(textContainsPassage(whyLong, REPEAT_PASSAGE), "the why does not contain the passage verbatim");
+  assert.ok(passagesRepeat(REPEAT_PASSAGE, whyLong), "a why containing the answer verbatim is not a repeat");
+});
+
+await test("a card whose correct option repeats its why is rejected by the import validator and the curriculum validator", () => {
+  const card = repeatCard();
+  assert.ok((cardInternalRepeat(card) || "").includes("correct option repeats its why"),
+    `the within card check missed the photographed card: ${cardInternalRepeat(card)}`);
+  const parsed = parseCortexImport(JSON.stringify(repeatImportDoc(card)));
+  assert.equal(parsed.ok, false, "an import carrying the photographed card was accepted");
+  assert.ok((parsed.error || "").includes("repeats its why passage"), `the import error does not name the repeat: ${parsed.error}`);
+  const paths = JSON.parse(JSON.stringify(LEARNING_PATHS));
+  const lesson = paths[0].units[0].lessons[0];
+  const qi = lesson.cards.findIndex((c) => c.kind === "quiz");
+  lesson.cards[qi] = card;
+  const problems = [...validateCurriculum(paths)];
+  assert.ok(problems.some((p) => p.includes("repeats its why passage")),
+    `the curriculum validator missed the photographed card: ${problems.join("; ")}`);
+});
+
+await test("a card with two options repeating one passage is rejected", () => {
+  const card = repeatCard();
+  card.correct = 0;
+  card.options[0] = REPEAT_PASSAGE;
+  card.options[1] = REPEAT_PASSAGE.replace("pathogen load", "pathogen burden");
+  card.why = "The gut community supports the host defences it lives alongside.";
+  assert.ok((cardInternalRepeat(card) || "").includes("two of its options repeat"),
+    `the pairwise check missed near identical options: ${cardInternalRepeat(card)}`);
+  const parsed = parseCortexImport(JSON.stringify(repeatImportDoc(card)));
+  assert.equal(parsed.ok, false, "an import carrying near identical options was accepted");
+});
+
+await test("the same passage as a correct answer or a why in two cards of one lesson is rejected", () => {
+  const first = { kind: "quiz", question: "One?", options: ["Alpha statement about rivers", "Beta statement about mountains", "Gamma statement about deserts", "Delta statement about oceans"], correct: 0, why: REPEAT_PASSAGE };
+  const secondWhy = { kind: "quiz", question: "Two?", options: ["Epsilon statement about forests", "Zeta statement about glaciers", "Eta statement about valleys", "Theta statement about islands"], correct: 1, why: REPEAT_PASSAGE };
+  assert.ok((lessonRepeatProblem([first, secondWhy]) || "").includes("repeats an earlier card's why"),
+    `the across lesson check missed a reused why: ${lessonRepeatProblem([first, secondWhy])}`);
+  const secondCorrect = { kind: "quiz", question: "Three?", options: ["Iota statement about harbors", REPEAT_PASSAGE, "Kappa statement about meadows", "Lambda statement about caverns"], correct: 1, why: "A short distinct reason for this one." };
+  assert.ok((lessonRepeatProblem([first, secondCorrect]) || "").includes("correct answer repeats an earlier card's why"),
+    `the across lesson check missed a reused passage as an answer: ${lessonRepeatProblem([first, secondCorrect])}`);
+  assert.equal(lessonRepeatProblem([first]), null, "a single use of a passage was flagged");
+  const paths = JSON.parse(JSON.stringify(LEARNING_PATHS));
+  const lesson = paths[0].units[0].lessons[0];
+  const quizzes = lesson.cards.map((c, i) => [c, i]).filter(([c]) => c.kind === "quiz");
+  lesson.cards[quizzes[1][1]].why = lesson.cards[quizzes[0][1]].why;
+  const problems = [...validateCurriculum(paths)];
+  assert.ok(problems.some((p) => p.includes("repeats an earlier card")),
+    `the curriculum validator missed a reused why: ${problems.join("; ")}`);
+});
+
+await test("generation drops a card whose restatement is its why near word for word, and counts repeated checks in a built course", () => {
+  // The supplement fixture's only restatement is a rotation of
+  // its own passage (measured 0.875, 2026-10-18), so its card is
+  // dropped by the quizCard gate instead of shipped.
+  assert.ok(cardTextSimilarity(restateClaim(CLAIM_SUPPLEMENT.text), CLAIM_SUPPLEMENT.text) >= QUIZ_SIMILARITY_MAX,
+    "the supplement restatement no longer measures as a repeat; revisit this pin");
+  assert.equal(quizCard(CLAIM_SUPPLEMENT, QUIZ_CLAIMS, QUIZ_SOURCES), null,
+    "a card whose answer repeats its why shipped instead of dropping");
+  // Two near identical claims in one answer: the second check in
+  // the lesson is dropped and counted, and no built lesson
+  // carries a repeat.
+  const nearA = "Adults who slept under six hours showed a 23% higher rate of infection over the following winter, compared with adults who slept eight hours or more, and the effect held across every age group in the trial cohort that winter season.";
+  const nearB = nearA.replace("showed a 23%", "recorded a 23%");
+  const md = `## Summary\n\n${nearA} [1]\n${nearB} [1]\n${CLEAN_CLAIMS[1]} [2]\n${CLEAN_CLAIMS[3]} [2]\n`;
+  const course = createCourseFromResults("sleep and infection", LEAK_SOURCES, md);
+  assert.ok(course, "the near duplicate fixture should still build a course");
+  assert.ok(course.droppedChecks >= 1, `a repeated check was not counted as dropped: ${course.droppedChecks}`);
+  for (const lesson of course.lessons) {
+    assert.equal(lessonRepeatProblem(lesson.cards), null, `a built lesson carries a repeat: ${lesson.title}`);
+    for (const card of lesson.cards) {
+      assert.equal(cardInternalRepeat(card), null, `a built card repeats itself in ${lesson.title}`);
+    }
+  }
+  const basicsWhys = course.lessons[0].cards.map((c) => c.why).filter((w) => w === nearA || w === nearB);
+  assert.ok(basicsWhys.length <= 1, "both near identical passages serve as whys in the first lesson");
+});
+
+await test("feedback never says or prints one passage twice (2026-10-18)", () => {
+  // The photographed case: the why is the correct passage itself.
+  const photo = { kind: "quiz", why: REPEAT_PASSAGE };
+  const said = feedbackTeachLine(photo, { good: false, correctText: REPEAT_PASSAGE });
+  assert.equal(said, REPEAT_PASSAGE, `her line should speak the passage once, as the why: ${said}`);
+  assert.equal((said.match(/cathepsin/g) || []).length, 1, "her line says the passage more than once");
+  // The why contains the answer verbatim, plus more: she speaks
+  // the why once, with no correction re reading the answer first.
+  const whyLong = REPEAT_PASSAGE + " The same signals also steady the gut wall during feeding.";
+  const saidLong = feedbackTeachLine({ kind: "quiz", why: whyLong }, { good: false, correctText: REPEAT_PASSAGE });
+  assert.equal(saidLong, whyLong, `her line re read the answer before the why: ${saidLong}`);
+  assert.equal((saidLong.match(/cathepsin/g) || []).length, 1, "her line says the contained passage more than once");
+  // Genuinely different correction and why: both are still said,
+  // correction briefly first, then the reason.
+  const distinct = feedbackTeachLine({ kind: "quiz", why: "Heat moves by conduction here." }, { good: false, correctText: "It stores heat" });
+  assert.equal(distinct, "The answer was: It stores heat. Heat moves by conduction here.");
+  // The sheet composition carries the same dedup at print time:
+  // the recap section stands down when the why repeats it, and a
+  // predict why stands down when the outcome repeats it.
+  assert.ok(learnSrc.includes("passagesRepeat(displayOptions[displayCorrect], card.why)"),
+    "the sheet recap is not deduped against the why");
+  assert.ok(learnSrc.includes("passagesRepeat(card.outcome, card.why)"),
+    "the sheet why is not deduped against a predict outcome");
+  assert.ok(learnSrc.includes("No passage twice on one sheet"), "the sheet dedup lost its marker comment");
+});
+
+await test("the authored sets pass the repeat checks whole: 474 option cards, no repeats left", () => {
+  // Counts measured 2026-10-18 for step 5 of the defect fix: the
+  // checks flagged exactly two authored cards (a senses checkpoint
+  // visual question reusing the retina answer, and a fasting
+  // checkpoint spot the error reusing an earlier why), and both
+  // were rewritten in place. This pin holds the cleaned state.
+  let pathCards = 0;
+  let topicCards = 0;
+  for (const [paths, tally] of [[LEARNING_PATHS, "paths"], [TOPIC_COURSES, "topics"]]) {
+    for (const p of paths) {
+      for (const lesson of flattenPathLessons(p)) {
+        assert.equal(lessonRepeatProblem(lesson.cards), null,
+          `${p.title} / ${lesson.title} reuses a passage: ${lessonRepeatProblem(lesson.cards)}`);
+        for (const card of lesson.cards) {
+          assert.equal(cardInternalRepeat(card), null,
+            `${p.title} / ${lesson.title} has a repeating card: ${cardInternalRepeat(card)}`);
+          if (card.kind === "quiz" || card.kind === "visualq" || card.kind === "predict") {
+            if (tally === "paths") pathCards++; else topicCards++;
+          }
+        }
+      }
+    }
+  }
+  assert.equal(pathCards, 258, `learning path option cards measured ${pathCards}, expected 258`);
+  assert.equal(topicCards, 216, `topic option cards measured ${topicCards}, expected 216`);
 });
 
 
