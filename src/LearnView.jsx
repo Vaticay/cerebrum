@@ -1060,7 +1060,17 @@ function nearestClaims(claim, allClaims, n) {
    a lone long option, a unique specificity) singles the answer
    out. The finding itself still appears word for word after
    answering, in the feedback sheet and the review schedule,
-   where quoting it is the point. */
+   where quoting it is the point.
+   Checks think in three forms, not one. A statement that
+   carries a value is asked as value prediction, blanking the
+   value for the player to recall. A statement that carries a
+   term is asked as term in context, blanking the term inside
+   the sentence that uses it. Every other statement is asked
+   as statement restatement, the quiz form this section builds.
+   The review lesson re asks each idea in a different form
+   from the one its teaching lesson used, so coming back to an
+   idea means thinking about it another way, not recognising
+   the same card again. */
 const RESTATE_WORDS = {
   investigated: "examined", evaluated: "assessed", demonstrated: "showed",
   observed: "noted", reported: "stated", conducted: "carried out",
@@ -1335,6 +1345,12 @@ function RichText({ text }) {
    passage serving as a correct answer or a why twice in one
    lesson, all enforced in code, with offending checks dropped and
    counted on the course record as droppedChecks.
+   Teach checks use the three thinking forms in order: value
+   prediction for a statement carrying a value, term in context
+   for a statement carrying a term, and statement restatement
+   for the rest. The review lesson re asks each picked idea in
+   a different form from the one that taught it first, falling
+   back to any form that builds when the different form cannot.
    Returns null when the search did not produce enough statements
    to teach from honestly. The conflicts argument is still accepted
    for caller compatibility; the old claim battle lesson quoted two
@@ -1362,19 +1378,52 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
   const vocab = extractVocab(claims);
   const lessons = [];
   const clozed = new Set();
-  /* Checks quizCard dropped because no in band option set could
-     be built for the statement. The statement is still taught in
-     the lesson's reading passage; it simply gets no check. The
+  /* Checks dropped because no form could be built for the
+     statement: no value to predict, no term that builds against
+     the course vocabulary, and no in band option set for a
+     statement quiz. The statement is still taught in the
+     lesson's reading passage; it simply gets no check. The
      count rides on the course record (droppedChecks below) so a
-     drop is visible, never silent. */
+     drop is visible, never silent. One claim counts one drop,
+     counted only when every form has failed for it. */
   let droppedChecks = 0;
-  /* One check per taught statement: a cloze when the statement
-     carries a value worth predicting, a quiz otherwise. */
+  /* Terms blanked by teach checks in this course, and the form
+     each taught statement was checked in. Two teach claims never
+     blank the same term, and the review lesson below reads the
+     form map to re ask each idea in a different form. Forms are
+     named by what the player has to think: cloze is value
+     prediction, term is term in context, and quiz is statement
+     restatement. */
+  const usedTeachTerms = new Set();
+  const taughtForm = new Map();
+  /* A term card for one statement, or null. The statement alone
+     is run through extractVocab, so the term is one the statement
+     itself carries, and the card is built against the course
+     vocabulary pool. Terms the given used set already holds are
+     skipped for the next term the statement carries; a statement
+     whose terms are all used, or whose terms build no card,
+     gets no term card and falls through to the next form. */
+  const termFor = (c, used) => {
+    for (const entry of extractVocab([c])) {
+      const key = entry.term.toLowerCase();
+      if (used.has(key)) continue;
+      const vc = vocabCard(entry, vocab, srcs);
+      if (vc) { used.add(key); return vc; }
+    }
+    return null;
+  };
+  /* One check per taught statement, in the thinking order:
+     value prediction when the statement carries a value worth
+     predicting, term in context when it carries a term, and
+     statement restatement otherwise. */
   const checkFor = (c) => {
     const cz = !clozed.has(c.text) ? clozeCard(c, claims, srcs) : null;
-    if (cz) { clozed.add(c.text); return cz; }
+    if (cz) { clozed.add(c.text); taughtForm.set(c.text, "cloze"); return cz; }
+    const tc = termFor(c, usedTeachTerms);
+    if (tc) { taughtForm.set(c.text, "term"); return tc; }
     const q = quizCard(c, claims, srcs);
-    if (!q) droppedChecks++;
+    if (!q) { droppedChecks++; return q; }
+    taughtForm.set(c.text, "quiz");
     return q;
   };
   /* No passage twice in one lesson (2026-10-18): a check whose
@@ -1425,13 +1474,39 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
   }
 
   // Final lesson: every taught idea asked again, then the wrap.
+  // Each picked idea is re asked in a different form from the
+  // one that taught it: an idea taught as statement restatement
+  // is asked as value prediction or term in context first, and
+  // an idea taught in either of those forms is asked as
+  // statement restatement first. When the different form cannot
+  // build, any form that builds serves instead. Terms blanked
+  // in this lesson are tracked on their own set, so two picks
+  // in the review never blank the same term either. A pick
+  // counts exactly one drop when no form builds for it.
   {
     const taught = [...first, ...second];
     const picks = seededShuffle(taught, hashStr(query || "") + 31).slice(0, 4);
+    const usedReviewTerms = new Set();
+    const reviewCheckFor = (c) => {
+      const taughtAs = taughtForm.get(c.text);
+      const order = taughtAs === "cloze" || taughtAs === "term"
+        ? ["quiz", "cloze", "term"]
+        : ["cloze", "term", "quiz"];
+      for (const form of order) {
+        const card = form === "cloze"
+          ? clozeCard(c, claims, srcs)
+          : form === "term"
+            ? termFor(c, usedReviewTerms)
+            : quizCard(c, claims, srcs);
+        if (card) return card;
+      }
+      droppedChecks++;
+      return null;
+    };
     const cards = [];
     for (const c of picks) {
-      const q = quizCard(c, claims, srcs);
-      if (q) cards.push(q); else droppedChecks++;
+      const q = reviewCheckFor(c);
+      if (q) cards.push(q);
     }
     cards.push({
       kind: "summary",
@@ -1452,8 +1527,8 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
        stored; no surface displays it any more. Course stats are
        lessons and terms now. */
     sourceCount: srcs.length,
-    /* How many checks were dropped at build time because no in
-       band option set could be built for their statement. */
+    /* How many checks were dropped at build time because no
+       check form could be built for their statement. */
     droppedChecks,
     lessons,
     doneLessons: [],
