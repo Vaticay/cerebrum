@@ -589,7 +589,7 @@ function FcNodeShape({ n, P, accent, selected, pending }) {
    evidence from an answer), and the job line under the name says the
    job in plain words. Both toolbars are this component, and every
    toolbar action in both is StudioToolbarBtn: radius RADIUS.sm,
-   weight 500, size FONT_SIZES.small, padding 0 14px at a 44px
+   weight 500, size FONT_SIZES.label, padding 0 14px at a 44px
    height, and one 150ms transition. No editor keeps its own button
    treatment, class, or duration. */
 export function StudioToolbarBtn({ P, accent, at, label, onClick, primary = false, disabled = false, title, icon, pressed }) {
@@ -598,7 +598,7 @@ export function StudioToolbarBtn({ P, accent, at, label, onClick, primary = fals
       title={title || label} aria-label={label} aria-pressed={pressed}
       style={{
         minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm,
-        fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)",
+        fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
         background: primary ? accent : "transparent",
         color: primary ? at : disabled ? P.faint : P.ink,
         border: `1px solid ${primary ? accent : P.line2}`,
@@ -1007,7 +1007,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                     onClick={() => { setTool(key); setPendingFrom(null); }}
                     style={{ minHeight: 44,
                       display: "inline-flex", alignItems: "center", gap: 7, padding: "0 14px", borderRadius: RADIUS.sm,
-                      border: "none", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)",
+                      border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
                       background: on ? accent : "transparent", color: on ? at : P.ink2,
                       boxShadow: "none",
                       transition: "background-color 150ms ease, border-color 150ms ease, color 150ms ease",

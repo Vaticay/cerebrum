@@ -2308,7 +2308,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   {activeThread?.kind === "group" && !m.mine && m.who && !groupedWithPrev && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, paddingLeft: 2 }}>
                       <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: "50%", ...avatarSkin(senderKey), display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 500, fontFamily: "var(--cb-font)" }}>{(m.who || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()}</span>
-                      <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: senderColor(senderKey, accent, P), fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{m.who}</span>
+                      <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: senderColor(senderKey, accent, P), fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{m.who}</span>
                     </div>
                   )}
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: m.mine ? "row-reverse" : "row" }}>

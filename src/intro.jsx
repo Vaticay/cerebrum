@@ -262,7 +262,7 @@ function FilmCreditsDialog({ onClose, accent }) {
 
   return (
     <Dialog
-      label="Background film credits" onClose={onClose} zIndex={400} width={680}
+      label="Background film credits" onClose={onClose} zIndex={Z.selectMenu} width={680}
       panelStyle={{
         /* Media surface, marked the way ModalChrome marks its media
            flag: this panel is the background film's own credits and
@@ -462,7 +462,7 @@ function IntroModal({ label, title, onClose, accent, P = null, children, width =
      treatment when it does not. The hard coded near black it carried
      until 2026-10-14 ignored Light palettes entirely. */
   return (
-    <Dialog label={label} onClose={onClose} zIndex={400} width={width}
+    <Dialog label={label} onClose={onClose} zIndex={Z.selectMenu} width={width}
       panelStyle={{
         background: P ? P.surface : "var(--cb-surface, #767676)",
         border: `1px solid ${P ? P.line : "rgba(255,255,255,0.10)"}`, borderRadius: RADIUS.xl,

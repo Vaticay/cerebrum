@@ -143,7 +143,7 @@ function PasskeyPanel({ P, accent, at, Section, Row, sfx, onRegisterPasskey }) {
         <Row label="Passkeys are not available here"
           desc="This browser does not support passkeys on this device, so sign in with an email code instead."
           control={
-            <button disabled style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "none", border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, color: P.faint, cursor: "default", opacity: 0.6, fontFamily: "var(--cb-font)" }}>
+            <button disabled style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: "none", border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, color: P.faint, cursor: "default", opacity: 0.6, fontFamily: "var(--cb-font)" }}>
               Not available
             </button>
           } last />
@@ -3103,12 +3103,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 400, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
             Clear your conversation history, in this browser and in your account's synced copy.
           </p>
-          <p style={{ fontSize: FONT_SIZES.small, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Your saved articles, preferences, watched topics, collections, and documents are kept. This can't be undone.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
-            <UIButton P={P} variant="ghost" onClick={() => setClearHistoryOpen(false)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my history</UIButton>
-            <UIButton P={P} variant="ghost" onClick={() => { setHistory([]); setClearHistoryOpen(false); sfx(); }} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.small, fontWeight: 500, background: "#d13438", color: "#fff", border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Clear history</UIButton>
+            <UIButton P={P} variant="ghost" onClick={() => setClearHistoryOpen(false)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my history</UIButton>
+            <UIButton P={P} variant="ghost" onClick={() => { setHistory([]); setClearHistoryOpen(false); sfx(); }} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: "#d13438", color: "#fff", border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Clear history</UIButton>
           </div>
         </Dialog>
       )}

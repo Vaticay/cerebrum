@@ -37,14 +37,10 @@ export const FONT_SIZES = {
   subhead: 17,      // subhead, card titles, card subheads, ledes
   section: 22,      // section, plan role for section headings
   display: 32,      // display, mastheads, callouts, hero titles
-  // Exact plan value aliases, kept only because CerebrumApp.jsx
-  // still reads them; its sweep finishes at landing (2026-10-19).
-  // No other file reads these names, and new code never does.
-  title: 17,        // alias of subhead
-  heading: 22,      // alias of section
-  hero: 32,         // alias of display
-  small: 13,        // alias of label
-  micro: 12,        // alias of caption
+  // The landing sweep finished 2026-10-19: every read site in the
+  // app now names a plan role above, so the old alias keys (title,
+  // heading, hero, small, micro) are deleted. FONT_SIZES carries
+  // plan roles only (design audit M1, closed).
 };
 
 // Plan palette on the existing dark backgrounds, 2026-10-14.
@@ -352,6 +348,11 @@ export const Z = {
   dialogScrim: 205, // dialog/drawer scrims (under the dialog)
   drawer: 210,      // drawers and bottom sheets
   dialog: 220,      // dialogs
+  dialogBase: 214,  // dialogs that open under a standard dialog (2026-10-19 landing, audit M3: the dialog band named, values unchanged)
+  dialogAuth: 215,  // the sign in modal, between dialogBase and dialogStep
+  dialogStep: 216,  // profile dialogs, one step above dialogBase
+  dialogMedia: 217, // media dialogs (video, article), one step above dialogStep
+  dialogPlus: 230,  // dialogs that must clear a standard dialog (share, Zotero)
   overlayFixed: 240,// fixed full-screen overlays
   sheet: 260,       // bottom sheets (scrim is sheetScrim)
   sheetScrim: 258,  // bottom-sheet scrims (under the sheet)
