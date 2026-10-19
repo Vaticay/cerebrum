@@ -3430,13 +3430,17 @@ function splitGluedHeading(line) {
 function h2Block(text, key, P, accent) {
   return (
     <div key={key} className="cb-sect" aria-hidden="false">
-      <span className="cb-sect-label" style={{ color: P.ink }}>{text}</span>
+      {/* 2026-10-19 (S2, C3): headings render through the shared inline
+          renderer, so a bolded term or an italic species name in a
+          heading renders the same as in body prose instead of
+          printing its markers raw. */}
+      <span className="cb-sect-label" style={{ color: P.ink }}>{renderInlineNodes(text, P)}</span>
     </div>
   );
 }
 
 function h3Block(text, key, P) {
-  return <div key={key} className="cb-sect-sub" style={{ color: P.ink2 }}>{text}</div>;
+  return <div key={key} className="cb-sect-sub" style={{ color: P.ink2 }}>{renderInlineNodes(text, P)}</div>;
 }
 
 /* Bring a source into view without moving the reader.
@@ -3636,7 +3640,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
             }}><Icon name="close" size={18} /></button>
           </div>
 
-          <div style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.4, color: P.ink, marginBottom: 6 }}>{src.title}</div>
+          <div style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.4, color: P.ink, marginBottom: 6 }}>{renderTitleInline(src.title, P)}</div>
           {meta && <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 8 }}>{meta}</div>}
           {doiHref(src) && (
             <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 10 }}>
@@ -3650,7 +3654,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
           )}
 
           {snippet
-            ? <div style={{ fontSize: 14, lineHeight: 1.65, color: P.ink2, marginBottom: 14 }}>{snippet}</div>
+            ? <div style={{ fontSize: 14, lineHeight: 1.65, color: P.ink2, marginBottom: 14 }}>{renderInlineMdLite(snippet, P)}</div>
             : <div style={{ fontSize: 14, lineHeight: 1.65, color: P.faint, marginBottom: 14 }}>
                 No abstract was returned for this record.
               </div>}
@@ -3714,7 +3718,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
         )}
       </div>
 
-      <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.4, color: P.ink, marginBottom: 4 }}>{src.title}</div>
+      <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.4, color: P.ink, marginBottom: 4 }}>{renderTitleInline(src.title, P)}</div>
       {meta && <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>{meta}</div>}
       {/* #18: the tooltip names the paper fully — title, venue/year above,
           and a DOI link when the record carries one. Hover and focus both
@@ -3735,7 +3739,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
         ? <div style={{
             fontSize: FONT_SIZES.label, lineHeight: 1.55, color: P.ink2, marginBottom: 10,
             display: "-webkit-box", WebkitLineClamp: 5, WebkitBoxOrient: "vertical", overflow: "hidden",
-          }}>{snippet}</div>
+          }}>{renderInlineMdLite(snippet, P)}</div>
         : <div style={{ fontSize: FONT_SIZES.label, lineHeight: 1.55, color: P.faint, marginBottom: 10 }}>
             No abstract was returned for this record.
           </div>}
@@ -4137,19 +4141,161 @@ function stripDanglingAsterisks(s) {
   if (!s || !s.includes("*")) return s;
   return s.replace(/\*\*[^*\n]+\*\*|\*[^*\n]+\*|(\w)\*(?![\w*])/g, (m, dangling) => dangling ? dangling : m);
 }
-function renderInlineMdLite(text, P) {
-  const clean = stripDanglingAsterisks(text || "");
-  return clean.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`)/g).map((seg, si) => {
-    const b = seg.match(/^\*\*([^*]+)\*\*$/);
-    if (b) return <strong key={si} style={{ fontWeight: 500 }}>{renderInlineMdLite(b[1], P)}</strong>;
-    const it = seg.match(/^\*([^*\n]+)\*$/);
-    if (it) return <em key={si} style={{ fontStyle: "italic" }}>{renderInlineMdLite(it[1], P)}</em>;
-    const ul = seg.match(/^_([^_\n]+)_$/);
-    if (ul) return <em key={si} style={{ fontStyle: "italic" }}>{renderInlineMdLite(ul[1], P)}</em>;
-    const code = seg.match(/^`([^`\n]+)`$/);
-    if (code) return <code key={si} style={{ fontSize: "0.88em", fontFamily: "var(--cb-font)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: RADIUS.md }}>{code[1]}</code>;
-    return <span key={si}>{seg}</span>;
+/* ══ THE ONE INLINE RENDERER (2026-10-19, S2 / C3) ═══════════════════
+   Every surface that prints answer or source text (body prose,
+   headings, claim rows, drawer titles, the citation peek, the stance
+   ledger, the bibliography, print, PDF runs, clipboard plain text)
+   tokenizes through inlineTokens, so marker pairing is one rule
+   everywhere instead of five split regexes that disagreed.
+
+   The pairing rule that matters: an underscore is a delimiter only at
+   a word boundary. An underscore inside a word (Hermetia_illucens in
+   a taxon string, a DOI, an identifier) is a literal character and
+   can never open or close an italic span. The old split regex paired
+   the FIRST underscore on a line with the next one, so a token like
+   that consumed the opening marker of a following _Hermetia illucens_
+   and the species name printed with raw underscores: the exact
+   failure in the owner's photo. Asterisk italics and underscore
+   italics are the same token here, so any surface that renders one
+   renders the other.
+
+   The sweep: a marker that cannot pair is dropped at tokenize time,
+   so no raw asterisk or boundary underscore reaches any surface.
+   The exceptions are prose, not markers: a spaced asterisk
+   (multiplication) and a digit glued asterisk (5*10) stay literal.
+
+   Species names: the renderer, not the model alone, owns binomial
+   italics. A conservative detector (a capitalized genus word plus a
+   lowercase epithet, mid sentence, neither word on the common word
+   stoplists) wraps the pair in italics even when the model forgot
+   the markers. Bold key terms ride the ** markers through every
+   surface now, headings included, instead of printing raw or being
+   stripped on some surfaces and kept on others. */
+const INLINE_WORD_CHAR = /[A-Za-z0-9_]/;
+function inlineTokens(text) {
+  const s = String(text == null ? "" : text);
+  const tokens = [];
+  let buf = "";
+  const flush = () => { if (buf) { tokens.push({ t: buf }); buf = ""; } };
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === "`") {
+      const j = s.indexOf("`", i + 1);
+      if (j > i + 1 && !s.slice(i + 1, j).includes("\n")) { flush(); tokens.push({ t: s.slice(i + 1, j), code: true }); i = j + 1; continue; }
+      i++; continue; /* an unmatched backtick is swept */
+    }
+    if (ch === "*" && s[i + 1] === "*") {
+      const j = s.indexOf("**", i + 2);
+      const inner = j > i + 2 ? s.slice(i + 2, j) : null;
+      if (inner && !inner.includes("\n") && inner.trim() === inner) { flush(); tokens.push({ t: inner, bold: true }); i = j + 2; continue; }
+      i += 2; continue; /* unmatched bold markers are swept */
+    }
+    if (ch === "*") {
+      const j = s.indexOf("*", i + 1);
+      const inner = j > i + 1 ? s.slice(i + 1, j) : null;
+      if (inner && !inner.includes("\n") && inner.trim() === inner) { flush(); tokens.push({ t: inner, italic: true }); i = j + 1; continue; }
+      const prev = s[i - 1] || "", next = s[i + 1] || "";
+      if ((INLINE_WORD_CHAR.test(prev) && /\d/.test(next)) || (prev === " " && next === " ")) { buf += ch; i++; continue; }
+      i++; continue; /* a lone asterisk marker is swept, math stays */
+    }
+    if (ch === "_") {
+      const atBoundary = i === 0 || !INLINE_WORD_CHAR.test(s[i - 1]);
+      if (s[i + 1] === "_") {
+        if (atBoundary) {
+          const j = s.indexOf("__", i + 2);
+          const inner = j > i + 2 ? s.slice(i + 2, j) : null;
+          if (inner && !inner.includes("\n") && inner.trim() === inner && !INLINE_WORD_CHAR.test(s[j + 2] || "")) { flush(); tokens.push({ t: inner, bold: true }); i = j + 2; continue; }
+          i += 2; continue; /* unmatched boundary __ is swept */
+        }
+        buf += "__"; i += 2; continue; /* intraword __ is literal */
+      }
+      if (atBoundary) {
+        let j = s.indexOf("_", i + 1);
+        let closed = -1;
+        while (j !== -1) {
+          if (j > i + 1 && !INLINE_WORD_CHAR.test(s[j + 1] || "")) { closed = j; break; }
+          j = s.indexOf("_", j + 1);
+        }
+        if (closed > i + 1) {
+          const inner = s.slice(i + 1, closed);
+          if (!inner.includes("\n") && inner.trim() === inner) { flush(); tokens.push({ t: inner, italic: true }); i = closed + 1; continue; }
+        }
+        i++; continue; /* an unmatched boundary underscore is swept */
+      }
+      buf += ch; i++; continue; /* intraword underscore: literal, never a delimiter */
+    }
+    buf += ch; i++;
+  }
+  flush();
+  return tokens;
+}
+const SPECIES_GENUS_STOP = new Set("the this that these those when while after before during however moreover furthermore therefore results result figure table study studies black white brown green large small high low new first second third total mean adult juvenile female male common northern southern eastern western american european asian african each many most some".split(" "));
+const SPECIES_EPITHET_STOP = new Set("were was are is has have had can may will would should grow grows grew feed feeds fed eat eats ate live lives lived show shows showed emerge emerges emerged produce produces produced lay lays laid hatch hatches require requires occur occurs found known called named used use using make makes made take takes took become becomes became remain remains play plays contain contains include includes provide provides help helps work works keep keeps need needs look looks seem seems appear appears begin begins began start starts form forms formed cause causes caused lead leads led drive drives build builds built range ranges span spans weigh weighs measure measures survive survives die dies".split(" "));
+function speciesRuns(text) {
+  const s = String(text || "");
+  const re = /\b([A-Z][a-z]{2,}) ([a-z]{3,})\b|\b([A-Z])\. ([a-z]{3,})\b/g;
+  const out = [];
+  let last = 0;
+  let m;
+  while ((m = re.exec(s))) {
+    const genus = (m[1] || m[3] || "").toLowerCase();
+    const epithet = m[2] || m[4] || "";
+    const before = s.slice(0, m.index).replace(/\s+$/, "");
+    const atSentenceStart = before === "" || /[.!?]["”']?$/.test(before);
+    if (atSentenceStart || SPECIES_GENUS_STOP.has(genus) || SPECIES_EPITHET_STOP.has(epithet)) continue;
+    if (m.index > last) out.push({ t: s.slice(last, m.index) });
+    out.push({ t: m[0], species: true });
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) out.push({ t: s.slice(last) });
+  return out.length ? out : [{ t: s }];
+}
+/* The shared React renderer. opts.queryTerms highlights query terms in
+   plain runs (body prose only); opts.species === false suppresses the
+   binomial detector inside emphasis spans, where italics are already
+   spoken for. */
+function renderInlineNodes(text, P, opts = {}) {
+  const queryTerms = opts.queryTerms || null;
+  const species = opts.species !== false;
+  return inlineTokens(text).map((tok, ti) => {
+    if (tok.code) return <code key={ti} style={{ fontSize: "0.88em", fontFamily: "var(--cb-font)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: RADIUS.md }}>{tok.t}</code>;
+    if (tok.bold) return <strong key={ti} style={{ fontWeight: 500 }}>{renderInlineNodes(tok.t, P, { species: false })}</strong>;
+    if (tok.italic) return <em key={ti} style={{ fontStyle: "italic" }}>{renderInlineNodes(tok.t, P, { species: false })}</em>;
+    const runs = species ? speciesRuns(tok.t) : [{ t: tok.t }];
+    return (
+      <React.Fragment key={ti}>
+        {runs.map((r, ri) => r.species
+          ? <em key={ri} style={{ fontStyle: "italic" }}>{r.t}</em>
+          : <span key={ri}>{queryTerms ? highlightKeywords(r.t, queryTerms) : r.t}</span>)}
+      </React.Fragment>
+    );
   });
+}
+/* Titles carry species markup as safe <i> tags from upstream; those go
+   through renderCleanTitle. Anything else (markdown markers, plain
+   text) goes through the shared renderer, so a drawer title, a peek
+   title and a ledger title can never print raw markers. */
+function renderTitleInline(title, P) {
+  const s = String(title == null ? "" : title);
+  if (/<(sub|sup|i|b)>[^<]*<\/\1>/i.test(s)) return renderCleanTitle(s);
+  return renderInlineNodes(s, P);
+}
+/* Plain text twin of the renderer: markers resolved to their inner
+   text, nothing literal left. Print runs, the PDF and the clipboard
+   all read text through this (or through inlineTokens directly), so
+   what paper and paste show is what the screen showed. */
+function plainInlineText(text) {
+  const flat = (str) => inlineTokens(str).map((tk) => (tk.bold || tk.italic || tk.code) ? flat(tk.t) : tk.t).join("");
+  return flat(String(text == null ? "" : text));
+}
+function answerPlainText(answer) {
+  return String(answer || "").split("\n").map((line) => plainInlineText(
+    line.replace(/^\s{0,3}#{1,6}\s+/, "").replace(/^\s*[-•]\s+/, "").replace(/^\s*\d+\.\s+/, "")
+  )).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+function renderInlineMdLite(text, P) {
+  return renderInlineNodes(stripDanglingAsterisks(text || ""), P);
 }
 /* Flashpoint claims are sentence fragments mined from the answer text —
    the miner can drag markdown along with them ("## What the research
@@ -4359,7 +4505,11 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
        heading". */
     const markedHead = para.match(/^[ \t]*(#{1,6})[ \t]+([^\n]+)(?:\n([\s\S]*))?$/);
     if (markedHead) {
-      const rawTitle = stripStrayHashes(markedHead[2].replace(/\*\*/g, "")).replace(/[ \t]*#+[ \t]*$/, "").trim();
+      /* 2026-10-19 (S2, C3): the title keeps its ** markers now; the
+         shared renderer inside h2Block and h3Block resolves them
+         instead of the heading printing bold markers raw or losing
+         the emphasis to a strip. */
+      const rawTitle = stripStrayHashes(markedHead[2]).replace(/[ \t]*#+[ \t]*$/, "").trim();
       /* Same length rule as the h2/h3 branches: an explicit marker is a
          strong signal, but it is not strong enough to turn a paragraph into
          a heading. A long marked line gives up its heading and any prose
@@ -4393,7 +4543,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       && boldHeaderText.length <= 60
       && !boldHeaderText.includes("\n")
       && !/[.!?;,]$/.test(boldHeaderText);
-    if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: accentInk(P, accent), margin: "30px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{boldHeaderText}</h4>;
+    if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: accentInk(P, accent), margin: "30px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{renderInlineNodes(boldHeaderText, P)}</h4>;
 
     /* Commit 79 — a section heading that arrived on the same line-break as
        its body.
@@ -4420,7 +4570,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     if (nlIdx > 0) {
       const firstLine = para.slice(0, nlIdx).trim();
       const rest = para.slice(nlIdx + 1).trim();
-      const bare = stripStrayHashes(firstLine.replace(/\*\*/g, ""));
+      const bare = stripStrayHashes(firstLine);
       const isHeadingLine =
         rest.length > 0 &&
         bare.length > 0 && bare.length <= 60 &&
@@ -4430,7 +4580,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       if (isHeadingLine) {
         return (
           <div key={pi}>
-            <h4 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "34px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", lineHeight: 1.25 }}>{bare}</h4>
+            <h4 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "34px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", lineHeight: 1.25 }}>{renderInlineNodes(bare, P)}</h4>
             {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap, queryTerms)}
           </div>
         );
@@ -4571,18 +4721,18 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
 
 /** Inline segment renderer — handles bold, italic, underline, citations, and inline code */
 function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate = null, queryTerms = null) {
-  return line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|\[\d+\])/g).map((seg, si) => {
-    const b = seg.match(/^\*\*([^*]+)\*\*$/);
-    if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 500 }}>{renderInlineSegments(b[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</strong>;
-    const it = seg.match(/^\*([^*\n]+)\*$/);
-    if (it) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{renderInlineSegments(it[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</em>;
-    const ul = seg.match(/^_([^_\n]+)_$/);
-    if (ul) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{renderInlineSegments(ul[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</em>;
-    // Inline code backticks
-    const code = seg.match(/^`([^`\n]+)`$/);
-    if (code) return <code key={si} style={{ fontSize: "0.88em", fontFamily: "var(--cb-font)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: RADIUS.md, color: accentInk(P, accent) }}>{code[1]}</code>;
+  /* 2026-10-19 (S2, C3): citations are split out first; everything
+     between them renders through the one shared inline renderer, so
+     body prose pairs markers exactly the way headings, claim rows,
+     the peek, the ledger and the bibliography do. */
+  const out = [];
+  String(line == null ? "" : line).split(/(\[\d+\])/g).forEach((seg, si) => {
     const c = seg.match(/^\[(\d+)\]$/);
-    if (c) {
+    if (!c) {
+      out.push(<React.Fragment key={si}>{renderInlineNodes(seg, P, { queryTerms })}</React.Fragment>);
+      return;
+    }
+    {
       const n = parseInt(c[1], 10); const src = (sources || [])[n - 1];
       /* Pass 2: the bracketed citation mark — the product's visual
          signature. A small rectangular reference in the accent colour
@@ -4596,7 +4746,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
          can never stick. Focus shows the preview too, so keyboard readers
          get the same interaction. */
       const isActive = activeCite === n;
-      return <a key={si} href={`#ref-${n}`} title={src?.title || ""}
+      out.push(<a key={si} href={`#ref-${n}`} title={src?.title || ""}
         data-cite={n}
         className="cb-cite cb-cite-enter"
         data-active={isActive ? "true" : undefined}
@@ -4627,10 +4777,10 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
           if (e.key === "Escape" && setActiveCite) { setActiveCite(0); clearSourceLinked(); }
         }}
         style={{ color: accentInk(P, accent), textDecoration: "none", animationDelay: `${Math.min(si * 30, 300)}ms` }}
-      >[{n}]</a>;
+      >[{n}]</a>);
     }
-    return <span key={si}>{queryTerms ? highlightKeywords(seg, queryTerms) : seg}</span>;
   });
+  return out;
 }
 
 
@@ -6549,7 +6699,10 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
   const [copiedOne, setCopiedOne] = useState(false);
   const copyOne = (e) => {
     e.stopPropagation();
-    copyToClipboard(formatCitation(source, style, index), "Citation copied").then((ok) => {
+    /* 2026-10-19 (S2, tail 13): the clipboard gets the plain text twin
+       of what the screen renders, so the journal's emphasis markers
+       never reach the paste as literal asterisks or underscores. */
+    copyToClipboard(plainInlineText(formatCitation(source, style, index)), "Citation copied").then((ok) => {
       if (ok) { setCopiedOne(true); setTimeout(() => setCopiedOne(false), 1200); }
     });
   };
@@ -6614,7 +6767,12 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
             </button>
             <div style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.55, color: P.ink2, marginTop: 5, paddingLeft: "1.2em", textIndent: "-1.2em", overflowWrap: "anywhere", wordBreak: "break-word", fontFamily: "var(--cb-font)" }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted)
               .replace(/&lt;(sub|sup|i|b)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, (m, tag, inner) => `<${tag.toLowerCase()}>${inner}</${tag.toLowerCase()}>`)
-              .replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
+              .replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>')
+              /* 2026-10-19 (S2, C3): underscore italics convert too, with
+                 the same word boundary rule as the shared renderer, so
+                 the bibliography no longer converts one marker and
+                 prints the other raw. */
+              .replace(/(?<![A-Za-z0-9_])_([^_\n]+)_(?![A-Za-z0-9_])/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
           </>
         )}
         {(citeLabel || source.type || domain || doiHref) && (
@@ -6646,11 +6804,11 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
         {source.tldr && (
           <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 5, paddingLeft: 8, borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, lineHeight: 1.5, fontStyle: "italic", marginLeft: "1.2em", fontFamily: "var(--cb-font)" }}>
             {(() => {
-              // The TLDR renders as raw text, so underscore emphasis marks
-              // around a species name would print literally. Strip them;
-              // the block is already set in italic type.
-              const t = String(source.tldr).replace(/_([^_\n]+)_/g, "$1");
-              return terms ? highlightKeywords(t, terms) : t;
+              /* 2026-10-19 (S2, C3): the TLDR renders through the shared
+                 inline renderer like every other answer surface. With
+                 query terms active it renders the plain text twin so
+                 the term highlighting still applies. */
+              return terms ? highlightKeywords(plainInlineText(source.tldr), terms) : renderInlineMdLite(source.tldr, P);
             })()}
           </div>
         )}
@@ -7468,7 +7626,7 @@ function StanceLedger({ turn, P, accent, onOpenPaper = () => {} }) {
           [{n}]
         </span>
         <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.55 }}>
-          {s.title || "Untitled source"}
+          {renderTitleInline(s.title || "Untitled source", P)}
           {s.year ? <span style={{ color: P.faint }}> {"\u00b7"} {s.year}</span> : null}
         </span>
       </button>
@@ -8413,7 +8571,7 @@ function EvidenceMap({ t, P, accent, onOpenPaper }) {
               aria-expanded={isOpen}
               aria-label={isOpen ? "Show less" : "Show full claim"}
               style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, textAlign: "left", background: "none", border: "none", padding: 0, cursor: long ? "pointer" : "default" }}>
-              {isOpen || !long ? r.text : truncateWords(r.text, 180)}
+              {renderInlineMdLite(isOpen || !long ? r.text : truncateWords(r.text, 180), P)}
               {long && (
                 <span style={{ color: accent, fontWeight: 500, marginLeft: 6 }}>
                   {isOpen ? "show less" : "more"}
@@ -9190,7 +9348,7 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
               {s.retracted ? "Retracted" : "Expression of concern"}
             </div>
           )}
-          <div style={{ fontSize: 14, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{s.title}</div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{renderTitleInline(s.title, P)}</div>
           {meta && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>{meta}</div>}
           <div className="cb-kicker" style={{ marginTop: 7 }}>{claimsLine}</div>
           <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 4, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>
