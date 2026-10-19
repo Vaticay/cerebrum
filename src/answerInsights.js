@@ -259,8 +259,11 @@ export function describeEra(era, hasFactCheck) {
 
 export function describeConvergence(convergence, newestEra) {
   if (!convergence || !newestEra) return null;
-  const pct = Math.round(convergence.share * 100);
-  const base = `${pct}% of supported claims cite the ${newestEra.name} era`;
+  /* Counts, not a percentage (2026-10-19, S2 / M19): a share of three
+     claims printed as 67% is pseudo precision, the exact tell the
+     no pseudo precise numbers rule bans. The counts were already on
+     the object; the share now only picks the reading, never prints. */
+  const base = `${convergence.supportedRecent} of ${convergence.supportedTotal} supported claims cite the ${newestEra.name} era`;
   const read = convergence.share >= 0.5
     ? "the literature converges on recent work"
     : "the core claims still rest on earlier work";

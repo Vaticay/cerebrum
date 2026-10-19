@@ -382,7 +382,7 @@ function cerebrumLogoSvg(accent) {
 /* Top-20 papers → branded .xlsx. exceljs is lazy-loaded so the main
    bundle never pays for it; the workbook builder lives in
    src/exportExcel.js and caps defensively at 20 rows. */
-async function exportTopPapersExcel(papers, { accent, title, subtitle, filename }) {
+async function exportTopPapersExcel(papers, { accent, title, subtitle, filename, stances }) {
   const total = (papers || []).length;
   const list = (papers || []).slice(0, 20);
   if (!list.length) return { count: 0, total: 0, capped: false };
@@ -393,51 +393,22 @@ async function exportTopPapersExcel(papers, { accent, title, subtitle, filename 
     filename: filename || "cerebrum-papers.xlsx",
     logoSvg: cerebrumLogoSvg(accent),
     accent,
+    /* Stance words parallel to the capped list (2026-10-19, S2 / M18). */
+    stances: Array.isArray(stances) ? stances.slice(0, 20) : undefined,
   });
   return { ...result, total, capped: total > 20 };
 }
-/* Pro: Answer PDF export — research article layout.
-   Generates a real PDF client-side with jspdf (lazy-loaded so the main bundle
-   never pays for it): the question as a centered serif title, then Abstract,
-   Keywords, Introduction, Methods, Results, Discussion, and References,
-   built from the answer markdown plus the turn's diagnostics, with the
-   Cerebrum brain mark as a faint watermark on every page.
+/* Pro: Answer PDF export (2026-10-19, S2 / H14).
+   Generates a real PDF client-side with jspdf (lazy-loaded so the main
+   bundle never pays for it): the question as a centered serif title,
+   then the answer's own sections in the answer's own order under their
+   own headings, then References. The manufactured structure this used
+   to impose (Abstract and Keywords up front, the research section
+   relabeled Introduction, a Methods section built from diagnostics,
+   a Results table, a Discussion regrouping) is gone, and so is the
+   faint brain mark watermark on every page: the PDF prints the
+   answer, not a reframe of it.
    Returns { ok, filename } so the caller only logs successful exports. */
-
-// Cerebrum brain mark (public/favicon.svg) rendered once to a PNG data URL
-// for use as the PDF watermark. Cached; null when it cannot be loaded.
-let cerebrumWatermarkUrl = null;
-let cerebrumWatermarkTried = false;
-async function loadCerebrumWatermark() {
-  if (cerebrumWatermarkTried) return cerebrumWatermarkUrl;
-  cerebrumWatermarkTried = true;
-  try {
-    const res = await fetch("/favicon.svg", { cache: "force-cache" });
-    if (!res.ok) return null;
-    const svg = await res.text();
-    if (!svg || svg.indexOf("<svg") < 0) return null;
-    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    try {
-      const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = url;
-      });
-      const S = 512;
-      const canvas = document.createElement("canvas");
-      canvas.width = S; canvas.height = S;
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, S, S);
-      ctx.drawImage(img, 0, 0, S, S);
-      cerebrumWatermarkUrl = canvas.toDataURL("image/png");
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  } catch (e) { cerebrumWatermarkUrl = null; }
-  return cerebrumWatermarkUrl;
-}
 
 // Strip link markup but keep visible text; citation [n] markers survive.
 function pdfInlineText(t) {
@@ -445,36 +416,24 @@ function pdfInlineText(t) {
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
 }
-// Split a line into {t, bold, italic} runs for **bold** and *italic*.
+/* Split a line into {t, bold, italic} runs through the shared inline
+   tokenizer (2026-10-19, S2 / C3), so the PDF pairs underscore italics
+   with the same word boundary rule as the screen and no marker can
+   reach the page raw. */
 function pdfInlineRuns(text) {
   const runs = [];
-  const clean = pdfInlineText(text);
-  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|_[^_\n]+_)/g;
-  let last = 0, m;
-  const push = (t, bold, italic) => { if (t) runs.push({ t, bold: !!bold, italic: !!italic }); };
-  while ((m = re.exec(clean))) {
-    push(clean.slice(last, m.index));
-    const tok = m[0];
-    if (tok.length > 4 && tok.startsWith("**")) push(tok.slice(2, -2), true, false);
-    else push(tok.slice(1, -1), false, true);
-    last = m.index + tok.length;
-  }
-  push(clean.slice(last));
+  const walk = (toks, bold, italic) => {
+    for (const tk of toks) {
+      if (tk.bold) walk(inlineTokens(tk.t), true, italic);
+      else if (tk.italic) walk(inlineTokens(tk.t), bold, true);
+      else if (tk.t) runs.push({ t: tk.t, bold: !!bold, italic: !!italic });
+    }
+  };
+  walk(inlineTokens(pdfInlineText(text)), false, false);
   return runs;
 }
 function pdfRunStyle(r) {
   return r.bold && r.italic ? "bolditalic" : r.bold ? "bold" : r.italic ? "italic" : "normal";
-}
-const PDF_STOPWORDS = new Set(("a,an,the,of,and,or,in,on,for,to,with,from,by,at,as,is,are,was,were,be,been,being,what,which,who,whom,whose,how,why,when,where,does,do,did,can,could,should,would,has,have,had,its,it,this,that,these,those,there,their,them,they,we,you,your,our,us,not,no,yes,if,then,than,so,such,into,over,under,between,through,during,about,against,studies,study,involving,involved").split(","));
-function pdfKeywords(question) {
-  const out = [], seen = new Set();
-  for (const w of String(question || "").toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/)) {
-    const c = w.replace(/-/g, "");
-    if (c.length < 3 || PDF_STOPWORDS.has(c) || seen.has(c)) continue;
-    seen.add(c); out.push(c);
-    if (out.length >= 6) break;
-  }
-  return out;
 }
 function pdfSlug(question) {
   const s = String(question || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
@@ -491,15 +450,6 @@ function pdfSplitSections(md) {
   }
   sections.push(cur);
   return sections;
-}
-function pdfSectionKind(heading) {
-  const h = String(heading || "").toLowerCase();
-  if (!heading) return "abstract";
-  if (h.indexOf("what the research shows") >= 0) return "introduction";
-  if (h.indexOf("disagree") >= 0) return "disagree";
-  if (h.indexOf("how solid") >= 0) return "solid";
-  if (h.indexOf("what would change") >= 0) return "change";
-  return "extra";
 }
 // Group section lines into paragraph / bullet / numbered blocks.
 function pdfGroupBlocks(lines) {
@@ -532,13 +482,24 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     const t = turn || {};
     const list = Array.isArray(sources) ? sources : [];
     const dateStr = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+    /* Type roles (2026-10-19, S2 / H14): body text is the serif role
+       and headings, labels and the footer are the sans role, the same
+       two roles the print layout fills with Source Serif 4 and Inter.
+       jsPDF can only set fonts it can embed, its embeddable set is the
+       built in PostScript faces, and the repo ships Source Serif 4 and
+       Inter as woff2 webfonts only, which jsPDF cannot embed. So the
+       roles map onto the built in serif and sans faces here; the day a
+       TTF of either family ships in the repo, these two constants are
+       the whole change. */
+    const PDF_SERIF_FONT = "times";
+    const PDF_SANS_FONT = "helvetica";
 
     const addPage = () => { doc.addPage(); y = MT; };
     const need = (h) => { if (y + h > pageBottom) addPage(); };
 
     // Rich paragraph: mixed bold/italic runs, word-wrapped, paginated.
     function richPara(runs, opts) {
-      const o = Object.assign({ font: "times", size: 11, lineH: 15.5, color: [30, 30, 30], indent: 0, hanging: 0 }, opts || {});
+      const o = Object.assign({ font: PDF_SERIF_FONT, size: 11, lineH: 15.5, color: [30, 30, 30], indent: 0, hanging: 0 }, opts || {});
       const x0 = ML + o.indent;
       const w0 = maxW - o.indent;
       doc.setFontSize(o.size);
@@ -580,7 +541,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     function sectionHeading(title) {
       need(40);
       y += 10;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(20, 20, 20);
+      doc.setFont(PDF_SANS_FONT, "bold"); doc.setFontSize(12); doc.setTextColor(20, 20, 20);
       doc.text(title, ML, y);
       y += 6;
       doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.75);
@@ -591,7 +552,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
       // 2026-10-12: Fixed text overlap. The bullet is drawn in the left margin,
       // text starts indented. Both at the same baseline y.
       need(16);
-      doc.setFont("times", "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
+      doc.setFont(PDF_SERIF_FONT, "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
       const startY = y;
       // Draw bullet first at the baseline
       doc.text("•", ML, startY + 11);  // +11 to align with 11pt text baseline
@@ -602,7 +563,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     function numberedBlock(n, text) {
       need(16);
       const label = n + ".";
-      doc.setFont("times", "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
+      doc.setFont(PDF_SERIF_FONT, "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
       doc.text(label, ML, y);
       const labelW = doc.getTextWidth(label + "  ");
       richPara(pdfInlineRuns(text), { indent: labelW });
@@ -617,16 +578,16 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     };
 
     // ── Title block ──
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(110, 110, 110);
+    doc.setFont(PDF_SANS_FONT, "normal"); doc.setFontSize(9); doc.setTextColor(110, 110, 110);
     const kicker = "Cerebrum Research";
     doc.text(kicker, (W - doc.getTextWidth(kicker)) / 2, y);
     y += 22;
-    doc.setFont("times", "bold"); doc.setFontSize(20); doc.setTextColor(20, 20, 20);
+    doc.setFont(PDF_SERIF_FONT, "bold"); doc.setFontSize(20); doc.setTextColor(20, 20, 20);
     const titleLines = doc.splitTextToSize(String(question || "Research Answer"), maxW);
     need(titleLines.length * 26);
     doc.text(titleLines, W / 2, y, { align: "center" });
     y += titleLines.length * 26 + 4;
-    doc.setFont("times", "italic"); doc.setFontSize(10.5); doc.setTextColor(90, 90, 90);
+    doc.setFont(PDF_SERIF_FONT, "italic"); doc.setFontSize(10.5); doc.setTextColor(90, 90, 90);
     const byline = `Generated ${dateStr} · askcerebrum.org`;
     doc.text(byline, (W - doc.getTextWidth(byline)) / 2, y);
     y += 10;
@@ -634,136 +595,22 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     doc.line(ML, y, ML + maxW, y);
     y += 22;
 
-    // ── Sections from the answer markdown ──
+    /* ── The answer's own sections, in the answer's own order
+       (2026-10-19, S2 / H14). Headings print as written, resolved
+       through the shared renderer's plain text twin; blocks print
+       through pdfInlineRuns. Nothing is relabeled, regrouped or
+       manufactured around them. */
     const sections = pdfSplitSections(answer);
-    const byKind = {};
-    for (const s of sections) {
-      const k = pdfSectionKind(s.heading);
-      (byKind[k] = byKind[k] || []).push(s);
+    let printedBlocks = 0;
+    for (const sec of sections) {
+      if (sec.heading) sectionHeading(plainInlineText(sec.heading));
+      const before = y;
+      renderBlocks(sec);
+      if (y !== before) printedBlocks++;
     }
-
-    // Abstract: everything before the first heading.
-    sectionHeading("Abstract");
-    if (byKind.abstract && pdfGroupBlocks(byKind.abstract.flatMap((s) => s.lines)).length) {
-      for (const s of byKind.abstract) renderBlocks(s);
-    } else {
+    if (!printedBlocks) {
       richPara([{ t: "No answer text was available for this query." }], { color: [90, 90, 90] });
       y += 5;
-    }
-    const kws = pdfKeywords(question);
-    if (kws.length) {
-      y += 2;
-      richPara([{ t: "Keywords: ", bold: true }, { t: kws.join(", ") }], { size: 10, lineH: 14, color: [80, 80, 80] });
-      y += 6;
-    }
-
-    // Introduction.
-    if (byKind.introduction) {
-      sectionHeading("Introduction");
-      for (const s of byKind.introduction) renderBlocks(s);
-    }
-
-    // Methods: how this answer was made, from the turn's real diagnostics.
-    sectionHeading("Methods");
-    const mrows = [];
-    if (t.queryAnalysis && t.queryAnalysis.plainEnglish) mrows.push(["Query interpreted as", String(t.queryAnalysis.plainEnglish)]);
-    const dbOutcomes = Array.isArray(t.sourcesQueried) ? t.sourcesQueried : null;
-    if (dbOutcomes && dbOutcomes.length) {
-      const ok = dbOutcomes.filter((x) => x.ok).length;
-      const missing = dbOutcomes.filter((x) => !x.ok).map((x) => x.source).filter(Boolean);
-      mrows.push(["Databases", `${ok} of ${dbOutcomes.length} scholarly indexes returned results` + (missing.length ? `; no response from ${missing.join(", ")}` : "") + "."]);
-    } else {
-      mrows.push(["Databases", "Searched across Cerebrum's scholarly indexes."]);
-    }
-    const cited = list.filter((s) => !(s && s.uncited)).length;
-    const further = list.length - cited;
-    const withheld = typeof t.relevanceGatedOut === "number" ? t.relevanceGatedOut : 0;
-    mrows.push(["Sources", withheld > 0
-      ? `${list.length + withheld} relevant papers retrieved; ${cited} cited below; ${withheld} withheld as tangential.`
-      : `${cited} paper${cited === 1 ? "" : "s"} cited below.` + (further > 0 ? ` ${further} more ${further === 1 ? "is" : "are"} listed as further reading.` : "")]);
-    /* Trust release: the coverage sentence joins the printed Methods,
-       worded by the same helper the answer page uses, so print and
-       screen can never state different coverage. Absent on turns the
-       backend shipped no _coverage for; nothing is printed then. */
-    const coverageLine = coverageSentence(t._coverage);
-    if (coverageLine) mrows.push(["Coverage", coverageLine]);
-    if (t.synthesisMode === "extractive") {
-      mrows.push(["Synthesis", "Assembled from the papers the search found. No AI synthesis ran for this answer."]);
-    } else {
-      mrows.push(["Synthesis", "Written from the cited papers, with each claim tied to its source."]);
-    }
-    if (typeof t.answerSeconds === "number" && t.answerSeconds > 0) {
-      const s = t.answerSeconds;
-      mrows.push(["Timing", `Answered in ${s < 10 ? s.toFixed(1) : Math.round(s)} second${s === 1 ? "" : "s"}.`]);
-    }
-    for (const [k, v] of mrows) {
-      need(28);
-      richPara([{ t: k + ": ", bold: true }, { t: v }], { size: 10.5, lineH: 14.5 });
-      y += 3;
-    }
-
-    // Results: key figures + evidence table.
-    sectionHeading("Results");
-    const years = list.map((s) => parseInt(s.year, 10)).filter((n) => !isNaN(n));
-    const journals = [...new Set(list.map((s) => s.journal).filter(Boolean))];
-    const totalCites = list.reduce((a, s) => a + (typeof s.citations === "number" ? s.citations : 0), 0);
-    const figs = [`${cited} paper${cited === 1 ? "" : "s"} underpin this answer`];
-    if (years.length) figs.push(years.length > 1 ? `published ${Math.min(...years)} to ${Math.max(...years)}` : `published ${years[0]}`);
-    if (journals.length) figs.push(`across ${journals.length} journal${journals.length === 1 ? "" : "s"}`);
-    if (totalCites > 0) figs.push(`${totalCites.toLocaleString()} combined citations`);
-    need(20);
-    richPara([{ t: figs.join("; ") + "." }]);
-    y += 8;
-    if (list.length) {
-      need(30);
-      doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
-      doc.text("Evidence at a glance", ML, y);
-      y += 14;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(90, 90, 90);
-      const cNo = ML, cTitle = ML + 28, cYear = ML + maxW - 110, cCite = ML + maxW - 52;
-      doc.text("No.", cNo, y); doc.text("Title", cTitle, y); doc.text("Year", cYear, y); doc.text("Cited by", cCite, y);
-      y += 4;
-      doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.5);
-      doc.line(ML, y, ML + maxW, y);
-      y += 10;
-      const titleW = cYear - cTitle - 8;
-      list.forEach((s, i) => {
-        const tLines = doc.splitTextToSize(String(s.title || "Untitled"), titleW);
-        const rh = Math.max(tLines.length * 11.5, 14);
-        need(rh + 6);
-        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
-        doc.text(String(i + 1), cNo, y);
-        doc.setFont("times", "normal"); doc.setFontSize(9); doc.setTextColor(40, 40, 40);
-        doc.text(tLines, cTitle, y);
-        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
-        doc.text(String(s.year || "n/a"), cYear, y);
-        doc.text(typeof s.citations === "number" ? s.citations.toLocaleString() : "n/a", cCite, y);
-        y += rh + 6;
-      });
-      y += 8;
-    }
-
-    // Discussion: disagreement, confidence, what would change this.
-    const discParts = [];
-    if (byKind.disagree) discParts.push({ sub: "Where the evidence diverges", secs: byKind.disagree });
-    if (byKind.solid) discParts.push({ sub: "How solid is this", secs: byKind.solid });
-    if (byKind.change) discParts.push({ sub: "What would change this", secs: byKind.change });
-    if (discParts.length) {
-      sectionHeading("Discussion");
-      for (const p of discParts) {
-        need(26);
-        doc.setFont("helvetica", "bold"); doc.setFontSize(10.5); doc.setTextColor(40, 40, 40);
-        doc.text(p.sub, ML, y);
-        y += 16;
-        for (const s of p.secs) renderBlocks(s);
-      }
-    }
-    if (byKind.extra) {
-      for (const s of byKind.extra) {
-        const h = String(s.heading || "").trim();
-        sectionHeading(h ? h.charAt(0).toUpperCase() + h.slice(1) : "Notes");
-        renderBlocks(s);
-      }
     }
 
     // References.
@@ -784,21 +631,12 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
       });
     }
 
-    // Final pass: watermark + footer on every page.
-    const wm = await loadCerebrumWatermark();
+    /* Final pass: footer on every page. The watermark that used to
+       ride here is gone (2026-10-19, S2 / H14). */
     const pages = doc.getNumberOfPages();
     for (let p = 1; p <= pages; p++) {
       doc.setPage(p);
-      if (wm) {
-        try {
-          const S = 340;
-          doc.saveGraphicsState();
-          doc.setGState(new doc.GState({ opacity: 0.08 }));  // 2026-10-12: Increased from 0.05 (was invisible)
-          doc.addImage(wm, "PNG", (W - S) / 2, (H - S) / 2, S, S);
-          doc.restoreGraphicsState();
-        } catch (e) { /* watermark is decorative; never fail the export */ }
-      }
-      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(140, 140, 140);
+      doc.setFont(PDF_SANS_FONT, "normal"); doc.setFontSize(8); doc.setTextColor(140, 140, 140);
       doc.text(`Generated by Cerebrum · ${dateStr} · askcerebrum.org`, ML, H - 40);
       const pg = `Page ${p} of ${pages}`;
       doc.text(pg, W - MR - doc.getTextWidth(pg), H - 40);
@@ -3430,13 +3268,17 @@ function splitGluedHeading(line) {
 function h2Block(text, key, P, accent) {
   return (
     <div key={key} className="cb-sect" aria-hidden="false">
-      <span className="cb-sect-label" style={{ color: P.ink }}>{text}</span>
+      {/* 2026-10-19 (S2, C3): headings render through the shared inline
+          renderer, so a bolded term or an italic species name in a
+          heading renders the same as in body prose instead of
+          printing its markers raw. */}
+      <span className="cb-sect-label" style={{ color: P.ink }}>{renderInlineNodes(text, P)}</span>
     </div>
   );
 }
 
 function h3Block(text, key, P) {
-  return <div key={key} className="cb-sect-sub" style={{ color: P.ink2 }}>{text}</div>;
+  return <div key={key} className="cb-sect-sub" style={{ color: P.ink2 }}>{renderInlineNodes(text, P)}</div>;
 }
 
 /* Bring a source into view without moving the reader.
@@ -3636,7 +3478,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
             }}><Icon name="close" size={18} /></button>
           </div>
 
-          <div style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.4, color: P.ink, marginBottom: 6 }}>{src.title}</div>
+          <div style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.4, color: P.ink, marginBottom: 6 }}>{renderTitleInline(src.title, P)}</div>
           {meta && <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 8 }}>{meta}</div>}
           {doiHref(src) && (
             <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 10 }}>
@@ -3650,7 +3492,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
           )}
 
           {snippet
-            ? <div style={{ fontSize: 14, lineHeight: 1.65, color: P.ink2, marginBottom: 14 }}>{snippet}</div>
+            ? <div style={{ fontSize: 14, lineHeight: 1.65, color: P.ink2, marginBottom: 14 }}>{renderInlineMdLite(snippet, P)}</div>
             : <div style={{ fontSize: 14, lineHeight: 1.65, color: P.faint, marginBottom: 14 }}>
                 No abstract was returned for this record.
               </div>}
@@ -3714,7 +3556,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
         )}
       </div>
 
-      <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.4, color: P.ink, marginBottom: 4 }}>{src.title}</div>
+      <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.4, color: P.ink, marginBottom: 4 }}>{renderTitleInline(src.title, P)}</div>
       {meta && <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>{meta}</div>}
       {/* #18: the tooltip names the paper fully — title, venue/year above,
           and a DOI link when the record carries one. Hover and focus both
@@ -3735,7 +3577,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
         ? <div style={{
             fontSize: FONT_SIZES.label, lineHeight: 1.55, color: P.ink2, marginBottom: 10,
             display: "-webkit-box", WebkitLineClamp: 5, WebkitBoxOrient: "vertical", overflow: "hidden",
-          }}>{snippet}</div>
+          }}>{renderInlineMdLite(snippet, P)}</div>
         : <div style={{ fontSize: FONT_SIZES.label, lineHeight: 1.55, color: P.faint, marginBottom: 10 }}>
             No abstract was returned for this record.
           </div>}
@@ -4137,19 +3979,161 @@ function stripDanglingAsterisks(s) {
   if (!s || !s.includes("*")) return s;
   return s.replace(/\*\*[^*\n]+\*\*|\*[^*\n]+\*|(\w)\*(?![\w*])/g, (m, dangling) => dangling ? dangling : m);
 }
-function renderInlineMdLite(text, P) {
-  const clean = stripDanglingAsterisks(text || "");
-  return clean.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`)/g).map((seg, si) => {
-    const b = seg.match(/^\*\*([^*]+)\*\*$/);
-    if (b) return <strong key={si} style={{ fontWeight: 500 }}>{renderInlineMdLite(b[1], P)}</strong>;
-    const it = seg.match(/^\*([^*\n]+)\*$/);
-    if (it) return <em key={si} style={{ fontStyle: "italic" }}>{renderInlineMdLite(it[1], P)}</em>;
-    const ul = seg.match(/^_([^_\n]+)_$/);
-    if (ul) return <em key={si} style={{ fontStyle: "italic" }}>{renderInlineMdLite(ul[1], P)}</em>;
-    const code = seg.match(/^`([^`\n]+)`$/);
-    if (code) return <code key={si} style={{ fontSize: "0.88em", fontFamily: "var(--cb-font)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: RADIUS.md }}>{code[1]}</code>;
-    return <span key={si}>{seg}</span>;
+/* ══ THE ONE INLINE RENDERER (2026-10-19, S2 / C3) ═══════════════════
+   Every surface that prints answer or source text (body prose,
+   headings, claim rows, drawer titles, the citation peek, the stance
+   ledger, the bibliography, print, PDF runs, clipboard plain text)
+   tokenizes through inlineTokens, so marker pairing is one rule
+   everywhere instead of five split regexes that disagreed.
+
+   The pairing rule that matters: an underscore is a delimiter only at
+   a word boundary. An underscore inside a word (Hermetia_illucens in
+   a taxon string, a DOI, an identifier) is a literal character and
+   can never open or close an italic span. The old split regex paired
+   the FIRST underscore on a line with the next one, so a token like
+   that consumed the opening marker of a following _Hermetia illucens_
+   and the species name printed with raw underscores: the exact
+   failure in the owner's photo. Asterisk italics and underscore
+   italics are the same token here, so any surface that renders one
+   renders the other.
+
+   The sweep: a marker that cannot pair is dropped at tokenize time,
+   so no raw asterisk or boundary underscore reaches any surface.
+   The exceptions are prose, not markers: a spaced asterisk
+   (multiplication) and a digit glued asterisk (5*10) stay literal.
+
+   Species names: the renderer, not the model alone, owns binomial
+   italics. A conservative detector (a capitalized genus word plus a
+   lowercase epithet, mid sentence, neither word on the common word
+   stoplists) wraps the pair in italics even when the model forgot
+   the markers. Bold key terms ride the ** markers through every
+   surface now, headings included, instead of printing raw or being
+   stripped on some surfaces and kept on others. */
+const INLINE_WORD_CHAR = /[A-Za-z0-9_]/;
+function inlineTokens(text) {
+  const s = String(text == null ? "" : text);
+  const tokens = [];
+  let buf = "";
+  const flush = () => { if (buf) { tokens.push({ t: buf }); buf = ""; } };
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === "`") {
+      const j = s.indexOf("`", i + 1);
+      if (j > i + 1 && !s.slice(i + 1, j).includes("\n")) { flush(); tokens.push({ t: s.slice(i + 1, j), code: true }); i = j + 1; continue; }
+      i++; continue; /* an unmatched backtick is swept */
+    }
+    if (ch === "*" && s[i + 1] === "*") {
+      const j = s.indexOf("**", i + 2);
+      const inner = j > i + 2 ? s.slice(i + 2, j) : null;
+      if (inner && !inner.includes("\n") && inner.trim() === inner) { flush(); tokens.push({ t: inner, bold: true }); i = j + 2; continue; }
+      i += 2; continue; /* unmatched bold markers are swept */
+    }
+    if (ch === "*") {
+      const j = s.indexOf("*", i + 1);
+      const inner = j > i + 1 ? s.slice(i + 1, j) : null;
+      if (inner && !inner.includes("\n") && inner.trim() === inner) { flush(); tokens.push({ t: inner, italic: true }); i = j + 1; continue; }
+      const prev = s[i - 1] || "", next = s[i + 1] || "";
+      if ((INLINE_WORD_CHAR.test(prev) && /\d/.test(next)) || (prev === " " && next === " ")) { buf += ch; i++; continue; }
+      i++; continue; /* a lone asterisk marker is swept, math stays */
+    }
+    if (ch === "_") {
+      const atBoundary = i === 0 || !INLINE_WORD_CHAR.test(s[i - 1]);
+      if (s[i + 1] === "_") {
+        if (atBoundary) {
+          const j = s.indexOf("__", i + 2);
+          const inner = j > i + 2 ? s.slice(i + 2, j) : null;
+          if (inner && !inner.includes("\n") && inner.trim() === inner && !INLINE_WORD_CHAR.test(s[j + 2] || "")) { flush(); tokens.push({ t: inner, bold: true }); i = j + 2; continue; }
+          i += 2; continue; /* unmatched boundary __ is swept */
+        }
+        buf += "__"; i += 2; continue; /* intraword __ is literal */
+      }
+      if (atBoundary) {
+        let j = s.indexOf("_", i + 1);
+        let closed = -1;
+        while (j !== -1) {
+          if (j > i + 1 && !INLINE_WORD_CHAR.test(s[j + 1] || "")) { closed = j; break; }
+          j = s.indexOf("_", j + 1);
+        }
+        if (closed > i + 1) {
+          const inner = s.slice(i + 1, closed);
+          if (!inner.includes("\n") && inner.trim() === inner) { flush(); tokens.push({ t: inner, italic: true }); i = closed + 1; continue; }
+        }
+        i++; continue; /* an unmatched boundary underscore is swept */
+      }
+      buf += ch; i++; continue; /* intraword underscore: literal, never a delimiter */
+    }
+    buf += ch; i++;
+  }
+  flush();
+  return tokens;
+}
+const SPECIES_GENUS_STOP = new Set("the this that these those when while after before during however moreover furthermore therefore results result figure table study studies black white brown green large small high low new first second third total mean adult juvenile female male common northern southern eastern western american european asian african each many most some".split(" "));
+const SPECIES_EPITHET_STOP = new Set("were was are is has have had can may will would should grow grows grew feed feeds fed eat eats ate live lives lived show shows showed emerge emerges emerged produce produces produced lay lays laid hatch hatches require requires occur occurs found known called named used use using make makes made take takes took become becomes became remain remains play plays contain contains include includes provide provides help helps work works keep keeps need needs look looks seem seems appear appears begin begins began start starts form forms formed cause causes caused lead leads led drive drives build builds built range ranges span spans weigh weighs measure measures survive survives die dies".split(" "));
+function speciesRuns(text) {
+  const s = String(text || "");
+  const re = /\b([A-Z][a-z]{2,}) ([a-z]{3,})\b|\b([A-Z])\. ([a-z]{3,})\b/g;
+  const out = [];
+  let last = 0;
+  let m;
+  while ((m = re.exec(s))) {
+    const genus = (m[1] || m[3] || "").toLowerCase();
+    const epithet = m[2] || m[4] || "";
+    const before = s.slice(0, m.index).replace(/\s+$/, "");
+    const atSentenceStart = before === "" || /[.!?]["”']?$/.test(before);
+    if (atSentenceStart || SPECIES_GENUS_STOP.has(genus) || SPECIES_EPITHET_STOP.has(epithet)) continue;
+    if (m.index > last) out.push({ t: s.slice(last, m.index) });
+    out.push({ t: m[0], species: true });
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) out.push({ t: s.slice(last) });
+  return out.length ? out : [{ t: s }];
+}
+/* The shared React renderer. opts.queryTerms highlights query terms in
+   plain runs (body prose only); opts.species === false suppresses the
+   binomial detector inside emphasis spans, where italics are already
+   spoken for. */
+function renderInlineNodes(text, P, opts = {}) {
+  const queryTerms = opts.queryTerms || null;
+  const species = opts.species !== false;
+  return inlineTokens(text).map((tok, ti) => {
+    if (tok.code) return <code key={ti} style={{ fontSize: "0.88em", fontFamily: "var(--cb-font)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: RADIUS.md }}>{tok.t}</code>;
+    if (tok.bold) return <strong key={ti} style={{ fontWeight: 500 }}>{renderInlineNodes(tok.t, P, { species: false })}</strong>;
+    if (tok.italic) return <em key={ti} style={{ fontStyle: "italic" }}>{renderInlineNodes(tok.t, P, { species: false })}</em>;
+    const runs = species ? speciesRuns(tok.t) : [{ t: tok.t }];
+    return (
+      <React.Fragment key={ti}>
+        {runs.map((r, ri) => r.species
+          ? <em key={ri} style={{ fontStyle: "italic" }}>{r.t}</em>
+          : <span key={ri}>{queryTerms ? highlightKeywords(r.t, queryTerms) : r.t}</span>)}
+      </React.Fragment>
+    );
   });
+}
+/* Titles carry species markup as safe <i> tags from upstream; those go
+   through renderCleanTitle. Anything else (markdown markers, plain
+   text) goes through the shared renderer, so a drawer title, a peek
+   title and a ledger title can never print raw markers. */
+function renderTitleInline(title, P) {
+  const s = String(title == null ? "" : title);
+  if (/<(sub|sup|i|b)>[^<]*<\/\1>/i.test(s)) return renderCleanTitle(s);
+  return renderInlineNodes(s, P);
+}
+/* Plain text twin of the renderer: markers resolved to their inner
+   text, nothing literal left. Print runs, the PDF and the clipboard
+   all read text through this (or through inlineTokens directly), so
+   what paper and paste show is what the screen showed. */
+function plainInlineText(text) {
+  const flat = (str) => inlineTokens(str).map((tk) => (tk.bold || tk.italic || tk.code) ? flat(tk.t) : tk.t).join("");
+  return flat(String(text == null ? "" : text));
+}
+function answerPlainText(answer) {
+  return String(answer || "").split("\n").map((line) => plainInlineText(
+    line.replace(/^\s{0,3}#{1,6}\s+/, "").replace(/^\s*[-•]\s+/, "").replace(/^\s*\d+\.\s+/, "")
+  )).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+function renderInlineMdLite(text, P) {
+  return renderInlineNodes(stripDanglingAsterisks(text || ""), P);
 }
 /* Flashpoint claims are sentence fragments mined from the answer text —
    the miner can drag markdown along with them ("## What the research
@@ -4222,9 +4206,14 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
         }
       }
     }
+    /* One reading weight for every status (2026-10-19, S2 / M26):
+       evidence strength no longer rides on a 50 step weight change.
+       What differs by status is the stamp and the small text label:
+       thin and partly supported paragraphs now carry the same kind
+       of label unsupported already had, in the stamp's own words. */
     // If no claim matched but paragraph has citations, treat as supported
     if (!best && paraCites && paraCites.length > 0) {
-      return { weight: 500, cls: "cb-ev-established", label: null, labelTone: null, status: "supported" };
+      return { weight: 400, cls: "cb-ev-established", label: null, labelTone: null, status: "supported" };
     }
     if (!best) return null;
     if (best.status === "supported") {
@@ -4232,7 +4221,7 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
       // of what is disputed or by whom is worse than no label. The
       // disagreement verdict renders separately with its full summary.
       return {
-        weight: 500, cls: "cb-ev-established", status: "supported",
+        weight: 400, cls: "cb-ev-established", status: "supported",
         label: null,
         labelTone: null,
       };
@@ -4245,16 +4234,16 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
       // branch above, whose glyph and tone would present the trace
       // as a verified claim.
       return {
-        weight: 500, cls: "cb-ev-established", status: "traced",
+        weight: 400, cls: "cb-ev-established", status: "traced",
         label: null,
         labelTone: null,
       };
     }
     if (best.status === "unsupported") {
-      return { weight: 450, cls: "cb-ev-supported", status: "unsupported", label: "needs source", labelTone: "cb-ev-bad" };
+      return { weight: 400, cls: "cb-ev-supported", status: "unsupported", label: "needs source", labelTone: "cb-ev-bad" };
     }
-    // thin or partly
-    return { weight: 450, cls: "cb-ev-supported", status: best.status, label: null, labelTone: null };
+    // thin or partly: labeled, like unsupported, in the stamp's words.
+    return { weight: 400, cls: "cb-ev-supported", status: best.status, label: "thin evidence", labelTone: "cb-ev-warn" };
   };
 }
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null, onCiteActivate = null, evidenceMap = null, queryTerms = null) {
@@ -4359,7 +4348,11 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
        heading". */
     const markedHead = para.match(/^[ \t]*(#{1,6})[ \t]+([^\n]+)(?:\n([\s\S]*))?$/);
     if (markedHead) {
-      const rawTitle = stripStrayHashes(markedHead[2].replace(/\*\*/g, "")).replace(/[ \t]*#+[ \t]*$/, "").trim();
+      /* 2026-10-19 (S2, C3): the title keeps its ** markers now; the
+         shared renderer inside h2Block and h3Block resolves them
+         instead of the heading printing bold markers raw or losing
+         the emphasis to a strip. */
+      const rawTitle = stripStrayHashes(markedHead[2]).replace(/[ \t]*#+[ \t]*$/, "").trim();
       /* Same length rule as the h2/h3 branches: an explicit marker is a
          strong signal, but it is not strong enough to turn a paragraph into
          a heading. A long marked line gives up its heading and any prose
@@ -4393,7 +4386,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       && boldHeaderText.length <= 60
       && !boldHeaderText.includes("\n")
       && !/[.!?;,]$/.test(boldHeaderText);
-    if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: accentInk(P, accent), margin: "30px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{boldHeaderText}</h4>;
+    if (looksLikeHeading) return <h4 key={pi} style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: accentInk(P, accent), margin: "30px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{renderInlineNodes(boldHeaderText, P)}</h4>;
 
     /* Commit 79 — a section heading that arrived on the same line-break as
        its body.
@@ -4420,7 +4413,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     if (nlIdx > 0) {
       const firstLine = para.slice(0, nlIdx).trim();
       const rest = para.slice(nlIdx + 1).trim();
-      const bare = stripStrayHashes(firstLine.replace(/\*\*/g, ""));
+      const bare = stripStrayHashes(firstLine);
       const isHeadingLine =
         rest.length > 0 &&
         bare.length > 0 && bare.length <= 60 &&
@@ -4430,7 +4423,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       if (isHeadingLine) {
         return (
           <div key={pi}>
-            <h4 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "34px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", lineHeight: 1.25 }}>{bare}</h4>
+            <h4 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "34px 0 10px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", lineHeight: 1.25 }}>{renderInlineNodes(bare, P)}</h4>
             {renderAnswer(rest, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, onCiteActivate, evidenceMap, queryTerms)}
           </div>
         );
@@ -4505,18 +4498,17 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       claimNo = claimSink.length + 1;
       claimSink.push({ claim: claimNo, cites: paraCites });
     }
-    /* Evidence-weighted typography: the paragraph's weight reflects its
-       support level from the fact check. Established claims set heavier,
-       thin claims set lighter, unsupported claims carry a label. */
+    /* Evidence state shows in the gutter stamp and the small text
+       label, never in the type weight (2026-10-19, S2 / M26): every
+       paragraph sets at the one reading weight. */
     const ev = evidenceMap ? evidenceMap(paraClean, paraCites) : null;
     const pNode = (
     <p className={ev && ev.cls ? ev.cls : undefined} style={{
       /* The reading surface — the body role, ruthlessly (§7.1): 15px,
-         1.6 leading, weight 500 (the "thicker text" law, inside the
-         450–500 body contract). The lede (first paragraph) sets in the
-         title role instead: 18px, 1.55 leading. No negative tracking on
-         reading text. Hierarchy comes from measure and rhythm, not a
-         second size. Evidence weight overrides the default 500. */
+         1.6 leading, one reading weight. The lede (first paragraph)
+         sets in the title role instead: 18px, 1.55 leading. No
+         negative tracking on reading text. Hierarchy comes from
+         measure and rhythm, not a second size. */
       fontSize: isLede ? FONT_SIZES.subhead : FONT_SIZES.body,
       lineHeight: 1.55,
       margin: 0, color: P.ink,
@@ -4571,18 +4563,18 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
 
 /** Inline segment renderer — handles bold, italic, underline, citations, and inline code */
 function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate = null, queryTerms = null) {
-  return line.split(/(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`\n]+`|\[\d+\])/g).map((seg, si) => {
-    const b = seg.match(/^\*\*([^*]+)\*\*$/);
-    if (b) return <strong key={si} style={{ color: P.ink, fontWeight: 500 }}>{renderInlineSegments(b[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</strong>;
-    const it = seg.match(/^\*([^*\n]+)\*$/);
-    if (it) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{renderInlineSegments(it[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</em>;
-    const ul = seg.match(/^_([^_\n]+)_$/);
-    if (ul) return <em key={si} style={{ fontStyle: "italic", color: P.ink }}>{renderInlineSegments(ul[1], sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, null)}</em>;
-    // Inline code backticks
-    const code = seg.match(/^`([^`\n]+)`$/);
-    if (code) return <code key={si} style={{ fontSize: "0.88em", fontFamily: "var(--cb-font)", background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", padding: "2px 6px", borderRadius: RADIUS.md, color: accentInk(P, accent) }}>{code[1]}</code>;
+  /* 2026-10-19 (S2, C3): citations are split out first; everything
+     between them renders through the one shared inline renderer, so
+     body prose pairs markers exactly the way headings, claim rows,
+     the peek, the ledger and the bibliography do. */
+  const out = [];
+  String(line == null ? "" : line).split(/(\[\d+\])/g).forEach((seg, si) => {
     const c = seg.match(/^\[(\d+)\]$/);
-    if (c) {
+    if (!c) {
+      out.push(<React.Fragment key={si}>{renderInlineNodes(seg, P, { queryTerms })}</React.Fragment>);
+      return;
+    }
+    {
       const n = parseInt(c[1], 10); const src = (sources || [])[n - 1];
       /* Pass 2: the bracketed citation mark — the product's visual
          signature. A small rectangular reference in the accent colour
@@ -4596,7 +4588,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
          can never stick. Focus shows the preview too, so keyboard readers
          get the same interaction. */
       const isActive = activeCite === n;
-      return <a key={si} href={`#ref-${n}`} title={src?.title || ""}
+      out.push(<a key={si} href={`#ref-${n}`} title={src?.title || ""}
         data-cite={n}
         className="cb-cite cb-cite-enter"
         data-active={isActive ? "true" : undefined}
@@ -4627,10 +4619,10 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
           if (e.key === "Escape" && setActiveCite) { setActiveCite(0); clearSourceLinked(); }
         }}
         style={{ color: accentInk(P, accent), textDecoration: "none", animationDelay: `${Math.min(si * 30, 300)}ms` }}
-      >[{n}]</a>;
+      >[{n}]</a>);
     }
-    return <span key={si}>{queryTerms ? highlightKeywords(seg, queryTerms) : seg}</span>;
   });
+  return out;
 }
 
 
@@ -4896,6 +4888,39 @@ function stanceCountsFor(t) {
   };
 }
 
+/* ── The share payload (2026-10-19, S2 / H15) ────────────────────────────
+   Built from the answer itself: the question, the key figures line in
+   the stance ledger's own words (the same counts KeyFigures prints),
+   the top sources, and the link. The share card presents exactly this
+   payload before the system share sheet opens, and the fallback copies
+   the payload, never a bare link on its own. */
+function keyFiguresLine(t) {
+  const sc = stanceCountsFor(t);
+  if (!sc.total) return "";
+  const parts = [`${sc.total} paper${sc.total === 1 ? "" : "s"}`];
+  if (sc.support > 0) parts.push(`${sc.support} support${sc.support === 1 ? "s" : ""} the direction`);
+  if (sc.qualify > 0) parts.push(`${sc.qualify} qualif${sc.qualify === 1 ? "ies" : "y"} it`);
+  if (sc.contest > 0) parts.push(`${sc.contest} contest${sc.contest === 1 ? "s" : ""} it`);
+  if (sc.unclear > 0) parts.push(`${sc.unclear} no clear signal`);
+  return parts.join(" · ");
+}
+function shareTopSources(t) {
+  return (Array.isArray(t && t.sources) ? t.sources : []).slice(0, 3).map((s) => ({
+    title: cleanTitleText(String((s && s.title) || "Untitled paper")).trim() || "Untitled paper",
+    meta: [s && s.journal ? formatJournalName(s.journal) : null, s && s.year].filter(Boolean).join(" · "),
+  }));
+}
+function buildShareText(t, url) {
+  const lines = [String((t && t.q) || "").trim(), keyFiguresLine(t)].filter(Boolean);
+  const tops = shareTopSources(t);
+  if (tops.length) {
+    lines.push("Top sources:");
+    for (const s of tops) lines.push(s.meta ? `${s.title} (${s.meta})` : s.title);
+  }
+  if (url) lines.push(url);
+  return lines.join("\n");
+}
+
 /* ── KeyFigures: quiet counts, not a verdict ─────────────────────────────
    Replaces the old VerdictReadout ("Supported"/"Contested"/"Unverified").
    Dusty's rule: the judgment is distributed per-paper, never global.
@@ -4938,7 +4963,7 @@ function KeyFigures({ t, P }) {
     );
   }
   const sc = stanceCountsFor(t);
-  const clay = "#B0472B";
+  const clay = STANCE_TOKENS.contest;
   const parts = [];
   if (sc.support > 0) parts.push(<span key="sup">{sc.support} support{sc.support === 1 ? "s" : ""} the direction</span>);
   if (sc.qualify > 0) parts.push(<span key="qual">{sc.qualify} qualif{sc.qualify === 1 ? "ies" : "y"} it</span>);
@@ -5032,9 +5057,9 @@ function ConsensusMeter({ t, P }) {
   const yesPct = (yesW / totalW) * 100;
   const noPct = (noW / totalW) * 100;
   const mixedPct = Math.max(0, 100 - yesPct - noPct);
-  const green = "#2E7D5B";
-  const clay = "#B0472B";
-  const gray = "#7A756A";
+  const green = STANCE_TOKENS.support;
+  const clay = STANCE_TOKENS.contest;
+  const gray = STANCE_TOKENS.neutral;
   const label = { fontSize: FONT_SIZES.caption, color: P.faint, fontVariantNumeric: "tabular-nums" };
   return (
     <div style={{ maxWidth: 720, margin: "0 0 24px 0", padding: 0 }} aria-label="How the studies lean">
@@ -6121,7 +6146,10 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
   const [exportOpen, setExportOpen] = useState(false);
   const styleOptions = [ { key: "vancouver", label: "Vancouver" }, { key: "apa", label: "APA" }, { key: "mla", label: "MLA" }, { key: "chicago", label: "Chicago" }, { key: "bibtex", label: "BibTeX" } ];
   const copyAll = () => {
-    copyToClipboard(formatBibliography(sources, citationStyle), "Bibliography copied").then((ok) => {
+    /* 2026-10-19 (S2, tail 13): the clipboard matches the screen, the
+       plain text twin of the formatted bibliography, so no literal
+       asterisks or underscores reach the paste. */
+    copyToClipboard(plainInlineText(formatBibliography(sources, citationStyle)), "Bibliography copied").then((ok) => {
       if (ok) { setCopied(true); setTimeout(() => setCopied(false), 1500); }
     });
   };
@@ -6159,17 +6187,30 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
     // 2026-09-14: Surface export failures. The empty catch left the button
     // flipping "Building…"→"Excel" with zero feedback when the export failed.
     try {
-      const excelResult = await exportTopPapersExcel(sources, { accent });
+      /* Stance words from the same classification the ledger rows
+         carry (2026-10-19, S2 / M18), in the ledger's own vocabulary. */
+      const relWord = { supports: "Supports", qualifies: "Qualifies", conflicts: "Contests" };
+      const stances = relOf ? sources.map((_, i) => relWord[relOf(i + 1)] || "") : undefined;
+      const excelResult = await exportTopPapersExcel(sources, { accent, stances });
       logExport("Excel", "cerebrum-papers.xlsx");
-      if (excelResult && excelResult.capped) toast(`Exported the top 20 of ${excelResult.total} papers.`, { tone: "info" });
+      /* Tail 15: the toast always states the exported count, capped
+         or not. Silence on an uncapped export read as nothing having
+         happened. */
+      if (excelResult) {
+        toast(excelResult.capped
+          ? `Exported the top 20 of ${excelResult.total} papers.`
+          : `Exported ${excelResult.count} paper${excelResult.count === 1 ? "" : "s"}.`, { tone: "info" });
+      }
     }
     catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); }
     setExcelBusy(false);
     setExportOpen(false);
   };
   /* Pass 6: the consolidated Export menu carries "Send to Zotero" as a
-     menu item. The key/ID form opens inline under the controls — scoped
-     to this answer's sources, the same send as the old scattered button. */
+     menu item, scoped to this answer's sources, the same send as the
+     old scattered button. Since 2026-10-19 (S2 / M22) the key and ID
+     form opens in a dialog owned by that menu item, not inline in the
+     reading page. */
   const [zoteroOpen, setZoteroOpen] = useState(false);
   const [zKey, setZKey] = useState(""); const [zUser, setZUser] = useState(""); const [zMsg, setZMsg] = useState("");
   const sendToZotero = async () => {
@@ -6291,15 +6332,25 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
       </span>
     </span>
     {zoteroOpen && (
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8, width: "100%" }}>
-        <input type="password" autoComplete="off" aria-label="Zotero API key" placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)}
-          style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", flex: "1 1 160px" }} />
-        <input aria-label="Zotero user ID" placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)}
-          style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", flex: "1 1 120px" }} />
-        <UIButton P={P} variant="ghost" type="button" onClick={sendToZotero} style={{ ...ctlBtn }}>Save {sources.length}</UIButton>
-        <button type="button" className="cb-textbtn" style={{ padding: "6px 4px" }} onClick={() => { setZoteroOpen(false); setZMsg(""); }}>Cancel</button>
-        {zMsg && <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontFamily: "var(--cb-font)" }}>{zMsg}</span>}
-      </div>
+      /* 2026-10-19 (S2 / M22): the Zotero credential form leaves the
+         reading page. It opens as a dialog owned by the export action
+         that asked for it; the reading page keeps no credential inputs. */
+      <Dialog label="Send to Zotero" onClose={() => { setZoteroOpen(false); setZMsg(""); }} zIndex={230} width={440}>
+        <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginBottom: 14, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+          Send these {sources.length} sources to your Zotero library. Your API key stays in this tab and is sent only to Zotero.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <input type="password" autoComplete="off" aria-label="Zotero API key" placeholder="Zotero API key" value={zKey} onChange={(e) => setZKey(e.target.value)}
+            style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", width: "100%", boxSizing: "border-box" }} />
+          <input aria-label="Zotero user ID" placeholder="Zotero user ID" value={zUser} onChange={(e) => setZUser(e.target.value)}
+            style={{ minHeight: 44, padding: "8px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", width: "100%", boxSizing: "border-box" }} />
+        </div>
+        {zMsg && <div style={{ fontSize: FONT_SIZES.caption, color: accent, fontFamily: "var(--cb-font)", marginTop: 10 }}>{zMsg}</div>}
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <button type="button" className="cb-textbtn" style={{ minHeight: 44, padding: "12px 12px" }} onClick={() => { setZoteroOpen(false); setZMsg(""); }}>Cancel</button>
+          <UIButton P={P} variant="ghost" type="button" onClick={sendToZotero} style={{ ...ctlBtn }}>Save {sources.length}</UIButton>
+        </div>
+      </Dialog>
     )}
     </>
   );
@@ -6317,7 +6368,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
         <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Show</span>
         {bibFilterOptions.map((o) => (
           <button key={o.key} type="button" aria-pressed={bibFilter === o.key} onClick={() => setBibFilter(o.key)}
-            style={{ background: "none", border: "none", padding: "6px 4px", minHeight: 32, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: bibFilter === o.key ? 500 : 500, color: bibFilter === o.key ? accent : P.faint }}>
+            style={{ background: "none", border: "none", padding: "6px 4px", minHeight: 44, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: bibFilter === o.key ? 500 : 500, color: bibFilter === o.key ? accent : P.faint }}>
             {o.label} · {o.count}
           </button>
         ))}
@@ -6325,7 +6376,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
         <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Order</span>
         {bibSortOptions.map((o) => (
           <button key={o.key} type="button" aria-pressed={bibSort === o.key} onClick={() => setBibSort(o.key)}
-            style={{ background: "none", border: "none", padding: "6px 4px", minHeight: 32, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: bibSort === o.key ? 500 : 500, color: bibSort === o.key ? accent : P.faint }}>
+            style={{ background: "none", border: "none", padding: "6px 4px", minHeight: 44, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: bibSort === o.key ? 500 : 500, color: bibSort === o.key ? accent : P.faint }}>
             {o.label}
           </button>
         ))}
@@ -6516,7 +6567,21 @@ function receptionCounts(source) {
    used to print for every untallied paper were placeholders the reader
    could not act on (owner audit, 2026-10-15): a number that exists only
    when it is real, silence otherwise. */
-const STANCE_COLORS = { supporting: "#2E7D5B", contrasting: "#B0472B", mentioning: "#7A756A" };
+/* Stance colors as named tokens (2026-10-19, S2 / M24): one definition
+   for the whole stance family, the support green, the contest clay,
+   the neutral gray, and the two retraction tints. KeyFigures,
+   ConsensusMeter, the stance ledger CSS, the evidence rail rows and
+   BibEntry all read these tokens; STANCE_COLORS keeps the shape its
+   existing consumers (ReceptionLine, AnswerArc, NetworkGraphBody)
+   already take, now fed from the same values. */
+const STANCE_TOKENS = {
+  support: "#2E7D5B",
+  contest: "#B0472B",
+  neutral: "#7A756A",
+  retracted: "#d99b86",
+  concern: "#d7c27b",
+};
+const STANCE_COLORS = { supporting: STANCE_TOKENS.support, contrasting: STANCE_TOKENS.contest, mentioning: STANCE_TOKENS.neutral };
 /* When a real scite.ai tally is passed in, the raw numbers render as-is —
    never converted to verdicts or percentages. When absent, the line
    renders nothing (2026-10-15): the "Unknown supporting / contrasting /
@@ -6549,7 +6614,10 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
   const [copiedOne, setCopiedOne] = useState(false);
   const copyOne = (e) => {
     e.stopPropagation();
-    copyToClipboard(formatCitation(source, style, index), "Citation copied").then((ok) => {
+    /* 2026-10-19 (S2, tail 13): the clipboard gets the plain text twin
+       of what the screen renders, so the journal's emphasis markers
+       never reach the paste as literal asterisks or underscores. */
+    copyToClipboard(plainInlineText(formatCitation(source, style, index)), "Citation copied").then((ok) => {
       if (ok) { setCopiedOne(true); setTimeout(() => setCopiedOne(false), 1200); }
     });
   };
@@ -6582,7 +6650,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         {(source.retracted || source.concern) && (
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: source.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: source.retracted ? STANCE_TOKENS.retracted : STANCE_TOKENS.concern, marginBottom: 4, fontFamily: "var(--cb-font)" }}>
             {source.retracted ? "Retracted" : "Expression of concern"}
           </div>
         )}
@@ -6614,7 +6682,12 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
             </button>
             <div style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.55, color: P.ink2, marginTop: 5, paddingLeft: "1.2em", textIndent: "-1.2em", overflowWrap: "anywhere", wordBreak: "break-word", fontFamily: "var(--cb-font)" }} dangerouslySetInnerHTML={{ __html: escapeHtml(formatted)
               .replace(/&lt;(sub|sup|i|b)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, (m, tag, inner) => `<${tag.toLowerCase()}>${inner}</${tag.toLowerCase()}>`)
-              .replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
+              .replace(/\*([^*]+)\*/g, '<em style="font-style: italic; font-weight: 400;">$1</em>')
+              /* 2026-10-19 (S2, C3): underscore italics convert too, with
+                 the same word boundary rule as the shared renderer, so
+                 the bibliography no longer converts one marker and
+                 prints the other raw. */
+              .replace(/(?<![A-Za-z0-9_])_([^_\n]+)_(?![A-Za-z0-9_])/g, '<em style="font-style: italic; font-weight: 400;">$1</em>').replace(/\n/g, "<br>") }} />
           </>
         )}
         {(citeLabel || source.type || domain || doiHref) && (
@@ -6646,11 +6719,11 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
         {source.tldr && (
           <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 5, paddingLeft: 8, borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, lineHeight: 1.5, fontStyle: "italic", marginLeft: "1.2em", fontFamily: "var(--cb-font)" }}>
             {(() => {
-              // The TLDR renders as raw text, so underscore emphasis marks
-              // around a species name would print literally. Strip them;
-              // the block is already set in italic type.
-              const t = String(source.tldr).replace(/_([^_\n]+)_/g, "$1");
-              return terms ? highlightKeywords(t, terms) : t;
+              /* 2026-10-19 (S2, C3): the TLDR renders through the shared
+                 inline renderer like every other answer surface. With
+                 query terms active it renders the plain text twin so
+                 the term highlighting still applies. */
+              return terms ? highlightKeywords(plainInlineText(source.tldr), terms) : renderInlineMdLite(source.tldr, P);
             })()}
           </div>
         )}
@@ -7277,13 +7350,14 @@ function ReportModal({ query, P, accent, at, onClose, answer = "", sources = [] 
   );
 }
 
-// Reshapes an already-synthesized answer into Abstract / body / Conclusion
-// blocks for the print-only academic layout below. This is a reformat, not
-// a new generation pass — every word here already exists in `answer`; the
-// "##"/"###" section headers the model wrote are kept as body headings, the
-// first real paragraph becomes the Abstract, and the last becomes the
-// Conclusion, the same way a person skimming their own answer for a quick
-// paper would carve it up by hand.
+/* The answer's own blocks, in the answer's own order, for the print
+   layout below (2026-10-19, S2 / H14). This used to carve the answer
+   up by hand (first paragraph relabeled Abstract, last relabeled
+   Conclusion) and the print JSX supplied a fabricated Introduction
+   paragraph around them. None of that survives: print shows the
+   answer as written, its own headings as headings and its paragraphs
+   in order, and the only added furniture is the masthead, the
+   question as title, and the References list, which is real data. */
 function buildAcademicPaperBlocks(answer) {
   const clean = normalizeSectionHeaders(answer || "").trim();
   const chunks = clean.split(/\n{2,}/).map((c) => c.trim()).filter(Boolean);
@@ -7292,13 +7366,7 @@ function buildAcademicPaperBlocks(answer) {
     if (h) return { type: "heading", text: h[1] };
     return { type: "para", text: c.replace(/^[•\-]\s+/gm, "").replace(/^\d+\.\s+/gm, "") };
   });
-  let firstParaIdx = blocks.findIndex((b) => b.type === "para");
-  let lastParaIdx = -1;
-  for (let i = blocks.length - 1; i >= 0; i--) { if (blocks[i].type === "para") { lastParaIdx = i; break; } }
-  const abstract = firstParaIdx >= 0 ? blocks[firstParaIdx].text : "";
-  const conclusion = lastParaIdx >= 0 && lastParaIdx !== firstParaIdx ? blocks[lastParaIdx].text : "";
-  const bodyBlocks = blocks.filter((_, i) => i !== firstParaIdx && i !== lastParaIdx);
-  return { abstract, bodyBlocks, conclusion };
+  return { blocks };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -7468,7 +7536,7 @@ function StanceLedger({ turn, P, accent, onOpenPaper = () => {} }) {
           [{n}]
         </span>
         <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.55 }}>
-          {s.title || "Untitled source"}
+          {renderTitleInline(s.title || "Untitled source", P)}
           {s.year ? <span style={{ color: P.faint }}> {"\u00b7"} {s.year}</span> : null}
         </span>
       </button>
@@ -7548,20 +7616,27 @@ function AutopsySection({ P, accent, kicker, children }) {
 }
 
 /* Impact formatters: the midpoint of the backend's estimated range,
-   rounded the way a person would say it. */
+   rounded to one significant figure (2026-10-19, S2 / M27). The
+   byline figure is an estimate and must not read as a measurement;
+   the ranges and the method stay in the Autopsy, which prints both
+   through these same formatters next to its low to high ranges. */
+function fmtOneSigFig(v) {
+  if (!(v > 0)) return "0";
+  const mag = Math.pow(10, Math.floor(Math.log10(v)));
+  const r = Math.round(v / mag) * mag;
+  const decimals = Math.max(0, -Math.floor(Math.log10(r)));
+  const s = r.toFixed(decimals);
+  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
+}
 function fmtImpactEnergy(impact) {
   const e = (impact && impact.energyWh) || {};
   if (typeof e.low !== "number" || typeof e.high !== "number") return "";
-  const mid = (e.low + e.high) / 2;
-  if (mid < 0.1) return "under 0.1 Wh";
-  return (mid < 1 ? mid.toFixed(2) : mid.toFixed(1)).replace(/\.?0+$/, "") + " Wh";
+  return fmtOneSigFig((e.low + e.high) / 2) + " Wh";
 }
 function fmtImpactWater(impact) {
   const w = (impact && impact.waterMl) || {};
   if (typeof w.low !== "number" || typeof w.high !== "number") return "";
-  const mid = (w.low + w.high) / 2;
-  if (mid < 1) return "under 1 mL";
-  return Math.round(mid) + " mL";
+  return fmtOneSigFig((w.low + w.high) / 2) + " mL";
 }
 
 /* Stage health is tri state (2026-10-13): the server ships each stage's
@@ -8413,7 +8488,7 @@ function EvidenceMap({ t, P, accent, onOpenPaper }) {
               aria-expanded={isOpen}
               aria-label={isOpen ? "Show less" : "Show full claim"}
               style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, textAlign: "left", background: "none", border: "none", padding: 0, cursor: long ? "pointer" : "default" }}>
-              {isOpen || !long ? r.text : truncateWords(r.text, 180)}
+              {renderInlineMdLite(isOpen || !long ? r.text : truncateWords(r.text, 180), P)}
               {long && (
                 <span style={{ color: accent, fontWeight: 500, marginLeft: 6 }}>
                   {isOpen ? "show less" : "more"}
@@ -9094,6 +9169,19 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
   const isMobile = useIsMobile();
   const relOf = (n) => (venn.disagree || []).includes(n) ? "conflicts" : (venn.middle || []).includes(n) ? "qualifies" : "supports";
   const claimsOf = (n) => (claimSink || []).filter((c) => c.cites.includes(n)).map((c) => c.claim);
+  /* The paper's own cited claim, for the row's why line (2026-10-19,
+     S2 / M17): the fact check claim whose cites include this paper,
+     in plain text with its citation brackets stripped. Null when no
+     checked claim cites the paper, and the row then carries no why
+     line at all instead of a templated sentence per stance bucket. */
+  const citedClaimOf = (n) => {
+    const claims = (t.factCheck && t.factCheck.claims) || [];
+    const c = claims.find((x) => x && Array.isArray(x.cites) && x.cites.includes(n) && x.claim);
+    if (!c) return null;
+    const txt = plainInlineText(String(c.claim)).replace(/\[\d+\]/g, "").replace(/\s+/g, " ").trim();
+    if (!txt) return null;
+    return txt.length > 160 ? txt.slice(0, Math.max(40, txt.lastIndexOf(" ", 160))) + "…" : txt;
+  };
   const doiOf = (s) => String(s.doi || s.DOI || "")
     .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
 
@@ -9158,20 +9246,21 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
     const claims = claimsOf(n);
     const doi = doiOf(s);
     const doiHref = /^10\.\d{4,9}\//.test(doi) ? "https://doi.org/" + doi : null;
-    const meta = [s.authors, s.year].filter(Boolean).join(" · ");
+    /* 2026-10-19 (S2 / M17): the meta line carries the journal, and
+       the why line is grounded in the paper's own cited claim or is
+       not printed. The templated per stance sentences are gone. */
+    const meta = [s.authors, s.journal ? formatJournalName(s.journal) : null, s.year].filter(Boolean).join(" · ");
     const claimsLine = s.uncited
       ? "Not cited by the answer"
       : claims.length
         ? `${rel === "conflicts" ? "Contested in" : "Supports"} claim${claims.length === 1 ? "" : "s"} ${claims.join(", ")}`
         : "Cited by the answer";
+    const citedClaim = s.uncited ? null : citedClaimOf(n);
     const why = s.uncited
       ? (s.uncitedReason || "Listed for further reading.")
-      : (s.studyType ? s.studyType + " · " : "") +
-        (rel === "conflicts"
-          ? "its findings push against the answer's claims. See where the literature disagrees."
-          : rel === "qualifies"
-            ? "it both supports and complicates the answer. Read it against the surrounding claims."
-            : "its findings run with the answer's claims.");
+      : citedClaim
+        ? `Cited for the claim: ${citedClaim}`
+        : null;
     const isActive = activeCite === n;
     return (
       <div key={n} id={`evref-${n}`} data-rel={rel} data-active={isActive ? "true" : undefined}
@@ -9186,16 +9275,18 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
         </button>
         <div style={{ minWidth: 0 }}>
           {(s.retracted || s.concern) && (
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: s.retracted ? "#d99b86" : "#d7c27b", marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: s.retracted ? STANCE_TOKENS.retracted : STANCE_TOKENS.concern, marginBottom: 4, fontFamily: "var(--cb-font)" }}>
               {s.retracted ? "Retracted" : "Expression of concern"}
             </div>
           )}
-          <div style={{ fontSize: 14, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{s.title}</div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{renderTitleInline(s.title, P)}</div>
           {meta && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>{meta}</div>}
           <div className="cb-kicker" style={{ marginTop: 7 }}>{claimsLine}</div>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 4, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>
-            <span style={{ color: P.faint }}>Why this paper is here: </span>{why}
-          </div>
+          {why && (
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 4, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>
+              <span style={{ color: P.faint }}>Why this paper is here: </span>{why}
+            </div>
+          )}
           {doiHref && (
             <div style={{ marginTop: 6 }}>
               <a href={doiHref} target="_blank" rel="noreferrer" className="cb-mono"
@@ -9437,11 +9528,12 @@ function ProvenanceColophon({ t, P }) {
 }
 
 /* ── AnswerSourcesPanel (#18) ─────────────────────────────────────────────
-   A compact Sources panel closing out each answer: every cited paper as
-   one row — number, title, venue · year, DOI link. The "Verify sources"
-   button opens the full evidence drawer on this answer. The rows reuse
-   t.sources as-is, so the wave-4 dedupe/integrity behavior is untouched. */
-function AnswerSourcesPanel({ t, P, accent, onVerify }) {
+   One source list per answer (2026-10-19, S2 / M16). This panel used
+   to print the full per paper list a second time at the end of the
+   turn, duplicating the bibliography below it. The bibliography is
+   the one source list now; this panel is a one line count with a jump
+   link to it. */
+function AnswerSourcesPanel({ t, P, accent, onJumpToBibliography }) {
   const sources = t.sources || [];
   /* Note: the guard below is phrased as `=== 0` rather than `!length`
      because a source-wide test guards EvidenceSection against an early
@@ -9449,32 +9541,14 @@ function AnswerSourcesPanel({ t, P, accent, onVerify }) {
      unambiguous while this panel still renders nothing when uncited. */
   if (sources.length === 0) return null;
   return (
-    <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${P.line}` }} className="cb-fade">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, letterSpacing: 0, textTransform: "none", color: P.ink, fontFamily: "var(--cb-font)" }}>
-          Sources <span style={{ color: P.faint, fontWeight: 400 }}>{sources.length}</span>
-        </div>
-        <button type="button" onClick={onVerify}
-          style={{ minHeight: 44, padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: "transparent", color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-          Sources
-        </button>
-      </div>
-      <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 9 }}>
-        {sources.map((s, i) => {
-          const href = doiHref(s) || (s.url ? safeHref(s.url) : "");
-          const venue = [s.journal, s.year].filter(Boolean).join(" · ");
-          return (
-            <li key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: FONT_SIZES.small, lineHeight: 1.5, minWidth: 0 }}>
-              <span style={{ color: accent, fontFamily: "var(--cb-font)", fontWeight: 500, flexShrink: 0 }}>[{i + 1}]</span>
-              <span style={{ minWidth: 0, color: P.ink2 }}>
-                <span style={{ color: P.ink, fontWeight: 500 }}>{s.title || "Untitled paper"}</span>
-                {venue && <span style={{ color: P.faint }}> · {venue}</span>}
-                {href && <span> · <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: "none", borderBottom: `1px dotted ${withAlpha(accent, 0.6)}` }}>DOI</a></span>}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+    <div style={{ marginTop: 22, paddingTop: 14, borderTop: `1px solid ${P.line}`, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} className="cb-fade">
+      <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)" }}>
+        {sources.length} source{sources.length === 1 ? "" : "s"} for this answer
+      </span>
+      <button type="button" onClick={onJumpToBibliography}
+        style={{ minHeight: 44, padding: "6px 4px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "none", border: "none", color: accent, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline", textUnderlineOffset: 4 }}>
+        See the bibliography
+      </button>
     </div>
   );
 }
@@ -9486,7 +9560,7 @@ function AnswerSourcesPanel({ t, P, accent, onVerify }) {
    relationship/mechanism questions a diagram would clarify, "Analyze a
    related document" only when the answer cites sources worth analyzing
    against. */
-function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, onAnalyzeDocument }) {
+function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, onAnalyzeDocument, bare = false }) {
   const [kept, setKept] = useState(false);
   const chips = [];
   if (onSaveInvestigation) {
@@ -9504,10 +9578,15 @@ function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, on
   }
   if (!chips.length) return null;
   return (
-    <div style={{ marginTop: 20 }} className="cb-fade">
-      <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
-        Keep going
-      </div>
+    <div style={{ marginTop: bare ? 0 : 20 }} className="cb-fade">
+      {/* 2026-10-19 (S2 / M20): nested inside the Next steps block, the
+          chips carry no heading or margin of their own; the block's one
+          heading speaks for all four systems it folded in. */}
+      {!bare && (
+        <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
+          Keep going
+        </div>
+      )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {chips.map((c) => (
           <UIButton P={P} variant="ghost" key={c.key} onClick={c.onClick}
@@ -9721,16 +9800,20 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   const [vote, setVote] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  // Share fallback: when neither the native share sheet nor the clipboard
-  // is available, show the link in a dialog the user can copy manually —
-  // sharing must never fail silently.
-  const [shareUrl, setShareUrl] = useState(null);
+  // Share card (2026-10-19, S2 / H15): tapping Share opens the designed
+  // card first, showing the payload built from the answer itself; the
+  // card's own action opens the system share sheet or copies the
+  // payload. The old bare URL in a mono input fallback is gone.
+  const [shareOpen, setShareOpen] = useState(false);
   // The labeled More menu: every demoted toolbar action stays one tap
   // away, each still labeled. Dividers at a boundary collapse out.
   /* Paper/print state lives ABOVE the overflowItems IIFE: the Paper menu
-     item's label reads `generatingPaper` eagerly when the IIFE evaluates,
-     so these bindings must already be initialized or the answer thread
-     dies with a temporal-dead-zone error on every completed answer. */
+     item reads paper state eagerly when the IIFE evaluates, so these
+     bindings must already be initialized or the answer thread dies with
+     a temporal-dead-zone error on every completed answer. The
+     generatingPaper binding is vestigial since 2026-10-19 (tail 14
+     deleted the fixed composing delay); it stays declared here so the
+     ordering contract this comment records cannot silently regress. */
   const [generatingPaper, setGeneratingPaper] = useState(false);
   const [paperReady, setPaperReady] = useState(false);
   const overflowItems = (() => {
@@ -9746,12 +9829,14 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         id: "flowchart", label: "Flowchart", icon: "flowchart", hint: "diagram",
         onClick: () => onShowFlowchart(t),
       }, {
-        id: "paper", label: generatingPaper ? "Composing paper…" : "Paper / print", icon: "printer",
+        /* 2026-10-19 (S2, tail 14): no fixed composing delay. Setting
+           paperReady mounts the print document in the same commit and
+           the paperReady effect prints it; the old 650ms timer only
+           made the reader wait on a label. */
+        id: "paper", label: "Paper / print", icon: "printer",
         onClick: () => {
-          if (generatingPaper) return;
           if (paperReady) { window.print(); return; }
-          setGeneratingPaper(true);
-          setTimeout(() => { setGeneratingPaper(false); setPaperReady(true); }, 650);
+          setPaperReady(true);
         },
       }] : []),
       { divider: true },
@@ -9930,7 +10015,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 <button type="button" className="cb-ctlbtn"
                   title={copiedAnswer ? "Copied" : "Copy answer"}
                   onClick={() => {
-                    copyToClipboard(t.answer, "Answer copied").then((ok) => {
+                    /* 2026-10-19 (S2, tail 12): the clipboard gets the
+                       plain text rendering: markers resolved through
+                       the shared renderer, citations kept as bracketed
+                       numbers. Raw markdown never reaches the paste. */
+                    copyToClipboard(answerPlainText(t.answer), "Answer copied").then((ok) => {
                       if (ok) { setCopiedAnswer(true); setTimeout(() => setCopiedAnswer(false), 1500); }
                     });
                   }}
@@ -9951,44 +10040,64 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 )}
                 <button type="button" className="cb-ctlbtn"
                   title={linkCopied ? "Link copied" : "Share"}
-                  onClick={async () => {
+                  onClick={() => {
                     if (!t.q) { toast("Nothing to share yet", { tone: "error" }); return; }
-                    const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
-                    // Prefer the native share sheet (real "sharing" — Messages,
-                    // Mail, social apps — on mobile and supporting desktop
-                    // browsers). navigator.share() requires a secure context and
-                    // can throw AbortError when the user just dismisses the
-                    // sheet, which is not a failure and shouldn't show an error.
-                    if (navigator.share && window.isSecureContext) {
-                      try { await navigator.share({ title: "Cerebrum", text: t.q, url }); return; }
-                      catch (err) { if (err && err.name === "AbortError") return; /* fall through to clipboard */ }
-                    }
-                    const ok = await copyToClipboard(url, "Link copied");
-                    if (ok) { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500); }
-                    else { setShareUrl(url); }
+                    /* 2026-10-19 (S2 / H15): the designed share card
+                       opens first. The payload it shows is the payload
+                       that gets shared. linkCopied still names the
+                       state after a clipboard share completes. */
+                    setShareOpen(true);
                   }}
                 >
                   {linkCopied ? "Link copied" : "Share"}
                 </button>
-                {shareUrl && (
-                  <Dialog label="Share this answer" onClose={() => setShareUrl(null)} zIndex={230} width={440}>
-                    <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginBottom: 12, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
-                      Copy the link below to share this answer.
-                    </div>
-                    <input readOnly value={shareUrl} onFocus={(e) => e.target.select()}
-                      aria-label="Share link"
-                      style={{ width: "100%", minHeight: 44, padding: "12px 12px", borderRadius: RADIUS.sm, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontSize: 16, fontFamily: "var(--cb-mono)", boxSizing: "border-box" }} />
-                    <div style={{ display: "flex", gap: 10, marginTop: 14, justifyContent: "flex-end" }}>
-                      <button type="button" onClick={() => { copyToClipboard(shareUrl, "Link copied").then((ok) => { if (ok) setShareUrl(null); }); }}
-                        style={{ minHeight: 44, padding: "12px 16px", borderRadius: RADIUS.sm, background: accent, color: at, border: "none", fontWeight: 500, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
-                        Copy link
-                      </button>
-                      <button type="button" className="cb-textbtn" style={{ minHeight: 44, padding: "12px 16px" }} onClick={() => setShareUrl(null)}>
-                        Close
-                      </button>
-                    </div>
-                  </Dialog>
-                )}
+                {shareOpen && (() => {
+                  const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
+                  const shareText = buildShareText(t, url);
+                  const tops = shareTopSources(t);
+                  const figures = keyFiguresLine(t);
+                  const canNativeShare = !!(navigator.share && window.isSecureContext);
+                  const doShare = async () => {
+                    // Prefer the native share sheet (real "sharing" —
+                    // Messages, Mail, social apps). An AbortError is
+                    // the reader dismissing the sheet, not a failure.
+                    if (canNativeShare) {
+                      try { await navigator.share({ title: "Cerebrum", text: shareText, url }); setShareOpen(false); return; }
+                      catch (err) { if (err && err.name === "AbortError") { setShareOpen(false); return; } /* fall through to clipboard */ }
+                    }
+                    const ok = await copyToClipboard(shareText, "Share text copied");
+                    if (ok) { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 1500); setShareOpen(false); }
+                  };
+                  return (
+                    <Dialog label="Share this answer" onClose={() => setShareOpen(false)} zIndex={230} width={440}>
+                      <div style={{ fontFamily: "var(--cb-serif)", fontSize: 17, fontWeight: 500, color: P.ink, lineHeight: 1.4 }}>{t.q}</div>
+                      {figures && (
+                        <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", marginTop: 8, fontVariantNumeric: "tabular-nums" }}>{figures}</div>
+                      )}
+                      {tops.length > 0 && (
+                        <div style={{ marginTop: 16 }}>
+                          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 6 }}>Top sources</div>
+                          {tops.map((s, i) => (
+                            <div key={i} style={{ fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)", padding: "5px 0", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+                              <span style={{ color: P.ink, fontWeight: 500 }}>{s.title}</span>
+                              {s.meta && <span style={{ color: P.faint }}> · {s.meta}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14, overflowWrap: "anywhere", lineHeight: 1.5 }}>{url}</div>
+                      <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                        <button type="button" className="cb-textbtn" style={{ minHeight: 44, padding: "12px 12px" }} onClick={() => { copyToClipboard(url, "Link copied").then((ok) => { if (ok) setShareOpen(false); }); }}>
+                          Copy link only
+                        </button>
+                        <button type="button" onClick={doShare}
+                          style={{ minHeight: 44, padding: "12px 16px", borderRadius: RADIUS.sm, background: accent, color: at, border: "none", fontWeight: 500, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                          {canNativeShare ? "Share" : "Copy share text"}
+                        </button>
+                      </div>
+                    </Dialog>
+                  );
+                })()}
                 {/* Sources: toggles the evidence drawer — the index is
                     a secondary surface now, not a column competing with the
                     answer. */}
@@ -10422,28 +10531,25 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       {interactive && done && t.responseKind === "no-results" && (
         <ZeroResultsRecovery t={t} P={P} accent={accent} evidenceFilter={evidenceFilter} onClearFilterAndRetry={onClearFilterAndRetry} onRelated={onRelated} />
       )}
-      {/* AI suggestions */}
-      {interactive && done && t.suggestions && t.suggestions.length > 0 && (
-        <div style={{ alignItems: "center", marginTop: 20, display: "flex", flexWrap: "wrap", gap: 8 }} className="cb-fade">
+      {/* Next steps (2026-10-19, S2 / M20): one block, one visual
+          language, one plain heading. The suggested chips, the related
+          questions, the discovery chips and Watch this topic used to
+          be four separate systems stacked under the answer, each with
+          its own heading and margins. They are one list now. */}
+      {interactive && done && ((t.suggestions && t.suggestions.length > 0) || (t.related && t.related.length > 0) || (last && t.responseKind !== "context") || (!synthFailed && answerText.trim())) && (
+        <div style={{ marginTop: 24 }} className="cb-fade">
+          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 12 }}>Next steps</div>
+          {t.suggestions && t.suggestions.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
           {t.suggestions.map((s, i) => (
             <UIButton P={P} variant="ghost" key={i} onClick={() => s.query && onRelated && onRelated(s.query)} disabled={!s.query}
               style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: s.query ? withAlpha(accent, 0.08) : "transparent", color: s.query ? accent : P.faint, border: `1px solid ${s.query ? withAlpha(accent, 0.25) : P.line}`, borderRadius: RADIUS.md, cursor: s.query ? "pointer" : "default", fontFamily: "inherit" }}>
               {s.label} {s.query && <span style={{ opacity: 0.5, marginLeft: 4 }}>→</span>}
             </UIButton>
           ))}
-        </div>
-      )}
-      {/* Commit 65 — "Watch this topic", placed at the end of a finished
-          answer because that is the one moment we know the reader cares
-          about this subject. Only on the LAST turn: repeating it under
-          every answer in a long thread turns a useful offer into nagging. */}
-      {interactive && done && last && t.responseKind !== "context" && (
-        <WatchTopicButton q={t.q} P={P} accent={accent} user={user} onChanged={onWatchChanged} />
-      )}
-      {/* Related questions */}
-      {interactive && done && t.related && t.related.length > 0 && (
-        <div style={S.relatedWrap} className="cb-fade">
-          <div style={S.relatedLabel}>Continue the investigation</div>
+          </div>
+          )}
+          {t.related && t.related.length > 0 && (
           <div style={S.relatedList}>
             {t.related.map((r, i) => (
               <button key={i} style={S.relatedBtn} onClick={() => onRelated(r)} onMouseEnter={(e) => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = P.dark ? "none" : "none"; }} onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.line2; e.currentTarget.style.color = P.ink2; e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
@@ -10451,21 +10557,25 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
               </button>
             ))}
           </div>
+          )}
+          {!synthFailed && answerText.trim() && (
+            <DiscoveryChips bare t={t} P={P} accent={accent}
+              onSaveInvestigation={onSaveInvestigation ? () => onSaveInvestigation(t) : null}
+              onCreateDiagram={onShowFlowchart}
+              onAnalyzeDocument={onOpenDocumentMode} />
+          )}
+          {/* Watch this topic stays last turn only (Commit 65): that is
+              the one moment we know the reader cares about the subject,
+              and repeating it under every answer in a thread would nag. */}
+          {last && t.responseKind !== "context" && (
+            <WatchTopicButton q={t.q} P={P} accent={accent} user={user} onChanged={onWatchChanged} />
+          )}
         </div>
       )}
-      {/* #18: compact Sources panel closing out the answer — one row per
-          cited paper (title, venue · year, DOI link) plus the visible
-          "Evidence index" affordance, which opens the evidence drawer. */}
+      {/* #18: one line source count closing out the answer, with a
+          jump link to the bibliography, the one source list (M16). */}
       {interactive && done && sources.length > 0 && t.responseKind !== "no-results" && (
-        <AnswerSourcesPanel t={t} P={P} accent={accent} onVerify={() => setEvidenceOpen(true)} />
-      )}
-      {/* #10: contextual discovery chips once the answer has completed —
-          each chip only renders when it is relevant to this answer. */}
-      {interactive && done && !synthFailed && answerText.trim() && (
-        <DiscoveryChips t={t} P={P} accent={accent}
-          onSaveInvestigation={onSaveInvestigation ? () => onSaveInvestigation(t) : null}
-          onCreateDiagram={onShowFlowchart}
-          onAnalyzeDocument={onOpenDocumentMode} />
+        <AnswerSourcesPanel t={t} P={P} accent={accent} onJumpToBibliography={() => { setEvTab("biblio"); scrollToRef(bandSectionRef); }} />
       )}
       {/* Print-only academic layout — invisible in the normal UI (see the
           base ".cb-print-paper-doc { display: none }" rule) and only ever
@@ -10492,7 +10602,6 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           rules in the @media print block below. */}
       {paperReady && document.body && createPortal(
         <div className="cb-print-paper-doc" aria-hidden="true">
-          <div className="cb-paper-watermark">Cerebrum™</div>
           <div className="cb-paper-page">
             {/* Commit 51: the same brain Mark used in the Sidebar/header
                 (see the Mark component) — a small letterhead-style masthead
@@ -10504,31 +10613,24 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             <div className="cb-paper-title">{t.q}</div>
             <div className="cb-paper-byline">Synthesized by Cerebrum · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
 
-            <div className="cb-paper-section-label">Abstract</div>
-            <p className="cb-paper-para">{paper.abstract || "No summary available for this answer."}</p>
-
-            <div className="cb-paper-section-label">Introduction</div>
-            <p className="cb-paper-para">This paper synthesizes current research addressing the question: "{t.q}." The findings below are drawn from {t.sources && t.sources.length > 0 ? `the ${t.sources.length} source${t.sources.length === 1 ? "" : "s"} cited in the references` : "the cited literature"}.</p>
-
-            {paper.bodyBlocks.map((b, i) => (
+            {/* 2026-10-19 (S2, H14): the answer's own blocks, in order,
+                through the shared inline renderer, so no markdown
+                marker reaches paper and a species name italicizes on
+                paper exactly as it does on screen. No fabricated
+                Introduction, no Abstract or Conclusion relabeling,
+                and the 90pt rotated watermark treatment is gone. */}
+            {paper.blocks.map((b, i) => (
               b.type === "heading"
-                ? <div key={i} className="cb-paper-heading">{b.text}</div>
-                : <p key={i} className="cb-paper-para">{b.text}</p>
+                ? <div key={i} className="cb-paper-heading">{renderInlineMdLite(b.text, P)}</div>
+                : <p key={i} className="cb-paper-para">{renderInlineMdLite(b.text, P)}</p>
             ))}
-
-            {paper.conclusion && (
-              <>
-                <div className="cb-paper-section-label">Conclusion</div>
-                <p className="cb-paper-para">{paper.conclusion}</p>
-              </>
-            )}
 
             {t.sources && t.sources.length > 0 && (
               <>
                 <div className="cb-paper-section-label">References</div>
                 <div className="cb-paper-references">
                   {t.sources.map((s, i) => (
-                    <p key={i} className="cb-paper-ref">{formatCitation(s, citationStyle || "vancouver", i + 1)}</p>
+                    <p key={i} className="cb-paper-ref">{renderInlineMdLite(formatCitation(s, citationStyle || "vancouver", i + 1), P)}</p>
                   ))}
                 </div>
               </>
@@ -24545,7 +24647,7 @@ function App() {
                   return (
                     <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
                       onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
-                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[data-cb-followup="true"]'); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
                     </div>
                   );
                 })}
@@ -24596,8 +24698,12 @@ function App() {
                   <div style={{ marginBottom: 6, display: "flex", justifyContent: isMobile ? "flex-start" : "center" }}>
                     <EvidenceFilter value={evidenceFilter} onChange={(v) => { sfx(); setEvidenceFilter(v); }} P={P} accent={accent} isMobile={isMobile} />
                   </div>
+                  {/* 2026-10-19 (S2 / M20): the follow up composer names
+                      the thread it continues, in its label and its
+                      placeholder. The first person product placeholder
+                      ("I remember the whole thread") is gone. */}
                   <div style={{ ...S.followShell, ...(hover === "f" ? S.searchShellActive : {}) }} onMouseEnter={() => setHover("f")} onMouseLeave={() => setHover("")}>
-                    <input style={S.searchInput} value={input} aria-label="Follow-up question" onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder="Follow up: I remember the whole thread" />
+                    <input style={S.searchInput} value={input} data-cb-followup="true" aria-label={turns[0] && turns[0].q ? `Follow up question on ${String(turns[0].q).slice(0, 80)}` : "Follow up question"} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) ask(); }} placeholder={turns[0] && turns[0].q ? `Follow up on ${shortSubject(turns[0].q)}` : "Ask a follow up"} />
                     <button onClick={() => imageInputRef.current?.click()} title="Attach an image" aria-label="Attach an image" style={{ background: "none", border: "none", cursor: "pointer", color: attachedImage ? accent : P.faint, display: "flex", alignItems: "center", padding: 4, flexShrink: 0 }}><Icon name="image" size={17} /></button>
                     <MicButton onTranscript={(t) => setInput(t)} getInput={() => input} accent={accent} P={P} />
                     <button style={S.searchBtn} onClick={() => ask()}>Ask</button>
@@ -27723,9 +27829,15 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
 /* Smooth scroll for citation jumps */
 html { scroll-behavior: smooth; }
 
-/* ── Print-friendly ── */
+/* ── Print-friendly ──
+   2026-10-19 (S2 / tail 14): a plain browser print now prints the
+   answer column, not the interface. The app chrome (header, navs, the
+   sources sidebar column, dialogs, the fixed texture layers, buttons)
+   is hidden wholesale; what remains in flow is the thread column. The
+   designed paper print is a separate path (body.cb-printing-paper
+   below) and is unaffected: its document is portaled outside #root. */
 @media print {
-  header, footer, .cb-fab-pulse, button { display: none !important; }
+  header, footer, nav, aside, [role="dialog"], .cb-grain, .cb-vignette, .cb-fab-pulse, button { display: none !important; }
   body, div { background: white !important; color: black !important; }
   * { backdrop-filter: none !important; box-shadow: none; }
   .cb-answer-enter { font-size: 12pt !important; line-height: 1.6 !important; }
@@ -27766,49 +27878,25 @@ html { scroll-behavior: smooth; }
   }
   .cb-paper-page {
     position: relative; z-index: ${Z.content}; max-width: 7in; margin: 0 auto; padding: 0.6in 0 1in;
-    font-family: "Times New Roman", Times, serif; color: #000 !important;
-    /* Commit 51: this is what actually put the watermark "above the text
-       and a little too visible." The blanket "body, div { background:
-       white }" rule a few lines up gives THIS div an opaque white fill it
-       never asked for; Commit 49 raised the watermark's z-index above it
-       (to fix it disappearing behind that same opaque fill on every full
-       page), which incidentally also raised it above this div's own
-       children — i.e. the actual paragraph text — painting the watermark
-       over every word instead of the page background. The real fix is
-       here, not in the z-index: an explicit transparent background (more
-       specific than the blanket div rule, so it wins) means there's no
-       opaque layer left for anything to hide behind OR paint over. Verified
-       against a real multi-page page.pdf() render: with this in place the
-       watermark can go back to sitting behind the text (see z-index below)
-       and still shows through correctly on every page, blank ones included. */
+    /* 2026-10-19 (S2 / H14): set in the app's own faces, Source Serif 4
+       for the paper body via --cb-serif and Inter for the masthead via
+       --cb-font. Times New Roman and Helvetica Neue are gone. The
+       explicit transparent background stays from the earlier fix: the
+       blanket print rule above would otherwise give this div an
+       opaque white fill it never asked for. */
+    font-family: var(--cb-serif); color: #000 !important;
     background: transparent !important;
   }
   .cb-paper-masthead { display: flex; align-items: center; justify-content: center; gap: 7pt; margin: 0 0 16pt; }
-  .cb-paper-masthead-text { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 11pt; font-weight: 500; letter-spacing: 0.14em; color: #000 !important; }
+  .cb-paper-masthead-text { font-family: var(--cb-font); font-size: 11pt; font-weight: 500; letter-spacing: 0.14em; color: #000 !important; }
   .cb-paper-title { font-size: 18pt; font-weight: 500; text-align: center; margin: 0 0 6pt; line-height: 1.3; }
   .cb-paper-byline { font-size: 10pt; text-align: center; color: #444 !important; margin: 0 0 28pt; font-style: italic; }
   .cb-paper-section-label { font-size: 12pt; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; margin: 22pt 0 8pt; border-bottom: 1pt solid #000; padding-bottom: 2pt; }
   .cb-paper-heading { font-size: 12pt; font-weight: 500; margin: 16pt 0 6pt; }
   .cb-paper-para { font-size: 11pt; line-height: 1.7; text-align: justify; text-indent: 0.3in; margin: 0 0 10pt; }
   .cb-paper-ref { font-size: 9.5pt; line-height: 1.5; text-indent: -0.25in; padding-left: 0.25in; margin: 0 0 6pt; text-align: left; }
-  /* z-index: 0 — BELOW .cb-paper-page's z-index:1, so it sits behind the
-     actual text like a real watermark should. This node repeats correctly
-     on every printed page via position:fixed (verified). Commit 49 had put
-     this ABOVE the page (z-index: 2) because .cb-paper-page's opaque
-     "background: white" (from the blanket print rule) was painting over it
-     on every full page — that's fixed at the source now (.cb-paper-page is
-     explicitly transparent, above), so the watermark no longer needs to
-     out-rank it to be visible, and can go back to reading as a background
-     wash instead of a layer sitting on top of every word. Opacity dropped
-     0.1 → 0.06 at the same time — "a lil too visible" even before this z-index
-     issue, per Dusty's report. Verified against a real multi-page
-     page.pdf() render, including the short/blank-space-below-the-text case
-     Commit 49's comment called out. */
-  .cb-paper-watermark {
-    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-35deg);
-    font-size: 90pt; font-weight: 500; color: rgba(0,0,0,0.06) !important; z-index: ${Z.base};
-    white-space: nowrap; font-family: "Helvetica Neue", Arial, sans-serif; pointer-events: none;
-  }
+  /* The 90pt rotated watermark rule that used to sit here is deleted
+     (2026-10-19, S2 / H14), with the node that carried it. */
 }
 
 /* ── Text selection accent ──
@@ -28373,34 +28461,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 button.cb-cite { min-height: 0; min-width: 0; }
 
-/* ── Verdict instrument ──────────────────────────────────────────────────
-   The verdict readout: a hairline-ruled strip, glyph plus word plus mono
-   machine readout. No card, no fill, no gradient. On narrow screens the
-   glyph shrinks and the readout wraps; nothing here depends on hover. */
-.cb-verdict {
-  display: flex; align-items: flex-start; gap: 24px;
-  padding: 28px 4px; margin: 0 auto 12px; max-width: 72ch;
-}
-.cb-verdict-glyph { flex-shrink: 0; line-height: 0; }
-.cb-verdict-body { min-width: 0; }
-.cb-verdict-eyebrow {
-  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
-  opacity: 0.85; margin-bottom: 6px;
-}
-.cb-verdict-word {
-  font-family: var(--cb-font); font-weight: 500; font-size: 30px;
-  line-height: 1.1; letter-spacing: -0.01em; margin-bottom: 6px;
-}
-.cb-verdict-sub { font-size: 14px; line-height: 1.5; margin-bottom: 10px; max-width: 52ch; }
-.cb-verdict-readout {
-  font-size: 11px; letter-spacing: 0.06em;
-  font-variant-numeric: tabular-nums;
-}
-@media (max-width: 720px) {
-  .cb-verdict { gap: 14px; padding: 16px 0; }
-  .cb-verdict-word { font-size: 24px; }
-  .cb-verdict-glyph svg { width: 40px !important; height: 40px !important; }
-}
+/* The .cb-verdict rule family that used to sit here is deleted
+   (2026-10-19, S2 / tail 17): no component renders those classes.
+   VerdictReadout renders KeyFigures and ConsensusMeter, which carry
+   their own styles. */
 
 /* ── Calibration stamp: the gutter mark on each cited paragraph ─────────
    A verdict glyph plus the paragraph's reference numbers, stacked in the
@@ -28496,10 +28560,14 @@ button.cb-cite { min-height: 0; min-width: 0; }
 
 /* Claim spine: each answer paragraph carries its supporting references
    in a slim left rail. The rail is the signature interaction — hover or
-   focus a mark and the matching source row lights up. */
-.cb-claim { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 14px; }
+   focus a mark and the matching source row lights up.
+   2026-10-19 (S2 / tail 16): the reference column sizes to the widest
+   reference it holds (max-content, not a fixed 64px) and its text sits
+   on the paragraph's own first line: the body font and the body's 1.55
+   line height, not a mono face at line-height 2. */
+.cb-claim { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 14px; }
 .cb-claim-refs {
-  font-family: var(--cb-mono); font-size: 11px; line-height: 2; text-align: right;
+  font-family: var(--cb-font); font-size: 11px; line-height: 1.55; text-align: right;
   border-right: 1px solid var(--cb-line, rgba(128,128,128,0.22)); padding-right: 10px;
   color: var(--cb-faint, #888);
 }
@@ -28520,8 +28588,8 @@ button.cb-cite { min-height: 0; min-width: 0; }
 }
 .cb-ledger-num { font-family: var(--cb-mono); font-size: 12px; font-weight: 500; padding-top: 2px; }
 .cb-ledger-row[data-rel="supports"] .cb-ledger-num { color: var(--cb-acc, #9fbd9f); }
-.cb-ledger-row[data-rel="conflicts"] .cb-ledger-num { color: #d99b86; }
-.cb-ledger-row[data-rel="qualifies"] .cb-ledger-num { color: #d7c27b; }
+.cb-ledger-row[data-rel="conflicts"] .cb-ledger-num { color: ${STANCE_TOKENS.retracted}; }
+.cb-ledger-row[data-rel="qualifies"] .cb-ledger-num { color: ${STANCE_TOKENS.concern}; }
 .cb-ledger-row[data-active="true"] { background: rgba(127,127,127,0.07); }
 
 /* Underlined editorial tab row — replaces pill tab bars everywhere. */
@@ -28586,7 +28654,6 @@ button.cb-cite { min-height: 0; min-width: 0; }
   .cb-controls { flex-direction: column; align-items: stretch; gap: 0; }
   .cb-ctlbtn { width: 100%; min-height: 48px; font-size: 13px; text-align: center; border: none; border-bottom: 1px solid var(--cb-line, rgba(128,128,128,0.22)); padding: 0 12px; }
   .cb-claim { gap: 10px; }
-  .cb-verdict { padding: 20px 18px !important; }
 }
 /* The drawer positions itself via inline styles (fixed, portaled); the
    old sticky-rail positioning is retired. .cb-ev-rail stays as a hook. */
