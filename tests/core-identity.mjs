@@ -278,7 +278,10 @@ group("Home stage: sidebar restored, one column, one navigation");
     const mount = appSrc.slice(appSrc.indexOf("<Sidebar"), appSrc.indexOf('id="cb-main"'));
     assert.ok(mount.includes("onNavigate={stableSidebarNavigate}"), "sidebar mount lost its navigate wiring");
     assert.ok(mount.includes("isMobile={isMobile} mobileOpen={sidebarMobileOpen}"), "mobile drawer wiring changed");
-    assert.ok(appSrc.includes("marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216)"), "main offset is not the standard sidebar offset");
+    /* Pin updated 2026-10-19 (S7 shell lane, audit M14): the main offset
+       now reads the LAYOUT tokens instead of the 68 and 216 literals; the
+       tokens lane corrects LAYOUT itself to sidebar 216, collapsed 68. */
+    assert.ok(appSrc.includes("marginLeft: isMobile ? 0 : (railCollapsed ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar)"), "main offset is not the standard sidebar offset");
     assert.ok(!appSrc.includes("marginLeft: isMobile || homeStage ? 0"), "stage still zeroes the sidebar offset");
   });
   await test("the stage column keeps one width and one left edge", () => {

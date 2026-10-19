@@ -19477,7 +19477,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        becomes a slide-in drawer (see `sidebarMobile*` below) and `appMain`
        stays full-width, opened with a hamburger button in the header. */
     sidebar: {
-      position: "fixed", top: 0, left: 0, bottom: 0, width: 216, zIndex: Z.dropdown,
+      position: "fixed", top: 0, left: 0, bottom: 0, width: LAYOUT.sidebar, zIndex: Z.dropdown,
       /* Pass 1 (2026-09-17): solid. The smoked-glass treatment existed to
          sit over the ambient reel; the reel is gone, so the rail is an
          opaque surface with a 1px hairline — no blur, no translucency. */
@@ -19495,7 +19495,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
       /* 44px min-height for touch targets (was 38px, which defeated the
          global 44px button floor via inline style). */
-      padding: "9px 12px", minHeight: 44, borderRadius: 0, border: "none", background: "transparent",
+      padding: "9px 12px", minHeight: 44, borderRadius: 2, border: "none", background: "transparent",
       color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500,
       fontFamily: "var(--cb-font)", transition: "background 150ms ease, color 150ms ease",
     },
@@ -19534,7 +19534,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // zIndex:1. Giving appMain the identical treatment covers every view it
     // wraps (the search hero included) with the same one fix, rather than
     // relying on each view to separately remember to opt in.
-    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 216, position: "relative", zIndex: Z.content },
+    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : LAYOUT.sidebar, position: "relative", zIndex: Z.content },
 
     /* ── Full-page views (Profile / Settings / Trending) ──
        Replace what used to be centered modal dialogs — no backdrop, no
@@ -20111,7 +20111,7 @@ function CommandPalette({ open, onClose, P, accent, query, setQuery, groups, act
   let flatIdx = -1;
   const kbdStyle = { fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, color: P.faint, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "2px 7px", flexShrink: 0 };
   return (
-    <ModalChrome label="Command palette" P={P} accent={accent} onClose={onClose} zIndex={220} width={640}
+    <ModalChrome label="Command palette" P={P} accent={accent} onClose={onClose} zIndex={Z.dialog} width={640}
       eyebrow="Command" title={null}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "2px 2px 16px", borderBottom: `1px solid ${P.line}`, marginBottom: 6 }}>
         <Icon name="search" size={17} style={{ color: P.faint, flexShrink: 0 }} />
@@ -20339,7 +20339,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     ["new", "New search", "plus"],
     ["search", "Search", "search"],
     ["document", "Document Reader", "bookOpen"],
-    ["studio", "Diagram Studio", "flowchart"],
+    ["studio", "Diagram Studio · Code diagram", "flowchart"],
     ["trending", "Trending", "chart"],
     ["investigations", "Investigations", "history"],
     ["library", "Library", "bookmark"],
@@ -20360,7 +20360,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
      mobile keeps the full slide-over drawer. */
   const [railHover, setRailHover] = useState(false);
   const expanded = isMobile || !railCollapsed || railHover;
-  const railW = !isMobile && railCollapsed && !railHover ? 68 : 216;
+  const railW = !isMobile && railCollapsed && !railHover ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar;
 
   // The rail is persistent chrome, so this fires once on mount rather than
   // on every navigation — a sidebar that re-animates each time you click an
@@ -20399,8 +20399,8 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
         >✕</UIButton>
       )}
       <div style={{ ...S.sidebarBrand, ...(expanded ? {} : { padding: "24px 0 24px", justifyContent: "center" }) }} onClick={onLogoClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLogoClick(); } }} aria-label="Back to landing page">
-        <Mark size={18} accent={accent} glow={P.dark} />
-        {expanded && <span style={{ fontWeight: 500, fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-font)" }}>Cerebrum</span>}
+        <Mark size={22} accent={accent} glow={false} />
+        {expanded && <span style={{ fontWeight: 500, fontSize: FONT_SIZES.section, color: P.ink, fontFamily: "var(--cb-font)" }}>Cerebrum</span>}
       </div>
       {/* Workstream E (2026-10-08): the command palette gets a visible
           trigger. A palette nobody can find is a feature nobody has. */}
@@ -20471,7 +20471,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             <UIButton P={P} variant="ghost" onClick={onToggleRail} title={railCollapsed ? "Expand navigation" : "Collapse to icons"} aria-pressed={!!railCollapsed} aria-label={railCollapsed ? "Expand navigation" : "Collapse navigation to icons"}
               style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
+                width: 44, height: 44, borderRadius: 2, cursor: "pointer",
                 background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
                 transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
               }}
@@ -20485,7 +20485,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             onMouseEnter={hoverIn} onMouseLeave={hoverOut("__mute")}
             style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
+              width: 44, height: 44, borderRadius: 2, cursor: "pointer",
               background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
               transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
             }}>
@@ -20510,7 +20510,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             }}
           >
             <span aria-hidden="true" style={{
-              width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+              width: 28, height: 28, borderRadius: 2, flexShrink: 0,
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
               ...avatarSkin(user.email || user.id || "cerebrum"),
@@ -20646,7 +20646,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
 
   return (
     <Dialog labelledBy="cb-consent-title" onClose={() => {}} dismissable={false}
-      zIndex={Z.max} width={640}
+      zIndex={Z.consent} width={640}
       scrimStyle={{ background: "rgba(0,0,0,0.72)" }}
       panelStyle={{
         background: P.bg, color: P.ink, position: "relative",
@@ -23639,7 +23639,7 @@ function App() {
     { label: "New search", hint: kbdLabel("J"), run: () => newSession() },
     { label: "New evidence map", run: () => { setCmdOpen(false); setFlowchartOpen({ title: "Untitled evidence map", chartId: null }); } },
     { label: "Open your library", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setView("library"); } },
-    { label: "Open Diagram Studio", run: () => { setCmdOpen(false); setView("studio"); } },
+    { label: "Open Diagram Studio · Code diagram", run: () => { setCmdOpen(false); setView("studio"); } },
     { label: "Open your investigations", run: () => { setCmdOpen(false); setView("investigations"); } },
     // Collections' header button is desktop-only (there's no room for it in
     // the mobile header), but this palette is available on every viewport —
@@ -24153,7 +24153,7 @@ function App() {
         onOpenInvestigation={openHistoryItem}
         onOpenPalette={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}
       />
-      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216), outline: "none"}}>
+      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar), outline: "none"}}>
       {/* Commit 46: the top header is gone for good — every destination it
           used to hold (search command bar, Inbox, Profile/Sign-in, the
           brand/back-to-landing mark) already lives in the Sidebar too (see
@@ -24186,7 +24186,7 @@ function App() {
           clear the 64px nav plus inset. */}
       {isMobile && <style>{`body{padding-bottom:calc(72px + env(safe-area-inset-bottom)) !important;}`}</style>}
       {isMobile && (() => {
-        const VIEW_TITLES = { search: "Search", document: "Document Reader", studio: "Diagram Studio", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile", learn: "Nova" };
+        const VIEW_TITLES = { search: "Search", document: "Document Reader", studio: "Diagram Studio · Code diagram", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile", learn: "Nova" };
         let headerTitle = VIEW_TITLES[view] || "Cerebrum";
         if (view === "search" && turns.length > 0 && (history || []).length > 0) {
           const recent = [...history].sort((a, b) => (b.lastOpened || b.ts || 0) - (a.lastOpened || a.ts || 0))[0];
@@ -24365,7 +24365,10 @@ function App() {
                   <Mark size={22} accent={accent} glow={false} />
                   <span className="cb-stage-wordmark" style={{
                     fontFamily: "var(--cb-font)", fontWeight: 500,
-                    fontSize: FONT_SIZES.display, color: P.ink, lineHeight: 1,
+                    /* One lockup everywhere (2026-10-19, S7 shell lane, audit H8):
+                       Mark 22 plus the name at section 22 weight 500, the same
+                       pairing as the door and the sidebar. */
+                    fontSize: FONT_SIZES.section, color: P.ink, lineHeight: 1,
                   }}>Cerebrum</span>
                   {/* The resident header Nova (2026-10-15) stands
                       at the masthead's right end on the empty home
