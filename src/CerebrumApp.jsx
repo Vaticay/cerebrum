@@ -14028,7 +14028,11 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
   if (!clientIdRef.current) clientIdRef.current = newHuddleClientId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  const [status, setStatus] = useState("loading"); // loading | waiting | connecting | ready | error
+  const [status, setStatus] = useState("loading"); // loading | waiting | connecting | ready | error | ended (ended added 2026-10-19, S7b M55)
+  const [endedSecs, setEndedSecs] = useState(0);
+  const connectedAtRef = useRef(0);
+  const endedTimerRef = useRef(null);
+  const showEndedRef = useRef(null);
   const [errorReason, setErrorReason] = useState("");
   const [retryTick, setRetryTick] = useState(0);
   const [micMuted, setMicMuted] = useState(false);
@@ -14258,7 +14262,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         if (remoteDescSet) { try { await pc.addIceCandidate(msg.payload); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: await pc.addIceCandidate(msg.payload); }:", cbErr); } }
         else pendingRemoteCandidates.push(msg.payload);
       } else if (msg.type === "bye") {
-        if (!cancelled) onCloseRef.current && onCloseRef.current();
+        if (!cancelled && showEndedRef.current) showEndedRef.current();
       }
     }
 
@@ -14428,6 +14432,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         if (cancelled || !pc) return;
         if (pc.connectionState === "connected") {
           connected = true;
+          if (!connectedAtRef.current) connectedAtRef.current = Date.now();
           if (ringTimer) { clearInterval(ringTimer); ringTimer = null; }
           setStatus("ready");
           applySenderQuality();
@@ -14553,7 +14558,22 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
     setCamMuted(!track.enabled);
   };
   const toggleView = () => setMainIsSelf((v) => !v);
-  const endCall = () => { byeSentRef.current = true; postCallSignal(threadId, clientIdRef.current, "bye", {}); onClose(); };
+  /* 2026-10-19 (S7b, M55): an ended state held about two seconds on the
+     solid stage, so a dropped call and a deliberate goodbye no longer
+     look identical, and neither looks like the app closed something by
+     accident. Whichever side hangs up, both surfaces land here first. */
+  const showEnded = () => {
+    if (status === "ended") return;
+    const secs = connectedAtRef.current ? Math.max(0, Math.round((Date.now() - connectedAtRef.current) / 1000)) : 0;
+    setEndedSecs(secs);
+    setMinimized(false);
+    setStatus("ended");
+    if (endedTimerRef.current) clearTimeout(endedTimerRef.current);
+    endedTimerRef.current = setTimeout(() => { if (onCloseRef.current) onCloseRef.current(); }, 2000);
+  };
+  showEndedRef.current = showEnded;
+  useEffect(() => () => { if (endedTimerRef.current) clearTimeout(endedTimerRef.current); }, []);
+  const endCall = () => { if (status === "ended") return; byeSentRef.current = true; postCallSignal(threadId, clientIdRef.current, "bye", {}); showEnded(); };
   const stopScreenShare = () => {
     const camTrack = localStreamRef.current?.getVideoTracks()[0];
     const sender = pcRef.current?.getSenders().find((s) => s.track && s.track.kind === "video");
@@ -14596,7 +14616,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
     <button key={label} onClick={onClick} aria-label={label} aria-pressed={active} title={label} style={{
       width: 48, height: 48, borderRadius: "50%", border: "none", cursor: "pointer",
       display: "flex", alignItems: "center", justifyContent: "center",
-      background: active ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.14)",
+      background: active ? "#ffffff" : "#26262b",
       color: active ? "#0b0b0d" : "#fff",
       transition: "background 150ms ease, color 150ms ease",
     }}>
@@ -14657,23 +14677,26 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         )}
         {/* While ringing out, this sits ON TOP of your own live camera feed
             (see assignVideos) rather than replacing it, so the screen reads
-            as "you, calling someone" the way FaceTime does. The scrim is a
-            gradient weighted to the top and bottom edges — enough contrast
-            for the status text and the End-call button without flattening
-            the middle of your own picture into grey. The full-bleed opaque
-            treatment stays for the states where there genuinely is nothing
-            to look at yet (still acquiring the camera, or an error). */}
+            as "you, calling someone" the way FaceTime does.
+            2026-10-19 (S7b, H25): the status block itself is a solid panel
+            in the stage color. Text no longer sits on a gradient scrim
+            over the live picture at partial opacity, and every fill in
+            every call state is fully opaque; the camera picture stays
+            visible around the panel. */}
         {status !== "ready" && !minimized && (
           <div style={{
-            position: "absolute", inset: 0, display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center", gap: 12, padding: 24, textAlign: "center",
-            background: (status === "waiting" || status === "connecting")
-              ? "linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.12) 35%, rgba(0,0,0,0.12) 62%, rgba(0,0,0,0.72) 100%)"
-              : "rgba(11,11,13,0.92)",
+            position: "absolute", inset: 0, display: "flex",
+            alignItems: "center", justifyContent: "center", padding: 24,
           }}>
+            <div style={{
+              display: "flex", flexDirection: "column",
+              alignItems: "center", justifyContent: "center", gap: 12, padding: "28px 32px", textAlign: "center",
+              background: "#141418", border: "1px solid rgba(255,255,255,0.14)", borderRadius: RADIUS.lg,
+              maxWidth: "calc(100% - 16px)",
+            }}>
             {status === "loading" ? (<>
               <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-              <div style={{ fontSize: FONT_SIZES.small, color: "rgba(255,255,255,0.7)" }}>Getting camera ready…</div>
+              <div style={{ fontSize: FONT_SIZES.small, color: "#d7d7db" }}>Getting camera ready…</div>
             </>) : status === "waiting" ? (<>
               {/* "Waiting for X to join" described the old behavior
                   accurately — nothing was calling anyone, it really was
@@ -14682,25 +14705,34 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
                   above), the copy says what is happening: it's calling. */}
               <div aria-hidden="true" style={{
                 width: 84, height: 84, borderRadius: "50%", marginBottom: 4,
-                background: withAlpha(accent, 0.22), border: `1px solid ${withAlpha(accent, 0.4)}`,
+                background: accent, border: "1px solid rgba(255,255,255,0.14)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 30, fontWeight: 500, color: "#fff", fontFamily: "var(--cb-font)",
+                fontSize: 30, fontWeight: 500, color: at, fontFamily: "var(--cb-font)",
                 animation: "cbHuddleRing 2s ease-in-out infinite",
               }}>{(name || "?").trim().charAt(0).toUpperCase()}</div>
               <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: "#fff" }}>Calling {name}…</div>
-              <div style={{ fontSize: FONT_SIZES.caption, color: "rgba(255,255,255,0.6)" }}>Ringing on Cerebrum. They'll see it if they're online.</div>
-              <UIButton P={P} variant="ghost" onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ minHeight: 44, padding: "8px 16px", borderRadius: RADIUS.viewport, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)" }}>Back to chat</UIButton>
+              <div style={{ fontSize: FONT_SIZES.caption, color: "#b9b9bf" }}>Ringing on Cerebrum. They'll see it if they're online.</div>
+              <UIButton P={P} variant="ghost" onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ minHeight: 44, padding: "8px 16px", borderRadius: RADIUS.viewport, border: "none", background: "#26262b", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)" }}>Back to chat</UIButton>
             </>) : status === "connecting" ? (<>
               <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-              <div style={{ fontSize: FONT_SIZES.small, color: "rgba(255,255,255,0.7)" }}>Connecting…</div>
+              <div style={{ fontSize: FONT_SIZES.small, color: "#d7d7db" }}>Connecting…</div>
+            </>) : status === "ended" ? (<>
+              <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: "#fff" }}>{name}</div>
+              <div style={{ fontSize: FONT_SIZES.small, color: "#d7d7db" }}>Call ended</div>
+              {endedSecs > 0 && (
+                <div style={{ fontSize: FONT_SIZES.caption, color: "#b9b9bf", fontVariantNumeric: "tabular-nums" }}>
+                  {Math.floor(endedSecs / 60)}:{String(endedSecs % 60).padStart(2, "0")}
+                </div>
+              )}
             </>) : (<>
-              <Icon name="warning" size={22} style={{ color: "rgba(255,255,255,0.6)" }} />
+              <Icon name="warning" size={22} style={{ color: "#b9b9bf" }} />
               <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: "#fff" }}>{errorReason || "Couldn't reach the video call service."}</div>
               <div style={{ display: "flex", gap: 10 }}>
                 <button onClick={(e) => { e.stopPropagation(); setRetryTick((n) => n + 1); }} style={{ minHeight: 44, padding: "8px 16px", borderRadius: RADIUS.viewport, border: "1px solid rgba(255,255,255,0.25)", background: "none", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)" }}>Retry</button>
-                <UIButton P={P} variant="ghost" onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ minHeight: 44, padding: "8px 16px", borderRadius: RADIUS.viewport, border: "none", background: "rgba(255,255,255,0.14)", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)" }}>Back to chat</UIButton>
+                <UIButton P={P} variant="ghost" onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ minHeight: 44, padding: "8px 16px", borderRadius: RADIUS.viewport, border: "none", background: "#26262b", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)" }}>Back to chat</UIButton>
               </div>
             </>)}
+            </div>
           </div>
         )}
       </div>
@@ -14712,7 +14744,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
         // directly instead of also re-expanding it.
         <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", justifyContent: "space-between", padding: 8, pointerEvents: "none" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, pointerEvents: "none" }}>
-            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: "#fff", background: "rgba(0,0,0,0.5)", padding: "3px 8px", borderRadius: RADIUS.viewport, maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: "#fff", background: "#000000", padding: "3px 8px", borderRadius: RADIUS.viewport, maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, pointerEvents: "auto" }}>
             {/* The buttons are 44px hit areas; the visible circle stays
@@ -14720,12 +14752,12 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
                 buttons with minHeight: 0 — an explicit opt-out of the
                 touch floor on the surface used one-handed mid-call.) */}
             <button onClick={(e) => { e.stopPropagation(); toggleMic(); }} aria-label={micMuted ? "Unmute microphone" : "Mute microphone"} style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
-              <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: "50%", background: "#000000", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Icon name={micMuted ? "micOff" : "mic"} size={14} />
               </span>
             </button>
             <button onClick={(e) => { e.stopPropagation(); setMinimized(false); }} aria-label="Expand call" title="Expand" style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
-              <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: "50%", background: "#000000", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Icon name="maximize2" size={14} />
               </span>
             </button>
@@ -14798,7 +14830,7 @@ function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, a
           <button onClick={() => setReportOpen(true)} aria-label="Report this call" title="Report this call" style={{
             width: 48, height: 48, borderRadius: "50%", border: "none", cursor: "pointer",
             display: "flex", alignItems: "center", justifyContent: "center",
-            background: "rgba(255,255,255,0.14)", color: "#fff",
+            background: "#26262b", color: "#fff",
           }}>
             <Icon name="flag" size={18} />
           </button>
