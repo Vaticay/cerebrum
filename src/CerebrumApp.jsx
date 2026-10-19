@@ -396,48 +396,17 @@ async function exportTopPapersExcel(papers, { accent, title, subtitle, filename 
   });
   return { ...result, total, capped: total > 20 };
 }
-/* Pro: Answer PDF export — research article layout.
-   Generates a real PDF client-side with jspdf (lazy-loaded so the main bundle
-   never pays for it): the question as a centered serif title, then Abstract,
-   Keywords, Introduction, Methods, Results, Discussion, and References,
-   built from the answer markdown plus the turn's diagnostics, with the
-   Cerebrum brain mark as a faint watermark on every page.
+/* Pro: Answer PDF export (2026-10-19, S2 / H14).
+   Generates a real PDF client-side with jspdf (lazy-loaded so the main
+   bundle never pays for it): the question as a centered serif title,
+   then the answer's own sections in the answer's own order under their
+   own headings, then References. The manufactured structure this used
+   to impose (Abstract and Keywords up front, the research section
+   relabeled Introduction, a Methods section built from diagnostics,
+   a Results table, a Discussion regrouping) is gone, and so is the
+   faint brain mark watermark on every page: the PDF prints the
+   answer, not a reframe of it.
    Returns { ok, filename } so the caller only logs successful exports. */
-
-// Cerebrum brain mark (public/favicon.svg) rendered once to a PNG data URL
-// for use as the PDF watermark. Cached; null when it cannot be loaded.
-let cerebrumWatermarkUrl = null;
-let cerebrumWatermarkTried = false;
-async function loadCerebrumWatermark() {
-  if (cerebrumWatermarkTried) return cerebrumWatermarkUrl;
-  cerebrumWatermarkTried = true;
-  try {
-    const res = await fetch("/favicon.svg", { cache: "force-cache" });
-    if (!res.ok) return null;
-    const svg = await res.text();
-    if (!svg || svg.indexOf("<svg") < 0) return null;
-    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    try {
-      const img = new Image();
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = url;
-      });
-      const S = 512;
-      const canvas = document.createElement("canvas");
-      canvas.width = S; canvas.height = S;
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, S, S);
-      ctx.drawImage(img, 0, 0, S, S);
-      cerebrumWatermarkUrl = canvas.toDataURL("image/png");
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  } catch (e) { cerebrumWatermarkUrl = null; }
-  return cerebrumWatermarkUrl;
-}
 
 // Strip link markup but keep visible text; citation [n] markers survive.
 function pdfInlineText(t) {
@@ -445,36 +414,24 @@ function pdfInlineText(t) {
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
 }
-// Split a line into {t, bold, italic} runs for **bold** and *italic*.
+/* Split a line into {t, bold, italic} runs through the shared inline
+   tokenizer (2026-10-19, S2 / C3), so the PDF pairs underscore italics
+   with the same word boundary rule as the screen and no marker can
+   reach the page raw. */
 function pdfInlineRuns(text) {
   const runs = [];
-  const clean = pdfInlineText(text);
-  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|_[^_\n]+_)/g;
-  let last = 0, m;
-  const push = (t, bold, italic) => { if (t) runs.push({ t, bold: !!bold, italic: !!italic }); };
-  while ((m = re.exec(clean))) {
-    push(clean.slice(last, m.index));
-    const tok = m[0];
-    if (tok.length > 4 && tok.startsWith("**")) push(tok.slice(2, -2), true, false);
-    else push(tok.slice(1, -1), false, true);
-    last = m.index + tok.length;
-  }
-  push(clean.slice(last));
+  const walk = (toks, bold, italic) => {
+    for (const tk of toks) {
+      if (tk.bold) walk(inlineTokens(tk.t), true, italic);
+      else if (tk.italic) walk(inlineTokens(tk.t), bold, true);
+      else if (tk.t) runs.push({ t: tk.t, bold: !!bold, italic: !!italic });
+    }
+  };
+  walk(inlineTokens(pdfInlineText(text)), false, false);
   return runs;
 }
 function pdfRunStyle(r) {
   return r.bold && r.italic ? "bolditalic" : r.bold ? "bold" : r.italic ? "italic" : "normal";
-}
-const PDF_STOPWORDS = new Set(("a,an,the,of,and,or,in,on,for,to,with,from,by,at,as,is,are,was,were,be,been,being,what,which,who,whom,whose,how,why,when,where,does,do,did,can,could,should,would,has,have,had,its,it,this,that,these,those,there,their,them,they,we,you,your,our,us,not,no,yes,if,then,than,so,such,into,over,under,between,through,during,about,against,studies,study,involving,involved").split(","));
-function pdfKeywords(question) {
-  const out = [], seen = new Set();
-  for (const w of String(question || "").toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/)) {
-    const c = w.replace(/-/g, "");
-    if (c.length < 3 || PDF_STOPWORDS.has(c) || seen.has(c)) continue;
-    seen.add(c); out.push(c);
-    if (out.length >= 6) break;
-  }
-  return out;
 }
 function pdfSlug(question) {
   const s = String(question || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
@@ -491,15 +448,6 @@ function pdfSplitSections(md) {
   }
   sections.push(cur);
   return sections;
-}
-function pdfSectionKind(heading) {
-  const h = String(heading || "").toLowerCase();
-  if (!heading) return "abstract";
-  if (h.indexOf("what the research shows") >= 0) return "introduction";
-  if (h.indexOf("disagree") >= 0) return "disagree";
-  if (h.indexOf("how solid") >= 0) return "solid";
-  if (h.indexOf("what would change") >= 0) return "change";
-  return "extra";
 }
 // Group section lines into paragraph / bullet / numbered blocks.
 function pdfGroupBlocks(lines) {
@@ -532,13 +480,24 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     const t = turn || {};
     const list = Array.isArray(sources) ? sources : [];
     const dateStr = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+    /* Type roles (2026-10-19, S2 / H14): body text is the serif role
+       and headings, labels and the footer are the sans role, the same
+       two roles the print layout fills with Source Serif 4 and Inter.
+       jsPDF can only set fonts it can embed, its embeddable set is the
+       built in PostScript faces, and the repo ships Source Serif 4 and
+       Inter as woff2 webfonts only, which jsPDF cannot embed. So the
+       roles map onto the built in serif and sans faces here; the day a
+       TTF of either family ships in the repo, these two constants are
+       the whole change. */
+    const PDF_SERIF_FONT = "times";
+    const PDF_SANS_FONT = "helvetica";
 
     const addPage = () => { doc.addPage(); y = MT; };
     const need = (h) => { if (y + h > pageBottom) addPage(); };
 
     // Rich paragraph: mixed bold/italic runs, word-wrapped, paginated.
     function richPara(runs, opts) {
-      const o = Object.assign({ font: "times", size: 11, lineH: 15.5, color: [30, 30, 30], indent: 0, hanging: 0 }, opts || {});
+      const o = Object.assign({ font: PDF_SERIF_FONT, size: 11, lineH: 15.5, color: [30, 30, 30], indent: 0, hanging: 0 }, opts || {});
       const x0 = ML + o.indent;
       const w0 = maxW - o.indent;
       doc.setFontSize(o.size);
@@ -580,7 +539,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     function sectionHeading(title) {
       need(40);
       y += 10;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(20, 20, 20);
+      doc.setFont(PDF_SANS_FONT, "bold"); doc.setFontSize(12); doc.setTextColor(20, 20, 20);
       doc.text(title, ML, y);
       y += 6;
       doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.75);
@@ -591,7 +550,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
       // 2026-10-12: Fixed text overlap. The bullet is drawn in the left margin,
       // text starts indented. Both at the same baseline y.
       need(16);
-      doc.setFont("times", "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
+      doc.setFont(PDF_SERIF_FONT, "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
       const startY = y;
       // Draw bullet first at the baseline
       doc.text("•", ML, startY + 11);  // +11 to align with 11pt text baseline
@@ -602,7 +561,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     function numberedBlock(n, text) {
       need(16);
       const label = n + ".";
-      doc.setFont("times", "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
+      doc.setFont(PDF_SERIF_FONT, "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
       doc.text(label, ML, y);
       const labelW = doc.getTextWidth(label + "  ");
       richPara(pdfInlineRuns(text), { indent: labelW });
@@ -617,16 +576,16 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     };
 
     // ── Title block ──
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(110, 110, 110);
+    doc.setFont(PDF_SANS_FONT, "normal"); doc.setFontSize(9); doc.setTextColor(110, 110, 110);
     const kicker = "Cerebrum Research";
     doc.text(kicker, (W - doc.getTextWidth(kicker)) / 2, y);
     y += 22;
-    doc.setFont("times", "bold"); doc.setFontSize(20); doc.setTextColor(20, 20, 20);
+    doc.setFont(PDF_SERIF_FONT, "bold"); doc.setFontSize(20); doc.setTextColor(20, 20, 20);
     const titleLines = doc.splitTextToSize(String(question || "Research Answer"), maxW);
     need(titleLines.length * 26);
     doc.text(titleLines, W / 2, y, { align: "center" });
     y += titleLines.length * 26 + 4;
-    doc.setFont("times", "italic"); doc.setFontSize(10.5); doc.setTextColor(90, 90, 90);
+    doc.setFont(PDF_SERIF_FONT, "italic"); doc.setFontSize(10.5); doc.setTextColor(90, 90, 90);
     const byline = `Generated ${dateStr} · askcerebrum.org`;
     doc.text(byline, (W - doc.getTextWidth(byline)) / 2, y);
     y += 10;
@@ -634,136 +593,22 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     doc.line(ML, y, ML + maxW, y);
     y += 22;
 
-    // ── Sections from the answer markdown ──
+    /* ── The answer's own sections, in the answer's own order
+       (2026-10-19, S2 / H14). Headings print as written, resolved
+       through the shared renderer's plain text twin; blocks print
+       through pdfInlineRuns. Nothing is relabeled, regrouped or
+       manufactured around them. */
     const sections = pdfSplitSections(answer);
-    const byKind = {};
-    for (const s of sections) {
-      const k = pdfSectionKind(s.heading);
-      (byKind[k] = byKind[k] || []).push(s);
+    let printedBlocks = 0;
+    for (const sec of sections) {
+      if (sec.heading) sectionHeading(plainInlineText(sec.heading));
+      const before = y;
+      renderBlocks(sec);
+      if (y !== before) printedBlocks++;
     }
-
-    // Abstract: everything before the first heading.
-    sectionHeading("Abstract");
-    if (byKind.abstract && pdfGroupBlocks(byKind.abstract.flatMap((s) => s.lines)).length) {
-      for (const s of byKind.abstract) renderBlocks(s);
-    } else {
+    if (!printedBlocks) {
       richPara([{ t: "No answer text was available for this query." }], { color: [90, 90, 90] });
       y += 5;
-    }
-    const kws = pdfKeywords(question);
-    if (kws.length) {
-      y += 2;
-      richPara([{ t: "Keywords: ", bold: true }, { t: kws.join(", ") }], { size: 10, lineH: 14, color: [80, 80, 80] });
-      y += 6;
-    }
-
-    // Introduction.
-    if (byKind.introduction) {
-      sectionHeading("Introduction");
-      for (const s of byKind.introduction) renderBlocks(s);
-    }
-
-    // Methods: how this answer was made, from the turn's real diagnostics.
-    sectionHeading("Methods");
-    const mrows = [];
-    if (t.queryAnalysis && t.queryAnalysis.plainEnglish) mrows.push(["Query interpreted as", String(t.queryAnalysis.plainEnglish)]);
-    const dbOutcomes = Array.isArray(t.sourcesQueried) ? t.sourcesQueried : null;
-    if (dbOutcomes && dbOutcomes.length) {
-      const ok = dbOutcomes.filter((x) => x.ok).length;
-      const missing = dbOutcomes.filter((x) => !x.ok).map((x) => x.source).filter(Boolean);
-      mrows.push(["Databases", `${ok} of ${dbOutcomes.length} scholarly indexes returned results` + (missing.length ? `; no response from ${missing.join(", ")}` : "") + "."]);
-    } else {
-      mrows.push(["Databases", "Searched across Cerebrum's scholarly indexes."]);
-    }
-    const cited = list.filter((s) => !(s && s.uncited)).length;
-    const further = list.length - cited;
-    const withheld = typeof t.relevanceGatedOut === "number" ? t.relevanceGatedOut : 0;
-    mrows.push(["Sources", withheld > 0
-      ? `${list.length + withheld} relevant papers retrieved; ${cited} cited below; ${withheld} withheld as tangential.`
-      : `${cited} paper${cited === 1 ? "" : "s"} cited below.` + (further > 0 ? ` ${further} more ${further === 1 ? "is" : "are"} listed as further reading.` : "")]);
-    /* Trust release: the coverage sentence joins the printed Methods,
-       worded by the same helper the answer page uses, so print and
-       screen can never state different coverage. Absent on turns the
-       backend shipped no _coverage for; nothing is printed then. */
-    const coverageLine = coverageSentence(t._coverage);
-    if (coverageLine) mrows.push(["Coverage", coverageLine]);
-    if (t.synthesisMode === "extractive") {
-      mrows.push(["Synthesis", "Assembled from the papers the search found. No AI synthesis ran for this answer."]);
-    } else {
-      mrows.push(["Synthesis", "Written from the cited papers, with each claim tied to its source."]);
-    }
-    if (typeof t.answerSeconds === "number" && t.answerSeconds > 0) {
-      const s = t.answerSeconds;
-      mrows.push(["Timing", `Answered in ${s < 10 ? s.toFixed(1) : Math.round(s)} second${s === 1 ? "" : "s"}.`]);
-    }
-    for (const [k, v] of mrows) {
-      need(28);
-      richPara([{ t: k + ": ", bold: true }, { t: v }], { size: 10.5, lineH: 14.5 });
-      y += 3;
-    }
-
-    // Results: key figures + evidence table.
-    sectionHeading("Results");
-    const years = list.map((s) => parseInt(s.year, 10)).filter((n) => !isNaN(n));
-    const journals = [...new Set(list.map((s) => s.journal).filter(Boolean))];
-    const totalCites = list.reduce((a, s) => a + (typeof s.citations === "number" ? s.citations : 0), 0);
-    const figs = [`${cited} paper${cited === 1 ? "" : "s"} underpin this answer`];
-    if (years.length) figs.push(years.length > 1 ? `published ${Math.min(...years)} to ${Math.max(...years)}` : `published ${years[0]}`);
-    if (journals.length) figs.push(`across ${journals.length} journal${journals.length === 1 ? "" : "s"}`);
-    if (totalCites > 0) figs.push(`${totalCites.toLocaleString()} combined citations`);
-    need(20);
-    richPara([{ t: figs.join("; ") + "." }]);
-    y += 8;
-    if (list.length) {
-      need(30);
-      doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
-      doc.text("Evidence at a glance", ML, y);
-      y += 14;
-      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(90, 90, 90);
-      const cNo = ML, cTitle = ML + 28, cYear = ML + maxW - 110, cCite = ML + maxW - 52;
-      doc.text("No.", cNo, y); doc.text("Title", cTitle, y); doc.text("Year", cYear, y); doc.text("Cited by", cCite, y);
-      y += 4;
-      doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.5);
-      doc.line(ML, y, ML + maxW, y);
-      y += 10;
-      const titleW = cYear - cTitle - 8;
-      list.forEach((s, i) => {
-        const tLines = doc.splitTextToSize(String(s.title || "Untitled"), titleW);
-        const rh = Math.max(tLines.length * 11.5, 14);
-        need(rh + 6);
-        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
-        doc.text(String(i + 1), cNo, y);
-        doc.setFont("times", "normal"); doc.setFontSize(9); doc.setTextColor(40, 40, 40);
-        doc.text(tLines, cTitle, y);
-        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
-        doc.text(String(s.year || "n/a"), cYear, y);
-        doc.text(typeof s.citations === "number" ? s.citations.toLocaleString() : "n/a", cCite, y);
-        y += rh + 6;
-      });
-      y += 8;
-    }
-
-    // Discussion: disagreement, confidence, what would change this.
-    const discParts = [];
-    if (byKind.disagree) discParts.push({ sub: "Where the evidence diverges", secs: byKind.disagree });
-    if (byKind.solid) discParts.push({ sub: "How solid is this", secs: byKind.solid });
-    if (byKind.change) discParts.push({ sub: "What would change this", secs: byKind.change });
-    if (discParts.length) {
-      sectionHeading("Discussion");
-      for (const p of discParts) {
-        need(26);
-        doc.setFont("helvetica", "bold"); doc.setFontSize(10.5); doc.setTextColor(40, 40, 40);
-        doc.text(p.sub, ML, y);
-        y += 16;
-        for (const s of p.secs) renderBlocks(s);
-      }
-    }
-    if (byKind.extra) {
-      for (const s of byKind.extra) {
-        const h = String(s.heading || "").trim();
-        sectionHeading(h ? h.charAt(0).toUpperCase() + h.slice(1) : "Notes");
-        renderBlocks(s);
-      }
     }
 
     // References.
@@ -784,21 +629,12 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
       });
     }
 
-    // Final pass: watermark + footer on every page.
-    const wm = await loadCerebrumWatermark();
+    /* Final pass: footer on every page. The watermark that used to
+       ride here is gone (2026-10-19, S2 / H14). */
     const pages = doc.getNumberOfPages();
     for (let p = 1; p <= pages; p++) {
       doc.setPage(p);
-      if (wm) {
-        try {
-          const S = 340;
-          doc.saveGraphicsState();
-          doc.setGState(new doc.GState({ opacity: 0.08 }));  // 2026-10-12: Increased from 0.05 (was invisible)
-          doc.addImage(wm, "PNG", (W - S) / 2, (H - S) / 2, S, S);
-          doc.restoreGraphicsState();
-        } catch (e) { /* watermark is decorative; never fail the export */ }
-      }
-      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(140, 140, 140);
+      doc.setFont(PDF_SANS_FONT, "normal"); doc.setFontSize(8); doc.setTextColor(140, 140, 140);
       doc.text(`Generated by Cerebrum · ${dateStr} · askcerebrum.org`, ML, H - 40);
       const pg = `Page ${p} of ${pages}`;
       doc.text(pg, W - MR - doc.getTextWidth(pg), H - 40);
@@ -7435,13 +7271,14 @@ function ReportModal({ query, P, accent, at, onClose, answer = "", sources = [] 
   );
 }
 
-// Reshapes an already-synthesized answer into Abstract / body / Conclusion
-// blocks for the print-only academic layout below. This is a reformat, not
-// a new generation pass — every word here already exists in `answer`; the
-// "##"/"###" section headers the model wrote are kept as body headings, the
-// first real paragraph becomes the Abstract, and the last becomes the
-// Conclusion, the same way a person skimming their own answer for a quick
-// paper would carve it up by hand.
+/* The answer's own blocks, in the answer's own order, for the print
+   layout below (2026-10-19, S2 / H14). This used to carve the answer
+   up by hand (first paragraph relabeled Abstract, last relabeled
+   Conclusion) and the print JSX supplied a fabricated Introduction
+   paragraph around them. None of that survives: print shows the
+   answer as written, its own headings as headings and its paragraphs
+   in order, and the only added furniture is the masthead, the
+   question as title, and the References list, which is real data. */
 function buildAcademicPaperBlocks(answer) {
   const clean = normalizeSectionHeaders(answer || "").trim();
   const chunks = clean.split(/\n{2,}/).map((c) => c.trim()).filter(Boolean);
@@ -7450,13 +7287,7 @@ function buildAcademicPaperBlocks(answer) {
     if (h) return { type: "heading", text: h[1] };
     return { type: "para", text: c.replace(/^[•\-]\s+/gm, "").replace(/^\d+\.\s+/gm, "") };
   });
-  let firstParaIdx = blocks.findIndex((b) => b.type === "para");
-  let lastParaIdx = -1;
-  for (let i = blocks.length - 1; i >= 0; i--) { if (blocks[i].type === "para") { lastParaIdx = i; break; } }
-  const abstract = firstParaIdx >= 0 ? blocks[firstParaIdx].text : "";
-  const conclusion = lastParaIdx >= 0 && lastParaIdx !== firstParaIdx ? blocks[lastParaIdx].text : "";
-  const bodyBlocks = blocks.filter((_, i) => i !== firstParaIdx && i !== lastParaIdx);
-  return { abstract, bodyBlocks, conclusion };
+  return { blocks };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -9886,9 +9717,12 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   // The labeled More menu: every demoted toolbar action stays one tap
   // away, each still labeled. Dividers at a boundary collapse out.
   /* Paper/print state lives ABOVE the overflowItems IIFE: the Paper menu
-     item's label reads `generatingPaper` eagerly when the IIFE evaluates,
-     so these bindings must already be initialized or the answer thread
-     dies with a temporal-dead-zone error on every completed answer. */
+     item reads paper state eagerly when the IIFE evaluates, so these
+     bindings must already be initialized or the answer thread dies with
+     a temporal-dead-zone error on every completed answer. The
+     generatingPaper binding is vestigial since 2026-10-19 (tail 14
+     deleted the fixed composing delay); it stays declared here so the
+     ordering contract this comment records cannot silently regress. */
   const [generatingPaper, setGeneratingPaper] = useState(false);
   const [paperReady, setPaperReady] = useState(false);
   const overflowItems = (() => {
@@ -9904,12 +9738,14 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         id: "flowchart", label: "Flowchart", icon: "flowchart", hint: "diagram",
         onClick: () => onShowFlowchart(t),
       }, {
-        id: "paper", label: generatingPaper ? "Composing paper…" : "Paper / print", icon: "printer",
+        /* 2026-10-19 (S2, tail 14): no fixed composing delay. Setting
+           paperReady mounts the print document in the same commit and
+           the paperReady effect prints it; the old 650ms timer only
+           made the reader wait on a label. */
+        id: "paper", label: "Paper / print", icon: "printer",
         onClick: () => {
-          if (generatingPaper) return;
           if (paperReady) { window.print(); return; }
-          setGeneratingPaper(true);
-          setTimeout(() => { setGeneratingPaper(false); setPaperReady(true); }, 650);
+          setPaperReady(true);
         },
       }] : []),
       { divider: true },
@@ -10650,7 +10486,6 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           rules in the @media print block below. */}
       {paperReady && document.body && createPortal(
         <div className="cb-print-paper-doc" aria-hidden="true">
-          <div className="cb-paper-watermark">Cerebrum™</div>
           <div className="cb-paper-page">
             {/* Commit 51: the same brain Mark used in the Sidebar/header
                 (see the Mark component) — a small letterhead-style masthead
@@ -10662,31 +10497,24 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             <div className="cb-paper-title">{t.q}</div>
             <div className="cb-paper-byline">Synthesized by Cerebrum · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
 
-            <div className="cb-paper-section-label">Abstract</div>
-            <p className="cb-paper-para">{paper.abstract || "No summary available for this answer."}</p>
-
-            <div className="cb-paper-section-label">Introduction</div>
-            <p className="cb-paper-para">This paper synthesizes current research addressing the question: "{t.q}." The findings below are drawn from {t.sources && t.sources.length > 0 ? `the ${t.sources.length} source${t.sources.length === 1 ? "" : "s"} cited in the references` : "the cited literature"}.</p>
-
-            {paper.bodyBlocks.map((b, i) => (
+            {/* 2026-10-19 (S2, H14): the answer's own blocks, in order,
+                through the shared inline renderer, so no markdown
+                marker reaches paper and a species name italicizes on
+                paper exactly as it does on screen. No fabricated
+                Introduction, no Abstract or Conclusion relabeling,
+                and the 90pt rotated watermark treatment is gone. */}
+            {paper.blocks.map((b, i) => (
               b.type === "heading"
-                ? <div key={i} className="cb-paper-heading">{b.text}</div>
-                : <p key={i} className="cb-paper-para">{b.text}</p>
+                ? <div key={i} className="cb-paper-heading">{renderInlineMdLite(b.text, P)}</div>
+                : <p key={i} className="cb-paper-para">{renderInlineMdLite(b.text, P)}</p>
             ))}
-
-            {paper.conclusion && (
-              <>
-                <div className="cb-paper-section-label">Conclusion</div>
-                <p className="cb-paper-para">{paper.conclusion}</p>
-              </>
-            )}
 
             {t.sources && t.sources.length > 0 && (
               <>
                 <div className="cb-paper-section-label">References</div>
                 <div className="cb-paper-references">
                   {t.sources.map((s, i) => (
-                    <p key={i} className="cb-paper-ref">{formatCitation(s, citationStyle || "vancouver", i + 1)}</p>
+                    <p key={i} className="cb-paper-ref">{renderInlineMdLite(formatCitation(s, citationStyle || "vancouver", i + 1), P)}</p>
                   ))}
                 </div>
               </>
@@ -27881,9 +27709,15 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
 /* Smooth scroll for citation jumps */
 html { scroll-behavior: smooth; }
 
-/* ── Print-friendly ── */
+/* ── Print-friendly ──
+   2026-10-19 (S2 / tail 14): a plain browser print now prints the
+   answer column, not the interface. The app chrome (header, navs, the
+   sources sidebar column, dialogs, the fixed texture layers, buttons)
+   is hidden wholesale; what remains in flow is the thread column. The
+   designed paper print is a separate path (body.cb-printing-paper
+   below) and is unaffected: its document is portaled outside #root. */
 @media print {
-  header, footer, .cb-fab-pulse, button { display: none !important; }
+  header, footer, nav, aside, [role="dialog"], .cb-grain, .cb-vignette, .cb-fab-pulse, button { display: none !important; }
   body, div { background: white !important; color: black !important; }
   * { backdrop-filter: none !important; box-shadow: none; }
   .cb-answer-enter { font-size: 12pt !important; line-height: 1.6 !important; }
@@ -27924,49 +27758,25 @@ html { scroll-behavior: smooth; }
   }
   .cb-paper-page {
     position: relative; z-index: ${Z.content}; max-width: 7in; margin: 0 auto; padding: 0.6in 0 1in;
-    font-family: "Times New Roman", Times, serif; color: #000 !important;
-    /* Commit 51: this is what actually put the watermark "above the text
-       and a little too visible." The blanket "body, div { background:
-       white }" rule a few lines up gives THIS div an opaque white fill it
-       never asked for; Commit 49 raised the watermark's z-index above it
-       (to fix it disappearing behind that same opaque fill on every full
-       page), which incidentally also raised it above this div's own
-       children — i.e. the actual paragraph text — painting the watermark
-       over every word instead of the page background. The real fix is
-       here, not in the z-index: an explicit transparent background (more
-       specific than the blanket div rule, so it wins) means there's no
-       opaque layer left for anything to hide behind OR paint over. Verified
-       against a real multi-page page.pdf() render: with this in place the
-       watermark can go back to sitting behind the text (see z-index below)
-       and still shows through correctly on every page, blank ones included. */
+    /* 2026-10-19 (S2 / H14): set in the app's own faces, Source Serif 4
+       for the paper body via --cb-serif and Inter for the masthead via
+       --cb-font. Times New Roman and Helvetica Neue are gone. The
+       explicit transparent background stays from the earlier fix: the
+       blanket print rule above would otherwise give this div an
+       opaque white fill it never asked for. */
+    font-family: var(--cb-serif); color: #000 !important;
     background: transparent !important;
   }
   .cb-paper-masthead { display: flex; align-items: center; justify-content: center; gap: 7pt; margin: 0 0 16pt; }
-  .cb-paper-masthead-text { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 11pt; font-weight: 500; letter-spacing: 0.14em; color: #000 !important; }
+  .cb-paper-masthead-text { font-family: var(--cb-font); font-size: 11pt; font-weight: 500; letter-spacing: 0.14em; color: #000 !important; }
   .cb-paper-title { font-size: 18pt; font-weight: 500; text-align: center; margin: 0 0 6pt; line-height: 1.3; }
   .cb-paper-byline { font-size: 10pt; text-align: center; color: #444 !important; margin: 0 0 28pt; font-style: italic; }
   .cb-paper-section-label { font-size: 12pt; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; margin: 22pt 0 8pt; border-bottom: 1pt solid #000; padding-bottom: 2pt; }
   .cb-paper-heading { font-size: 12pt; font-weight: 500; margin: 16pt 0 6pt; }
   .cb-paper-para { font-size: 11pt; line-height: 1.7; text-align: justify; text-indent: 0.3in; margin: 0 0 10pt; }
   .cb-paper-ref { font-size: 9.5pt; line-height: 1.5; text-indent: -0.25in; padding-left: 0.25in; margin: 0 0 6pt; text-align: left; }
-  /* z-index: 0 — BELOW .cb-paper-page's z-index:1, so it sits behind the
-     actual text like a real watermark should. This node repeats correctly
-     on every printed page via position:fixed (verified). Commit 49 had put
-     this ABOVE the page (z-index: 2) because .cb-paper-page's opaque
-     "background: white" (from the blanket print rule) was painting over it
-     on every full page — that's fixed at the source now (.cb-paper-page is
-     explicitly transparent, above), so the watermark no longer needs to
-     out-rank it to be visible, and can go back to reading as a background
-     wash instead of a layer sitting on top of every word. Opacity dropped
-     0.1 → 0.06 at the same time — "a lil too visible" even before this z-index
-     issue, per Dusty's report. Verified against a real multi-page
-     page.pdf() render, including the short/blank-space-below-the-text case
-     Commit 49's comment called out. */
-  .cb-paper-watermark {
-    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-35deg);
-    font-size: 90pt; font-weight: 500; color: rgba(0,0,0,0.06) !important; z-index: ${Z.base};
-    white-space: nowrap; font-family: "Helvetica Neue", Arial, sans-serif; pointer-events: none;
-  }
+  /* The 90pt rotated watermark rule that used to sit here is deleted
+     (2026-10-19, S2 / H14), with the node that carried it. */
 }
 
 /* ── Text selection accent ──
@@ -28531,34 +28341,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 button.cb-cite { min-height: 0; min-width: 0; }
 
-/* ── Verdict instrument ──────────────────────────────────────────────────
-   The verdict readout: a hairline-ruled strip, glyph plus word plus mono
-   machine readout. No card, no fill, no gradient. On narrow screens the
-   glyph shrinks and the readout wraps; nothing here depends on hover. */
-.cb-verdict {
-  display: flex; align-items: flex-start; gap: 24px;
-  padding: 28px 4px; margin: 0 auto 12px; max-width: 72ch;
-}
-.cb-verdict-glyph { flex-shrink: 0; line-height: 0; }
-.cb-verdict-body { min-width: 0; }
-.cb-verdict-eyebrow {
-  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
-  opacity: 0.85; margin-bottom: 6px;
-}
-.cb-verdict-word {
-  font-family: var(--cb-font); font-weight: 500; font-size: 30px;
-  line-height: 1.1; letter-spacing: -0.01em; margin-bottom: 6px;
-}
-.cb-verdict-sub { font-size: 14px; line-height: 1.5; margin-bottom: 10px; max-width: 52ch; }
-.cb-verdict-readout {
-  font-size: 11px; letter-spacing: 0.06em;
-  font-variant-numeric: tabular-nums;
-}
-@media (max-width: 720px) {
-  .cb-verdict { gap: 14px; padding: 16px 0; }
-  .cb-verdict-word { font-size: 24px; }
-  .cb-verdict-glyph svg { width: 40px !important; height: 40px !important; }
-}
+/* The .cb-verdict rule family that used to sit here is deleted
+   (2026-10-19, S2 / tail 17): no component renders those classes.
+   VerdictReadout renders KeyFigures and ConsensusMeter, which carry
+   their own styles. */
 
 /* ── Calibration stamp: the gutter mark on each cited paragraph ─────────
    A verdict glyph plus the paragraph's reference numbers, stacked in the
@@ -28654,10 +28440,14 @@ button.cb-cite { min-height: 0; min-width: 0; }
 
 /* Claim spine: each answer paragraph carries its supporting references
    in a slim left rail. The rail is the signature interaction — hover or
-   focus a mark and the matching source row lights up. */
-.cb-claim { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 14px; }
+   focus a mark and the matching source row lights up.
+   2026-10-19 (S2 / tail 16): the reference column sizes to the widest
+   reference it holds (max-content, not a fixed 64px) and its text sits
+   on the paragraph's own first line: the body font and the body's 1.55
+   line height, not a mono face at line-height 2. */
+.cb-claim { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 14px; }
 .cb-claim-refs {
-  font-family: var(--cb-mono); font-size: 11px; line-height: 2; text-align: right;
+  font-family: var(--cb-font); font-size: 11px; line-height: 1.55; text-align: right;
   border-right: 1px solid var(--cb-line, rgba(128,128,128,0.22)); padding-right: 10px;
   color: var(--cb-faint, #888);
 }
@@ -28744,7 +28534,6 @@ button.cb-cite { min-height: 0; min-width: 0; }
   .cb-controls { flex-direction: column; align-items: stretch; gap: 0; }
   .cb-ctlbtn { width: 100%; min-height: 48px; font-size: 13px; text-align: center; border: none; border-bottom: 1px solid var(--cb-line, rgba(128,128,128,0.22)); padding: 0 12px; }
   .cb-claim { gap: 10px; }
-  .cb-verdict { padding: 20px 18px !important; }
 }
 /* The drawer positions itself via inline styles (fixed, portaled); the
    old sticky-rail positioning is retired. .cb-ev-rail stays as a hook. */
