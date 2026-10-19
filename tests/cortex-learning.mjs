@@ -3916,6 +3916,48 @@ await test("the feedback sheet routes her teaching through SheetNova, and the ca
   assert.ok(learnSrc.includes(">WHY</p>"), "the sheet stopped printing the why as text for rereading");
 });
 
+/* Pin added 2026-10-18 (the feedback sheet bubble repair):
+   her teaching used to reach the sheet only through
+   NovaRive, which rendered every surface's line as a
+   floating header bubble centered on the figure's anchor.
+   On the sheet that meant a 250px column over the body text,
+   extending 94px past the sheet column's left edge and
+   clipped there by the sheet scroll box, mid word on every
+   line (the owner's photo). The corrected contract: the
+   Player owns the sheet controller, SheetNova drives it,
+   the sheet figure renders figure only, and the Player
+   renders the current line in flow in the sheet body. */
+await test("the feedback sheet renders her speech in flow at the sheet column's width, never as a floating header bubble", () => {
+  assert.ok(learnSrc.includes("const sheetSpeech = useNovaSpeech();"),
+    "the Player does not own the feedback sheet's speech controller");
+  assert.ok(learnSrc.includes("teach={sheetTeach} speech={sheetSpeech}"),
+    "SheetNova is not handed the Player's controller to drive");
+  assert.ok(learnSrc.includes("bubbleVariant={null}"),
+    "the sheet figure still renders a bubble from its anchor");
+  assert.ok(riveSrc.includes('props.bubbleVariant === undefined ? "header" : props.bubbleVariant'),
+    "NovaRive surfaces no longer default to the header bubble");
+  assert.ok(riveSrc.includes("speech.current && bubbleVariant &&"),
+    "NovaCanvas does not gate its bubble on the surface's chosen variant");
+  assert.ok(!riveSrc.includes('variant="header" onDismiss={speech.dismiss}'),
+    "NovaCanvas hardcodes the header bubble again");
+  // The in flow render itself: a sheet bubble under the
+  // verdict, clearing the floated figure, its cap lifted so
+  // the sheet column (640px desktop, 316px at 360px) is its
+  // full width, no tail protruding past its box, and the
+  // full line text as its content, so every word is
+  // reachable with no clipping mechanism left.
+  assert.ok(learnSrc.includes('<NovaBubble variant="sheet" tail="none" onDismiss={sheetSpeech.dismiss} style={{ maxWidth: "none" }}>'),
+    "the sheet does not render her line as a full width in flow sheet bubble");
+  assert.ok(learnSrc.includes("sheetSpeech.current.text"),
+    "the sheet bubble does not carry the controller's full current line");
+  assert.ok(learnSrc.includes('style={{ clear: "both", marginTop: 12, marginBottom: 14 }}'),
+    "her sheet bubble does not sit in flow below the floated figure and verdict");
+  // The Player's own header figure stays figure only: it
+  // takes no speech prop at all, before and after the fix.
+  assert.ok(learnSrc.includes('anchorRef={novaAnchorRef} />'),
+    "the Player header figure took a speech surface");
+});
+
 await test("the quirks are wired where she lives: opinions in the sheet, memory and shelf on Today, the gag in the Library", () => {
   assert.ok(learnSrc.includes("opinionForEvent("), "the quirks engine's opinions are not called");
   assert.ok(learnSrc.includes("face={sheetOpinion ? sheetOpinion.face : null}"), "the sheet Nova does not take the opinion's face");

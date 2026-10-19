@@ -682,6 +682,51 @@ export function speechBubbleShiftFor(anchorCenterX, bubbleWidth, viewportWidth, 
   return 0;
 }
 
+/* The variant geometries, as a pure function of the variant
+   and the header clamp shift (2026-10-18, the feedback sheet
+   bubble repair). The defect this pins down: the sheet's
+   speech used to render through the "header" geometry below
+   (NovaCanvas handed every speaking surface variant
+   "header"), so on the lesson feedback sheet her teaching
+   hung absolutely from the 48px sheet figure, centered on a
+   62px anchor box, capped at 250px, laid over the sheet's
+   body text, and its left half ran past the sheet column's
+   left edge, where the sheet scroll box (overflowY auto,
+   whose overflowX computes to auto) clipped every line mid
+   word. The viewport clamp could not save it: it only
+   measures against the window, and on a desktop the bubble
+   sat hundreds of pixels from the window's edge while it
+   hung 94px past the column's. The "sheet" geometry is the
+   opposite shape in every particular: in flow (relative,
+   block), width 100% of the container it is rendered in,
+   no transform and no left or top offset, so there is no
+   mechanism left that can push its text outside its own
+   box or the sheet's. The "header" and "stage" geometries
+   are the shipped ones, byte for byte in value. */
+export function speechBubbleStyleFor(variant, clampShift = 0) {
+  if (variant === "stage") {
+    return {
+      position: "absolute", bottom: "calc(100% + 10px)", left: "50%", transform: "translateX(-50%)",
+      borderRadius: 2, padding: "10px 14px", lineHeight: 1.45,
+      width: "max-content", maxWidth: 290, cursor: "pointer",
+      boxShadow: "none",
+    };
+  }
+  if (variant === "sheet") {
+    return {
+      position: "relative", display: "block", width: "100%", boxSizing: "border-box",
+      borderRadius: RADIUS.xl, padding: "12px 16px",
+      lineHeight: 1.55, maxWidth: 470,
+    };
+  }
+  return {
+    position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(calc(-50% + " + clampShift + "px))",
+    borderRadius: 2, padding: "7px 11px", lineHeight: 1.35,
+    width: "max-content", maxWidth: "min(250px, calc(100vw - 16px))", cursor: "pointer",
+    boxShadow: "none",
+  };
+}
+
 export function NovaBubble({ text, children, variant = "header", tail = null, onDismiss, style }) {
   const content = children != null ? children : text;
   const v = variant === "stage" || variant === "sheet" ? variant : "header";
@@ -715,24 +760,12 @@ export function NovaBubble({ text, children, variant = "header", tail = null, on
     border: "1px solid " + SPEECH_BUBBLE_LINE,
     fontSize: FONT_SIZES.body, whiteSpace: "normal", zIndex: 31,
   };
-  const variantStyle = v === "stage"
-    ? {
-        position: "absolute", bottom: "calc(100% + 10px)", left: "50%", transform: "translateX(-50%)",
-        borderRadius: 2, padding: "10px 14px", lineHeight: 1.45,
-        width: "max-content", maxWidth: 290, cursor: "pointer",
-        boxShadow: "none",
-      }
-    : v === "sheet"
-      ? {
-          position: "relative", display: "block", borderRadius: RADIUS.xl, padding: "12px 16px",
-          lineHeight: 1.55, maxWidth: 470,
-        }
-      : {
-          position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(calc(-50% + " + clampShift + "px))",
-          borderRadius: 2, padding: "7px 11px", lineHeight: 1.35,
-          width: "max-content", maxWidth: "min(250px, calc(100vw - 16px))", cursor: "pointer",
-          boxShadow: "none",
-        };
+  const variantStyle = speechBubbleStyleFor(v, clampShift);
+  /* A sheet bubble with a dismiss button keeps its text
+     clear of the button's 44px hit area (2026-10-18): the
+     glyph sits at the top right, and a full width first line
+     would otherwise run underneath it. */
+  if (v === "sheet" && onDismiss) variantStyle.paddingRight = 52;
   const tailStyle = tailSide === "down"
     ? { bottom: -7, left: "50%", marginLeft: -7, borderRight: "1px solid " + SPEECH_BUBBLE_LINE, borderBottom: "1px solid " + SPEECH_BUBBLE_LINE }
     : tailSide === "up"

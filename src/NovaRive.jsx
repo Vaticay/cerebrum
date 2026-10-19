@@ -335,6 +335,20 @@ function NovaCanvas(props) {
     sleepStage = 0, pokeN = 0, celebrateN = 0, reducedMotion = false, anchorRef = null,
   } = props;
   const speech = props.speech || null;
+  /* Which bubble geometry a speaking surface renders with
+     (2026-10-18, the feedback sheet bubble repair): every
+     surface used to render its line as a "header" bubble,
+     floating centered on the figure's anchor. That is right
+     for the header and stage figures and wrong for the
+     lesson feedback sheet, whose figure is 48px and sits at
+     the sheet column's left edge: the header bubble hung
+     over the sheet's body text and past the column, where
+     the sheet's scroll box clipped it. A surface that
+     renders its speech somewhere else in flow (the feedback
+     sheet, through the Player) passes bubbleVariant null:
+     the figure here is then figure only, while the speech
+     prop still feeds isTalking and routes Rive events. */
+  const bubbleVariant = props.bubbleVariant === undefined ? "header" : props.bubbleVariant;
   const speechRef = useRef(speech);
   speechRef.current = speech;
   const speechCtxRef = useRef({ quizState, appState, idleMs: props.idleMs || 0 });
@@ -478,7 +492,7 @@ function NovaCanvas(props) {
           </span>
         </span>
       )}
-      {speech && speech.current && <NovaBubble text={speech.current.text} variant="header" onDismiss={speech.dismiss} />}
+      {speech && speech.current && bubbleVariant && <NovaBubble text={speech.current.text} variant={bubbleVariant} onDismiss={speech.dismiss} />}
     </span>
   );
 }

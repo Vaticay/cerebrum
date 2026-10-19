@@ -1670,7 +1670,7 @@ export function novaBrainDecide(brain, ctx) {
    timers only change which state class renders; the motion
    itself is the avatar's CSS. A new sheet mounts a new Nova, so
    the beats always start clean and never queue across cards. */
-function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed = null, anchorRef = null, opinionLine = null, teach = null }) {
+function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed = null, anchorRef = null, opinionLine = null, teach = null, speech = null }) {
   const [phase, setPhase] = useState(0);
   useEffect(() => {
     const t1 = setTimeout(() => setPhase(1), 650);
@@ -1678,12 +1678,21 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
   /* Her speech on this sheet runs through the one controller
-     (2026-10-15, the speech unification): SheetNova owns it
-     and passes it to her NovaRive, which renders the current
-     line and pulses her mouth from it. The controller object
-     is fresh every render, so the effects below reach it
-     through a ref and fire on value changes only. */
-  const speech = useNovaSpeech();
+     (2026-10-15, the speech unification). Ownership moved to
+     the Player on 2026-10-18 (the feedback sheet bubble
+     repair): the Player creates the controller and hands it
+     in, SheetNova still drives it (the offers below are
+     unchanged) and passes it to her NovaRive, which pulses
+     her mouth from it. The Player is the one who renders the
+     current line, as an in flow sheet bubble in the sheet
+     body; her figure here renders figure only. Until today
+     NovaRive rendered the line itself, always as a header
+     bubble floating centered on this 48px figure, and that
+     bubble hung over the sheet's text and past the sheet
+     column's left edge, where the sheet scroll box clipped
+     every line mid word. The controller object is fresh
+     every render, so the effects below reach it through a
+     ref and fire on value changes only. */
   const speechRef = useRef(speech);
   speechRef.current = speech;
   /* An opinion from the quirks engine (a genuinely hard card
@@ -1768,12 +1777,12 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
   }, [phase]);
   return (
     <NovaRive state={shown} size={48} scanning={phase === 0} quizState={quizState}
-      pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={anchorRef} speech={speech} />
+      pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={anchorRef} speech={speech} bubbleVariant={null} />
   );
 }
 
 /* The completion screen's Nova (2026-10-15, the speech
-   unification): like SheetNova she owns a speech controller,
+   unification): she owns a speech controller,
    offers her line (the perfect lesson line when there is one,
    else the lesson's done line, chosen by the Player) as a
    lesson line the moment the screen lands, and passes the
@@ -10751,6 +10760,15 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
      2 plus the joystick values. */
   const [quizFeed, setQuizFeed] = useState({ hover: false, x: 0, y: 0 });
   const novaAnchorRef = useRef(null);
+  /* The feedback sheet's speech controller (2026-10-18, the
+     feedback sheet bubble repair): the Player owns it and
+     SheetNova drives it, so the Player can render the current
+     line itself, in flow in the sheet body at the sheet
+     column's full width. SheetNova used to own the controller
+     and its NovaRive rendered the line as a floating header
+     bubble on the 48px sheet figure; that bubble overlapped
+     the sheet's text and was clipped at the column's edge. */
+  const sheetSpeech = useNovaSpeech();
   /* Nova's opinions (quirks wave, 2026-10-14): a card timer so
      answer speed is a fact, an easy streak so her raised brow
      has a count, and the opinion the quirks engine returned for
@@ -11565,7 +11583,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       <div style={{ maxWidth: 640, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
         <div className="lv-sheet-scroll" style={{ overflowY: "auto", minHeight: 0 }}>
         <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
-          <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} teach={sheetTeach} />
+          <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} teach={sheetTeach} speech={sheetSpeech} />
         </div>
         <div style={{ fontSize: FONT_SIZES.title, fontWeight: 500, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "match" ? (isRight ? "Every pair, first try." : "All pairs matched.")
@@ -11578,6 +11596,27 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             {"+" + lastAward + " XP"}
           </span>
         </div>
+        {/* Her line on the sheet, in flow (2026-10-18, the
+            feedback sheet bubble repair): the current line of
+            the controller SheetNova drives, rendered here by
+            the Player as a sheet bubble under the verdict,
+            clearing the floated figure, at the full width of
+            the sheet's text column (the sheet variant's own
+            cap is lifted for this surface only), on the
+            bubble's solid cream, with no tail protruding past
+            its box. It pushes the body text below it down
+            instead of floating over it, and nothing clips it:
+            its box is the column's box. The two beats are
+            unchanged (reaction opener, then the teaching line
+            through the controller), and the sheet still prints
+            the full why as text below. */}
+        {sheetSpeech.current && (
+          <div style={{ clear: "both", marginTop: 12, marginBottom: 14 }}>
+            <NovaBubble variant="sheet" tail="none" onDismiss={sheetSpeech.dismiss} style={{ maxWidth: "none" }}>
+              {sheetSpeech.current.text}
+            </NovaBubble>
+          </div>
+        )}
         <>
             {!isRight && displayOptions && picked !== null && picked !== undefined && (
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "0 0 10px", color: P.ink2 || P.ink }}>

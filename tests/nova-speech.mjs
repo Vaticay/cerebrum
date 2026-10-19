@@ -63,7 +63,7 @@ const WANTED = [
   "SPEECH_EXCITED_MIN_CHARS", "SPEECH_EXCITED_FACTOR", "speechCadenceFor",
   "speechSourceForCategory", "speechDurationFor", "speechPlanFor", "speechTalkingAt", "pickSpeechLine",
   "createSpeechState", "speechIsCaused", "speechShow", "speechOffer", "speechAdvance", "speechDismiss",
-  "SPEECH_BUBBLE_VIEWPORT_MARGIN", "speechBubbleShiftFor",
+  "SPEECH_BUBBLE_VIEWPORT_MARGIN", "speechBubbleShiftFor", "speechBubbleStyleFor",
 ];
 function declFor(ast, name) {
   for (const node of ast.program.body) {
@@ -84,7 +84,10 @@ for (const name of WANTED) {
   chunks.push(speechSrc.slice(decl.start, decl.end));
 }
 const js = transformSync(chunks.join("\n") + `\n;globalThis.__x = { ${WANTED.join(", ")} };`, { loader: "jsx" }).code;
-const context = vm.createContext({});
+/* The sheet geometry reads RADIUS.xl from the design system;
+   the VM gets the token's shipped value (2, src/designSystem.jsx)
+   as a global so the extracted style function can run bare. */
+const context = vm.createContext({ RADIUS: { xl: 2 } });
 vm.runInContext(js, context);
 const {
   SPEECH_PRIORITY, SPEECH_MIN_GAP_MS, SPEECH_QUEUE_MAX,
@@ -94,7 +97,7 @@ const {
   SPEECH_EXCITED_MIN_CHARS, speechCadenceFor,
   speechSourceForCategory, speechDurationFor, speechPlanFor, speechTalkingAt, pickSpeechLine,
   createSpeechState, speechOffer, speechAdvance, speechDismiss,
-  SPEECH_BUBBLE_VIEWPORT_MARGIN, speechBubbleShiftFor,
+  SPEECH_BUBBLE_VIEWPORT_MARGIN, speechBubbleShiftFor, speechBubbleStyleFor,
 } = context.__x;
 
 // ── Extract the real quip tables from NovaRive.jsx, so the
@@ -448,6 +451,75 @@ await test("speechBubbleShiftFor keeps a fitting bubble unshifted and clamps bot
 await test("the bubble caps its width at the viewport and the sheet dismiss is 44px", () => {
   assert.ok(speechSrc.includes('maxWidth: "min(250px, calc(100vw - 16px))"'), "the header bubble width is not capped at the viewport");
   assert.ok(speechSrc.includes("width: 44, height: 44"), "the sheet dismiss hit area is under the 44px tap floor");
+});
+
+// ── The sheet bubble geometry (2026-10-18, the feedback
+// sheet bubble repair). The owner's photo: on the lesson
+// feedback sheet her teaching bubble rendered as the header
+// bubble, a narrow column floating over the sheet's text,
+// clipped mid word on its left edge. The mechanism, from the
+// shipped values: NovaCanvas handed every speaking surface
+// variant "header" (absolute, centered on the figure's
+// anchor, max-content width capped at 250px); the sheet
+// figure is 48px in a 62px anchor at the sheet column's left
+// edge, so a full width header bubble's box extends
+// 250/2 - 62/2 = 94px past the column, the viewport clamp
+// never fires on desktop (the box is nowhere near the
+// window's edge), and the sheet scroll box
+// (.lv-sheet-scroll, overflowY auto) clips the overhang and
+// the first ~83px of every text line with it. The pins below
+// hold the corrected contract: the sheet variant is in flow
+// and container sized, and the header geometry it must never
+// borrow again is unchanged for the surfaces that own it. ──
+group("The sheet bubble geometry (2026-10-18)");
+
+await test("the sheet variant is in flow: relative, block, and sized by its container, not by any figure", () => {
+  const sheet = speechBubbleStyleFor("sheet");
+  assert.equal(sheet.position, "relative", "the sheet bubble is not in flow");
+  assert.equal(sheet.display, "block", "the sheet bubble does not lay out as a block in its container");
+  assert.equal(sheet.width, "100%", "the sheet bubble's width does not come from its container");
+  assert.equal(sheet.boxSizing, "border-box", "the sheet bubble's padding can push it past its container");
+  assert.ok(!("transform" in sheet), "the sheet bubble carries a transform that can shift its text out of its box");
+  assert.ok(!("left" in sheet) && !("top" in sheet), "the sheet bubble carries a positional offset");
+});
+
+await test("the sheet bubble's box stays inside its container at desktop and phone column widths", () => {
+  // The sheet's text column: 640px on desktop, and 316px on
+  // a 360px phone (360 minus the sheet's 22px side padding
+  // twice). The sheet style is width 100% of that container,
+  // so its box is the container's box: left edge 0, right
+  // edge the container width, nothing outside to clip.
+  const sheet = speechBubbleStyleFor("sheet");
+  assert.equal(sheet.width, "100%");
+  for (const container of [640, 316]) {
+    const box = { left: 0, width: container, right: container };
+    assert.ok(box.left >= 0 && box.right <= container, `the sheet bubble escapes its ${container}px container`);
+    assert.equal(box.width, container, "the sheet bubble does not take the full width its container offers");
+  }
+  // The figure derived width it must never fall back to:
+  // the old header cap on a 62px anchor centered box.
+  assert.notEqual(sheet.maxWidth, "min(250px, calc(100vw - 16px))", "the sheet bubble took the header width cap");
+});
+
+await test("the header variant keeps its floating geometry and its clamp, untouched by the sheet fix", () => {
+  const header = speechBubbleStyleFor("header", 0);
+  assert.equal(header.position, "absolute", "the header bubble lost its floating placement");
+  assert.equal(header.left, "50%", "the header bubble is no longer centered on its figure");
+  assert.equal(header.width, "max-content");
+  assert.equal(header.maxWidth, "min(250px, calc(100vw - 16px))", "the header bubble's viewport cap changed");
+  assert.equal(header.transform, "translateX(calc(-50% + 0px))", "the header bubble's clamp transform changed at zero shift");
+  assert.equal(speechBubbleStyleFor("header", 80).transform, "translateX(calc(-50% + 80px))",
+    "the header bubble no longer applies the clamp shift the 2026-10-16 audit added");
+  const stage = speechBubbleStyleFor("stage");
+  assert.equal(stage.position, "absolute");
+  assert.equal(stage.bottom, "calc(100% + 10px)", "the stage bubble's placement changed");
+});
+
+await test("NovaBubble renders every variant through the one geometry function, and a sheet dismiss keeps text clear of its hit area", () => {
+  assert.ok(speechSrc.includes("const variantStyle = speechBubbleStyleFor(v, clampShift);"),
+    "NovaBubble does not take its geometry from speechBubbleStyleFor");
+  assert.ok(speechSrc.includes('if (v === "sheet" && onDismiss) variantStyle.paddingRight = 52;'),
+    "a sheet bubble's text can run under its dismiss button");
 });
 
 console.log(`\nnova-speech: ${passed} passed, ${failures.length} failed`);
