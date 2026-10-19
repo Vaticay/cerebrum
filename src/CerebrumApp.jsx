@@ -4204,9 +4204,14 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
         }
       }
     }
+    /* One reading weight for every status (2026-10-19, S2 / M26):
+       evidence strength no longer rides on a 50 step weight change.
+       What differs by status is the stamp and the small text label:
+       thin and partly supported paragraphs now carry the same kind
+       of label unsupported already had, in the stamp's own words. */
     // If no claim matched but paragraph has citations, treat as supported
     if (!best && paraCites && paraCites.length > 0) {
-      return { weight: 500, cls: "cb-ev-established", label: null, labelTone: null, status: "supported" };
+      return { weight: 400, cls: "cb-ev-established", label: null, labelTone: null, status: "supported" };
     }
     if (!best) return null;
     if (best.status === "supported") {
@@ -4214,7 +4219,7 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
       // of what is disputed or by whom is worse than no label. The
       // disagreement verdict renders separately with its full summary.
       return {
-        weight: 500, cls: "cb-ev-established", status: "supported",
+        weight: 400, cls: "cb-ev-established", status: "supported",
         label: null,
         labelTone: null,
       };
@@ -4227,16 +4232,16 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
       // branch above, whose glyph and tone would present the trace
       // as a verified claim.
       return {
-        weight: 500, cls: "cb-ev-established", status: "traced",
+        weight: 400, cls: "cb-ev-established", status: "traced",
         label: null,
         labelTone: null,
       };
     }
     if (best.status === "unsupported") {
-      return { weight: 450, cls: "cb-ev-supported", status: "unsupported", label: "needs source", labelTone: "cb-ev-bad" };
+      return { weight: 400, cls: "cb-ev-supported", status: "unsupported", label: "needs source", labelTone: "cb-ev-bad" };
     }
-    // thin or partly
-    return { weight: 450, cls: "cb-ev-supported", status: best.status, label: null, labelTone: null };
+    // thin or partly: labeled, like unsupported, in the stamp's words.
+    return { weight: 400, cls: "cb-ev-supported", status: best.status, label: "thin evidence", labelTone: "cb-ev-warn" };
   };
 }
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null, onCiteActivate = null, evidenceMap = null, queryTerms = null) {
@@ -4491,18 +4496,17 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       claimNo = claimSink.length + 1;
       claimSink.push({ claim: claimNo, cites: paraCites });
     }
-    /* Evidence-weighted typography: the paragraph's weight reflects its
-       support level from the fact check. Established claims set heavier,
-       thin claims set lighter, unsupported claims carry a label. */
+    /* Evidence state shows in the gutter stamp and the small text
+       label, never in the type weight (2026-10-19, S2 / M26): every
+       paragraph sets at the one reading weight. */
     const ev = evidenceMap ? evidenceMap(paraClean, paraCites) : null;
     const pNode = (
     <p className={ev && ev.cls ? ev.cls : undefined} style={{
       /* The reading surface — the body role, ruthlessly (§7.1): 15px,
-         1.6 leading, weight 500 (the "thicker text" law, inside the
-         450–500 body contract). The lede (first paragraph) sets in the
-         title role instead: 18px, 1.55 leading. No negative tracking on
-         reading text. Hierarchy comes from measure and rhythm, not a
-         second size. Evidence weight overrides the default 500. */
+         1.6 leading, one reading weight. The lede (first paragraph)
+         sets in the title role instead: 18px, 1.55 leading. No
+         negative tracking on reading text. Hierarchy comes from
+         measure and rhythm, not a second size. */
       fontSize: isLede ? FONT_SIZES.subhead : FONT_SIZES.body,
       lineHeight: 1.55,
       margin: 0, color: P.ink,
@@ -6107,7 +6111,10 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
   const [exportOpen, setExportOpen] = useState(false);
   const styleOptions = [ { key: "vancouver", label: "Vancouver" }, { key: "apa", label: "APA" }, { key: "mla", label: "MLA" }, { key: "chicago", label: "Chicago" }, { key: "bibtex", label: "BibTeX" } ];
   const copyAll = () => {
-    copyToClipboard(formatBibliography(sources, citationStyle), "Bibliography copied").then((ok) => {
+    /* 2026-10-19 (S2, tail 13): the clipboard matches the screen, the
+       plain text twin of the formatted bibliography, so no literal
+       asterisks or underscores reach the paste. */
+    copyToClipboard(plainInlineText(formatBibliography(sources, citationStyle)), "Bibliography copied").then((ok) => {
       if (ok) { setCopied(true); setTimeout(() => setCopied(false), 1500); }
     });
   };
@@ -7537,20 +7544,27 @@ function AutopsySection({ P, accent, kicker, children }) {
 }
 
 /* Impact formatters: the midpoint of the backend's estimated range,
-   rounded the way a person would say it. */
+   rounded to one significant figure (2026-10-19, S2 / M27). The
+   byline figure is an estimate and must not read as a measurement;
+   the ranges and the method stay in the Autopsy, which prints both
+   through these same formatters next to its low to high ranges. */
+function fmtOneSigFig(v) {
+  if (!(v > 0)) return "0";
+  const mag = Math.pow(10, Math.floor(Math.log10(v)));
+  const r = Math.round(v / mag) * mag;
+  const decimals = Math.max(0, -Math.floor(Math.log10(r)));
+  const s = r.toFixed(decimals);
+  return s.includes(".") ? s.replace(/\.?0+$/, "") : s;
+}
 function fmtImpactEnergy(impact) {
   const e = (impact && impact.energyWh) || {};
   if (typeof e.low !== "number" || typeof e.high !== "number") return "";
-  const mid = (e.low + e.high) / 2;
-  if (mid < 0.1) return "under 0.1 Wh";
-  return (mid < 1 ? mid.toFixed(2) : mid.toFixed(1)).replace(/\.?0+$/, "") + " Wh";
+  return fmtOneSigFig((e.low + e.high) / 2) + " Wh";
 }
 function fmtImpactWater(impact) {
   const w = (impact && impact.waterMl) || {};
   if (typeof w.low !== "number" || typeof w.high !== "number") return "";
-  const mid = (w.low + w.high) / 2;
-  if (mid < 1) return "under 1 mL";
-  return Math.round(mid) + " mL";
+  return fmtOneSigFig((w.low + w.high) / 2) + " mL";
 }
 
 /* Stage health is tri state (2026-10-13): the server ships each stage's
@@ -9083,6 +9097,19 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
   const isMobile = useIsMobile();
   const relOf = (n) => (venn.disagree || []).includes(n) ? "conflicts" : (venn.middle || []).includes(n) ? "qualifies" : "supports";
   const claimsOf = (n) => (claimSink || []).filter((c) => c.cites.includes(n)).map((c) => c.claim);
+  /* The paper's own cited claim, for the row's why line (2026-10-19,
+     S2 / M17): the fact check claim whose cites include this paper,
+     in plain text with its citation brackets stripped. Null when no
+     checked claim cites the paper, and the row then carries no why
+     line at all instead of a templated sentence per stance bucket. */
+  const citedClaimOf = (n) => {
+    const claims = (t.factCheck && t.factCheck.claims) || [];
+    const c = claims.find((x) => x && Array.isArray(x.cites) && x.cites.includes(n) && x.claim);
+    if (!c) return null;
+    const txt = plainInlineText(String(c.claim)).replace(/\[\d+\]/g, "").replace(/\s+/g, " ").trim();
+    if (!txt) return null;
+    return txt.length > 160 ? txt.slice(0, Math.max(40, txt.lastIndexOf(" ", 160))) + "…" : txt;
+  };
   const doiOf = (s) => String(s.doi || s.DOI || "")
     .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
 
@@ -9147,20 +9174,21 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
     const claims = claimsOf(n);
     const doi = doiOf(s);
     const doiHref = /^10\.\d{4,9}\//.test(doi) ? "https://doi.org/" + doi : null;
-    const meta = [s.authors, s.year].filter(Boolean).join(" · ");
+    /* 2026-10-19 (S2 / M17): the meta line carries the journal, and
+       the why line is grounded in the paper's own cited claim or is
+       not printed. The templated per stance sentences are gone. */
+    const meta = [s.authors, s.journal ? formatJournalName(s.journal) : null, s.year].filter(Boolean).join(" · ");
     const claimsLine = s.uncited
       ? "Not cited by the answer"
       : claims.length
         ? `${rel === "conflicts" ? "Contested in" : "Supports"} claim${claims.length === 1 ? "" : "s"} ${claims.join(", ")}`
         : "Cited by the answer";
+    const citedClaim = s.uncited ? null : citedClaimOf(n);
     const why = s.uncited
       ? (s.uncitedReason || "Listed for further reading.")
-      : (s.studyType ? s.studyType + " · " : "") +
-        (rel === "conflicts"
-          ? "its findings push against the answer's claims. See where the literature disagrees."
-          : rel === "qualifies"
-            ? "it both supports and complicates the answer. Read it against the surrounding claims."
-            : "its findings run with the answer's claims.");
+      : citedClaim
+        ? `Cited for the claim: ${citedClaim}`
+        : null;
     const isActive = activeCite === n;
     return (
       <div key={n} id={`evref-${n}`} data-rel={rel} data-active={isActive ? "true" : undefined}
@@ -9182,9 +9210,11 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
           <div style={{ fontSize: 14, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{renderTitleInline(s.title, P)}</div>
           {meta && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>{meta}</div>}
           <div className="cb-kicker" style={{ marginTop: 7 }}>{claimsLine}</div>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 4, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>
-            <span style={{ color: P.faint }}>Why this paper is here: </span>{why}
-          </div>
+          {why && (
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, marginTop: 4, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>
+              <span style={{ color: P.faint }}>Why this paper is here: </span>{why}
+            </div>
+          )}
           {doiHref && (
             <div style={{ marginTop: 6 }}>
               <a href={doiHref} target="_blank" rel="noreferrer" className="cb-mono"
@@ -9426,11 +9456,12 @@ function ProvenanceColophon({ t, P }) {
 }
 
 /* ── AnswerSourcesPanel (#18) ─────────────────────────────────────────────
-   A compact Sources panel closing out each answer: every cited paper as
-   one row — number, title, venue · year, DOI link. The "Verify sources"
-   button opens the full evidence drawer on this answer. The rows reuse
-   t.sources as-is, so the wave-4 dedupe/integrity behavior is untouched. */
-function AnswerSourcesPanel({ t, P, accent, onVerify }) {
+   One source list per answer (2026-10-19, S2 / M16). This panel used
+   to print the full per paper list a second time at the end of the
+   turn, duplicating the bibliography below it. The bibliography is
+   the one source list now; this panel is a one line count with a jump
+   link to it. */
+function AnswerSourcesPanel({ t, P, accent, onJumpToBibliography }) {
   const sources = t.sources || [];
   /* Note: the guard below is phrased as `=== 0` rather than `!length`
      because a source-wide test guards EvidenceSection against an early
@@ -9438,32 +9469,14 @@ function AnswerSourcesPanel({ t, P, accent, onVerify }) {
      unambiguous while this panel still renders nothing when uncited. */
   if (sources.length === 0) return null;
   return (
-    <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${P.line}` }} className="cb-fade">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, letterSpacing: 0, textTransform: "none", color: P.ink, fontFamily: "var(--cb-font)" }}>
-          Sources <span style={{ color: P.faint, fontWeight: 400 }}>{sources.length}</span>
-        </div>
-        <button type="button" onClick={onVerify}
-          style={{ minHeight: 44, padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: "transparent", color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-          Sources
-        </button>
-      </div>
-      <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 9 }}>
-        {sources.map((s, i) => {
-          const href = doiHref(s) || (s.url ? safeHref(s.url) : "");
-          const venue = [s.journal, s.year].filter(Boolean).join(" · ");
-          return (
-            <li key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", fontSize: FONT_SIZES.small, lineHeight: 1.5, minWidth: 0 }}>
-              <span style={{ color: accent, fontFamily: "var(--cb-font)", fontWeight: 500, flexShrink: 0 }}>[{i + 1}]</span>
-              <span style={{ minWidth: 0, color: P.ink2 }}>
-                <span style={{ color: P.ink, fontWeight: 500 }}>{s.title || "Untitled paper"}</span>
-                {venue && <span style={{ color: P.faint }}> · {venue}</span>}
-                {href && <span> · <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: accent, textDecoration: "none", borderBottom: `1px dotted ${withAlpha(accent, 0.6)}` }}>DOI</a></span>}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+    <div style={{ marginTop: 22, paddingTop: 14, borderTop: `1px solid ${P.line}`, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} className="cb-fade">
+      <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)" }}>
+        {sources.length} source{sources.length === 1 ? "" : "s"} for this answer
+      </span>
+      <button type="button" onClick={onJumpToBibliography}
+        style={{ minHeight: 44, padding: "6px 4px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "none", border: "none", color: accent, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline", textUnderlineOffset: 4 }}>
+        See the bibliography
+      </button>
     </div>
   );
 }
@@ -9924,7 +9937,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 <button type="button" className="cb-ctlbtn"
                   title={copiedAnswer ? "Copied" : "Copy answer"}
                   onClick={() => {
-                    copyToClipboard(t.answer, "Answer copied").then((ok) => {
+                    /* 2026-10-19 (S2, tail 12): the clipboard gets the
+                       plain text rendering: markers resolved through
+                       the shared renderer, citations kept as bracketed
+                       numbers. Raw markdown never reaches the paste. */
+                    copyToClipboard(answerPlainText(t.answer), "Answer copied").then((ok) => {
                       if (ok) { setCopiedAnswer(true); setTimeout(() => setCopiedAnswer(false), 1500); }
                     });
                   }}
@@ -10447,11 +10464,10 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           </div>
         </div>
       )}
-      {/* #18: compact Sources panel closing out the answer — one row per
-          cited paper (title, venue · year, DOI link) plus the visible
-          "Evidence index" affordance, which opens the evidence drawer. */}
+      {/* #18: one line source count closing out the answer, with a
+          jump link to the bibliography, the one source list (M16). */}
       {interactive && done && sources.length > 0 && t.responseKind !== "no-results" && (
-        <AnswerSourcesPanel t={t} P={P} accent={accent} onVerify={() => setEvidenceOpen(true)} />
+        <AnswerSourcesPanel t={t} P={P} accent={accent} onJumpToBibliography={() => { setEvTab("biblio"); scrollToRef(bandSectionRef); }} />
       )}
       {/* #10: contextual discovery chips once the answer has completed —
           each chip only renders when it is relevant to this answer. */}

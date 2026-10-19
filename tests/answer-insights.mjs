@@ -232,7 +232,11 @@ await test("convergence read compares the newest era against older work", () => 
   assert.equal(out.convergence.supportedTotal, 3);
   assert.equal(out.convergence.supportedRecent, 2);
   const line = describeConvergence(out.convergence, out.eras[out.eras.length - 1]);
-  assert.ok(/^67% of supported claims cite the Current era/.test(line), `unexpected convergence line: ${line}`);
+  // Pin updated 2026-10-19 (S2 / M19): the convergence line states
+  // counts, never a percentage — 2 of 3 printed as 67% was pseudo
+  // precision. The supported counts themselves stay pinned above.
+  assert.ok(/^2 of 3 supported claims cite the Current era/.test(line), `unexpected convergence line: ${line}`);
+  assert.ok(!/%/.test(line), "convergence line still carries a percentage");
   assert.ok(/based on cited sources only/.test(line), "convergence line not hedged");
 });
 
