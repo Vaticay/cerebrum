@@ -8443,10 +8443,10 @@ export const TOPIC_COURSES = [
   },
   {
     id: "topic-oceans-in-motion", title: "Oceans in Motion", category: "Earth and Climate",
-    blurb: "How ocean currents move heat around the planet, and what to watch for as they change.",
-    units: [{ id: "topic-oceans-in-motion-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "Surface loops, the deep conveyor, and upwelling: how moving water carries heat, nutrients, and carbon around the planet.",
+    units: [{ id: "topic-oceans-in-motion-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "oc-1", title: "Rivers Inside the Sea", subtitle: "Surface currents and what drives them",
+        id: "oc-1", title: "Rivers Inside the Sea", subtitle: "Surface currents, wind drag, and the Coriolis bend",
         cards: [
           mkPredict("How many surface currents are moving through the ocean?",
             "The ocean surface holds many currents, moving in great loops like rivers inside the sea.",
@@ -8454,11 +8454,11 @@ export const TOPIC_COURSES = [
             1,
             "There is no single surface current. Many currents move at once, each one part of a great loop around an ocean basin."),
           mkNote("The big idea", "The ocean surface is a network of rivers",
-            "The top of the ocean moves in great loops called currents, some as wide and strong as rivers. Steady winds dragging on the water start surface currents, and the spin of the Earth bends their paths, so the loops circle whole ocean basins. Warm currents carry tropical heat toward the poles along some coasts, and cold currents return along others. Latitude means distance north or south of the equator. That is why two beaches at the same latitude can have very different water."),
+            "The top few hundred meters of the ocean move in great loops called **currents**. Steady winds dragging on the water start surface currents, pushing a surface layer that can flow at about one meter per second in the fastest western flows. The spin of the Earth bends their paths, so the loops circle whole ocean basins. Warm currents carry tropical heat toward the poles along some coasts, and cold currents return along others. **Latitude** means distance north or south of the equator. Drifting buoys tracked from space map these loops directly. The loop picture is an average, though: eddies pinch off and winds shift with the seasons, so no current holds a fixed channel like a walled river."),
           mkNote("Key idea", "The Coriolis bend",
-            "Because the Earth rotates, moving water curves instead of travelling in a straight line. This bending is called the Coriolis effect: paths bend to the right in the northern half of the planet and to the left in the southern half. The equator is the middle line around the planet, dividing its northern half from its southern half. Storms spin under the same bending rule as currents do."),
+            "Because the Earth rotates once each day, moving water curves instead of traveling in a straight line. This bending is called the **Coriolis effect**: paths bend to the right in the northern half of the planet and to the left in the southern half. The effect grows stronger toward the poles and fades to nothing at the equator, the middle line dividing the northern half from the southern half. It matters at ocean scale because a current travels for days with little friction to erase the bend. A common misconception gives it far smaller jobs: at the scale of a sink or a bath, the effect is far too weak to set the swirl. Storms spin under the same bending rule as currents do, and satellite views confirm the opposite spins in the two halves."),
           mkNote("How it works", "How a loop closes, and why coasts warm",
-            "Steady winds drag on the surface and set the water moving. The spin of the Earth bends that moving water, right in the north and left in the south, and bent again and again the flow closes into a great loop around an ocean basin. A warm Atlantic current flowing past western Europe delivers tropical heat to its coasts, and the winds deliver the warmed air inland. Currents are a heating system for the whole planet, moving warmth from where there is too much toward where there is too little.",
+            "Steady winds drag on the surface and set the water moving. The spin of the Earth bends that moving water, right in the north and left in the south, and bent again and again the flow closes into a great loop around an ocean basin. The western side of a loop usually runs faster and narrower than the eastern side, so warm water is carried poleward in a concentrated stream. A warm Atlantic current flowing past western Europe delivers tropical heat to its coasts, and the winds deliver the warmed air inland. Instruments moored across such a current measure its flow in tens of millions of cubic meters per second. Currents are a heating system for the whole planet, moving warmth from where there is too much toward where there is too little.",
             { diagram: { steps: ["Steady winds drag on the surface", "Moving water sets off in a flow", "The spin of the Earth bends its path", "The bent flow closes into a loop", "Warm and cold water ride the loop"], caption: "Winds start the flow and spin bends it into a loop." } }),
           mkVisualQ("Look at the diagram. What bends the path of the moving water?",
             null,
@@ -8475,16 +8475,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Surface currents travel in straight lines, untouched by the spin of the Earth.",
             false,
             "Moving water curves because the Earth rotates. The Coriolis effect bends paths to the right in the north and to the left in the south."),
-          mkQuiz("A beach town finds its sea far warmer than a town at the same latitude across the ocean. What best explains it?",
-            ["Warm currents carry tropical heat past this coast", "The town sits closer to the sun", "Its beaches trap sunlight and hold it in the sand all winter long", "The Moon pulls warm water toward this one town every night"],
+          mkQuiz("A coastal town records sea water several degrees warmer in winter than another town at the same latitude across the ocean. What best explains the gap?",
+            ["Warm currents carry tropical heat past this coast", "Cold currents carry tropical heat past this coast", "Steady winds drag warm sand from beaches into the sea", "The spin of the Earth heats water at this latitude"],
             0,
-            "Warm currents carry tropical heat along some coasts and cold currents return along others. Latitude alone does not set the temperature of the water."),
+            "Sunlight is set by latitude, but moving water redraws the map. One coast receives heat carried from the tropics, while the opposite coast is cooled by a returning cold flow."),
           mkNote("The payoff", "Rivers that warm the world",
-            "Surface currents are rivers inside the sea, started by steady winds and bent by the spin of the Earth. Warm currents carry tropical heat toward the poles, and cold currents return along other coasts. Tomorrow: what makes cold and salty water grow dense and sink near the poles?")
+            "Surface currents are rivers inside the sea, started by steady winds, bent by the spin of the Earth, and fastest on the western side of each loop. Warm currents carry tropical heat toward the poles, and cold currents return along other coasts. Tomorrow: what makes cold and salty water grow dense and sink near the poles?")
         ]
       },
       {
-        id: "oc-2", title: "The Deep Conveyor", subtitle: "Cold water, sinking water, and the water that rises",
+        id: "oc-2", title: "The Deep Conveyor", subtitle: "Density, sinking water, and water that rises again",
         cards: [
           mkPredict("What makes deep water sink near the poles?",
             "Near the poles, surface water grows cold and salty as sea ice forms, until it is dense enough to sink to the ocean floor.",
@@ -8492,11 +8492,11 @@ export const TOPIC_COURSES = [
             2,
             "Cold and salty water is heavy for its size, so it sinks. That sinking near the poles is the engine of the deep flow."),
           mkNote("The big idea", "Below the wind, density drives the flow",
-            "Deep currents obey a different rule from surface currents: density. Density means how heavy water is for its size, and cold water is denser than warm water, while salty water is denser than fresh water. Near the poles, surface water grows cold and salty as sea ice forms, until it is heavy enough to sink, sliding down to the ocean floor and creeping toward the equator. This slow overturning, from the surface to the deep and back over centuries, is called the conveyor, and it connects every ocean on Earth."),
+            "Deep currents obey a different rule from surface currents: **density**, how heavy water is for its size. Cold water is denser than warm water, and salty water is denser than fresh water. Near the poles, surface water grows cold and, as sea ice forms, salt left behind in the unfrozen water makes it saltier still. When it grows heavy enough it sinks, sliding down to the ocean floor and creeping toward the equator. Profiling floats that drift and dive through the water column measure the temperature and salt that set this density. This slow overturning, from the surface to the deep and back over about a thousand years for a full circuit, is called the conveyor, and it connects every ocean on Earth."),
           mkNote("Key idea", "One system, worth watching",
-            "The conveyor is slow and vast, and it moves heat, nutrients, and carbon around the planet. Nutrients are the food substances that living things need to grow. Because the conveyor links the surface and the deep in one system, a slowdown would reshuffle climates and fisheries far from the poles where the sinking happens. Its changes are hard to measure and slow to be sure of, which is why the watching never stops."),
+            "The conveyor is slow and vast, and it moves heat, nutrients, and carbon around the planet. **Nutrients** are the food substances that living things need to grow. Lines of moored instruments across the Atlantic measure its flow day after day, at roughly fifteen to twenty million cubic meters per second. Because the conveyor links the surface and the deep in one system, a slowdown would reshuffle climates and fisheries far from the poles where the sinking happens. Two limits keep the reading honest. The instrument record spans decades, not centuries, and the flow varies naturally from year to year. Also, the conveyor is not one neat belt: water sinks, spreads, and rises along several branching paths."),
           mkNote("How it works", "Where the deep water comes back up",
-            "Water that sinks must somewhere rise, and plankton are part of the reason the rising matters. Plankton are tiny living things that drift in the water. Where winds pull surface water away from a coast or the equator, cold deep water wells up in its place, and this rising is called upwelling. The rising water carries nutrients that sank with dead plankton long ago, so plankton bloom where upwelling happens, and fish, birds, and fisheries gather there.",
+            "Water that sinks must somewhere rise, and **plankton**, tiny living things that drift in the water, are part of the reason the rising matters. Where winds pull surface water away from a coast or the equator, cold deep water wells up in its place, and this rising is called **upwelling**. Deep water is nutrient rich for a chain of reasons: remains of plankton sink, decay at depth returns their nutrients to the water, and no light at depth means nothing uses those nutrients up. The rising water carries them back into the sunlight, so plankton bloom where upwelling happens, and fish, birds, and fisheries gather there. Satellite color maps show the blooms. The misconception to drop is that rivers feed these fisheries most: along dry coasts with few rivers, upwelling does the feeding.",
             { diagram: { steps: ["Winds pull surface water away from a coast", "Cold deep water wells up in its place", "The rising water carries nutrients upward", "Plankton bloom in the sunlit surface water", "Fish and birds gather to feed"], caption: "Upwelling brings deep water and its nutrients back to the light." } }),
           mkVisualQ("Look at the diagram. What wells up when winds pull surface water away?",
             null,
@@ -8513,18 +8513,18 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Deep currents are driven mainly by winds dragging on the deep water.",
             false,
             "Winds drive the surface currents. Deep currents obey density: cold and salty water grows heavy and sinks near the poles."),
-          mkQuiz("A coast where winds often pull surface water away has rich fishing year after year. Why?",
-            ["The winds blow fish in from distant oceans and trap them close to this coast for good", "Upwelling carries nutrients up, so plankton bloom and fish gather", "Cold water frightens smaller fish upward where boats can catch them more easily each day", "Surface water pulled away leaves the deep fish exposed in the open air above the waves"],
-            1,
-            "Upwelling is a delivery of nutrients to the sunlit water. Plankton bloom on those nutrients, and the fish and birds gather to feed on the bloom."),
+          mkQuiz("A survey boat finds dense plankton and strong fish catches only in the months when coastal winds blow surface water toward the open sea. What links the wind to the catches?",
+            ["Upwelling carries nutrients up, so plankton bloom and fish gather", "Winds blow adult fish inshore, so plankton bloom and fish gather", "Cold deep water frightens fish upward, so plankton bloom below them", "Nutrients rise in warm surface water, so fish gather without plankton"],
+            0,
+            "The wind moves surface water away, deep water replaces it, and the replacement carries nutrients into the light. Plankton multiply first, and the animals that eat plankton follow."),
           mkNote("The payoff", "Two engines, one ocean",
-            "Deep currents run on density, not wind: cold and salty water sinks at the poles and creeps along the floor, while upwelling returns deep water and its nutrients to the light. Together, the surface loops and the deep conveyor connect every ocean on Earth. Tomorrow: can you prove the whole course, start to finish?")
+            "Deep currents run on density, not wind: cold and salty water sinks at the poles, creeps along the floor, and returns through upwelling with nutrients gathered at depth. A full circuit takes about a thousand years, which is why change here is slow and hard to read. Together, the surface loops and the deep conveyor connect every ocean on Earth. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "oc-3", title: "Checkpoint: Oceans", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.", checkpoint: true,
+        id: "oc-3", title: "Checkpoint: Oceans", subtitle: "Eight mixed checks on the whole course, using only what was taught.", checkpoint: true,
         cards: [
-          mkQuiz("What starts the great surface currents?",
+          mkQuiz("A team releases drifting buoys across a basin and watches them begin to move and then curve into a loop. What first sets the surface water moving?",
             ["The Moon pulling whole oceans", "Earthquakes shaking the sea floor under the basins", "Fish swimming together and pushing the water ahead", "Steady winds dragging on the surface water"],
             3,
             "Steady winds dragging on the water start surface currents. The spin of the Earth then bends their paths into great loops."),
@@ -8546,25 +8546,25 @@ export const TOPIC_COURSES = [
           mkOrder("Put the conveyor journey in order.",
             ["Cold salty surface water grows dense near the poles", "Dense water sinks and slides along the ocean floor", "Deep water creeps slowly toward the equator", "Deep water rises where winds pull surface water away"],
             "Dense water sinks first and rises last. In between, the deep water creeps slowly toward the equator along the ocean floor."),
-          mkQuiz("Why is western Europe warmer than other places at its latitude?",
-            ["It sits closer to the sun than those places do", "Its mountains block every cold wind forever", "A warm Atlantic current delivers tropical heat to its coasts", "The conveyor avoids Europe and leaves its heat untouched"],
+          mkQuiz("Two ports share the same latitude, yet the European port stays far milder in winter than the port across the Atlantic. Compared with that port, what is different?",
+            ["A warm Atlantic current delivers tropical heat to its coasts", "A cold Atlantic current delivers tropical heat to its coasts", "Warm currents stop at its coasts and leave the heat offshore", "The Atlantic current delivers tropical cold to its coasts"],
             2,
-            "A warm Atlantic current delivers tropical heat to the coasts of western Europe, and the winds deliver the warmed air inland."),
+            "Mild air arrives over the European port because moving water brought tropical heat to its coast first. The port across the ocean shares the sunlight but not the warm flow."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["Steady winds drag on the water and start surface currents.", "The Coriolis effect bends paths right in the north and left in the south.", "Cold and salty water stays light and floats at the poles forever.", "Upwelling carries nutrients up and plankton bloom where it happens."],
+            ["Steady winds drag on the water and start surface currents.", "The Coriolis effect bends paths right in the north and left in the south.", "Deep currents are pushed mainly by winds dragging on water at the ocean floor.", "Upwelling carries nutrients up and plankton bloom where it happens."],
             2,
-            "Cold and salty water grows dense and sinks near the poles.",
-            "Cold and salty water is heavy for its size, so it sinks. That sinking near the poles drives the whole deep conveyor.")
+            "Deep currents are driven by density, as cold and salty water sinks near the poles.",
+            "Wind drives the surface layer, not the floor. Below it, water moves when it grows heavy for its size and sinks, then creeps along the floor toward the equator.")
         ]
       },
     ] }],
   },
   {
     id: "topic-soil-beneath-us", title: "The Soil Beneath Us", category: "Earth and Climate",
-    blurb: "The living world inside soil, and the carbon it holds or releases.",
-    units: [{ id: "topic-soil-beneath-us-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "Billions of microbes in a teaspoon, the trade at the root, and the carbon vault that tilling can spend.",
+    units: [{ id: "topic-soil-beneath-us-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "sl-1", title: "A Teaspoon of Wilderness", subtitle: "Soil is alive, crowded, and busy",
+        id: "sl-1", title: "A Teaspoon of Wilderness", subtitle: "Soil life, the root trade, and the carbon vault",
         cards: [
           mkPredict("How many microbes can live in a teaspoon of healthy soil?",
             "A teaspoon of healthy soil holds billions of microbes, more than there are people on Earth.",
@@ -8572,11 +8572,11 @@ export const TOPIC_COURSES = [
             2,
             "One teaspoon holds billions of microbes. Soil is one of the most crowded living places on the planet."),
           mkNote("The big idea", "Soil is an ecosystem, not a substance",
-            "A teaspoon of healthy soil holds billions of microbes, more than there are people on Earth, plus fungal threads, tiny animals, and the roots of plants threading through it all. Microbes are tiny living things, far too small to see one by one. This living community digests dead matter and recycles nutrients into forms plants can use, and nutrients are the food substances plants need to grow. Nearly all of this life crowds into the topsoil, the dark upper layer about the first hand span below the surface."),
+            "A teaspoon of healthy soil holds billions of **microbes**, tiny living things far too small to see one by one, plus fungal threads, tiny animals, and the roots of plants threading through it all. Counts come from extracting the genetic material of microbes from a weighed sample and from viewing stained cells under microscopes. This living community digests dead matter and recycles **nutrients**, the food substances plants need to grow, into forms plants can use. Nearly all of this life crowds into the **topsoil**, the dark upper layer roughly the first thirty centimeters below the surface. Below that layer, food and oxygen thin out, and so does the crowd."),
           mkNote("Key idea", "The carbon vault underfoot",
-            "The community builds the crumbly structure that lets soil hold water and air. Soil is also one of the largest carbon stores on the planet, holding more carbon than the air above it. Most of that carbon is the remains of the living community, locked into the fabric of the soil. How land is treated decides whether this vault keeps its carbon or releases it, and soil becomes dirt when the community dies."),
+            "The community builds the crumbly structure that lets soil hold water and air in the gaps between crumbs. Soil is also one of the largest carbon stores on the planet, holding more carbon than the air above it and more than all living plants combined. Most of that carbon is the remains of the living community: dead roots, fungal threads, and microbial bodies bound to mineral grains, where some of it can stay for hundreds of years. How land is treated decides whether this vault keeps its carbon or releases it. The misconception to drop is that soil carbon is coal like and inert: much of it is recent, biological, and able to decay once conditions change. Soil becomes dirt when the community dies."),
           mkNote("How it works", "The trade at the root",
-            "Phosphorus and nitrogen are minerals that plants need to grow, and roots struggle to gather enough of them alone. Plants leak sugars from their roots on purpose, feeding the microbes around them. In return, microbes and fungi deliver phosphorus, nitrogen, and water gathered far beyond the reach of the roots. Fungal threads are the great traders: they connect roots into networks that move nutrients from where they are plentiful to where they are wanted, and the fungus is paid in sugar.",
+            "**Phosphorus** and **nitrogen** are minerals that plants need to grow, and roots struggle to gather enough of them alone, because phosphorus in particular barely moves through soil, traveling only millimeters from where it sits. Plants leak sugars from their roots on purpose, as much as a fifth of the sugar their leaves make, feeding the microbes around them. In return, microbes and fungi deliver phosphorus, nitrogen, and water gathered far beyond the reach of the roots. Fungal threads are far thinner than roots and enter pores roots cannot, so they work a far larger volume of soil. Traced sugars labeled in the leaves turn up in the fungi, and labeled minerals move the other way, so the trade is measured, not guessed. The fungus is paid in sugar, and it delivers only while payment continues.",
             { diagram: { steps: ["Plant roots leak sugars into the soil", "Microbes and fungi feed on the sugars", "Fungal threads gather minerals and water", "Threads deliver minerals and water to the roots", "The fungus is paid in sugar"], caption: "Sugar flows down and minerals flow up in the root trade." } }),
           mkVisualQ("Look at the diagram. What do plant roots leak into the soil?",
             null,
@@ -8593,16 +8593,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Dirt is just another name for living soil, with its community still busy.",
             false,
             "Soil is the living system, and dirt is what soil becomes when the community dies. The difference is the life, not the place."),
-          mkQuiz("A gardener finds pale plants growing in soil where the fungi were killed off. Why might the plants struggle?",
-            ["The soil has lost its dark color, and roots refuse to grow in pale ground at all", "Fungal threads cannot deliver minerals and water to the roots", "The microbes have eaten every root in the bed during the night", "Plants cannot leak sugars once the fungi around them are gone for a single day"],
+          mkQuiz("A grower treats one bed to kill its fungi and leaves a twin bed untreated. Both get the same water and light, yet the treated plants grow pale and small. What best explains the result?",
+            ["Fungal threads cannot deliver minerals and water to the roots", "Roots cannot leak sugars into soil where the fungi were killed", "Plants grow pale because microbes ate the roots in the treated bed", "Fungal threads deliver sugars to roots in soil with no minerals"],
             1,
-            "Fungal threads deliver minerals and water gathered beyond the reach of the roots. Without the traders, the roots struggle to gather enough alone."),
+            "The twin bed is the control that makes the result readable: only the fungi differed. Without threads reaching into pores and delivering minerals and water, roots alone gather too little, and growth shows it."),
           mkNote("The payoff", "A crowded world underfoot",
-            "Living soil is a crowded community that digests dead matter, recycles nutrients, trades at the root, and locks carbon into a vault underfoot. A teaspoon holds billions of microbes, and most of that life crowds into the topsoil. Tomorrow: why does turning soil over let buried carbon escape into the air?")
+            "Living soil is a crowded community that digests dead matter, recycles nutrients, trades sugar for minerals at the root, and locks carbon into a vault underfoot. A teaspoon holds billions of microbes, most of that life crowds into the topsoil, and phosphorus barely moving is why the fungal traders matter. Tomorrow: why does turning soil over let buried carbon escape into the air?")
         ]
       },
       {
-        id: "sl-2", title: "Keeping the Vault Shut", subtitle: "Worms, tilling, and the sponge effect",
+        id: "sl-2", title: "Keeping the Vault Shut", subtitle: "Worms, tilling, and soil that holds rain like a sponge",
         cards: [
           mkPredict("Why does heavy tilling release soil carbon?",
             "Turning the soil over shreds fungal networks and lets buried carbon meet the air, where it burns away as a gas.",
@@ -8610,11 +8610,11 @@ export const TOPIC_COURSES = [
             1,
             "Buried carbon that suddenly meets the air is food for microbes, and they release it as carbon dioxide. Exposure is the key."),
           mkNote("The big idea", "Disturbance spends the vault",
-            "Plowing and heavy tilling feel like care, but to the soil community they are a disaster at once: fungal networks are shredded, burrows collapse, and buried carbon meets the air and burns away as carbon dioxide, a gas in the air. Tilling means turning the soil over with tools. Fields tilled hard for many years lose their crumbly structure, hold less water, and wash away faster. Living soil is slow to build and fast to spend."),
+            "Plowing and heavy **tilling**, turning the soil over with tools, feels like care, but to the soil community it is a disaster at once: fungal networks are shredded, burrows collapse, and buried carbon meets the air. Microbes then use that exposed carbon as food and release it as **carbon dioxide**, a gas in the air. Paired fields, one tilled and one left undisturbed, show the tilled field losing carbon and crumb structure year after year. Fields tilled hard for many years hold less water and wash away faster, because the crumbs that resisted washing are gone. Living soil is slow to build and fast to spend: structure built over decades can be broken in a few passes."),
           mkNote("Key idea", "Farming with the community",
-            "Farmers who protect soil life tend to share a few habits. They keep living roots in the ground for as much of the year as possible, disturb the soil less, keep it covered, and rotate what grows there, which means changing what is planted from one season to the next. These habits are maintenance of the workforce, and a drought is a long spell with too little rain. When the community survives, harvests stay steadier in droughts and floods alike."),
+            "Farmers who protect soil life tend to share a few habits. They keep living roots in the ground for as much of the year as possible, disturb the soil less, keep it covered, and rotate what grows there, which means changing what is planted from one season to the next. Living roots matter because sugar payments stop the week roots die, and fungal networks starve within a season without them. These habits are maintenance of the workforce, and a **drought** is a long spell with too little rain. The limit matters too: gentle habits rebuild carbon slowly, a fraction of a percent of soil mass per year at best, so protection beats restoration. When the community survives, harvests stay steadier in droughts and floods alike."),
           mkNote("How it works", "Worms and the sponge",
-            "Earthworms are the engineers of the soil: they drag leaves underground, mix the layers, and leave burrows that channel water and air. A soil full of life and roots holds rain like a sponge, releasing it slowly to plants and streams. A dead, compacted soil, meaning soil pressed down hard, sheds rain off its surface, flooding quickly and drying just as fast. The sponge is not the mineral in the soil; it is the architecture the community builds, in crumbs, burrows, and roots.",
+            "Earthworms are the engineers of the soil: a single worm can move many times its own body weight of soil in a year, dragging leaves underground, mixing the layers, and leaving burrows that channel water and air several centimeters down. A soil full of life and roots holds rain like a sponge, in the pores inside and between crumbs, releasing it slowly to plants and streams. A dead, **compacted** soil, meaning soil pressed down hard, sheds rain off its surface, flooding quickly and drying just as fast. The test is direct: pour the same volume of water on living and compacted plots and time how long each takes to soak in. The sponge is not the mineral in the soil; it is the architecture the community builds, in crumbs, burrows, and roots.",
             { diagram: { steps: ["Earthworms drag leaves underground", "Burrows channel water and air", "Roots and crumbs hold rain like a sponge", "The sponge releases water slowly to plants", "Streams receive water slowly and steadily"], caption: "Living soil holds rain and lets it go slowly." } }),
           mkVisualQ("Look at the diagram. What do the burrows channel through the soil?",
             null,
@@ -8633,18 +8633,18 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Heavy tilling protects fungal networks and keeps buried carbon locked away.",
             false,
             "Heavy tilling shreds fungal networks and turns buried carbon loose in the air. It spends the vault instead of protecting it."),
-          mkQuiz("After weeks with little rain, one field with living soil still feeds its plants while a bare tilled field nearby struggles. Why?",
-            ["Its sponge holds rain and releases water slowly to plants", "Its microbes call the rain back whenever the field begins to dry", "Its worms drink the rain and hand it back to the roots one mouthful at a time", "Its covered ground hides the plants from the sun until the drought has passed entirely"],
+          mkQuiz("Rain gauges record the same scarce rain on two fields, yet weeks later the living field still feeds its plants while the bare tilled field wilts. What best explains the difference in outcome?",
+            ["Its sponge holds rain and releases water slowly to plants", "Its tilled surface holds rain and releases water to streams", "Its compacted soil holds rain on the surface for its plants", "Its bare ground holds rain longer than any covered soil can"],
             0,
-            "Structure is storage. The sponge built by the living community holds rain and releases it slowly, so plants keep drinking long after the rain stops."),
+            "Both fields received the same rain, so supply cannot explain the gap. Storage can: crumbs and burrows held the water in the living field and metered it out, while the tilled field shed and lost its share early."),
           mkNote("The payoff", "Spendthrift or sponge",
-            "Tilling spends the vault, worms build the sponge, and gentle habits keep the workforce alive through droughts and floods. Living soil holds water, trades minerals at the root, and keeps its carbon locked away. Tomorrow: can you prove the whole course, start to finish?")
+            "Tilling spends the vault, worms build the sponge, and gentle habits keep the workforce alive through droughts and floods, while rebuilding stays slow even under good care. Living soil holds water, trades minerals at the root, and keeps its carbon locked away. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "sl-3", title: "Checkpoint: Soil", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.", checkpoint: true,
+        id: "sl-3", title: "Checkpoint: Soil", subtitle: "Eight mixed checks on the whole course, using only what was taught.", checkpoint: true,
         cards: [
-          mkQuiz("About how much life lives in a teaspoon of healthy soil?",
+          mkQuiz("A student argues that a teaspoon of soil is mostly mineral grains with a few microbes scattered through it. Compared with that claim, what do counts from weighed samples show?",
             ["A few dozen microbes in every spoonful at most", "No microbes at all, since healthy soil is clean", "Billions of microbes, more than people on Earth", "Thousands of microbes, and never any more than that"],
             2,
             "A teaspoon of healthy soil holds billions of microbes, more than there are people on Earth. It is one of the most crowded habitats anywhere."),
@@ -8666,25 +8666,25 @@ export const TOPIC_COURSES = [
           mkOrder("Put the root trade in order.",
             ["Plant roots leak sugars into the soil", "Microbes and fungi feed on the sugars", "Fungal threads gather minerals and water", "Threads deliver minerals and water to the roots"],
             "Sugar flows down first and minerals flow up last. The trade runs in that order at every root, all season long."),
-          mkQuiz("Which habit protects soil life on a farm?",
-            ["Keeping living roots in the ground and disturbing soil less", "Turning the soil over as often as the tools allow", "Removing every worm to keep the ground tidy and clean", "Leaving the fields bare and uncovered between every crop that grows there"],
+          mkQuiz("A farmer must choose a routine for the years ahead and wants the routine that protects soil life. Compared with hard tilling every season, which routine does that?",
+            ["Keeping living roots in the ground and disturbing soil less", "Keeping fields bare all winter and disturbing soil far more", "Turning the soil over often and removing cover after harvest", "Leaving no roots in the ground and compacting soil each year"],
             0,
-            "Living roots feed the community, cover protects it, and less disturbance lets the fungal networks survive. The workforce stays alive to do its jobs."),
+            "Roots keep paying sugar, cover keeps the surface from washing and drying, and intact fungal networks keep trading. Each part of the routine protects a different piece of the workforce."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["Heavy tilling shreds fungal networks in the soil.", "Buried carbon meets the air and burns away as carbon dioxide.", "Earthworms collapse their own burrows and block water and air.", "Living soil holds rain like a sponge and releases it slowly."],
+            ["Heavy tilling shreds fungal networks in the soil.", "Buried carbon meets the air and burns away as carbon dioxide.", "Earthworm burrows seal the soil, so rain sheds off a living field.", "Living soil holds rain like a sponge and releases it slowly."],
             2,
-            "Earthworms leave burrows that channel water and air.",
-            "Earthworms are engineers, not wreckers. Their burrows channel water and air through the soil and help build the sponge.")
+            "Earthworms leave burrows that channel water and air through the soil.",
+            "Shedding rain is the mark of dead, compacted soil, not of a worm worked one. Burrows are entry routes for water and air, and the crumbs around them hold that water.")
         ]
       },
     ] }],
   },
   {
     id: "topic-forests-and-carbon", title: "Forests and Carbon", category: "Earth and Climate",
-    blurb: "What forests do with carbon, and how it is measured.",
-    units: [{ id: "topic-forests-and-carbon-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "Where a tree body really comes from, how the store is counted layer by layer, and how fast each exit releases it.",
+    units: [{ id: "topic-forests-and-carbon-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "fo-1", title: "Breathing In, Building Wood", subtitle: "Where a tree's body actually comes from",
+        id: "fo-1", title: "Breathing In, Building Wood", subtitle: "Where a tree body comes from, and how the store is weighed",
         cards: [
           mkPredict("Trunk, branches, roots: how many of them are built mostly from carbon taken from the air?",
             "Every part of a tree is built mostly from carbon taken from the air, stacked year by year into wood.",
@@ -8692,11 +8692,11 @@ export const TOPIC_COURSES = [
             1,
             "Trunk, branches, and roots are all kept carbon from the air. The soil under a growing tree barely loses any weight at all."),
           mkNote("The big idea", "A tree is mostly made of air",
-            "It feels obvious that a tree grows out of the soil, but weigh the soil before and after and it barely changes. The bulk of the body of a tree is carbon taken from the air. Through photosynthesis, the process leaves use to keep carbon from the air and release oxygen, the tree keeps the carbon and returns the oxygen. Trunk, branches, and roots are that kept carbon, stacked year by year into wood, so a forest is the sky, stored."),
+            "It feels obvious that a tree grows out of the soil, but weigh the soil before and after years of growth and it barely changes, while the tree gains tons. The bulk of the body of a tree is carbon taken from the air. Through **photosynthesis**, the process leaves use to keep carbon from the air and release oxygen, the tree keeps the carbon and returns the oxygen. The classic test is exactly that weighing: a tree grown in a tub of soil gains far more mass than the soil loses, and the missing source is the air plus water. Trunk, branches, and roots are that kept carbon, stacked year by year into wood, so a forest is the sky, stored."),
           mkNote("Key idea", "Roof, shade, and the hidden half",
-            "The leaves doing this work form the canopy, the sunlit roof of the forest. Below it lives the understory, a shaded layer of young trees and shrubs waiting for light. The visible trees are only part of the store: roots hold a large share, and the soil beneath a forest holds another share, fed by fallen leaves and dead roots for centuries. Clearing a forest therefore costs more carbon than the trunks suggest."),
+            "The leaves doing this work form the **canopy**, the sunlit roof of the forest, where nearly all photosynthesis happens. Below it lives the **understory**, a shaded layer of young trees and shrubs waiting for a gap of light. The visible trees are only part of the store: roots commonly hold about a fifth to a quarter of the carbon in the living tree, and the soil beneath a forest holds another share, often as large as the wood itself, fed by fallen leaves and dead roots for centuries. Forest carbon is therefore counted in layers, from canopy to deep soil, not by trunks alone. Clearing a forest costs more carbon than the trunks suggest, and surveys that count only trunks understate the loss."),
           mkNote("How it works", "Growing fast versus storing much",
-            "A young, fast growing forest takes in carbon quickly each year but holds little so far. An old forest takes in less extra each year, because its breathing and decay, the slow breaking down of dead trees, nearly balance its growth. Yet the old forest holds an enormous store built over centuries. Cutting an old forest releases that store at once, while planting a young forest rebuilds it slowly, so rate and total are different virtues.",
+            "A young, fast growing forest takes in carbon quickly each year, several tons per hectare in strong growth, but holds little so far. An old forest takes in less extra each year, because its breathing and **decay**, the slow breaking down of dead trees, nearly balance its growth. Yet the old forest holds an enormous store, commonly hundreds of tons of carbon per hectare in wood and soil, built over centuries. The evidence comes from two directions: plots remeasured tree by tree over decades, and towers that measure carbon dioxide moving between forest and air hour by hour. Cutting an old forest releases that store at once, while planting a young forest rebuilds it slowly, so rate and total are different virtues. Confusing a fast rate with a large store is the central misconception in forest carbon claims.",
             { diagram: { steps: ["A seedling starts with almost no store", "A young forest takes in carbon quickly", "The store grows year by year", "An old forest holds an enormous store", "Breathing and decay nearly balance new growth"], caption: "Fast intake builds a store slowly over centuries." } }),
           mkVisualQ("Look at the diagram. What does an old forest hold?",
             null,
@@ -8713,16 +8713,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("A young, fast growing forest holds more total carbon than an old forest.",
             false,
             "A young forest takes in carbon fast but holds little so far. The old forest holds an enormous store built over centuries."),
-          mkQuiz("A company cuts an old forest, plants seedlings, and says the carbon is replaced at once. What is wrong?",
-            ["Seedlings cannot keep carbon from the air until they stand fully grown", "The new forest will hold its carbon only in the canopy leaves", "Cutting releases the old store and seedlings rebuild it slowly", "Old forests hold no carbon, so there was nothing to replace in the ground or the wood"],
-            2,
-            "Cutting an old forest releases a store built over centuries. Seedlings rebuild that store slowly, year by year, so rate and total are not the same thing."),
+          mkQuiz("A company cuts an old forest, plants seedlings, and reports the carbon as replaced in the same year. Tower records show the young plot taking carbon in quickly. Why does that fast intake not settle the claim?",
+            ["Cutting releases the old store and seedlings rebuild it slowly", "Seedlings hold the old store in their canopy from the first year", "Fast intake means the young forest holds the enormous store now", "The old forest store moves into seedlings when planting begins"],
+            0,
+            "Rate and total answer different questions. Intake can be rapid while the store is still tiny, and the released centuries of stored carbon return only as the new forest accumulates them, year by year."),
           mkNote("The payoff", "The sky, stored",
-            "A tree is built from the air, its carbon stacked into wood, roots, and forest soil over centuries. Young forests save fast, and old forests hold the most of all. Tomorrow: by which doors does stored carbon leave a forest, through fire, rot, or harvest?")
+            "A tree is built from the air, its carbon stacked into wood, roots, and forest soil over centuries, and counted honestly only when every layer is included. Young forests save fast, and old forests hold the most of all. Tomorrow: by which doors does stored carbon leave a forest, through fire, rot, or harvest?")
         ]
       },
       {
-        id: "fo-2", title: "Keeping Carbon in the Trees", subtitle: "Fire, rot, and what protection really means",
+        id: "fo-2", title: "Keeping Carbon in the Trees", subtitle: "Fire, rot, harvest, and what protection really means",
         cards: [
           mkPredict("By which door does stored carbon leave a forest fastest?",
             "Fire sends stored carbon back to the air in hours, far faster than rot, which takes years.",
@@ -8730,11 +8730,11 @@ export const TOPIC_COURSES = [
             2,
             "Fire is the fast door, measured in hours. Rot takes years, and harvest keeps carbon stored for as long as the product lasts."),
           mkNote("The big idea", "Stored carbon has three exits",
-            "Carbon stored in a forest leaves by three doors. Fire sends it back to the air in hours, while rot returns it over years, as fungi, microbes, and termites, small insects that eat wood, break down trees that die and decay. Harvest moves carbon into wood products, where it stays stored only as long as the product lasts: centuries in a wooden beam, very briefly in a sheet that is soon burned or left to rot. The climate value of a forest is the balance between what it keeps taking in and what leaves by every door."),
+            "Carbon stored in a forest leaves by three doors, on three very different clocks. Fire sends it back to the air in hours, converting solid wood to gas and ash in a single event. Rot returns it over years to decades, as fungi, microbes, and termites, small insects that eat wood, break down trees that die and decay. Harvest moves carbon into wood products, where it stays stored only as long as the product lasts: centuries in a wooden beam, very briefly in a sheet that is soon burned or left to rot. The climate value of a forest is the balance between what it keeps taking in and what leaves by every door, which is why a forest can be growing and still lose carbon in a fire year."),
           mkNote("Key idea", "Protection is a time promise",
-            "Planting trees is the popular half of forest climate action, but protecting forests that already stand carries the larger near term role. The store in an old forest is already built, and keeping it is instant, while the vault of a seedling takes decades to fill. A planted forest counts only if it survives, so planting is a promise about time, not a single event. Trees planted and then abandoned are a photo, not a vault."),
+            "Planting trees is the popular half of forest climate action, but protecting forests that already stand carries the larger near term role. The store in an old forest is already built, and keeping it is instant, while the vault of a seedling takes decades to fill. Survival is the weak point in planting claims: young trees die from drought, grazing, fire, and neglect, and a planted area counts only for the trees still living years later. Follow up counts of living trees, not planting day photographs, are the honest evidence. A planted forest counts only if it survives, so planting is a promise about time, not a single event. Trees planted and then abandoned are a photo, not a vault."),
           mkNote("How it works", "The product sets the clock",
-            "Harvest does not free carbon at once; it moves carbon into products, and the product sets the clock. A beam in a building can hold carbon for centuries, while a sheet holds it very briefly before burning or rot frees it. Protection and long lived products work the same way: both keep the vault shut for longer. That is why the same tree can be a brief release or a long store, depending on what its wood becomes.",
+            "Harvest does not free carbon at once; it moves carbon into products, and the product sets the clock. A beam in a building can hold carbon for centuries, while a sheet holds it very briefly before burning or rot frees it. The accounting limit is the leftovers: roots, branches, and soil disturbed at harvest are not in the product at all, and much of that carbon returns far sooner. Protection and long lived products work the same way: both keep the vault shut for longer. That is why the same tree can be a brief release or a long store, depending on what its wood becomes and what was left behind.",
             { diagram: { steps: ["A tree is harvested for its wood", "The wood becomes a product", "A beam holds carbon for centuries", "A sheet holds carbon very briefly", "Burning or rot frees the carbon at last"], caption: "The product sets how long harvested carbon stays stored." } }),
           mkVisualQ("Look at the diagram. Which product holds carbon for centuries?",
             null,
@@ -8753,21 +8753,21 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Planting trees replaces the store of an old forest on the same day.",
             false,
             "A planted forest takes decades to fill its vault. Cutting an old forest releases its store at once, so the two clocks are not the same."),
-          mkQuiz("A town can protect an old forest or plant seedlings on open land, and it needs carbon kept out of the air right away. Which works sooner?",
-            ["Protecting the old forest, whose store is already built", "Planting seedlings, because young trees take in carbon fastest each year and their store fills within a season or two at the very most", "Cutting the old forest and storing its wood as sheets and chips", "Either one, since both keep exactly the same store from the first day"],
+          mkQuiz("A council compares two plans for the next ten years: protect an old forest that may be cut, or plant seedlings on open land. It needs carbon kept out of the air soonest. Which plan does that?",
+            ["Protecting the old forest, whose store is already built", "Planting seedlings, whose store is already built at planting", "Cutting the old forest, whose store rebuilds within one season", "Protecting seedlings, whose vault fills faster than any old forest"],
             0,
-            "Protecting the old forest works sooner because its store is already built. Seedlings are fast savers, but their vault takes decades to fill."),
+            "Time decides this comparison. Protection defends carbon that exists now, while planting creates a store that must accumulate for decades before it rivals the one already standing."),
           mkNote("The payoff", "Keep the vault shut",
-            "Stored carbon leaves by fire, rot, and harvest, and protection and long lived products both keep the vault shut longer. Forests also cool their surroundings, shelter a large share of the species living on land, hold soil on slopes, and steady the flow of streams. Tomorrow: can you prove the whole course, start to finish?")
+            "Stored carbon leaves by fire in hours, by rot over years, and by harvest into products whose lifetimes set the clock, while planting counts only for trees still living years later. Forests also cool their surroundings, shelter a large share of the species living on land, hold soil on slopes, and steady the flow of streams. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "fo-3", title: "Checkpoint: Forests", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.", checkpoint: true,
+        id: "fo-3", title: "Checkpoint: Forests", subtitle: "Eight mixed checks on the whole course, using only what was taught.", checkpoint: true,
         cards: [
-          mkQuiz("Where does most of the body of a tree come from?",
-            ["Soil dug up by the roots", "Rainwater soaked in through the roots each spring", "Sunlight turned straight into wood by the bare trunk in summer", "Carbon pulled from the air by its leaves"],
-            3,
-            "Leaves keep carbon from the air through photosynthesis and return the oxygen. Trunk, branches, and roots are that kept carbon stacked into wood."),
+          mkQuiz("A tree in a weighed tub gains many kilograms over a season while the soil in the tub loses only a few grams. What does that result show about where most of the body of a tree comes from?",
+            ["Carbon pulled from the air by its leaves", "Soil pulled up by the roots into the trunk", "Rainwater stored by the roots through each spring", "Sunlight stored as wood by the bare trunk in summer"],
+            0,
+            "The weighing rules the soil out as the main source: it barely changed. Air is the remaining large source, and leaves are the surface that takes its carbon in."),
           mkMatch("Match each word to its meaning.",
             [["Photosynthesis", "The leaf process that keeps carbon from the air"], ["Canopy", "The sunlit roof of leaves over the forest"], ["Understory", "The shaded layer of plants below the canopy"], ["Rot", "The slow return of carbon by fungi, microbes, and termites"]],
             "Photosynthesis does the keeping, the canopy catches the light, the understory lives in its shade, and rot is the slow exit door for stored carbon."),
@@ -8786,25 +8786,25 @@ export const TOPIC_COURSES = [
           mkOrder("Put the building of a forest store in order.",
             ["A seedling starts with almost no store", "A young forest takes in carbon quickly", "The store grows year by year", "An old forest holds an enormous store"],
             "The order runs from an empty start to a full vault. Fast intake comes early, and the enormous store comes only after centuries."),
-          mkQuiz("What are the three exits for carbon stored in a forest?",
-            ["Wind, rain, and snowfall each winter", "Fire, rot, and harvest into wood products", "Birds, rivers, and the roots of young trees", "There are no exits, since storage lasts forever"],
-            1,
-            "Fire frees carbon in hours, rot returns it over years, and harvest moves it into products for as long as the product lasts."),
+          mkQuiz("Compared with rot, which exit returns forest carbon to the air fastest, and how do the three exits rank by speed?",
+            ["Fire returns it in hours, ahead of harvest and slow rot", "Rot returns it in hours, ahead of fire and slow harvest", "Harvest returns it in hours, ahead of rot and slow fire", "Rain returns it in hours, ahead of fire and slow snowfall"],
+            0,
+            "Speed separates the doors. Burning is a single event, harvest transfers carbon into products with their own lifetimes, and decay by fungi and microbes is a slow biological process."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["Fire sends stored carbon back to the air in hours.", "Rot returns carbon over years through fungi, microbes, and termites.", "A beam can hold harvested carbon for centuries.", "Harvest frees all carbon the moment a tree is cut."],
+            ["Fire sends stored carbon back to the air in hours.", "Rot returns carbon over years through fungi, microbes, and termites.", "A beam can hold harvested carbon for centuries.", "Harvest moves every part of a tree, roots and soil included, into long lived products."],
             3,
-            "Harvest moves carbon into products, where it stays as long as the product lasts.",
-            "Harvest is a move, not an instant release. A beam keeps carbon for centuries, while a sheet frees it very briefly after cutting.")
+            "Harvest moves the trunk into products, while roots and disturbed soil lose carbon far sooner.",
+            "The product story covers only the wood that becomes a product. Roots stay in the ground, branches are often burned or left to rot, and disturbed soil releases carbon on a much shorter clock.")
         ]
       },
     ] }],
   },
   {
     id: "topic-extreme-weather", title: "Extreme Weather", category: "Earth and Climate",
-    blurb: "How scientists pin a storm to a warming world.",
-    units: [{ id: "topic-extreme-weather-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "Loaded odds in a warmer sky, and attribution: running one event through two worlds to measure what warming changed.",
+    units: [{ id: "topic-extreme-weather-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "ew-1", title: "A Loaded Sky", subtitle: "What warming does to the ingredients of weather",
+        id: "ew-1", title: "A Loaded Sky", subtitle: "What warming does to water vapor, heat, and sea level",
         cards: [
           mkPredict("How many kinds of extreme weather can a warmer world load the odds for?",
             "Warming loads the odds for more than one kind of extreme, from heavier rain to longer heat waves.",
@@ -8812,11 +8812,11 @@ export const TOPIC_COURSES = [
             3,
             "Heavier rain and longer heat waves are both loaded by warming. The load falls on the odds, not on any single event."),
           mkNote("The big idea", "Warm air holds more water",
-            "Warmer air can hold more water vapor, the invisible water gas in the air. For every degree Celsius warmer, air can hold about seven percent more water vapor. A warmer world therefore loads the sky with more water to drop, so when rain comes it can come harder. A heat wave is a run of unusually hot days, and warming makes heat waves likelier and longer. Warming also raises sea level, so flooding from a storm starts from a higher floor."),
+            "Warmer air can hold more **water vapor**, the invisible water gas in the air. The rule is physical and measurable: for every degree Celsius warmer, air can hold about seven percent more water vapor, because warmer air gives water molecules more energy to stay as gas. Instruments carried on balloons and mounted on satellites track this rising capacity directly. A warmer world therefore loads the sky with more water to drop, so when rain comes it can come harder, though a loaded sky still needs a storm to release it. A **heat wave** is a run of unusually hot days, and warming makes heat waves likelier and longer. Warming also raises sea level by tens of centimeters, so flooding from a storm starts from a higher floor."),
           mkNote("Key idea", "Loaded dice, not scripted storms",
-            "No single storm is caused by warming in the way a spark causes a fire, because storms have always happened. The honest image is loaded dice: warming changes the odds, so the heaviest rain events and the hottest days come up more often than they used to. A particular flood is weather, not climate. The rising frequency of such floods across many years is climate showing through the weather."),
+            "No single storm is caused by warming in the way a spark causes a fire, because storms have always happened. The honest image is **loaded dice**: warming changes the odds, so the heaviest rain events and the hottest days come up more often than they used to. Loaded dice still throw low numbers, and fair dice can throw high ones, which is why one event proves little either way. A particular flood is weather, not climate. The rising frequency of such floods across many years of records, counted the same way decade after decade, is climate showing through the weather. The misconception runs both ways: a record flood does not prove warming alone, and a cold week does not disprove it."),
           mkNote("How it works", "Not every dial turns the same way",
-            "Warming does not turn every dial toward worse in every place. Cold snaps become rarer in most places, while some regions dry and others flood harder. Snowfall can even increase where air stays cold enough to snow but now carries more moisture. The pattern is specific to each event and each region, so honest accounts name the event and the region instead of declaring that weather in general is worse.",
+            "Warming does not turn every dial toward worse in every place. Cold snaps become rarer in most places, while some regions dry and others flood harder, because circulation patterns shift where the extra water falls. Snowfall can even increase where air stays cold enough to snow, well below zero degrees Celsius, but now carries more moisture. Regional records bear this unevenness out: some places log heavier rain while nearby places log longer dry spells in the same decades. The pattern is specific to each event and each region, so honest accounts name the event and the region instead of declaring that weather in general is worse.",
             { diagram: { steps: ["Warmer air holds more water vapor", "Heavier rain falls in some regions", "Some regions dry instead of flooding", "Cold snaps become rarer in most places", "Snow can grow where air stays cold enough"], caption: "One warming, different results in different places." } }),
           mkVisualQ("Look at the diagram. What becomes rarer in most places as the world warms?",
             null,
@@ -8833,16 +8833,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("A single storm, by itself, proves the climate is changing.",
             false,
             "One storm is weather, not climate. Climate is the rising frequency of such events across many years, seen in the pattern."),
-          mkQuiz("A city records its heaviest downpours arriving more and more often over many years, though some single years stay dry. What does that suggest?",
-            ["One dry year proves the pattern was never real at all", "The dice are loaded, and the heaviest rain events come up more often", "Every future downpour in the city is now scripted in advance", "Storms have stopped happening naturally and only warming makes them now"],
+          mkQuiz("A city rain gauge record, kept the same way for decades, shows its heaviest downpours arriving more often, though some single years stay dry. How should that record be read?",
+            ["The dice are loaded, and the heaviest rain events come up more often", "The dice are scripted, and the heaviest rain events follow a set plan", "One dry year resets the odds, and the heaviest events start over", "Single storms prove the pattern, and the heaviest events need no record"],
             1,
-            "A long run of heavier downpours is the pattern, and patterns are where climate shows. Warming loads the dice: it changes the odds, it does not script single storms."),
+            "Length and consistency give the record its force. Dry years are expected throws even from loaded dice, so they do not cancel a rising frequency counted across decades."),
           mkNote("The payoff", "Odds, not scripts",
-            "A warmer sky holds more water vapor, heat waves grow likelier and longer, and sea level lifts the floor under storm floods. Warming loads the dice rather than scripting any single storm. Tomorrow: how can comparing two worlds, one warmed and one not, measure what warming did to one event?")
+            "A warmer sky holds about seven percent more water vapor per degree, heat waves grow likelier and longer, and sea level lifts the floor under storm floods, while cold snaps retreat and snowfall can grow where air stays cold enough. Warming loads the dice rather than scripting any single storm. Tomorrow: how can comparing two worlds, one warmed and one not, measure what warming did to one event?")
         ]
       },
       {
-        id: "ew-2", title: "Pinning a Number On It", subtitle: "Attribution: comparing two worlds",
+        id: "ew-2", title: "Pinning a Number On It", subtitle: "Attribution, comparing two worlds and reading the gap",
         cards: [
           mkPredict("What comparison can measure what warming did to a single event?",
             "Attribution compares the present warmed world against a modeled world without human driven warming, running the same event through both.",
@@ -8850,11 +8850,11 @@ export const TOPIC_COURSES = [
             2,
             "Same event, two worlds. The gap between the runs is the measured fingerprint of warming on that event."),
           mkNote("The big idea", "Run the world twice",
-            "Attribution means measuring how much warming changed the odds or the strength of one event. The method runs the same event through two modeled worlds many times: the present world, with its warmed atmosphere, and a counterfactual world without human driven warming. A counterfactual is an imagined world used only as a comparison, not a real one. The difference between the two worlds is the fingerprint of warming on that event."),
+            "**Attribution** means measuring how much warming changed the odds or the strength of one event. The method runs the same event through two modeled worlds many times, often hundreds of runs each: the present world, with its warmed atmosphere, and a **counterfactual** world without human driven warming. A counterfactual is an imagined world used only as a comparison, not a real one. Running each world many times matters because weather varies on its own, and only repeated runs separate that natural scatter from the warming signal. The difference between the two worlds is the **fingerprint** of warming on that event."),
           mkNote("Key idea", "Fractions, not verdicts",
-            "The answer comes out as a fraction or a multiplier, a number saying how many times larger something has become, never as a slogan. A heat wave might be measured as several times more likely, and a rainfall total as heavier by a stated percent. Some events show a strong fingerprint, while others, like certain droughts, show a muddy one. Honest reporting says so, and refuses to claim more than the comparison shows."),
+            "The answer comes out as a fraction or a **multiplier**, a number saying how many times larger something has become, never as a slogan. A heat wave might be measured as several times more likely in the warmed world, say three times the odds, and a rainfall total as heavier by a stated percent, say ten percent more rain. The strength of the claim depends on the event type: heat extremes usually give a clear signal, while droughts mix warming with shifting circulation and often give a muddy one. Model quality is the other limit, since a model that renders the region poorly cannot price its odds well. Honest reporting states both, and refuses to claim more than the comparison shows."),
           mkNote("How it works", "From comparison to real decisions",
-            "The same weather is run through both worlds again and again, and the odds in each world are counted and compared. Those measured fractions then do real jobs outside the models: city planners use them when sizing drains, farmers use them when choosing crops, and courts and insurers use them when weighing responsibility. The numbers turn an argument from impressions into arithmetic, which is the kind of argument that can settle budgets, because it tells planners whether an extreme was bad luck or a shifted baseline.",
+            "The same weather is run through both worlds again and again, and the odds in each world are counted and compared. Those measured fractions then do real jobs outside the models: city planners use them when sizing drains, adding capacity in percent steps rather than guessing, farmers use them when choosing crops, and courts and insurers use them when weighing responsibility. The numbers turn an argument from impressions into arithmetic, which is the kind of argument that can settle budgets, because it tells planners whether an extreme was bad luck or a shifted baseline. A shifted baseline means building for the old odds would underbuild on purpose.",
             { diagram: { steps: ["Model the present warmed world", "Model a world without human driven warming", "Run the same event through both worlds", "Count the odds in each world", "Compare the odds to find the fingerprint"], caption: "Same weather, two worlds, one measured difference." } }),
           mkVisualQ("Look at the diagram. What is run through both worlds?",
             null,
@@ -8871,21 +8871,21 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Attribution gives a yes or no verdict that warming caused a storm outright.",
             false,
             "The answer is a fraction or a multiplier about odds and strength. Attribution compares two worlds and never claims more than the comparison shows."),
-          mkQuiz("After a flood, a measured fraction shows the event was made heavier in the warmed world, and a city must size new drains. Why should planners use that number?",
-            ["One flood proves every future flood will match it exactly in size", "Drains are sized by slogans better than by measured fractions", "The number replaces the need to look at the local river or soil at all when the drains are drawn up and priced for the city budget this year", "It shows how much warming changed the odds for such floods"],
+          mkQuiz("A city sizes new drains after a flood. An attribution result for that flood type reports heavier totals in the warmed world, with odds counted across hundreds of runs in both worlds. Why should planners build with that number?",
+            ["It shows how much warming changed the odds for such floods", "It shows the exact size of the next flood in this city", "It proves one flood was caused by warming acting alone here", "It replaces local river records with odds from both worlds"],
             3,
-            "Planners sizing drains need to know whether an extreme was bad luck or a shifted baseline. A measured fraction about changed odds is arithmetic they can build on."),
+            "Drain capacity is a bet on future odds. If the odds have shifted, building for the old baseline underbuilds by design, and the measured fraction states the shift in usable percent terms."),
           mkNote("The payoff", "A number, not a slogan",
-            "Attribution runs one event through two worlds and reports the difference as a fraction or a multiplier, never as a slogan. Strong fingerprints and muddy ones both get reported honestly, because the numbers guide drains, crops, and budgets. Tomorrow: can you prove the whole course, start to finish?")
+            "Attribution runs one event through two worlds many times and reports the difference as a fraction or a multiplier, never as a slogan, with heat giving clearer signals than drought and model quality setting the limit. Strong fingerprints and muddy ones both get reported honestly, because the numbers guide drains, crops, and budgets. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "ew-3", title: "Checkpoint: Extreme Weather", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.", checkpoint: true,
+        id: "ew-3", title: "Checkpoint: Extreme Weather", subtitle: "Eight mixed checks on the whole course, using only what was taught.", checkpoint: true,
         cards: [
-          mkQuiz("Why can downpours be heavier in a warmer world?",
-            ["Warm air holds more water vapor, so there is more water to drop", "Gravity grows stronger whenever the temperature rises", "Clouds are made of warmer ice that melts all at once", "Rain ignores the odds whenever a long summer turns hot and dry for weeks"],
+          mkQuiz("A forecaster explains a record downpour by pointing first at the air itself, before any storm formed. Compared with cooler air, what had that warmer air already done?",
+            ["Warm air holds more water vapor, so there is more water to drop", "Warm air holds less water vapor, so storms squeeze out more rain", "Cold air holds more water vapor, so warming empties the sky faster", "Still air holds more water vapor, so heat matters less than calm"],
             0,
-            "Capacity is the mechanism: about seven percent more water vapor per degree Celsius warmer means storms draw on a fuller sky."),
+            "The storm released water, but the air supplied it. Each extra degree raises capacity by about seven percent, so the same storm pattern draws on a fuller sky in a warmer world."),
           mkMatch("Match each word to its meaning.",
             [["Attribution", "Measuring how much warming changed an event"], ["Water vapor", "The invisible water gas that air can hold"], ["Heat wave", "A run of unusually hot days"], ["Fingerprint", "The difference between the two modeled worlds"]],
             "Attribution measures the change, water vapor is the load in the sky, a heat wave is a run of hot days, and the fingerprint is the difference between the worlds."),
@@ -8904,25 +8904,25 @@ export const TOPIC_COURSES = [
           mkOrder("Put the attribution comparison in order.",
             ["Model the present warmed world", "Model a world without human driven warming", "Run the same event through both worlds", "Compare the odds to find the fingerprint"],
             "Both worlds are modeled first, the same event runs through both, and the odds are compared last to find the fingerprint."),
-          mkQuiz("Where does proof of a changing climate live?",
-            ["In the single worst storm anyone can remember at all", "In patterns across many events and many years", "In one photograph of one flooded street", "In the hottest afternoon of the hottest year"],
-            1,
-            "Events are weather and patterns are climate. The rising frequency of extremes across many years is where the proof lives."),
+          mkQuiz("A sceptic points to one mild summer and one cold week as proof that nothing is changing. Compared with single events like those, where does proof of a changing climate live?",
+            ["In patterns across many events and many years", "In the single worst storm anyone can remember", "In one cold week during an otherwise mild summer", "In the hottest afternoon of the hottest year"],
+            0,
+            "Single events are throws of the dice, in either direction. Proof sits in counted frequencies across many events and many years, where loaded odds become visible."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["Warm air holds about seven percent more water vapor per degree Celsius.", "Warming loads the dice and changes the odds for extremes.", "Attribution compares a warmed world with one without human driven warming.", "Cold snaps grow more common in most places as the world warms."],
+            ["Warm air holds about seven percent more water vapor per degree Celsius.", "Warming loads the dice and changes the odds for extremes.", "Attribution compares a warmed world with one without human driven warming.", "Snowfall falls in every place as the world warms, even where air stays cold enough to snow."],
             3,
-            "Cold snaps become rarer in most places as the world warms.",
-            "Not every dial turns the same way. Cold snaps become rarer in most places, even as heat waves and the heaviest rain events grow more likely.")
+            "Snowfall can grow where air stays cold enough to snow but carries more moisture.",
+            "Extra moisture needs cold air to become snow, and where that cold air remains, more moisture can mean more snow. A warming world does not move every extreme in the same direction.")
         ]
       },
     ] }],
   },
   {
     id: "topic-black-holes", title: "Black Holes", category: "Space and Physics",
-    blurb: "Black holes and the edge where the known rules stop working.",
-    units: [{ id: "topic-black-holes-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "Mass that traps light, giants weighed by orbiting stars, slow clocks near the horizon, and a center where the theory runs out.",
+    units: [{ id: "topic-black-holes-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "bh-1", title: "The Point of No Return", subtitle: "What a black hole actually is",
+        id: "bh-1", title: "The Point of No Return", subtitle: "Mass, the event horizon, and the limit at the center",
         cards: [
           mkPredict("How much light that crosses the event horizon will ever get out again?",
             "None of it gets out. Light that crosses the event horizon stays trapped inside the black hole forever.",
@@ -8930,11 +8930,11 @@ export const TOPIC_COURSES = [
             2,
             "The event horizon is the point of no return. Gravity inside it is so strong that every path leads inward, and no light escapes."),
           mkNote("The big idea", "Mass packed so tight that light is trapped",
-            "A black hole is a place where a huge amount of mass is packed into a very small space. Gravity there is so strong that nothing can escape, not even light. The edge of that place is called the event horizon. Cross the event horizon, and every path leads inward, so nothing inside can send any news back out. At the very center sits the singularity, a point where density rises without limit and the known rules stop working, a sign that the best current theory has reached its limit."),
+            "A **black hole** is a place where a huge amount of mass is packed into a very small space. Gravity there is so strong that nothing can escape, not even light, which sets the fastest possible speed. The edge of that place is called the **event horizon**: its size grows with mass, from a few kilometers for a hole a few times the mass of the Sun to billions of kilometers for the largest giants. Cross the event horizon, and every path leads inward, so nothing inside can send any news back out. At the very center sits the **singularity**, a point where the equations give density rising without limit and the known rules stop working, a sign that the best current theory has reached its limit rather than a measured object."),
           mkNote("Key idea", "Strong up close, ordinary far away",
-            "A black hole is not a hole in space, and it does not suck things in from far away. Far from the hole, its gravity follows its mass exactly, pulling like any object with the same mass. A planet far away would keep the same orbit around a black hole as around a star with the same mass. The danger begins only when something comes close to the event horizon."),
+            "A black hole is not a hole in space, and it does not suck things in from far away. Far from the hole, its gravity follows its mass exactly, pulling like any object with the same mass, because gravity weakens with distance in the same way for both. A planet far away would keep the same orbit around a black hole as around a star with the same mass. Replace the Sun with a black hole of the same mass and the planets would keep orbiting in the dark: that thought experiment is the cleanest correction to the vacuum cleaner misconception. The danger begins only when something comes close to the event horizon, within a few horizon radii, where orbits themselves become unstable."),
           mkNote("How it works", "Gas glows on the way in",
-            "Black holes are black, but telescopes can still spot some of them by the gas falling toward them. Gas spirals in toward the event horizon, and as it falls it is squeezed and heated until it glows brightly. That glowing gas forms a bright ring around a dark shadow. The dark shadow is the black hole itself, outlined by the glowing gas around it.",
+            "Black holes are black, but telescopes can still spot some of them by the gas falling toward them. Gas spirals in toward the event horizon, and friction in the fast inner flow heats it to millions of degrees, until it glows brightly, mostly in X rays, a form of light with far more energy than visible light. That glowing gas forms a bright ring around a dark shadow. The shadow is larger than the horizon itself, because light passing near the hole is bent around it. A worldwide network of radio dishes, working as one telescope the size of the Earth, resolved that shadow directly: a dark center ringed by glowing gas, at the size the mass predicted.",
             { diagram: { steps: ["Gas spirals toward the event horizon", "The falling gas is squeezed and heated", "The heated gas glows in a bright ring", "The dark shadow sits inside the ring", "The gas crosses the horizon and is gone"], caption: "The bright ring is falling gas. The darkness inside it is the hole." } }),
           mkVisualQ("Look at the diagram. What is the bright ring made of?",
             null,
@@ -8951,16 +8951,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("A black hole sucks in everything in space, even things very far away.",
             false,
             "A black hole does not suck things in from far away. Its pull far away matches any object with the same mass, and only coming close to the horizon is dangerous."),
-          mkQuiz("A planet circles far away from a black hole that has the same mass as the star it used to circle. What should the planet do?",
-            ["Fall straight inward at once, dragged by a sucking pull that reaches across all of space", "Spin away into deep space, suddenly free of gravity at that distance for good", "Hang perfectly still, because a black hole freezes every motion around it in space", "Keep the same orbit, since far away gravity follows mass alone"],
-            3,
-            "Far away, gravity follows mass alone. The same mass means the same pull, so the planet keeps the same orbit."),
+          mkQuiz("A star collapses into a black hole with the same total mass, while its planet keeps circling far away, well outside the new horizon. Compared with its old orbit, what should the planet do?",
+            ["Keep the same orbit, since far away gravity follows mass alone", "Fall straight inward, since far away gravity now pulls far harder", "Spin away outward, since far away gravity stops at the horizon", "Hang perfectly still, since far away gravity freezes all motion"],
+            0,
+            "Distance is doing the protective work here. The collapse changed how compact the mass is, not how much mass there is, and a distant orbit responds to the amount, not the compactness."),
           mkNote("The payoff", "Trapped light and a glowing ring",
-            "A black hole traps even light, and its edge is the event horizon. We spot many of them by the bright ring of gas glowing as it falls in. Tomorrow: how huge can a black hole grow at the center of a galaxy, and what happens to time near its edge?")
+            "A black hole traps even light inside an event horizon whose size scales with mass, while far away its pull is ordinary for its mass. We spot many of them by the bright ring of gas glowing as it falls in, and the largest shadows have been resolved directly. Tomorrow: how huge can a black hole grow at the center of a galaxy, and what happens to time near its edge?")
         ]
       },
       {
-        id: "bh-2", title: "Giants and Slow Clocks", subtitle: "The monsters at galaxy centers, and time near the edge",
+        id: "bh-2", title: "Giants and Slow Clocks", subtitle: "Giants at galaxy centers, and time near the edge",
         cards: [
           mkPredict("Stars near the center of our galaxy race around a point that cannot be seen. What sits at that point?",
             "A giant black hole sits there, holding about four million times the mass of the Sun in a space smaller than our solar system.",
@@ -8968,11 +8968,11 @@ export const TOPIC_COURSES = [
             1,
             "The stars race because something huge is pulling them. Their orbits show how much mass is doing the pulling, even though the hole itself cannot be seen."),
           mkNote("The big idea", "Giants at the center of galaxies",
-            "At the center of nearly every large galaxy sits a supermassive black hole. Supermassive means millions or billions of times the mass of the Sun. Our own galaxy, the Milky Way, has one holding about four million times the mass of the Sun. All that mass sits in a space smaller than our solar system."),
+            "At the center of nearly every large galaxy sits a **supermassive** black hole. Supermassive means millions or billions of times the mass of the Sun. Our own galaxy, the Milky Way, has one holding about four million times the mass of the Sun, all of it inside a space smaller than our solar system. That mass is not guessed from brightness: it is weighed by tracking individual stars on orbits only a few light months across, some completing a full orbit in about sixteen years, and applying the same orbit rules used for planets. Faster, tighter orbits demand more central mass, and the numbers leave no room for a spread out cluster of ordinary stars."),
           mkNote("Key idea", "Born when a huge star collapses",
-            "Smaller black holes are born when a huge star runs out of fuel. Without fuel to burn, the core of the star collapses under its own gravity, past every stopping point, and becomes a black hole a few times the mass of the Sun. Bigger black holes then grow over time by swallowing gas and by merging with other black holes."),
+            "Smaller black holes are born when a huge star, roughly twenty times the mass of the Sun or more, runs out of fuel. Without fuel to burn, the core of the star collapses under its own gravity in less than a second, past every stopping point, and becomes a black hole a few times the mass of the Sun, while the outer layers blast outward. Bigger black holes then grow over time by swallowing gas and by merging with other black holes. The open problem sits between the scales: growing a hole of a few solar masses into a billion solar mass giant by gas alone takes longer than the young universe allowed, so early rapid growth remains an active puzzle, not a settled story."),
           mkNote("How it works", "Time slows near the edge",
-            "Gravity bends time as well as space, so a clock close to a black hole ticks more slowly than a clock far away. The same slowing happens around Earth in a much weaker form, and it has been measured with careful clocks. Close to the event horizon the slowing grows extreme. A watcher far away sees a falling traveler seem to freeze at the edge and fade. The traveler, on their own clock, crosses in ordinary time, and both descriptions are correct.",
+            "Gravity bends time as well as space, so a clock close to a black hole ticks more slowly than a clock far away. The same slowing happens around Earth in a much weaker form, parts in a billion, and it has been measured with careful clocks flown and carried to different heights. Close to the event horizon the slowing grows extreme, without a clean floor. A watcher far away sees a falling traveler seem to freeze at the edge and fade, because light from the traveler is stretched and delayed on its way out. The traveler, on their own clock, crosses in ordinary time and notices nothing special at the edge itself. Both descriptions are correct, because each clock reports time where it is.",
             { diagram: { steps: ["A clock far away ticks at its normal rate", "A clock near the hole ticks more slowly", "A watcher far away sees falling things freeze at the edge", "The falling traveler crosses in ordinary time", "Both clocks are right in their own place"], caption: "Near the event horizon, time itself runs slow." } }),
           mkVisualQ("Look at the diagram. What does a watcher far away see as a traveler falls toward the edge?",
             null,
@@ -8989,21 +8989,21 @@ export const TOPIC_COURSES = [
           mkTrueFalse("A clock close to a black hole ticks faster than a clock far away.",
             false,
             "Gravity slows time near the hole. The close clock ticks more slowly, not faster, than the clock far away."),
-          mkQuiz("Two matching clocks are split up. One is left far from a black hole and one is carried close to its edge, then both are compared. What will the close clock show?",
-            ["Less time passed, because the close clock ticked more slowly", "More time passed, because gravity near the edge speeds every clock up instead of slowing it down at all", "The close clock stopped forever, because time ends completely beside every black hole in space", "Both clocks show the same time, because gravity bends space but never touches time at all"],
+          mkQuiz("Two matching clocks are separated for a year of far away time. One stays far from a black hole and one is held close to its edge, then the two are compared side by side. What will the close clock show?",
+            ["Less time passed, because the close clock ticked more slowly", "More time passed, because the close clock ticked more quickly", "No time passed, because the close clock stopped at the edge", "Equal time passed, because the close clock ticked at the same rate"],
             0,
-            "Gravity slows time near the hole. The close clock ticked more slowly, so less time passed on it."),
+            "The comparison is decided by rate, not by damage: nothing broke the close clock. It ran slow the whole time it sat deep in gravity, so its total comes up short."),
           mkNote("The payoff", "Giants and slow clocks",
-            "Giant black holes anchor the centers of galaxies, and time itself slows near their edges. At the center sits the singularity, where the theory reaches its limit and a deeper theory is still missing. Tomorrow: can you prove the whole course, start to finish?")
+            "Giant black holes anchor the centers of galaxies, weighed by the stars racing around them, and time itself slows near their edges while the falling traveler crosses in ordinary time. At the center sits the singularity, where the theory reaches its limit and a deeper theory is still missing. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "bh-3", title: "Checkpoint: Black Holes", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.",
+        id: "bh-3", title: "Checkpoint: Black Holes", subtitle: "Eight mixed checks on the whole course, using only what was taught.",
         cards: [
-          mkQuiz("Why is a black hole black?",
-            ["It sits in the shadow of a larger and brighter star nearby in space", "Dark gas covering it blocks its light", "It is made of a black solid surface that shines with no light at all", "Its gravity is so strong that light cannot escape from it"],
-            3,
-            "Light is the messenger, and inside the horizon every path leads inward. Gravity so strong that light cannot escape makes the hole black."),
+          mkQuiz("A telescope records a bright ring but a dark center where no light arrives from inside a boundary. What makes that center black, rather than merely dim?",
+            ["Its gravity is so strong that light cannot escape from it", "Its surface is so dark that light cannot reflect from it", "Its gas is so thick that light cannot pass through it at all", "Its shadow is so large that light cannot travel around it"],
+            0,
+            "Dim objects still send some light. Inside the horizon, every path for light leads inward, so the amount that reaches a telescope is none, while gas outside the boundary still glows."),
           mkMatch("Match each word to what it means.",
             [["Supermassive", "Millions or billions of times the mass of the Sun"], ["Singularity", "The center point where the known rules stop working"], ["Event horizon", "The edge past which nothing can return"], ["Bright ring", "Glowing gas falling toward the hole"]],
             "Supermassive names the giants, the singularity is the center, the horizon is the edge, and the ring is glowing gas."),
@@ -9022,25 +9022,25 @@ export const TOPIC_COURSES = [
           mkOrder("Put the life of a smaller black hole in order.",
             ["A huge star burns its fuel", "The core collapses under its own gravity", "A black hole forms a few times the mass of the Sun", "The hole grows by swallowing gas and merging"],
             "Fuel burns first, then the core collapses, then the hole forms and grows by swallowing gas and merging."),
-          mkQuiz("What does the singularity show about the current theory?",
-            ["A deeper theory has already replaced the old one and explains the center fully in detail", "The theory has reached its limit, and a deeper theory is still missing", "Black holes are impossible in any galaxy", "Nothing sits inside the horizon, and the center is empty space all the way through"],
-            1,
-            "Density rising without limit is the theory confessing its edge. The singularity is a signpost that a deeper theory is still missing."),
+          mkQuiz("At the center, the equations return density rising without limit instead of a value. How should that result be interpreted?",
+            ["The theory has reached its limit, and a deeper theory is still missing", "The theory has measured its center, and a deeper value is already recorded", "The center has no mass inside it, and a deeper theory is not required there", "The result has disproved black holes, and a deeper theory is beside the point"],
+            0,
+            "An endless answer is a breakdown signal, not a measurement. Physics reads it the way a map edge is read: the description ran out, and whatever replaces it must also match everything outside the horizon."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["Mass packed tight can trap even light.", "The event horizon is the edge of no return.", "A clock near the hole ticks faster than one far away.", "Stars near our galaxy center orbit an invisible point."],
+            ["Mass packed tight can trap even light.", "The event horizon is the edge of no return.", "A traveler at the edge feels their own clock freeze as distant watchers do.", "Stars near our galaxy center orbit an invisible point."],
             2,
-            "A clock near the hole ticks more slowly than one far away.",
-            "Gravity slows time near the hole, so the close clock falls behind the far away clock.")
+            "A traveler crosses in ordinary time on their own clock, however frozen they look from far away.",
+            "Freezing is a property of the distant view, built from delayed and stretched light. The clock carried by the traveler runs normally for the traveler, even while it runs slow compared with a distant clock.")
         ]
       }
     ] }],
   },
   {
     id: "topic-shape-of-spacetime", title: "The Shape of Spacetime", category: "Space and Physics",
-    blurb: "Gravity as geometry, and the tests that checked it.",
-    units: [{ id: "topic-shape-of-spacetime-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "Gravity as geometry: Mercury extra turn, light bent by mass, satellite clocks, and ripples that cross the universe.",
+    units: [{ id: "topic-shape-of-spacetime-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "st-1", title: "Gravity Is a Shape", subtitle: "The idea that replaced the force",
+        id: "st-1", title: "Gravity Is a Shape", subtitle: "Geometry, Mercury, and light that follows the bend",
         cards: [
           mkPredict("Space and time once seemed like a stage and a clock, fully separate. How many of them are woven into one fabric in the newer picture of gravity?",
             "Both of them are woven into one fabric called spacetime. Mass bends that fabric, and moving things follow the bends.",
@@ -9048,11 +9048,11 @@ export const TOPIC_COURSES = [
             2,
             "Gravity in this picture is not a pulling force first. It is the shape of spacetime itself, and space and time are woven into it together."),
           mkNote("The big idea", "Mass bends the stage itself",
-            "The older picture said gravity is a force pulling objects together. The newer picture, called general relativity, replaces that force with geometry, the shapes and curves of the fabric itself. Space and time together form a single fabric called spacetime. Mass and energy bend spacetime, and objects then move along the bends."),
+            "The older picture said gravity is a force pulling objects together, and it predicts nearly every orbit in the solar system to superb accuracy. The newer picture, called **general relativity**, replaces that force with geometry, the shapes and curves of the fabric itself. Space and time together form a single fabric called **spacetime**, so a bend can affect motion and clock rates together. **Mass** and energy bend spacetime, and objects then move along the bends. The pictures differ most where gravity is strongest or precision is highest, which is exactly where the tests below were aimed."),
           mkNote("Key idea", "A planet is following a curve",
-            "Earth orbits the Sun, not because a rope like force yanks it around. Earth follows the curve that the mass of the Sun makes in spacetime. Picture a heavy ball making a dip in a stretchy sheet, and a smaller ball rolling around the dip. The sheet is only a picture to help the mind, but the curve itself is real. Mercury, the planet closest to the Sun, orbits deep inside that curve, and its oval path turns a little extra, exactly as the bend predicts."),
+            "Earth orbits the Sun, not because a rope like force yanks it around. Earth follows the curve that the mass of the Sun makes in spacetime. Picture a heavy ball making a dip in a stretchy sheet, and a smaller ball rolling around the dip. The sheet is only a picture to help the mind, and a misleading one in one respect: no outside floor or friction does the pulling, and the curve is in spacetime itself, not in a surface under it. Mercury, the planet closest to the Sun, orbits deep inside that curve, and its oval path turns by about forty three seconds of arc per century more than the older picture can explain, exactly as the bend predicts. That small leftover, measured over decades of tracking, was the first quantitative win for the newer picture."),
           mkNote("How it works", "Light follows the bend too",
-            "Everything moving through spacetime follows its bends, even light, which has no mass to pull on. Starlight passing near the Sun is deflected, bent away from a straight path. A huge galaxy can bend light from things behind it into arcs and rings. This bending of light by mass is called gravitational lensing, and the size of the bend shows how much mass is there, even mass that cannot be seen. Lensing can reveal dark matter, unseen mass that helps hold galaxies together.",
+            "Everything moving through spacetime follows its bends, even light, which has no mass to pull on. Starlight passing near the Sun is deflected by a tiny angle, under two seconds of arc at the edge of the Sun, bent away from a straight path. Early tests compared star positions photographed beside the eclipsed Sun with the same stars at night, and the shift matched the bend. A huge galaxy can bend light from things behind it into arcs and rings. This bending of light by mass is called **gravitational lensing**, and the size of the bend shows how much mass is there, even mass that cannot be seen. Lensing can reveal **dark matter**, unseen mass that helps hold galaxies together, because the bend counts all mass, shining or not.",
             { diagram: { steps: ["Mass bends spacetime around it", "Light travels through the bent fabric", "Light from behind a galaxy bends into arcs", "The size of the bend reports the mass", "Unseen mass shows itself in the bend"], caption: "Light follows the same bends that moving objects follow." } }),
           mkVisualQ("Look at the diagram. What does the size of the bend in light report?",
             null,
@@ -9069,16 +9069,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("In the newer picture, gravity is only a force pulling objects together, and shapes play no part in it.",
             false,
             "The newer picture replaces the pulling force with geometry. Mass bends spacetime, and objects and light follow the bends."),
-          mkQuiz("A planet orbits deep in the curve close to its star, and its oval path turns a little more than the old force picture predicts. What is happening?",
-            ["A hidden pulling force from far away drags the planet sideways in a steady extra push each year", "Light from the star pushes the planet around faster than gravity alone can manage in its orbit", "The planet is falling and missing its star by luck, again and again on every orbit it makes", "The star bends spacetime near itself, and the planet follows its curve"],
-            3,
-            "Deep in the bend, the curve is stronger, and the path turns a little extra. Mercury shows exactly this beside our own Sun."),
+          mkQuiz("Astronomers track a planet deep in the curve close to its star for decades. Its oval path turns a little more each century than the old force picture predicts, with no extra planet found to tug it. What best explains the extra turn?",
+            ["The star bends spacetime near itself, and the planet follows its curve", "A hidden planet bends spacetime near itself, and the planet follows it", "Light bends spacetime near the star, and the planet follows the light", "The star pulls spacetime toward itself, and the planet slides downhill"],
+            0,
+            "The missing tug matters: with no extra mass to blame, geometry carries the explanation. Close to the star the bend is steepest, so each orbit closes slightly rotated compared with the force picture."),
           mkNote("The payoff", "Gravity is a shape",
-            "Gravity is the shape of spacetime, bent by mass and energy. Planets and light alike follow the bends. Tomorrow: does gravity change time itself, and can ripples travel through the fabric?")
+            "Gravity is the shape of spacetime, bent by mass and energy, with planets and light alike following the bends and Mercury turning extra deep in the curve. Tomorrow: does gravity change time itself, and can ripples travel through the fabric?")
         ]
       },
       {
-        id: "st-2", title: "Time Is Part of the Fabric", subtitle: "Slow clocks, satellite corrections, and ripples",
+        id: "st-2", title: "Time Is Part of the Fabric", subtitle: "Slow clocks, satellite corrections, and ripples in the fabric",
         cards: [
           mkPredict("Gravity bends time as well as space. Set one clock low in a building and one clock high in the same building. Which one ticks more slowly?",
             "The low clock ticks more slowly. Clocks deeper in gravity age a little less than clocks higher up.",
@@ -9086,11 +9086,11 @@ export const TOPIC_COURSES = [
             1,
             "Time is part of the fabric, so bending the fabric bends time too. The effect on Earth is tiny, but careful clocks can measure it."),
           mkNote("The big idea", "Gravity slows time itself",
-            "Because time is woven into the fabric, bending the fabric bends time. Clocks deeper in gravity tick slower than clocks higher up, so a clock in a basement ages very slightly less than a clock in an attic. The effect has been measured with precision clocks placed at different heights. It is tiny on Earth, but it grows enormous near a black hole, a place where mass is packed so tight that even light cannot escape."),
+            "Because time is woven into the fabric, bending the fabric bends time. Clocks deeper in gravity tick slower than clocks higher up, so a clock in a basement ages very slightly less than a clock in an attic, by nanoseconds over a lifetime. The effect has been measured with precision clocks placed at different heights, down to height differences under a meter, and the lower clock always loses. It is tiny on Earth because Earth gravity is weak, but it grows enormous near a black hole, a place where mass is packed so tight that even light cannot escape. The misconception to drop is that clocks are being disturbed mechanically: identical clocks in identical condition disagree only because time itself runs at different rates."),
           mkNote("Key idea", "Satellites must correct for bent time",
-            "Navigation satellites carry clocks high above Earth, where weaker gravity makes their clocks run slightly fast. Their speed through space makes the same clocks run slightly slow. Both effects are relativity at work, and both are corrected in the design of the system. Leave the corrections out and the positions it computes would drift wrong by kilometers each day."),
+            "Navigation satellites carry clocks about twenty thousand kilometers above Earth, where weaker gravity makes their clocks run fast by roughly forty five microseconds each day. Their speed through space makes the same clocks run slow by roughly seven microseconds each day. Both effects are relativity at work, they partly cancel, and the net gain of about thirty eight microseconds a day is corrected in the design of the system. The size of the stakes is easy to convert: light travels about three hundred meters in a microsecond, so an uncorrected net gain would drift computed positions wrong by about ten kilometers each day."),
           mkNote("How it works", "Ripples in the fabric",
-            "When huge masses collide, the fabric itself can ripple. Two black holes spiraling together send out gravitational waves, ripples of stretching and squeezing that cross the universe at the speed of light. Detectors have caught these ripples by measuring changes in distance smaller than the width of the core of an atom. A stage cannot ring like that. Spacetime itself moves.",
+            "When huge masses collide, the fabric itself can ripple. Two black holes spiraling together send out **gravitational waves**, ripples of stretching and squeezing that cross the universe at the speed of light, weakening with distance like light does. Detectors catch these ripples with pairs of long arms at right angles: a passing ripple stretches one arm while squeezing the other, by less than a thousandth of the width of the core of an atom across arms kilometers long. Two detectors far apart hearing the same pattern rule out local noise such as trucks and earthquakes. A stage cannot ring like that. Spacetime itself moves.",
             { diagram: { steps: ["Huge masses spiral together and collide", "The fabric of spacetime ripples outward", "The ripples cross space at the speed of light", "Detectors measure tiny stretching and squeezing", "The ripples report a collision far away"], caption: "Spacetime can ripple, stretch, and squeeze." } }),
           mkVisualQ("Look at the diagram. At what speed do the ripples cross space?",
             null,
@@ -9109,21 +9109,21 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Spacetime is a fixed stage that never moves, even when huge masses collide.",
             false,
             "Spacetime ripples when huge masses collide. A fixed stage could not carry gravitational waves from place to place."),
-          mkQuiz("A phone map slowly drifts until streets no longer match, unless satellite clock corrections are switched on. Why do the corrections matter?",
-            ["High satellite clocks run fast from weak gravity and slow from speed, so both must be corrected", "Satellite clocks are ordinary clocks, and maps drift only because phone batteries weaken over a long day of travel", "The satellites sit still above Earth, so their clocks match ground clocks exactly in every way", "Gravity bends light around Earth, and that bending alone moves every street on the map by kilometers"],
+          mkQuiz("Engineers switch off the clock corrections in a navigation satellite for one day as a test. By evening, positions computed from it are wrong by roughly ten kilometers. What produced an error of that size?",
+            ["High satellite clocks run fast from weak gravity and slow from speed, so both must be corrected", "High satellite clocks run slow from weak gravity and fast from speed, so both must be corrected", "Ground clocks run fast from strong gravity and slow from speed, so both must be corrected there", "Satellite clocks run fast from strong gravity alone, so only height must be corrected in the test"],
             0,
-            "High clocks run fast from weak gravity and slow from their speed. Correcting both effects keeps the computed positions right."),
+            "The size checks out arithmetically: a net gain near forty microseconds, multiplied by the speed of light, lands near ten kilometers. Small clock errors become large position errors because positions are built from light travel times."),
           mkNote("The payoff", "A fabric that ripples",
-            "Time is part of the fabric, so gravity slows clocks and satellites must correct for it. The fabric can even ripple when huge masses collide. Tomorrow: can you prove the whole course, start to finish?")
+            "Time is part of the fabric, so gravity slows clocks by amounts precision instruments can measure, satellites must correct for a net gain that would cost kilometers a day, and the fabric can ripple when huge masses collide. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "st-3", title: "Checkpoint: Spacetime", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.",
+        id: "st-3", title: "Checkpoint: Spacetime", subtitle: "Eight mixed checks on the whole course, using only what was taught.",
         cards: [
-          mkQuiz("What bends spacetime?",
-            ["Only light in empty space", "Mass and energy, wherever they are found", "Nothing at all, because the fabric is fixed and perfectly rigid in place", "Only planets, circling their stars in wide and steady orbits"],
+          mkQuiz("A small moon, a planet, and a dense star each sit in otherwise empty space. Compared across the three, what bends spacetime in every case?",
+            ["Mass and energy, wherever they are found", "Light and motion, wherever they are found", "Planets and stars, wherever they are found", "Gravity and force, wherever they are found"],
             1,
-            "Every mass and every energy bends the fabric a little, and big masses bend it a lot. Motion then follows the bends."),
+            "Scale changes the amount, not the rule. The dense star bends most, the moon least, but no case is exempt, because the source is mass and energy themselves."),
           mkMatch("Match each word to what it means.",
             [["Spacetime", "The one fabric woven from space and time"], ["Gravitational lensing", "Light bent by mass into arcs and rings"], ["Mercury", "The planet whose oval path turns a little extra near the Sun"], ["Gravitational wave", "A ripple in spacetime from colliding masses"]],
             "Spacetime is the fabric, lensing reads its bends by light, Mercury shows the bend beside the Sun, and waves are ripples through it."),
@@ -9142,25 +9142,25 @@ export const TOPIC_COURSES = [
           mkOrder("Put the satellite clock story in order.",
             ["A satellite clock sits high above Earth", "Weak gravity makes its clock run fast", "Its speed makes its clock run slow", "Corrections keep its positions right"],
             "Height and speed pull the clock both ways. Corrections at the end keep the positions the system computes from drifting wrong."),
-          mkQuiz("What do gravitational waves show about spacetime?",
-            ["It is a fixed stage that holds still while masses move across it in space and time for ages", "It tears when two masses collide", "It is a real fabric that can ripple and move", "It carries light but never carries any change from colliding masses"],
-            2,
-            "A stage cannot ring. Ripples from colliding masses show the fabric itself is real, physical, and able to move."),
+          mkQuiz("Two detectors on different continents record the same brief pattern of stretching and squeezing, arriving at times set by the speed of light. What does that shared record show about spacetime?",
+            ["It is a real fabric that can ripple and move", "It is a fixed stage that can hold every mass still", "It is a torn fabric that can never carry light again", "It is a real fabric that can carry only light itself"],
+            0,
+            "Two separated instruments agreeing rules out a local jiggle in one building. A traveling pattern that stretches and squeezes space itself is motion of the fabric, not motion across it."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["Mass and energy bend spacetime.", "Planets follow the curves made by the bends.", "Light ignores the bends because it has no mass.", "Mercury has a path that turns a little extra near the Sun."],
+            ["Mass and energy bend spacetime.", "Planets follow the curves made by the bends.", "Light follows the bends only when a planet pulls on it with a force.", "Mercury has a path that turns a little extra near the Sun."],
             2,
-            "Light follows the bends, even though it has no mass.",
-            "Light travels through the bent fabric like everything else. Lensing works precisely because light follows the bends.")
+            "Light follows the bends in spacetime itself, with no force pulling on it.",
+            "A force story needs mass to grab, and light has none. Geometry needs none either: the path itself is curved, so light following the straightest available path arrives bent.")
         ]
       }
     ] }],
   },
   {
     id: "topic-quantum-machines", title: "Quantum Machines", category: "Space and Physics",
-    blurb: "How quantum computers work, and the errors they have to outrun.",
-    units: [{ id: "topic-quantum-machines-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "Blends, entanglement, and interference, and the race against decoherence that error correction must win.",
+    units: [{ id: "topic-quantum-machines-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "qm-1", title: "Bits That Can Be Both", subtitle: "Qubits, superposition, and entanglement",
+        id: "qm-1", title: "Bits That Can Be Both", subtitle: "Qubits, superposition, entanglement, and a reading that collapses",
         cards: [
           mkPredict("An ordinary bit holds just one of its two values at a time. How many of those values can a qubit hold in a blend at once?",
             "Both of them. A qubit can sit in a blend of both values at once, and that blend is called superposition.",
@@ -9168,11 +9168,11 @@ export const TOPIC_COURSES = [
             2,
             "An ordinary bit must choose one value. A qubit in superposition holds a blend of both values until it is measured."),
           mkNote("The big idea", "A qubit is not just a faster bit",
-            "An ordinary bit is a switch that holds 0 or 1, one value or the other, never a blend. A quantum bit, called a qubit, can sit in a blend of both values at once. That blend is called superposition. A row of qubits can stand for a vast landscape of combinations all at once, which no row of ordinary bits can do."),
+            "An ordinary bit is a switch that holds 0 or 1, one value or the other, never a blend. A quantum bit, called a **qubit**, can sit in a blend of both values at once, with a measurable weight for each value in the blend. That blend is called **superposition**. Ten qubits carry a blend across about a thousand combinations, twenty across about a million, and each added qubit doubles the landscape, which no row of ordinary bits can do. The limit is access: the landscape exists in the machine, but only one plain answer can be read out of it, so size alone guarantees nothing useful."),
           mkNote("Key idea", "Linked fates: entanglement",
-            "Qubits can also be linked in a way called entanglement. When qubits are entangled, measuring one settles something about the other at once, however far apart they sit. Nothing travels between them in that moment. The link comes from how they were prepared together, and it lets the whole set behave as one coordinated system."),
+            "Qubits can also be linked in a way called **entanglement**. When qubits are entangled, measuring one settles something about the other at once, however far apart they sit, and repeated trials show agreements stronger than any shared written plan prepared in advance could produce. Nothing travels between them in that moment, and no usable message can be sent by choosing a measurement result, because each single result looks random on its own. The link comes from how they were prepared together, and it lets the whole set behave as one coordinated system rather than as separate switches. The misconception to drop is faster than light messaging: entanglement correlates outcomes, it does not carry signals."),
           mkNote("How it works", "Reading the answer destroys the blend",
-            "There is a catch at the heart of it all. Measure a qubit and its blend collapses to one plain value, so the landscape itself can never be peeked at directly. Quantum programming is the art of arranging interference, where wrong answers cancel each other out and right answers grow stronger, so the blend is shaped before anyone reads it. Done well, the final measurement is likely to land on the right answer.",
+            "There is a catch at the heart of it all. Measure a qubit and its blend collapses to one plain value, with odds set by the weights in the blend, so the landscape itself can never be peeked at directly. Quantum programming is the art of arranging **interference**, where the paths leading to wrong answers cancel each other out and the paths leading to right answers grow stronger, so the blend is shaped before anyone reads it. Because one reading gives one sample, a calculation is usually run many times and the pattern of answers is read, not a single lucky run. Done well, the final measurement is likely to land on the right answer far more often than chance.",
             { diagram: { steps: ["Qubits are prepared in a blend of values", "Entangled qubits are linked as one system", "Interference cancels the wrong answers", "Right answers grow stronger together", "One final measurement gives one plain value"], caption: "The blend is shaped first. Reading it comes last." } }),
           mkVisualQ("Look at the diagram. What happens to wrong answers during interference?",
             null,
@@ -9189,16 +9189,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("A qubit in superposition can be peeked at directly, blend and all, without changing it.",
             false,
             "Reading the blend collapses it to one plain value. The landscape can never be peeked at directly, which is why the shaping comes first."),
-          mkQuiz("A team wants a machine to explore a vast landscape of combinations at once, instead of checking them one by one in a long row. What should they build with?",
-            ["Ordinary bits in a very long row, each holding one plain value at a time for the whole long search", "Faster switches that check each combination twice before moving on to the next one in the row", "A single ordinary bit, read again and again until the landscape appears on its own one day", "Qubits in superposition, linked and shaped before one final measurement"],
-            3,
-            "Blends of many qubits cover the whole landscape at once. Entanglement links them, interference shapes them, and one final measurement reads the result."),
+          mkQuiz("A team needs to weigh a vast landscape of combinations together, because checking them one by one in a long row would take longer than the problem allows. What should they build with?",
+            ["Qubits in superposition, linked and shaped before one final measurement", "Ordinary bits in superposition, linked and shaped before one final reading", "Qubits in one plain value, read and shaped before any blend is prepared", "Ordinary switches in a long row, checked and shaped one by one in order"],
+            0,
+            "Ordinary bits, however arranged, hold one combination at a time. Only the blend holds many at once, and interference is what turns that holding into a readable answer."),
           mkNote("The payoff", "Blends, links, and one careful reading",
-            "A qubit blends both values at once, and entangled qubits behave as one system. Reading a qubit collapses the blend, so the shaping must happen first. Tomorrow: why do these machines forget, and how can a calculation outrun the forgetting?")
+            "A qubit blends both values at once in a landscape that doubles with each added qubit, and entangled qubits behave as one system without carrying any signal. Reading a qubit collapses the blend, so interference must shape it first and many runs supply the pattern. Tomorrow: why do these machines forget, and how can a calculation outrun the forgetting?")
         ]
       },
       {
-        id: "qm-2", title: "The Error Problem", subtitle: "Fragile states and the fight to protect them",
+        id: "qm-2", title: "The Error Problem", subtitle: "Fragile states, decoherence, and protection by committee",
         cards: [
           mkPredict("A qubit holds its blend only while nothing disturbs it. What happens to the blend when heat or vibration nudges the qubit?",
             "The blend collapses or scrambles away. That forgetting is called decoherence, and it is the central problem of quantum machines.",
@@ -9206,11 +9206,11 @@ export const TOPIC_COURSES = [
             1,
             "Heat, stray fields, and vibration are all nudges from the surroundings. Each nudge can disturb the fragile blend a qubit is holding."),
           mkNote("The big idea", "Qubits forget, constantly",
-            "The blend that makes a qubit powerful also makes it fragile, easy to disturb. Heat, stray fields, vibration, or one wandering particle can collapse or scramble its state. That scrambling by the surroundings is called decoherence. A useful machine must finish its calculation faster than its qubits forget, in some of the coldest and quietest and most shielded places ever built."),
+            "The blend that makes a qubit powerful also makes it fragile, easy to disturb. Heat, stray fields, vibration, or one wandering particle can collapse or scramble its state, often within thousandths of a second in present machines, though the best designs reach far longer. That scrambling by the surroundings is called **decoherence**. It is not ordinary wear: the surroundings effectively learn about the qubit state, and a blend that is known to its surroundings is a blend already lost. A useful machine must finish its calculation faster than its qubits forget, in some of the coldest places ever built, colder than deep space, and the quietest and most shielded."),
           mkNote("Key idea", "Correction by committee",
-            "Protection works by committee. The protected one is called the logical qubit, and the many real ones carrying it are called physical qubits. One precious logical qubit is spread across many physical qubits, so its state lives in the group rather than in one place. Errors in the group can be spotted and repaired without measuring the protected state itself. The cost is steep: one trustworthy logical qubit can need hundreds or thousands of physical qubits."),
+            "Protection works by committee. The protected one is called the **logical qubit**, and the many real ones carrying it are called **physical qubits**. One precious logical qubit is spread across many physical qubits, so its state lives in the group rather than in one place. Helper qubits in the group are measured in a way that reveals whether an error occurred and roughly where, without measuring the protected state itself, and the error is then repaired. There is a threshold logic to it: if physical errors are rare enough, adding more physical qubits makes the logical qubit better, and if they are too common, adding more makes it worse. The cost is steep: one trustworthy logical qubit can need hundreds or thousands of physical qubits."),
           mkNote("How it works", "A specialist, not a replacement",
-            "Even protected, a quantum machine is a specialist, not a faster version of an ordinary computer. It shines on problems shaped like its own landscape trick. Simulating molecules and materials is the natural home ground, because nature itself works by quantum rules at that size. Certain math problems with special patterns also fit, while everyday jobs like mail and games stay better on an ordinary machine.",
+            "Even protected, a quantum machine is a specialist, not a faster version of an ordinary computer. It shines on problems shaped like its own landscape trick, where interference can amplify a structured answer. Simulating molecules and materials is the natural home ground, because nature itself works by quantum rules at that size, and an ordinary machine must track a landscape that doubles with every added particle. Certain math problems with special repeating patterns also fit. Most problems have no such structure to amplify, which is the honest limit: while everyday jobs like mail and games stay better on an ordinary machine, so do most unstructured searches.",
             { diagram: { steps: ["A problem arrives at the machine", "Quantum shaped problems fit the landscape trick", "Molecules and materials fit best of all", "Everyday jobs stay on ordinary machines", "The quantum machine stays a specialist"], caption: "A specialist tool, not a replacement for the ordinary computer." } }),
           mkVisualQ("Look at the diagram. Which problems fit the quantum machine best of all?",
             null,
@@ -9229,21 +9229,21 @@ export const TOPIC_COURSES = [
           mkTrueFalse("A quantum computer is simply a faster ordinary computer, better at every job.",
             false,
             "It is a specialist, not a faster ordinary computer. It shines on quantum shaped problems, and ordinary machines stay better at everyday jobs."),
-          mkQuiz("A lab wants to simulate a molecule, whose behavior follows quantum rules, and an ordinary machine keeps failing to keep up with the combinations involved. Which machine fits the job?",
-            ["A quantum machine, built to simulate molecules by quantum rules", "An ordinary machine with a larger screen, since screen size decides how well molecules can be simulated", "A quantum machine used for mail and games, since everyday jobs are where it shines most of all", "Any machine at all, because simulating molecules needs no landscape of combinations to explore"],
+          mkQuiz("A chemistry lab models a molecule whose electrons interact all at once. Each added particle doubles the combinations an ordinary machine must track, and its best runs fall years behind. Which machine fits the job, and why?",
+            ["A quantum machine, built to simulate molecules by quantum rules", "An ordinary machine, built to simulate molecules by quantum rules", "A quantum machine, built to simulate mail by ordinary office rules", "An ordinary machine, built to track combinations one by one forever"],
             0,
-            "Molecules follow quantum rules in nature, so a quantum machine fits the job naturally. Its landscape trick matches the problem."),
+            "Fit comes from matching the structure of the problem. The molecule landscape is quantum in nature, so hardware that holds blends natively tracks it without listing every combination."),
           mkNote("The payoff", "Fragile, protected, and specialized",
-            "Qubits forget when their surroundings nudge them, and protection means spreading one logical qubit across many physical ones. Even then, the machine stays a specialist for quantum shaped problems. Tomorrow: can you prove the whole course, start to finish?")
+            "Qubits forget when their surroundings learn their state, protection means spreading one logical qubit across hundreds or thousands of physical ones below an error threshold, and even then the machine stays a specialist for structured quantum shaped problems. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "qm-3", title: "Checkpoint: Quantum Machines", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.",
+        id: "qm-3", title: "Checkpoint: Quantum Machines", subtitle: "Eight mixed checks on the whole course, using only what was taught.",
         cards: [
-          mkQuiz("What makes a qubit different from an ordinary bit?",
-            ["It stores the same value in a much smaller space inside the machine", "It can sit in a blend of both values at once", "It never needs shielding, cold, or quiet while it runs any calculation at all", "It holds one plain value and refuses every blend offered to it"],
-            1,
-            "Superposition is the difference. The bit holds one value, the qubit holds a blend of both values at once."),
+          mkQuiz("Two devices sit side by side before any reading. One holds a switch set to a single value, and the other holds a weighted blend of two values. Which description names the qubit, and what makes it different?",
+            ["It can sit in a blend of both values at once", "It can store one value in a far smaller space at once", "It can sit in a blend of one value at a time at once", "It can hold both values separately in two switches"],
+            0,
+            "The ordinary switch is defined by the value it holds. The qubit is defined by a blend with weights, which is why its behavior cannot be copied by making the switch smaller."),
           mkMatch("Match each word to what it means.",
             [["Decoherence", "The scrambling of a quantum state by its surroundings"], ["Logical qubit", "The one protected qubit spread across many physical ones"], ["Entanglement", "The link where measuring one qubit speaks of the other"], ["Superposition", "The blend of both values held at once"]],
             "Decoherence scrambles, a logical qubit is the protected one, entanglement links qubits, and superposition is the blend."),
@@ -9262,25 +9262,25 @@ export const TOPIC_COURSES = [
           mkOrder("Put the protection plan in order.",
             ["A logical qubit state is spread across many physical qubits", "Errors in the group are spotted", "Errors are repaired without measuring the state", "The calculation finishes before the qubits forget"],
             "Spreading comes first and finishing in time comes last. Spotting and repairing errors happens in between, without measuring the protected state."),
-          mkQuiz("Why are quantum machines kept cold, quiet, and shielded?",
-            ["Cold alone makes ordinary bits switch faster in every machine ever built for a desk", "The machines only work in winter, when the air outside is cold and still enough", "To slow decoherence, the scrambling of fragile quantum states", "Shielding makes the landscape visible, so the blend can be peeked at directly"],
+          mkQuiz("A machine moved from its shielded, refrigerated housing to a warm, vibrating bench loses its results within a tiny fraction of the time. What were the cold, quiet, and shielding holding back?",
+            ["To slow decoherence, the scrambling of fragile quantum states", "To slow measurement, the collapsing of fragile quantum states", "To stop entanglement, the linking of fragile quantum states", "To speed interference, the cancelling of fragile quantum states"],
             2,
-            "Quiet and cold and shielding buy time against decoherence. The calculation must finish before the environment scrambles the states."),
+            "The bench test isolates the variable: same machine, harsher surroundings, far shorter memory. Heat and vibration are not inconveniences here, they are the mechanism that erases the blend."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["A qubit can blend both values at once.", "Measuring a qubit collapses its blend.", "Entanglement travels as a signal sent between the qubits.", "Decoherence scrambles states through heat and vibration."],
+            ["A qubit can blend both values at once.", "Measuring a qubit collapses its blend.", "Entangled partners can choose outcomes to send messages faster than light.", "Decoherence scrambles states through heat and vibration."],
             2,
-            "Nothing travels between entangled qubits. The link comes from how they were prepared.",
-            "Entanglement is a link from preparation together, not a message sent across space in the moment of measuring.")
+            "Nothing travels between entangled qubits, and each outcome alone is random, so no message can be chosen.",
+            "Correlation appears only when the two records are compared later, by ordinary means. In the moment, neither side can force an outcome, and without a chosen outcome there is no signal to send.")
         ]
       }
     ] }],
   },
   {
     id: "topic-worlds-around-other-stars", title: "Worlds Around Other Stars", category: "Space and Physics",
-    blurb: "Reading the air of planets we will never touch.",
-    units: [{ id: "topic-worlds-around-other-stars-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "Planets found by dips and wobbles, density from size and mass, and gas barcodes in air no one will ever touch.",
+    units: [{ id: "topic-worlds-around-other-stars-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "xo-1", title: "Catching What You Cannot See", subtitle: "Dimming stars and wobbling stars",
+        id: "xo-1", title: "Catching What You Cannot See", subtitle: "Transit dips, stellar wobbles, and what each method reads",
         cards: [
           mkPredict("Planet hunters have been watching other stars for years. How many planets around other stars have been found so far?",
             "More than one by far. Thousands of planets around other stars are now known, and nearly all were found without being seen directly.",
@@ -9288,11 +9288,11 @@ export const TOPIC_COURSES = [
             2,
             "A planet beside its star is lost in glare, like a firefly beside a lighthouse. Hunters watch the star instead, and catch the planet by its effects on the star."),
           mkNote("The big idea", "Planets are found by their effects on stars",
-            "A planet around another star is called an exoplanet. The glare of the star swamps the faint glow of the planet, so exoplanets are usually found by their effects on the star. In the transit method, a planet crosses the face of its star and the starlight dips a tiny amount, again and again in a regular rhythm. In the wobble method, the gravity of an orbiting planet tugs its star around a small circle, and the starlight shifts rhythmically."),
+            "A planet around another star is called an **exoplanet**. The glare of the star swamps the faint glow of the planet by factors of millions or billions, so exoplanets are usually found by their effects on the star. In the **transit** method, a planet crosses the face of its star and the starlight dips a tiny amount, about one percent for a giant planet and a hundred times less for an Earth sized one, again and again in a regular rhythm. In the **wobble** method, the gravity of an orbiting planet tugs its star around a small circle, at speeds as low as a walking pace for small planets, and the starlight shifts rhythmically. Both effects are measured by patient instruments watching the star, not the planet."),
           mkNote("Key idea", "Most found worlds are not like home",
-            "The worlds found so far are gloriously strange. Some are gas giants hugging their stars, circling in days instead of years. Some are puffy worlds with the density of foam, meaning very little matter packed into a large space, and some race through a whole year in a few hours. This is partly real variety and partly selection: big planets close to their stars are the easiest to detect, so they fill the early lists, while Earth sized worlds in year long orbits are the hardest to catch."),
+            "The worlds found so far are gloriously strange. Some are gas giants hugging their stars, circling in days instead of years. Some are puffy worlds with the density of foam, meaning very little matter packed into a large space, and some race through a whole year in a few hours. This is partly real variety and partly **selection**: a transit survey can only find planets whose orbits happen to cross the star as seen from Earth, a small fraction of all systems, and big planets close to their stars dip the light most and return most often. The misconception is reading the catalogue as a census. Earth sized worlds in year long orbits are the hardest to catch, so their scarcity in the lists says more about the instruments than about the galaxy."),
           mkNote("How it works", "Each method reads a different fact",
-            "Each method reads a different fact, and together they read more. A transit gives the size of a planet and the length of its year, while a wobble gives a minimum mass and the length of the year, but not the size. Put size and mass together and density follows, the first real sketch of the world. Density sorts a world toward rock, toward gas, or toward something between the two.",
+            "Each method reads a different fact, and together they read more. A transit gives the size of a planet from the fraction of starlight blocked, and the length of its year from the spacing of the dips, while a wobble gives a minimum mass, minimum because a tilted orbit hides part of the tug, and the length of the year, but not the size. Put size and mass together and **density** follows, mass divided by volume, the first real sketch of the world. A density near that of rock and metal points one way, a density near or below that of water points toward a thick gas envelope. Density sorts a world toward rock, toward gas, or toward something between the two, but it cannot separate every recipe: rock with a thin gas layer and water rich mixtures can land at the same value.",
             { diagram: { steps: ["A planet crosses its star and dips the light", "The depth of the dip gives the size", "A wobble of the star gives the mass", "Size and mass together give density", "Density hints at rock, gas, or something between"], caption: "Two methods together sketch a world that cannot be seen." } }),
           mkVisualQ("Look at the diagram. What do size and mass together give?",
             null,
@@ -9309,16 +9309,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Big planets close to their stars dominate the lists because they are the only kind of planet that exists.",
             false,
             "They dominate because they are easiest to detect. That is a fact about our instruments and selection, not about which planets exist."),
-          mkQuiz("A telescope watches a distant star and sees its light dip a tiny amount again and again, always by the same amount and always in a regular rhythm. What is the best explanation?",
-            ["The star is shrinking and growing in a steady rhythm that repeats without any planet nearby at all", "A cloud of dust far beyond the star covers and uncovers it in a pattern set by distant winds", "The star wobbles toward us and away, and the wobble alone dims its light by the same amount", "A planet crosses the star again and again, dipping its light"],
-            3,
-            "A regular dip of the same depth is the shadow signature of a crossing planet. The rhythm gives its year and the depth gives its size."),
+          mkQuiz("A telescope records a star dipping by the same tiny amount every few days for months, while a twin instrument on another continent records the same dips. What is the best explanation?",
+            ["A planet crosses the star again and again, dipping its light", "A starspot crosses the star again and again, dipping its light", "A wobble moves the star again and again, dipping its light", "A dust cloud crosses the star again and again, dipping its light"],
+            0,
+            "Agreement between separated instruments rules out local weather and equipment faults. What remains is a repeating shadow of fixed depth, and fixed depth plus fixed rhythm is the signature of an orbiting body crossing the face."),
           mkNote("The payoff", "Sketches of unseen worlds",
-            "Planets around other stars are caught by dips and wobbles, never easily by eye. Together, size and mass give density, the first sketch of a far away world. Tomorrow: where could liquid water last on such a world, and can its air be read from here?")
+            "Planets around other stars are caught by dips as small as a hundredth of a percent and wobbles as slow as a walk, never easily by eye, and the catalogue of finds is shaped by what is easiest to detect. Together, size and mass give density, the first sketch of a far away world. Tomorrow: where could liquid water last on such a world, and can its air be read from here?")
         ]
       },
       {
-        id: "xo-2", title: "Reading the Air", subtitle: "Habitable zones and the fingerprints of gases",
+        id: "xo-2", title: "Reading the Air", subtitle: "Habitable zones, missing colors, and hints of life",
         cards: [
           mkPredict("Think of a rocky planet at just the right distance from its star. What could its surface hold, if its air and pressure allow?",
             "Liquid water is possible there. That band of distances is called the habitable zone, and it is a first filter, never a promise of life.",
@@ -9326,11 +9326,11 @@ export const TOPIC_COURSES = [
             1,
             "Too close and water boils away, and too far and it freezes solid. The right distance leaves liquid water possible, and everything else still has to be checked."),
           mkNote("The big idea", "The habitable zone is a distance, not a promise",
-            "Around every star lies a band of distances called the habitable zone. Inside that band, a rocky planet could hold liquid water on its surface, if its air and pressure allow, where pressure means how hard its air presses down. Closer in, water would boil away, and farther out, it would freeze solid. The zone is only the first filter in the hunt for life, because a planet inside it can still be airless, scorched by flares, bursts of fire from its star, or locked in wild extremes."),
+            "Around every star lies a band of distances called the **habitable zone**. Its edges are set by the brightness of the star: a dim star holds its zone close in, within a fraction of the Earth to Sun distance, while a bright star pushes it many times farther out. Inside that band, a rocky planet could hold liquid water on its surface, if its air and **pressure** allow, where pressure means how hard its air presses down. Closer in, water would boil away, and farther out, it would freeze solid. The zone is only the first filter in the hunt for life, because a planet inside it can still be airless, scorched by flares, bursts of fire from its star, or locked in wild extremes. Mars sits near the outer edge of our own zone and is a dry desert, which is the standing warning against reading the zone as a promise."),
           mkNote("Key idea", "Starlight through air leaves fingerprints",
-            "During a transit, a sliver of starlight passes through the atmosphere, the layer of air around the planet, on its way to us. Gases in that air soak up particular colors, so the light arrives with some colors missing. The pattern of missing colors is a barcode that names the gases. Water vapor, carbon dioxide, and methane have all been read this way, in air belonging to a world no one will ever visit."),
+            "During a transit, a sliver of starlight passes through the **atmosphere**, the layer of air around the planet, on its way to us. The signal is minute: the atmosphere is a thin ring compared with the disc of the planet, so observers stack many transits together to build it up. Gases in that air soak up particular colors, each gas absorbing at its own set of wavelengths, so the light arrives with some colors missing. The pattern of missing colors is a **barcode** that names the gases. Water vapor, carbon dioxide, and methane have all been read this way, in air belonging to a world no one will ever visit. Clouds are the standing limit: a cloud deck high in the air blocks the sliver and flattens the barcode."),
           mkNote("How it works", "What would count as a hint of life",
-            "No single gas proves life. Oxygen alone can be made without life, and methane alone can too. Some pairs of gases are different, because the two gases destroy each other and should both be gone. If such a pair keeps turning up together, something must keep remaking them. Living things are the leading answer for that steady remaking, which is why such a pair would count as a strong hint of life, handled carefully and argued over.",
+            "No single gas proves life. Oxygen alone can be made without life, by starlight splitting water, and methane alone can too, by ordinary geology. Some pairs of gases are different, because the two gases destroy each other chemically within years to centuries and should both be gone. If such a pair keeps turning up together in measured amounts, something must keep remaking them at a matching rate. Living things are the leading answer for that steady remaking on Earth, where the pair is sustained by the whole living surface. That is why such a pair would count as a strong hint of life, handled carefully and argued over, with rates and alternative sources checked before any claim.",
             { diagram: { steps: ["One gas alone proves nothing about life", "Some pairs of gases destroy each other", "A pair that lasts should have faded away", "Something keeps remaking both gases", "Living things are the leading answer"], caption: "A lasting pair of rival gases is a strong hint of life." } }),
           mkVisualQ("Look at the diagram. Why is a lasting pair of rival gases a hint of life?",
             null,
@@ -9347,21 +9347,21 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Oxygen alone in the air of a planet proves that living things made it.",
             false,
             "Oxygen alone can be made without life, and methane alone can too. A single gas is never proof of life on its own."),
-          mkQuiz("Telescopes read the air of a far away planet and find two gases that destroy each other, both still present in good amounts. What is the careful conclusion?",
-            ["A strong hint of life, because something keeps remaking both gases", "Proof of life at once, with no further checking or arguing needed by anyone who reads the barcode", "The gases arrived only yesterday, since rival gases can never last more than a single day together", "The planet sits outside the habitable zone, because living things thrive far from liquid water"],
+          mkQuiz("Observers stack many transits of a far away planet and recover two gases that destroy each other, both present in steady amounts across repeated readings. What is the careful conclusion?",
+            ["A strong hint of life, because something keeps remaking both gases", "A strong hint of geology, because something keeps remaking both gases", "Proof of life at once, because something keeps remaking both gases", "No hint of anything, because rival gases keep remaking each other"],
             0,
-            "A mixture that should erase itself, yet lasts, needs a steady remaker. That is a strong hint of life, and a hint is handled carefully, not called proof."),
+            "Steadiness across readings is what lifts this above a one off detection. A mixture that should erase itself within centuries, yet persists, needs a source renewing both members at a matching rate."),
           mkNote("The payoff", "A filter and a barcode",
-            "The habitable zone only says where liquid water could last, and the barcode of missing colors can name the gases in far away air. A lasting pair of rival gases would be a strong hint of life, never instant proof. Tomorrow: can you prove the whole course, start to finish?")
+            "The habitable zone only says where liquid water could last, its edges set by the brightness of the star, and the barcode of missing colors can name the gases in far away air when clouds do not block the view. A lasting pair of rival gases would be a strong hint of life, never instant proof. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "xo-3", title: "Checkpoint: Other Worlds", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.",
+        id: "xo-3", title: "Checkpoint: Other Worlds", subtitle: "Eight mixed checks on the whole course, using only what was taught.",
         cards: [
-          mkQuiz("What does the depth of a transit dip tell about a planet?",
-            ["Its mass, read directly from the wobble of its star in space", "Roughly its size, read from how much light dips", "Its temperature, measured by the colors missing from its air after the transit ends at last", "Whether living things are present on its surface today for certain"],
+          mkQuiz("Two planets cross the same star. One blocks about one percent of its light and the other blocks about a quarter as much. Compared with the first planet, what does the shallower dip tell about the second?",
+            ["Roughly its size is smaller, read from how much light dips", "Roughly its mass is smaller, read from how much light dips", "Roughly its year is shorter, read from how much light dips", "Roughly its air is thinner, read from how much light dips"],
             1,
-            "Blocked light is area. The deeper the dip against the face of the star, the bigger the silhouette of the planet, and so the bigger its size."),
+            "A dip measures blocked area and nothing else directly. A quarter of the blocked light means a smaller silhouette against the star, while mass still waits for a wobble measurement."),
           mkMatch("Match each word to what it means.",
             [["Transit", "A planet crossing its star, dipping its light"], ["Wobble", "The small circle a star is tugged around by a planet"], ["Habitable zone", "The band where liquid water on a surface is possible"], ["Barcode", "The pattern of missing colors that names gases"]],
             "Transits and wobbles find and weigh the worlds, the zone filters them, and the barcode reads their air."),
@@ -9380,25 +9380,25 @@ export const TOPIC_COURSES = [
           mkOrder("Put the two method sketch in order.",
             ["A planet crosses its star and dips the light", "The depth of the dip gives the size", "The wobble of the star gives the mass", "Size and mass together give density"],
             "The crossing starts the sketch and density ends it. Size comes from the dip and mass comes from the wobble, in between."),
-          mkQuiz("What does density reveal about a far away world?",
-            ["The exact age of the world, counted from the day its star first lit up in the dark", "The color of its sky at noon, seen plainly across the distance from here in detail", "Whether the world is mostly rock, mostly gas, or between the two", "Whether its year lasts days or hours, read from the time between two dips of light"],
+          mkQuiz("A new world has the size of a known gas giant but several times its mass, giving a far higher density. Compared with the gas giant, what does that density reveal?",
+            ["Whether the world is mostly rock, mostly gas, or between the two", "Whether the world is mostly ocean, mostly ice, or between the two", "Whether the world is mostly cloud, mostly air, or between the two", "Whether the world is mostly metal, mostly sand, or between the two"],
             2,
-            "Density is the character sketch. Rock is dense, gas is not, and the number sorts a strange world toward rock, gas, or between."),
+            "Same volume, more mass: the recipe must shift toward denser ingredients. That is the whole power of the number, sorting recipes toward rock before any surface can be seen."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["A transit gives the size of a planet.", "A wobble gives the mass of a planet.", "A planet in the habitable zone is promised liquid water and life.", "Missing colors in starlight name gases in the air."],
+            ["A transit gives the size of a planet.", "A wobble gives the mass of a planet.", "A planet in the habitable zone with air and pressure will certainly hold liquid water.", "Missing colors in starlight name gases in the air."],
             2,
-            "A planet in the habitable zone could hold liquid water, but the zone is never a promise of life.",
-            "The zone is a first filter, not a conclusion. It makes liquid water possible and promises nothing about life.")
+            "A planet in the habitable zone could hold liquid water if its air and pressure allow.",
+            "Distance sets only the heating. Whether water stays liquid also depends on air and pressure and on the history of the planet, and Mars near the edge of our own zone is dry.")
         ]
       }
     ] }],
   },
   {
     id: "topic-insect-gut", title: "The Insect Gut", category: "The Living World",
-    blurb: "The microbes inside insect guts, and the chemistry they do there.",
-    units: [{ id: "topic-insect-gut-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "Cellulose unlocked by partners, communities passed from mother and nestmates, and larvae that turn waste into feed.",
+    units: [{ id: "topic-insect-gut-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "ig-1", title: "A Gut Full of Helpers", subtitle: "Why insects outsource their digestion",
+        id: "ig-1", title: "A Gut Full of Helpers", subtitle: "Cellulose, gut chambers, and chemistry the insect cannot do alone",
         cards: [
           mkPredict("How many kinds of tiny helpers live inside one insect gut?",
             "One insect gut holds many kinds of microbes, and together they do chemistry the insect cannot do alone.",
@@ -9406,11 +9406,11 @@ export const TOPIC_COURSES = [
             1,
             "A gut is a whole community, not a single helper. Many kinds of microbes live there together."),
           mkNote("The big idea", "Insects eat what they cannot digest alone",
-            "Some of the toughest food on Earth is eaten by insects that cannot unlock it alone: wood, dry leaves, and tough plant fiber. Their gut is a tube of chambers, and each chamber has its own acidity and chemistry. The gut is full of microbes, tiny living residents that include bacteria. The insect provides the home and the harvest, and the microbes provide the chemistry."),
+            "Some of the toughest food on Earth is eaten by insects that cannot unlock it alone: wood, dry leaves, and tough plant fiber. Their gut is a tube of **chambers** running most of the body length, and each chamber has its own acidity and chemistry, from strongly acidic to strongly alkaline in different insects, so different microbes settle in different rooms. The gut is full of **microbes**, tiny living residents that include bacteria, often millions to billions of cells in a single gut. The insect provides the home and the harvest, grinding and moving the food, and the microbes provide the chemistry."),
           mkNote("Key idea", "The locked food and the tiny keys",
-            "Wood gets its strength from cellulose, a tough sugar polymer, and almost no animal can dismantle cellulose with its own enzymes alone. Gut microbes can, and they earn their keep in other ways too. They make vitamins that the food lacks, and they crowd out invading germs that could harm the insect. An insect and its gut community work as one combined organism, not as an animal with passengers."),
+            "Wood gets its strength from **cellulose**, a tough sugar polymer built of long chains of sugar units locked in tight bundles. Almost no animal can dismantle cellulose fully with its own **enzymes** alone, the proteins that cut big molecules apart, because the bundles resist cutting. Gut microbes carry a wider set of cutting enzymes and attack the bundles in stages, which is the mechanism, not magic. They earn their keep in other ways too. They make **vitamins** that the food lacks, including vitamins the insect cannot make itself, and they crowd out invading germs that could harm the insect. An insect and its gut community work as one combined organism, not as an animal with passengers."),
           mkNote("How it works", "Termites and the wood problem",
-            "A termite gut works like a fermenting chamber, a place where microbes slowly break big molecules down into small ones. The microbes break cellulose down into small molecules the termite can absorb. Kill the partners, and the termite can starve while sitting inside a house made of food.",
+            "A termite gut works like a fermenting chamber, a place where microbes slowly break big molecules down into small ones the termite can absorb. The evidence is a controlled comparison: termites raised with their gut community removed keep eating wood yet lose weight and die, while termites that regain microbes from nestmates recover. The chemistry is staged: enzymes clip cellulose chains into short sugars, other microbes convert those sugars into small fatty acids, and the termite absorbs the fatty acids as its main fuel. Kill the partners, and the termite can starve while sitting inside a house made of food, because eating is not the same as unlocking.",
             { diagram: { steps: ["A termite eats wood full of cellulose", "The wood reaches the gut chambers", "Microbes break cellulose into small molecules", "The termite absorbs the small molecules"], caption: "Microbes unlock wood inside the termite gut." } }),
           mkVisualQ("Look at the diagram. What do the microbes break into small molecules?",
             null,
@@ -9427,16 +9427,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("A termite can dismantle wood cellulose fully with its own enzymes alone.",
             false,
             "Almost no animal can dismantle cellulose with its own enzymes alone. Termites depend on gut microbes to break it into small molecules they can absorb."),
-          mkQuiz("A beetle that feeds on dry leaves loses most of its gut microbes. What is the most likely result?",
-            ["It struggles to unlock the fiber in its leaves", "It flies faster and eats no leaves", "It grows a second gut tube full of new chambers at once", "It turns its leaves into vitamins without eating them at all"],
+          mkQuiz("A researcher raises two groups of leaf eating beetles. One group keeps its gut microbes and the other is raised on treated food that removes most of them, while both groups eat the same dry leaves. What is the most likely result?",
+            ["It struggles to unlock the fiber in its leaves", "It struggles to absorb the vitamins in its leaves", "It struggles to grind the fiber with its gut chambers", "It struggles to find the leaves it ate the day before"],
             0,
-            "Without its microbes, the beetle loses the chemistry that unlocks tough fiber. The food is there, but the keys are gone."),
+            "Holding the food constant is what makes the comparison readable. The treated group still eats, yet the cutting enzymes that came from its partners are missing, so the fiber passes through largely locked."),
           mkNote("The payoff", "Partners at the table",
-            "The insect provides the home and the harvest, and the microbes provide the chemistry that unlocks tough food. Together they are one combined organism, eating meals neither could manage alone. Tomorrow: where do the partners in a young insect gut come from?")
+            "The insect provides the home and the harvest, and the microbes provide the staged chemistry that turns cellulose bundles into absorbable fuel, plus vitamins the food lacks. Together they are one combined organism, eating meals neither could manage alone. Tomorrow: where do the partners in a young insect gut come from?")
         ]
       },
       {
-        id: "ig-2", title: "Where the Partners Come From", subtitle: "Inheritance, the neighborhood, and the black soldier fly",
+        id: "ig-2", title: "Where the Partners Come From", subtitle: "Inheritance, sharing, and the black soldier fly at work",
         cards: [
           mkPredict("How does a young insect get the microbes its gut needs?",
             "A young insect gathers many of its gut microbes after hatching, from its food, from the soil, and from nestmates that share them.",
@@ -9444,11 +9444,11 @@ export const TOPIC_COURSES = [
             1,
             "Some microbes arrive on the egg from the mother, but much of the community is gathered and shared after hatching."),
           mkNote("The big idea", "Partners are inherited, gathered, and shared",
-            "A young insect does not hatch with a finished gut community. Some microbes arrive on or in the egg from the mother, a direct inheritance. Others are gathered from food, soil, and nestmates. Social insects pass microbes mouth to mouth and through shared droppings, which sounds rude and matters enormously. Disrupt the passing, with sterile food or isolation, and the gut community, and the insect, come out poorer."),
+            "A young insect does not hatch with a finished gut community. Some microbes arrive on or in the egg from the mother, a direct **inheritance**, sometimes smeared on the egg surface so the hatching young eats them with its first meal. Others are gathered from food, soil, and nestmates over the first days of life, when the gut is most open to settlement. Social insects pass microbes mouth to mouth and through shared droppings, which sounds rude and matters enormously, because it delivers the exact community the young gut needs. Disrupt the passing, with sterile food or isolation, and the gut community, and the insect, come out poorer, a result shown by raising otherwise identical insects with and without access to nestmate droppings."),
           mkNote("Key idea", "The larva that eats the world of leftovers",
-            "Black soldier fly larvae are the gut partnership put to work. A larva is the young feeding stage of the insect, and these larvae eat decaying matter, manure, food scraps, and other waste. Their gut microbes help convert that difficult diet into larval body mass rich in protein and fat. The larvae are then harvested as feed for animals like fish and poultry, so one gut community becomes a recycling plant."),
+            "Black soldier fly larvae, the young feeding stage of *Hermetia illucens*, are the gut partnership put to work. These larvae eat decaying matter, manure, food scraps, and other waste, and a dense population can reduce the mass of a waste pile by half or more as it feeds. Their gut is strongly compartmented, with a highly acidic middle chamber that kills many germs in the food, and microbes on either side of it help convert that difficult diet into larval body mass rich in protein and fat, commonly a third or more protein by dry weight. The larvae are then harvested as feed for animals like fish and poultry, so one gut community becomes a recycling plant."),
           mkNote("How it works", "Waste in, feed out",
-            "The partnership works because each side does its half, and because the partnership is alive, it can be broken. Antibiotics and some pesticides damage gut communities along with their targets. Insects raised too cleanly can grow up with impoverished guts and weaker health, because the microbes are half the organism, not contamination to be removed.",
+            "The partnership works because each side does its half, and because the partnership is alive, it can be broken. **Antibiotics** and some pesticides damage gut communities along with their targets, because a chemical that kills bacteria rarely distinguishes partner from pest. Insects raised too cleanly can grow up with impoverished guts and weaker health, slower growth, and poorer survival on tough diets, because the microbes are half the organism, not contamination to be removed. The limit cuts the other way as well: a richer gut is not automatically a healthier one, since some additions are germs, and what matters is which microbes settle, not the count alone.",
             { diagram: { steps: ["Larvae eat decaying matter and food scraps", "Gut microbes help unlock the difficult diet", "The larvae build body mass rich in protein and fat", "The larvae are harvested as feed for fish and poultry"], caption: "One gut community turns waste into feed." } }),
           mkVisualQ("Look at the diagram. What do the larvae build from their difficult diet?",
             null,
@@ -9465,21 +9465,21 @@ export const TOPIC_COURSES = [
           mkTrueFalse("An insect raised too cleanly always grows up with a stronger gut community.",
             false,
             "Raised too cleanly, an insect can grow up with an impoverished gut community and weaker health. The microbes are partners, not contamination."),
-          mkQuiz("A farmer feeds black soldier fly larvae on kitchen scraps and manure. What does the farmer harvest?",
-            ["Clean soil with the waste buried under it", "Extra eggs to scatter over the fields nearby", "Larvae rich in protein and fat, as feed for fish", "Adult flies that pollinate every crop in the area"],
-            2,
-            "The larvae turn waste streams into body mass rich in protein and fat. Harvested, they become feed for fish and poultry."),
+          mkQuiz("A farmer runs trays of black soldier fly larvae on kitchen scraps and manure and weighs the trays as the waste shrinks by more than half. What does the farmer harvest at the end?",
+            ["Larvae rich in protein and fat, as feed for fish", "Compost rich in protein and fat, as feed for fish", "Eggs rich in protein and fat, scattered over fields", "Adult flies rich in sugar, as feed for young poultry"],
+            0,
+            "The shrinking tray is the conversion made visible: waste mass became larval mass. The harvest is the larvae themselves, which is why their protein and fat content is the number that matters."),
           mkNote("The payoff", "A community passed down and topped up",
-            "Gut partners arrive by inheritance, gathering, and sharing, and a fragile living community does the rest. In the black soldier fly, that community turns waste nobody wants into feed everybody needs. Tomorrow: can you prove the whole course, start to finish?")
+            "Gut partners arrive by inheritance on the egg, by gathering from food and soil, and by sharing among nestmates, and a living community that chemicals can damage does the rest. In the black soldier fly, that community turns waste nobody wants into protein rich feed everybody needs. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "ig-3", title: "Checkpoint: The Insect Gut", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.",
+        id: "ig-3", title: "Checkpoint: The Insect Gut", subtitle: "Eight mixed checks on the whole course, using only what was taught.",
         cards: [
-          mkQuiz("What do gut microbes provide in the partnership with their insect?",
-            ["A home and a harvest of gathered food", "Eggs that carry the next generation along", "Chambers that give the gut tube its shape and size", "The chemistry that unlocks tough food"],
-            3,
-            "Housing and harvesting flow one way, and unlocking chemistry flows the other. Neither side eats wood alone."),
+          mkQuiz("In the partnership, housing and ground food flow from the insect, while staged cutting of cellulose bundles flows the other way. What do gut microbes provide?",
+            ["The chemistry that unlocks tough food", "The home that shelters tough food eaters", "The harvest that gathers tough food daily", "The chambers that divide the gut tube fully"],
+            0,
+            "Direction is the whole test here. The insect supplies home, harvest, and movement through the chambers, while every cutting step that frees fuel from cellulose belongs to the partners."),
           mkMatch("Match each word to its meaning.",
             [["Termite", "The insect that runs its gut as a fermenting chamber"], ["Cellulose", "The tough sugar polymer in wood and fiber"], ["Microbes", "The tiny residents that do the unlocking chemistry"], ["Vitamins", "Helpful substances that the food can lack"]],
             "The termite hosts, cellulose is the locked food, microbes hold the keys, and vitamins are part of their pay."),
@@ -9498,25 +9498,25 @@ export const TOPIC_COURSES = [
           mkOrder("Put the journey from waste to feed in order.",
             ["Larvae eat decaying matter and food scraps", "Gut microbes help unlock the difficult diet", "The larvae build body mass rich in protein and fat", "The larvae are harvested as feed for fish and poultry"],
             "Eating comes first and the harvest comes last, exactly as the partnership runs it."),
-          mkQuiz("Why can antibiotics harm an insect that has no infection at all?",
-            ["They sweeten the gut and draw germs inside", "They damage the gut community it depends on", "They harden the chambers of the gut tube shut", "They feed the invading germs until the germs crowd out every partner in the gut"],
+          mkQuiz("A keeper treats a healthy colony with antibiotics to prevent disease, and the insects begin growing slowly on their usual wood diet, with no infection present. Why can the treatment itself explain the decline?",
+            ["They damage the gut community it depends on", "They damage the gut chambers it digests with", "They sweeten the gut food it depends on most", "They harden the gut tube it depends on daily"],
             1,
-            "Antibiotics damage partner microbes along with their targets. Break the community and the insect loses its chemistry."),
+            "No infection is needed for harm, because the drug acts on bacteria as a class. Kill the partners and the wood diet stays locked, so slow growth follows from lost chemistry, not from disease."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["Some gut microbes arrive on the egg from the mother.", "Social insects share microbes with their nestmates.", "Gut microbes lock cellulose away so the insect can never use it.", "Black soldier fly larvae eat decaying matter and food scraps."],
+            ["Some gut microbes arrive on the egg from the mother.", "Social insects share microbes with their nestmates.", "Gut microbes absorb the small molecules, leaving none for the insect itself.", "Black soldier fly larvae eat decaying matter and food scraps."],
             2,
-            "Gut microbes break cellulose into small molecules the insect can absorb.",
-            "Locking food away is the opposite of the partnership. The microbes unlock cellulose, and the insect absorbs the pieces.")
+            "Gut microbes break cellulose into small molecules, and the insect absorbs those molecules as fuel.",
+            "Absorption is the insect half of the bargain. Microbes clip and convert, the gut wall of the insect takes the small molecules in, and a community that kept them all would starve its host and itself.")
         ]
       }
     ] }],
   },
   {
     id: "topic-fermentation", title: "Fermentation", category: "The Living World",
-    blurb: "Fermentation, the food technology that stays alive in the jar.",
-    units: [{ id: "topic-fermentation-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "Microbes eating sugar without oxygen, three famous discards, acid as a fence, and ferments that reach you alive.",
+    units: [{ id: "topic-fermentation-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "fe-1", title: "Eating Without Air", subtitle: "What fermentation is, at the level of the microbe",
+        id: "fe-1", title: "Eating Without Air", subtitle: "Sugar without oxygen, and three famous waste products",
         cards: [
           mkPredict("How many famous waste products do fermenting microbes leave behind?",
             "Fermenting microbes leave more than one famous waste behind. The best known are lactic acid, alcohol, and carbon dioxide gas.",
@@ -9524,11 +9524,11 @@ export const TOPIC_COURSES = [
             2,
             "One meal can leave several discards. Which discard you get depends on which microbe is at the table."),
           mkNote("The big idea", "Microbes eating sugar and leaving gifts",
-            "Fermentation is what some microbes do when they eat sugar without oxygen: they take part of the energy and discard the rest as waste products. Depending on the microbe, the discards are lactic acid, alcohol, and carbon dioxide gas. Bread, yogurt, beer, cheese, pickles, and kimchi are all managed discards of microbial meals. And none of it is new: fermentation is older than farming and older than writing, since fruit ferments on the ground and milk sours in any warm pot."),
+            "**Fermentation** is what some microbes do when they eat sugar **without oxygen**: they take part of the energy, far less per sugar molecule than breathing with oxygen yields, and discard the rest as waste products. The discards are the point for us. Depending on the microbe, they are **lactic acid**, **alcohol**, and **carbon dioxide** gas. Bread, yogurt, beer, cheese, pickles, and kimchi are all managed discards of microbial meals. The low energy yield explains the speed of it: fermenting microbes must eat fast and discard most of the sugar energy to live. And none of it is new: fermentation is older than farming and older than writing, since fruit ferments on the ground and milk sours in any warm pot."),
           mkNote("Key idea", "Two famous families",
-            "Yeasts are the gas and alcohol family: in bread dough their carbon dioxide inflates the loaf, and in beer and wine their alcohol stays for the drinking. Lactic acid bacteria are the sour family: they turn milk into yogurt and cabbage into kraut. The acid they make is not just flavor. It is also defense, as the next lesson shows."),
+            "**Yeasts** are the gas and alcohol family: in bread dough their carbon dioxide inflates the loaf, and in beer and wine their alcohol rises toward roughly a tenth of the drink before it begins to poison the yeast itself, which sets a natural ceiling on fermented drinks. **Lactic acid bacteria** are the sour family: they turn milk into yogurt and cabbage into kraut, dropping the acidity until the food tastes clearly sour. The two families can also work in sequence in one food, yeasts first and bacteria after, which is how layered flavors are built. The acid they make is not just flavor. It is also defense, as the next lesson shows."),
           mkNote("How it works", "Why dough rises",
-            "In dough, yeast eats sugar and releases carbon dioxide gas as one of its wastes. The gas forms bubbles, and the stretchy web of the dough traps the bubbles, so the loaf swells. Baking then kills the yeast, but the structure the gas built remains.",
+            "In dough, yeast, most often *Saccharomyces cerevisiae*, eats sugar and releases carbon dioxide gas as one of its wastes, enough gas over a rising to swell the loaf several times over. The gas forms bubbles, and the stretchy web of the dough, a protein network that stretches without tearing, traps the bubbles, so the loaf swells. Two limits shape the result: too little sugar or too cold a room slows the yeast, and too much gas stretches the web until bubbles merge and the loaf collapses. Baking then kills the yeast at temperatures well inside the loaf, but the structure the gas built remains, set by the heat.",
             { diagram: { steps: ["Yeast eats sugar in the dough", "The yeast releases carbon dioxide gas", "Bubbles of gas inflate the dough", "Baking kills the yeast and sets the loaf"], caption: "Gas from yeast builds the loaf before baking ends the yeast." } }),
           mkVisualQ("Look at the diagram. What releases the carbon dioxide gas in the dough?",
             null,
@@ -9545,16 +9545,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Fermentation began as a modern invention inside laboratories.",
             false,
             "Fermentation is older than farming and older than writing. Fruit ferments on the ground and milk sours in any warm pot, with no laboratory anywhere near."),
-          mkQuiz("A jar of grape juice is left warm with yeast in it for days. What is the yeast doing to the juice?",
-            ["Turning its sugar into alcohol as waste", "Removing every bubble of gas from the juice at once", "Changing it back into grapes", "Feeding the juice oxygen so it can breathe and grow"],
+          mkQuiz("A vintner seals grape juice with yeast and no air, and days later the liquid is less sweet, slightly fizzy, and intoxicating. What is the yeast doing to the juice?",
+            ["Turning its sugar into alcohol as waste", "Turning its sugar into lactic acid as waste", "Turning its alcohol into sugar as waste", "Turning its gas into oxygen for the juice"],
             0,
-            "Yeast eats sugar without oxygen and leaves alcohol behind. Warm grape juice with yeast is on its way to wine."),
+            "All three changes point the same way: sugar falling, gas appearing, alcohol rising. That combination is the yeast discard pattern, not the souring pattern of the bacteria."),
           mkNote("The payoff", "Farming the leftovers",
-            "Fermentation is microbes eating sugar without oxygen, and people farming the discards: acid, alcohol, or gas. Yeasts bubble and brew, while lactic acid bacteria sour and shield. Tomorrow: how does the sour acid protect a fermented food?")
+            "Fermentation is microbes eating sugar without oxygen for a low energy yield, and people farming the discards: acid, alcohol, or gas. Yeasts bubble and brew up to their own alcohol ceiling, while lactic acid bacteria sour and shield. Tomorrow: how does the sour acid protect a fermented food?")
         ]
       },
       {
-        id: "fe-2", title: "Sour Is a Shield", subtitle: "Preservation, flavor, and living food",
+        id: "fe-2", title: "Sour Is a Shield", subtitle: "Acid as a fence, flavor in layers, and living food",
         cards: [
           mkPredict("When you eat a spoonful of yogurt, what arrives with it?",
             "Yogurt can arrive with its living bacteria still aboard, still able to do their chemistry in a new home.",
@@ -9562,11 +9562,11 @@ export const TOPIC_COURSES = [
             1,
             "Some ferments are served alive. The bacteria that soured the yogurt are still in it when you eat."),
           mkNote("The big idea", "Acid as a fence",
-            "The lactic acid that sours a pickle is also its bodyguard. Most microbes that rot food or cause illness cannot tolerate much acid, so a well fermented food defends itself: the good microbes eat the sugar first and leave acid behind them. To preserve food is to keep it safe and edible for far longer, and acid does that job. Cabbage harvested in autumn, fermented, stays food through winter with no cold and no canning."),
+            "The lactic acid that sours a pickle is also its bodyguard. Most microbes that rot food or cause illness cannot tolerate much acid, and growth of the dangerous ones largely stops once a ferment grows strongly acidic, around the acidity of vinegar diluted several times over. So a well fermented food defends itself: the good microbes eat the sugar first and leave acid behind them, and the race matters, because acid that arrives late arrives after rot has started. To **preserve** food is to keep it safe and edible for far longer, and acid does that job. Cabbage harvested in autumn, fermented, stays food through winter with no cold and no canning. The limit is real: acid slows spoilage, it does not sterilize, and a ferment that never acidifies is not protected."),
           mkNote("Key idea", "Flavor is microbial waste, layered",
-            "The tang of yogurt, the funk of a ripe cheese, and the depth in a long fermented dough are the discards of the first lesson, layered. Different microbes in sequence leave different wastes, and time stacks them into flavors no single ingredient owns. Fermented food tastes alive in a way sterile food does not, and in the living ones, it literally is alive."),
+            "The tang of yogurt, the funk of a ripe cheese, and the depth in a long fermented dough are the discards of the first lesson, layered. Different microbes in sequence leave different wastes: early bacteria sour the food, later ones convert part of that acid into softer, rounder compounds, and weeks to months of this succession stack them into flavors no single ingredient owns. Temperature steers the succession, warm rooms favoring fast souring and cool rooms favoring slow complexity. Fermented food tastes alive in a way sterile food does not, and in the living ones, it literally is alive."),
           mkNote("How it works", "Living and finished ferments",
-            "Some fermented foods reach you alive: yogurt, kefir, and uncooked kraut carry their cultures with them, and a culture is the living community of microbes doing the fermenting. Eating live microbes can add temporary guests to your own gut community. Other ferments are finished by heat: bread is baked, beer is often heated after brewing in a step that ends the microbes, and the microbes are gone while their work remains.",
+            "Some fermented foods reach you alive: yogurt, kefir, and uncooked kraut carry their **cultures** with them, a culture being the living community of microbes doing the fermenting, at counts of millions to billions of living cells in a serving of yogurt. Eating live microbes can add temporary guests to your own gut community: most pass through within days rather than settling permanently, which is the honest limit on what live food can do. Other ferments are finished by heat: bread is baked, beer is often heated after brewing in a step that ends the microbes, and the microbes are gone while their work remains.",
             { diagram: { steps: ["Microbes eat sugar and leave their wastes", "Acid builds up and guards the food", "Some foods are served with cultures living", "Heat finishes others and the work remains"], caption: "A ferment can arrive alive, or finished by heat, with its work intact." } }),
           mkVisualQ("Look at the diagram. What builds up in the food and guards it?",
             null,
@@ -9585,21 +9585,21 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Bread and yogurt both reach you with living microbes still aboard.",
             false,
             "Bread is baked, and baking kills its yeast, so its microbes are gone while their work remains. Yogurt can arrive alive, with its culture still aboard."),
-          mkQuiz("A sealed jar of kraut sits in a cool cellar for months and is still good to eat. Why?",
-            ["The cold cellar freezes the kraut solid all winter", "Its acid makes it a hard place for rot microbes to live", "The jar glass feeds the culture a steady diet of sugar", "Salt in the jar glows and drives every microbe away at night"],
-            1,
-            "The culture ate the sugar first and left acid behind. Rot microbes cannot tolerate that acid, so the kraut keeps."),
+          mkQuiz("Two jars of cabbage are packed the same week. One ferments briskly and turns sharply sour within days, while the other stays sweet and mild. Months later, only the sour jar is still good to eat. Why?",
+            ["Its acid makes it a hard place for rot microbes to live", "Its sugar makes it a hard place for rot microbes to live", "Its glass makes it a hard place for rot microbes to enter", "Its cold makes it a hard place for any microbes to live"],
+            0,
+            "The comparison isolates acidity as the difference: same cabbage, same cellar, same jars. The jar that acidified early won the race, and the mild jar shows that sealing alone protects nothing."),
           mkNote("The payoff", "Sour, safe, and sometimes alive",
-            "Acid is flavor and fence at once: it sours the food and defeats the microbes that would rot it. Some ferments arrive with the workforce still aboard, and others arrive finished, with the work intact. Tomorrow: can you prove the whole course, start to finish?")
+            "Acid is flavor and fence at once: it sours the food, defeats the microbes that would rot it if it arrives in time, and never sterilizes what it protects. Some ferments arrive with the workforce still aboard as temporary guests, and others arrive finished, with the work intact. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "fe-3", title: "Checkpoint: Fermentation", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.",
+        id: "fe-3", title: "Checkpoint: Fermentation", subtitle: "Eight mixed checks on the whole course, using only what was taught.",
         cards: [
-          mkQuiz("What are the three famous waste products of fermentation?",
-            ["Water, salt, and fine white sand gathered at the shore", "Oxygen, sugar, and raw protein bits", "Lactic acid, alcohol, and carbon dioxide gas", "Heat, light, and a loud fizzing sound"],
-            2,
-            "Sour, spirited, or bubbly: every ferment is one of these discards, farmed on purpose."),
+          mkQuiz("A baker, a brewer, and a yogurt maker compare notes and realise each of them farms a different microbial discard. Which set names the three famous waste products of fermentation?",
+            ["Lactic acid, alcohol, and carbon dioxide gas", "Lactic acid, alcohol, and oxygen gas from leaves", "Acetic acid, alcohol, and carbon dioxide gas", "Lactic acid, sugar, and carbon dioxide gas"],
+            0,
+            "Each trade farms a different member of the same set: the yogurt maker farms the acid, the brewer the alcohol, and the baker the gas that lifts the loaf."),
           mkMatch("Match each word to what it means.",
             [["Yeast", "The microbe family that leaves gas and alcohol"], ["Lactic acid", "The sour waste of the bacteria behind yogurt and pickles"], ["Culture", "The living community of microbes doing the fermenting"], ["Preserve", "To keep food safe and edible for far longer"]],
             "Yeasts gas and brew, lactic bacteria sour and shield, the culture is the workforce, and preservation is the prize."),
@@ -9618,25 +9618,25 @@ export const TOPIC_COURSES = [
           mkOrder("Put the making of a loaf in order.",
             ["Yeast eats sugar in the dough", "The yeast releases carbon dioxide gas", "Bubbles of gas inflate the dough", "Baking kills the yeast and sets the loaf"],
             "Eating, gas, bubbles, baking. The order never changes."),
-          mkQuiz("What is the difference between yogurt and bread as ferments?",
-            ["Only yogurt is a real ferment at all", "Bread involves no microbes at any stage", "Yogurt can arrive alive, while bread is baked and its yeast dies", "Yogurt is made by yeast alone, working in warm milk for many days on end"],
+          mkQuiz("Compared as ferments, yogurt and bread start alike and end differently. What is the difference between them when they reach the table?",
+            ["Yogurt can arrive alive, while bread is baked and its yeast dies", "Yogurt can arrive baked, while bread is served alive with its yeast", "Bread can arrive alive, while yogurt is heated and its culture dies", "Both can arrive alive, while neither is heated at any stage at all"],
             2,
-            "Same principle, different ending. Heat retires the workforce in bread, while yogurt is often served with the crew still aboard."),
+            "The starting process is shared, eating sugar without oxygen. The ending is not: baking is a killing step, while yogurt skips any killing step and can be served with its culture living."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["Fermentation is microbes eating sugar without oxygen.", "Yeasts leave gas and alcohol behind as wastes.", "Yeasts make the lactic acid that sours milk into yogurt.", "Acid guards a fermented food against rot microbes."],
+            ["Fermentation is microbes eating sugar without oxygen.", "Yeasts leave gas and alcohol behind as wastes.", "Yeasts raise alcohol without limit, the longer they ferment a drink.", "Acid guards a fermented food against rot microbes."],
             2,
-            "Lactic acid bacteria make the acid that sours milk into yogurt.",
-            "The two families do different work. Yeasts leave gas and alcohol, and lactic acid bacteria leave the sour acid.")
+            "Alcohol poisons the yeast itself, so fermented drinks reach a natural ceiling far below pure alcohol.",
+            "The discard turns on its maker. As alcohol builds in a brew, yeast growth slows and then stops, which is why stronger drinks must be concentrated by other means.")
         ]
       }
     ] }],
   },
   {
     id: "topic-microbes-and-crops", title: "Microbes and Crops", category: "The Living World",
-    blurb: "How the microbes around roots and the crops above them affect each other.",
-    units: [{ id: "topic-microbes-and-crops-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "Roots that pay sugar, bacteria that fix nitrogen from the air, fungal highways, and a crowded root that defends itself.",
+    units: [{ id: "topic-microbes-and-crops-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "mc-1", title: "The Root Market", subtitle: "Trade underground decides harvests above it",
+        id: "mc-1", title: "The Root Market", subtitle: "Sugar payments, nitrogen fixation, and fungal highways",
         cards: [
           mkPredict("How many things does a crop root buy from the microbes in the soil?",
             "A root buys more than one thing with its sugar: nutrients, water, and protection all flow back from the microbes.",
@@ -9644,11 +9644,11 @@ export const TOPIC_COURSES = [
             2,
             "The root market sells a whole bundle. Sugar goes out, and several goods come back."),
           mkNote("The big idea", "Roots run a market, and microbes are the traders",
-            "A crop root is not a passive straw. It leaks sugars into the soil on purpose, and the microbes that gather to feed become its trading partners. From them the plant buys what roots alone get slowly: nitrogen and phosphorus freed from soil and dead matter, water from pores too small for roots, and protection from diseases whose microbes get crowded out by the friendly crowd. That trade is the root market, and the harvest above ground starts in it."),
+            "A crop root is not a passive straw. It leaks sugars into the soil on purpose, a substantial share of everything its leaves make, and the microbes that gather within a few millimeters of the root become its trading partners. That crowded zone is where the exchange is concentrated. From them the plant buys what roots alone get slowly: **nitrogen** and phosphorus freed from soil and dead matter, water from pores too small for roots, and protection from diseases whose microbes get crowded out by the friendly crowd. Labelled sugar fed to leaves can be traced into the microbes around the roots within days, so the payment is measured, not imagined. That trade is the **root market**, and the harvest above ground starts in it."),
           mkNote("Key idea", "Pulling nitrogen from thin air",
-            "Air is mostly nitrogen, yet plants starve for it, because the gas form is locked where plant chemistry cannot reach. Certain bacteria can pick that lock: living in soil or in special root nodules of peas, beans, and their relatives, they convert air nitrogen into a form plants can use, a process called nitrogen fixation. A nodule is the root lump where those bacteria live on legumes, the pea and bean family. A field of legumes with the right bacteria is, in effect, fertilizing itself from the sky."),
+            "Air is about four fifths nitrogen, yet plants starve for it, because the gas form is locked where plant chemistry cannot reach: its two atoms are bound so tightly that breaking them is one of the most energy expensive reactions in farming. Certain bacteria can pick that lock with a specialised enzyme: living in soil or in special root **nodules** of peas, beans, and their relatives, they convert air nitrogen into a form plants can use, a process called **nitrogen fixation**. A nodule is the root lump where those bacteria live on **legumes**, the pea and bean family, paid in sugar and shelter for the conversion. A healthy field of legumes with the right bacteria can fix on the order of a hundred kilograms of nitrogen per hectare in a season, in effect fertilizing itself from the sky."),
           mkNote("How it works", "Fungal highways",
-            "Fungal threads connect many roots at once, and these fungal highways trade across the whole field. Water and minerals move along the threads toward roots that pay sugar, and a well connected plant can draw on a far larger volume of soil than its own roots touch. The network is old: plants came ashore from the water with fungal partners already in the arrangement.",
+            "Fungal threads connect many roots at once, and these **fungal highways** trade across the whole field. The threads are far thinner than roots and extend centimeters to meters beyond them, so a connected plant draws on a far larger volume of soil than its own roots touch, which matters most for phosphorus, the mineral that barely moves in soil. Water and minerals move along the threads toward roots that pay sugar, and tracer experiments, feeding labeled minerals to the fungal network at a distance from any root, show the label arriving inside the plant. The network is old: plants came ashore from the water with fungal partners already in the arrangement, before true roots existed.",
             { diagram: { steps: ["Roots leak sugar into the soil", "Fungal threads connect many roots", "Water and minerals move along the threads", "Roots that pay sugar receive the goods"], caption: "Fungal threads trade goods between roots and soil." } }),
           mkVisualQ("Look at the diagram. What moves along the fungal threads toward the roots?",
             null,
@@ -9665,16 +9665,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Roots leak sugar by accident, as waste they cannot help losing.",
             false,
             "The leak is payment on purpose. The sugar feeds the microbes whose trade returns nutrients, water, and protection worth more than the sugar cost."),
-          mkQuiz("A pea plant grows well in poor soil with almost no fertilizer added. Its roots carry many nodules. Why?",
-            ["Bacteria in its nodules convert air nitrogen for it", "The nodules store rainwater for the whole field", "Its leaves breathe nitrogen straight from the air at night", "The nodules scare disease microbes away by their smell alone"],
+          mkQuiz("A grower plants peas in poor soil with almost no fertilizer added, expecting a weak crop, yet the plants grow well. Slicing their roots open shows many plump nodules. Why did the crop succeed?",
+            ["Bacteria in its nodules convert air nitrogen for it", "Bacteria in its leaves convert air nitrogen for it nightly", "Nodules in its roots store air nitrogen for it directly", "Fungi in its nodules convert soil sugar for it instead"],
             0,
-            "Peas are legumes, and legumes host nitrogen fixing bacteria in root nodules. The plant is fertilizing itself from the sky."),
+            "Poor soil rules out the usual explanation, a rich nitrogen supply from the ground. The nodules are the alternative supply made visible: housing, sugar, and a conversion the plant cannot perform itself."),
           mkNote("The payoff", "Sugar out, a harvest back",
-            "Roots pay sugar into the soil and buy back nutrients, water, and protection from the microbes that gather. Nitrogen fixation and fungal highways are the two great stalls in that market. Tomorrow: how does a crowded root community protect a crop?")
+            "Roots pay sugar into the soil and buy back nutrients, water from pores too small for roots, and protection from the microbes that gather within millimeters of the root. Nitrogen fixation, worth on the order of a hundred kilograms per hectare from a good legume stand, and fungal highways are the two great stalls in that market. Tomorrow: how does a crowded root community protect a crop?")
         ]
       },
       {
-        id: "mc-2", title: "Farming the Invisible Half", subtitle: "Protection, partnerships, and what breaks them",
+        id: "mc-2", title: "Farming the Invisible Half", subtitle: "Crowded roots, bare fallow, and fertilizer in balance",
         cards: [
           mkPredict("What protects a crop root besides any spray a farmer uses?",
             "A crowd of microbes at the root protects it, taking the spaces and the food before disease microbes can.",
@@ -9682,11 +9682,11 @@ export const TOPIC_COURSES = [
             2,
             "Defense by occupancy: a living crowd at the gate is a wall. The next cards show how that wall works."),
           mkNote("The big idea", "A crowded root is a defended root",
-            "Disease microbes face the same problem everywhere: they must reach the root through a crowd that got there first. A rich root community defends its plant the way a full parking lot defeats a late arrival: the spaces and the food are taken. Some residents go further, and actively poison or outcompete the invaders. Fields with poor soil life often show the reverse, where a single disease finds the root undefended and the crop falls."),
+            "Disease microbes face the same problem everywhere: they must reach the root through a crowd that got there first. A rich root community defends its plant the way a full parking lot defeats a late arrival: the spaces on the root surface and the food leaking from it are taken. Some residents go further, releasing compounds that poison invaders or triggering the plant own defenses into a readier state. The comparison that proves the point is soil transfer: a small amount of soil from a disease suppressing field, mixed into soil where the disease runs wild, can protect the next crop, and heating that added soil first destroys the protection, showing it was alive. Fields with poor soil life often show the reverse, where a single disease finds the root undefended and the crop falls."),
           mkNote("Key idea", "What feeds the partnership, and what starves it",
-            "The market thrives on living roots in the ground as much of the year as possible, less disturbance of the soil, and variety above ground feeding variety below. Land left bare with no crop growing is called fallow, and long bare fallow starves the market, since no roots are paying sugar. Heavy disturbance shreds the fungal highways. A single crop repeated year after year lets its specific diseases build up in the soil."),
+            "The market thrives on living roots in the ground as much of the year as possible, less disturbance of the soil, and variety above ground feeding variety below, because different roots leak different sugars and feed different traders. Land left bare with no crop growing is called **fallow**, and long bare fallow starves the market, since no roots are paying sugar and fungal networks die back within a season. Heavy disturbance shreds the fungal highways. A single crop repeated year after year lets its specific diseases build up in the soil, spore by spore, while rotation starves them by removing their host. Each habit maps to a mechanism: payment, shelter, or host removal."),
           mkNote("How it works", "Fertilizer is a tool, not a villain",
-            "Bagged fertilizer feeds plants directly and has fed billions of people, and nothing here argues otherwise. The catch is partnership: a plant flooded with free nutrients pays less sugar to its traders, and the market thins. Skilled farming uses both at once, enough fertilizer to feed the crop, managed so the underground market stays in business, since no bag can replace it for water trading and defense.",
+            "Bagged **fertilizer** feeds plants directly and has fed billions of people, and nothing here argues otherwise: harvests on depleted land can double or more when nutrients are finally supplied. The catch is partnership: a plant flooded with free nutrients pays less sugar to its traders, measurably less within days in controlled feeding tests, and the market thins. Too little fertilizer starves the crop, and too much starves the market, so the skilled position is a balance, not a ban. Skilled farming uses both at once, enough fertilizer to feed the crop, managed so the underground market stays in business, since no bag can replace it for water trading and defense.",
             { diagram: { steps: ["Fertilizer feeds the crop directly", "A flooded plant pays less sugar to its traders", "Fewer traders gather at the root", "The market for water and defense grows thin"], caption: "Fertilizer helps the crop, but too much can thin the root market." } }),
           mkVisualQ("Look at the diagram. What happens at the root when a plant pays less sugar?",
             null,
@@ -9705,18 +9705,18 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Long bare fallows keep the root market well fed with sugar all year.",
             false,
             "Fallow land has no living roots, and no roots means no sugar payments. A long bare fallow starves the market it rests."),
-          mkQuiz("A farmer grows the same crop in one field every year and leaves the field bare all winter. What builds up over time?",
-            ["A richer market with every passing season", "Its specific diseases, in an undefended soil", "Thicker fungal highways under the bare soil", "Extra nodules on roots that are not even planted there yet"],
-            1,
-            "One crop repeated lets its own diseases build up, and bare winters starve the defenders. The field ends up guarded by nobody."),
+          mkQuiz("A farmer repeats one crop in a field for many seasons and leaves the field bare every winter. Disease in that crop worsens year by year while a rotated neighbour field stays healthy. What builds up over time in the first field?",
+            ["Its specific diseases, in an undefended soil", "Its specific defenses, in an undisturbed soil", "Its fungal highways, in an undisturbed soil", "Its nitrogen nodules, in an unplanted soil bed"],
+            0,
+            "Two mechanisms compound here. A permanent host lets its own diseases accumulate without a break, and bare winters cut the sugar payments that would have kept a defending crowd in place."),
           mkNote("The payoff", "Feed the plant, keep the market",
-            "A crowded root is a defended root, and the market behind that defense lives on sugar payments from living roots. Fertilizer feeds the crop today, while the market supplies and guards it in ways no bag can. Tomorrow: can you prove the whole course, start to finish?")
+            "A crowded root is a defended root, proven by living soil transfers that heating destroys, and the market behind that defense lives on sugar payments from living roots. Fertilizer feeds the crop today and can thin the market when overused, while the market supplies and guards it in ways no bag can. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "mc-3", title: "Checkpoint: Microbes and Crops", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.",
+        id: "mc-3", title: "Checkpoint: Microbes and Crops", subtitle: "Eight mixed checks on the whole course, using only what was taught.",
         cards: [
-          mkQuiz("Which crop family hosts nitrogen fixing bacteria in root nodules?",
+          mkQuiz("A seed catalogue marks one family as able to feed itself nitrogen when its roots form nodules with the right bacteria. Which crop family carries that partnership?",
             ["Grasses and grains, in their long seed heads above the soil", "All the trees standing in the forest nearby", "Crops with flowers that open only at night", "Peas, beans, and their relatives, the legumes"],
             3,
             "Legumes run the sky fertilizer partnership. Their nodules house the bacteria that convert air nitrogen."),
@@ -9738,25 +9738,25 @@ export const TOPIC_COURSES = [
           mkOrder("Put the thinning of a root market in order.",
             ["Fertilizer feeds the crop directly", "A flooded plant pays less sugar to its traders", "Fewer traders gather at the root", "The market for water and defense grows thin"],
             "Free nutrients come first and the thin market comes last. The missed sugar payments are the link between them."),
-          mkQuiz("What is the skilled position on fertilizer, from this course?",
-            ["Feed the crop, while managing so the market stays in business", "Never use it under any circumstances at all", "Pour it on until the root microbes are fully replaced for good and forever", "Use it only in winter, when the roots are bare and resting"],
+          mkQuiz("A farmer can afford either a heavy fertilizer program with no attention to soil life, or a moderate program managed to keep the root market trading. Compared with the heavy program, what is the skilled position?",
+            ["Feed the crop, while managing so the market stays in business", "Feed the crop heavily, while managing so the market closes down", "Starve the crop, while managing so the market stays in business", "Feed the soil in winter, while roots are bare and resting there"],
             0,
-            "Both tools, deliberately: the bag feeds the plant today, and the market defends and supplies it in ways no bag can."),
+            "The comparison is between doses, not between using and refusing. Moderate feeding keeps yields up without flooding the plant into cutting its sugar payments, so both supply lines stay open."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["Roots leak sugar on purpose to feed their traders.", "Roots buy nothing at all with the sugar they leak.", "Fungal highways trade water and minerals between roots.", "A crowded root community can outcompete invaders."],
+            ["Roots leak sugar on purpose to feed their traders.", "Roots leak sugar as pure waste, and traders gather only by chance.", "Fungal highways trade water and minerals between roots.", "A crowded root community can outcompete invaders."],
             1,
-            "Roots buy nutrients, water from tiny pores, and protection with their sugar.",
-            "The leak is the highest returning payment in the field. Sugar out, and the whole underground economy back.")
+            "Roots buy nutrients, water from pores too small for roots, and protection with their sugar.",
+            "Chance cannot explain a payment this large and this targeted, delivered within millimeters of the root and cut back when nutrients flood in. The leak rises and falls like a price, because it is one.")
         ]
       }
     ] }],
   },
   {
     id: "topic-oceans-smallest", title: "The Ocean's Smallest", category: "The Living World",
-    blurb: "Marine microbes and phytoplankton, the smallest life in the sea.",
-    units: [{ id: "topic-oceans-smallest-unit", title: "The whole course", subtitle: "Two teaching lessons, then a review.", lessons: [
+    blurb: "A drifting meadow that feeds nearly all sea life, makes about half the oxygen, and pumps carbon to the deep.",
+    units: [{ id: "topic-oceans-smallest-unit", title: "The whole course", subtitle: "Two teaching lessons, then a checkpoint.", lessons: [
       {
-        id: "os-1", title: "Meadows You Cannot See", subtitle: "Phytoplankton, the grass of the sea",
+        id: "os-1", title: "Meadows You Cannot See", subtitle: "Phytoplankton, sunlight, oxygen, and blooms seen from space",
         cards: [
           mkPredict("How many of the food chains in the ocean start with phytoplankton?",
             "Nearly every food chain in the ocean starts with phytoplankton, the tiny drifting meadow in the sunlight.",
@@ -9764,11 +9764,11 @@ export const TOPIC_COURSES = [
             3,
             "The meadow is the base of nearly the whole sea. Almost everything in the ocean eats it, or eats something that does."),
           mkNote("The big idea", "The sea grass is microscopic and drifting",
-            "On land, the base of nearly every food chain is visible: grass, trees, and crops. In the ocean, the base is phytoplankton: countless tiny drifting organisms, most smaller than a grain of sand, that live in the sunlit surface layer. To photosynthesize is to make food from sunlight, water, and carbon dioxide, and phytoplankton photosynthesize like plants. They are individually invisible and collectively colossal: the meadow that feeds the sea, spread over most of its surface, feeding animals large and small."),
+            "On land, the base of nearly every food chain is visible: grass, trees, and crops. In the ocean, the base is **phytoplankton**: countless tiny drifting organisms, most between a few thousandths and a few tenths of a millimeter across, that live in the **sunlit surface layer**, roughly the top hundred meters where light survives. To **photosynthesize** is to make food from sunlight, water, and carbon dioxide, and phytoplankton photosynthesize like plants. Their abundance is counted by filtering known volumes of seawater and by the green pigment they all carry, which satellites read as ocean color. They are individually invisible and collectively colossal: the meadow that feeds the sea, spread over most of its surface, feeding animals large and small."),
           mkNote("Key idea", "Breathing out half the world of oxygen",
-            "Like the plants they resemble, phytoplankton take in carbon dioxide and release oxygen. Added up across the oceans, their share of the oxygen production of the whole planet is enormous, often put at about half. The oxygen you breathe has cycled through air and sea for ages, and the ocean meadow is one of its two great sources, alongside the forests of the land."),
+            "Like the plants they resemble, phytoplankton take in carbon dioxide and release oxygen as a byproduct of photosynthesis. Added up across the oceans, their share of the oxygen production of the whole planet is enormous, often put at about half, estimated by multiplying measured growth rates per cell across satellite maps of where the meadow is and how dense it stands. Nearly all of that oxygen is used up again within the ocean by breathing and decay, so the meadow maintains the balance rather than piling oxygen up. The oxygen you breathe has cycled through air and sea for ages, and the ocean meadow is one of its two great sources, alongside the forests of the land. The misconception is a contest between them: both sources together hold the level steady."),
           mkNote("How it works", "Blooms you can see from space",
-            "When conditions align, with light, nutrients welling up from below, and calm water, phytoplankton multiply explosively into blooms. A bloom is a patch of ocean colored green, turquoise, or rust by trillions of cells, large enough to photograph from orbit. Animals that eat the meadow gather to a bloom, and so does everything that eats them.",
+            "When conditions align, with light, nutrients welling up from below, and calm water holding cells in the light, phytoplankton multiply explosively, doubling in about a day, into **blooms**. A bloom is a patch of ocean colored green, turquoise, or rust by trillions of cells, sometimes hundreds of kilometers across and large enough to photograph from orbit. Blooms are brief, usually days to weeks, because the grazers arrive and the nutrients run out. Animals that eat the meadow gather to a bloom, and so does everything that eats them, which is why bloom timing, not just bloom size, decides how much of the harvest climbs the chain.",
             { diagram: { steps: ["Light reaches the sunlit surface layer", "Nutrients well up from below", "Phytoplankton multiply into a bloom", "The bloom colors a patch of ocean"], caption: "A bloom is the meadow growing fast enough to see from space." } }),
           mkVisualQ("Look at the diagram. What wells up from below to feed a bloom?",
             null,
@@ -9785,16 +9785,16 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Phytoplankton live on the dark sea floor, far below the sunlight.",
             false,
             "Phytoplankton need light to photosynthesize, so they live in the sunlit surface layer. The dark deep is fed by what rains down from the meadow above."),
-          mkQuiz("A satellite photograph shows a vast green patch in open ocean where none was last month. What is it most likely to be?",
-            ["A forest of tall seaweed rising to the surface", "Sand stirred up from the floor by a passing storm at sea", "A bloom of phytoplankton multiplied in the sunlight", "A fleet of tiny green fish resting together at the surface"],
-            2,
-            "A bloom is the meadow in fast motion: trillions of phytoplankton cells coloring a patch of ocean, visible even from orbit."),
+          mkQuiz("A satellite records a green patch hundreds of kilometers across in open ocean where the water was clear blue a month earlier, in the same season when nutrients well up nearby. What is it most likely to be?",
+            ["A bloom of phytoplankton multiplied in the sunlight", "A bloom of phytoplankton multiplied in the deep water", "A forest of seaweed risen to the surface in sunlight", "A layer of green sand stirred up from the sea floor"],
+            0,
+            "Scale and timing separate the readings. Seaweed is anchored and coastal, sand settles within days near the bottom that supplied it, and only a multiplying surface population paints an area this large this fast."),
           mkNote("The payoff", "The meadow under everything",
-            "Phytoplankton are the grass of the sea: tiny, drifting, photosynthesizing in the sunlight, and making about half of the oxygen production of the planet. When they bloom, the whole ocean can see it, even from space. Tomorrow: who eats the meadow, and where does its carbon go?")
+            "Phytoplankton are the grass of the sea: tiny, drifting, photosynthesizing in the top hundred meters, and making about half of the oxygen production of the planet. When they bloom, doubling daily for days, the whole ocean can see it, even from space. Tomorrow: who eats the meadow, and where does its carbon go?")
         ]
       },
       {
-        id: "os-2", title: "The Chain and the Pump", subtitle: "Who eats the meadow, and where its carbon goes",
+        id: "os-2", title: "The Chain and the Pump", subtitle: "Krill, marine snow, and the biological pump",
         cards: [
           mkPredict("What do blue whales eat to grow so huge?",
             "Blue whales eat krill, tiny animals that graze the phytoplankton meadow and package it into food big enough for giants.",
@@ -9802,11 +9802,11 @@ export const TOPIC_COURSES = [
             1,
             "The meadow is too fine for even a giant to harvest directly. Krill do the gathering, and whales eat the gatherers."),
           mkNote("The big idea", "Nearly everything eats the meadow, or eats what does",
-            "Tiny animals graze the phytoplankton, small fish and krill graze the grazers, and the chain climbs through squid, fish, seals, and whales. Krill deserve their fame in that chain: small shrimp like animals that harvest phytoplankton in vast swarms. They package the microscopic meadow into food big enough for the largest animals that have ever lived, blue whales among them, to eat by the ton."),
+            "Tiny animals graze the phytoplankton, small fish and **krill** graze the grazers, and the chain climbs through squid, fish, seals, and whales, losing most of the energy at each step to movement and heat, which is why food chains in the sea rarely run beyond about five steps. Krill deserve their fame in that chain: small shrimp like animals, a few centimeters long, that harvest phytoplankton in vast swarms dense enough to show on ship sounders. A blue whale can take in tons of krill in a day of feeding. They package the microscopic meadow into food big enough for the largest animals that have ever lived, blue whales among them, to eat by the ton."),
           mkNote("Key idea", "The biological pump",
-            "When phytoplankton and their grazers die or are eaten, some of their remains sink: shells, bodies, and waste drifting down as a slow snowfall called marine snow. Carbon carried in that snow can reach the deep ocean and stay there for centuries, out of the reach of the air. This sinking delivery is the biological pump, one of the great carbon movers of the planet, and it starts with the meadow in the sunlight."),
+            "When phytoplankton and their grazers die or are eaten, some of their remains sink: shells, bodies, and waste clumped into visible flakes drifting down at tens of meters per day as a slow snowfall called **marine snow**. Most of it is eaten or decays on the way down, and only a small fraction, around one percent of what the meadow makes, reaches the deep ocean floor. Carbon carried in that fraction can stay in the deep for centuries, out of the reach of the air, measured by traps hung at depth that catch and weigh the falling snow. This sinking delivery is the **biological pump**, one of the great carbon movers of the planet, and it starts with the meadow in the sunlight."),
           mkNote("How it works", "A meadow with seasons and moods",
-            "The meadow is not steady. It blooms with spring light and nutrient mixing, and thins in calm layered summers, when warm still surface water locks nutrients down deep. It depends on iron and other trace nutrients, blown as dust from land or welled up from below. Watching the color of the ocean from space is, in effect, watching the health of the base of nearly all sea life.",
+            "The meadow is not steady. It blooms with spring light and nutrient mixing, and thins in calm layered summers, when warm still surface water, lighter than the cold water under it, locks nutrients down deep the way a lid locks a pot. It depends on iron and other trace nutrients, needed in amounts thousands of times smaller than the main nutrients yet able to limit growth entirely where they are missing, blown as dust from land or welled up from below. The iron test is direct: add iron to a patch of such ocean and a bloom follows within days. Watching the color of the ocean from space is, in effect, watching the health of the base of nearly all sea life.",
             { diagram: { steps: ["Spring light and mixing feed a bloom", "Calm summer water layers and thins the meadow", "Nutrients stay locked deep below", "Watchers track the ocean color from space"], caption: "The meadow blooms, thins, and shows its health as ocean color." } }),
           mkVisualQ("Look at the diagram. Where do the nutrients stay when the summer water layers?",
             null,
@@ -9823,18 +9823,18 @@ export const TOPIC_COURSES = [
           mkTrueFalse("Blue whales eat phytoplankton directly, mouthful by mouthful.",
             false,
             "Blue whales eat krill, the tiny animals that package the meadow into food big enough for giants. The meadow itself is too fine for a whale to harvest directly."),
-          mkQuiz("On a bright, calm summer day, the meadow in one stretch of sea grows thin. Why?",
-            ["The sun has stopped shining on that stretch of sea", "Krill have eaten the entire meadow down to the last cell", "The whales nearby drank the surface water the meadow floats in", "Still layered water locks nutrients deep below the meadow"],
-            3,
-            "No mixing means no delivery. The meadow lives in the light but feeds from below, and calm layering cuts the supply line."),
+          mkQuiz("Satellite color fades over one stretch of sea through a bright, calm summer, even though sunlight there is stronger than in spring when the meadow bloomed. Why does the meadow grow thin?",
+            ["Still layered water locks nutrients deep below the meadow", "Still layered water brings nutrients up into the meadow", "Bright summer sunlight locks nutrients deep in the meadow", "Calm layered grazers lock the meadow deep below the surface"],
+            0,
+            "Sunlight is ruled out by the season itself, which is the point of the puzzle. The missing input comes from below, and a stable layer of warm water is a lid that stops it arriving."),
           mkNote("The payoff", "From meadow to giants to the deep",
-            "Krill package the meadow for giants, and marine snow carries its carbon down to rest in the deep for centuries. The smallest life in the sea feeds the largest animals that have ever lived, and moves the carbon of the whole planet. Tomorrow: can you prove the whole course, start to finish?")
+            "Krill package the meadow for giants, and marine snow, of which only a small fraction survives the fall, carries its carbon down to rest in the deep for centuries. The smallest life in the sea feeds the largest animals that have ever lived, and moves the carbon of the whole planet. Tomorrow: can you prove the whole course, start to finish?")
         ]
       },
       {
-        id: "os-3", title: "Checkpoint: The Ocean's Smallest", subtitle: "Eight mixed questions on the whole course. Nothing new, just proof.",
+        id: "os-3", title: "Checkpoint: The Ocean's Smallest", subtitle: "Eight mixed checks on the whole course, using only what was taught.",
         cards: [
-          mkQuiz("Where do phytoplankton live, and why there?",
+          mkQuiz("A water sample from the dark deep holds almost no living phytoplankton, while a surface sample teems with them. Where do phytoplankton live, and why there?",
             ["In the sunlit surface layer, because they photosynthesize", "On the sea floor, where it is safest and darkest", "Inside fish, riding along as quiet passengers", "Only in the coldest seas near the poles of the planet"],
             0,
             "Light is the address. The meadow floats where the sun reaches, and the dark deep lives on what rains down from it."),
@@ -9856,15 +9856,15 @@ export const TOPIC_COURSES = [
           mkOrder("Put the journey of the biological pump in order.",
             ["Phytoplankton grow in the sunlight", "Grazers eat the phytoplankton", "Remains sink as marine snow", "Carbon rests in the deep ocean"],
             "Sunlight, grazers, sinking snow, and rest in the deep. The pump runs in that order and no other."),
-          mkQuiz("What does a satellite view of ocean color really show?",
-            ["Only the temperature of the water below", "Every single fish swimming in the frame", "The health and spread of the meadow feeding the sea", "Pollution drifting on the surface and nothing else at all"],
-            2,
-            "Color is the meadow made visible. Where it blooms and spreads, the whole chain of the sea is being fed."),
+          mkQuiz("A satellite view of ocean color shifts from deep blue to green across one region over two weeks. What does that change really show?",
+            ["The health and spread of the meadow feeding the sea", "The health and spread of the grazers feeding at sea", "The temperature and depth of the water below the sea", "The pollution and sediment drifting across the sea"],
+            0,
+            "The satellite reads pigment, not fish or temperature directly. Greening at this scale and speed is a population change in the pigment carriers, the base population on which the chain depends."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
-            ["Phytoplankton photosynthesize in the sunlit surface layer.", "Krill package the meadow into food for giants.", "Marine snow carries carbon to the deep ocean.", "The biological pump keeps carbon in the sunlit surface forever."],
+            ["Phytoplankton photosynthesize in the sunlit surface layer.", "Krill package the meadow into food for giants.", "Marine snow carries carbon to the deep ocean.", "The biological pump returns most meadow carbon to the air within days."],
             3,
-            "The biological pump carries carbon down to the deep ocean, where it can stay for centuries.",
-            "The pump moves carbon the other way: down, in the sinking snow, out of the reach of the air.")
+            "The fraction of marine snow that reaches the deep ocean keeps its carbon there for centuries.",
+            "Most meadow carbon is indeed recycled near the surface, and that is what makes this error plausible. The pump is defined by the small fraction that escapes that recycling and reaches the deep.")
         ]
       }
     ] }],
