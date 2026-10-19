@@ -313,7 +313,7 @@ export function quizStateForSheet({ phase = 0, good = false, correctStreak = 0, 
    talking flag, and route Rive events into it. A surface with
    no speech prop renders the figure only: no bubble, talking
    false, events a no op. State transition offers now come
-   from the owners (NovaLive, SheetNova, SearchNova); the
+   from the owners (NovaLive, the Player figure, SearchNova); the
    quips prop survives only as an opt out for event routing
    on surfaces that pass quips false (the sidebar pop, the
    lesson completion figure). */
@@ -499,8 +499,8 @@ function NovaCanvas(props) {
 
 /* ── NovaRive ─────────────────────────────────────────────────
    One component, one surface: the canvas, fed by the asset
-   constant above. Callers (NovaLive in the header, SheetNova
-   in the lesson sheet, SearchNova over in the app) pass the
+   constant above. Callers (NovaLive in the header, the Player figure
+   in the lesson Player, SearchNova over in the app) pass the
    same character state they always have, plus the Rive
    contract feeds this file maps onward: quizState, appState,
    pointer, sleepStage, and the poke and celebrate counters.

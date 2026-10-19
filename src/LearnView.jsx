@@ -28,6 +28,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Icon, STATUS, FONT_SIZES, RADIUS, LAYOUT, SP, withAlpha, accentText } from "./designSystem.jsx";
 import { accentInk, useWindowWidth } from "./appUtils.js";
 import { NovaRive, appStateForActivity, quizStateForSheet, quizPointerFor, quizCategoryForState, searchCategoryForState } from "./NovaRive.jsx";
@@ -1887,64 +1888,75 @@ export function novaBrainDecide(brain, ctx) {
   b.lastBehavior = behavior;
   return { brain: b, behavior, mood };
 }
-/* The feedback sheet's Nova (home restructure wave, reaction
-   beats extended by the presence wave, 2026-10-14): the sheet is
-   where Nova reacts, in three beats. Thinking while the answer
-   lands, then the verdict (pleased for a right answer, deadpan
-   for a miss, worried instead from the second miss in a row,
-   when a streak is building), then the face settles to
-   explaining, which is what the sheet itself is doing. The
-   timers only change which state class renders; the motion
-   itself is the avatar's CSS. A new sheet mounts a new Nova, so
-   the beats always start clean and never queue across cards. */
-function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed = null, anchorRef = null, opinionLine = null, teach = null, speech = null }) {
+/* The Player's one Nova (structural wave, 2026-10-19): a single
+   figure is mounted for the whole card session, in both the
+   answering state and the feedback sheet state, and only moves.
+   She used to be two mounts: a header figure the Player killed
+   the moment an answer was checked, and a second figure mounted
+   fresh inside the feedback sheet (SheetNova), so every card
+   paid two Rive restarts and the sheet beats restarted from a
+   cold canvas. Now one NovaRive lives inside this component for
+   the session, and a portal carries it between the header slot
+   and the sheet slot the Player renders; only her inputs, state,
+   size and anchor pose change across a check and Continue cycle.
+   The sheet pose is the old SheetNova, behavior for behavior:
+   thinking while the answer lands, then the verdict (pleased
+   for a right answer, deadpan for a miss, worried instead from
+   the second miss in a row), then explaining, on the same 650
+   and 2350 millisecond beats, started when the sheet pose begins
+   the way a fresh mount started them, with the same speech
+   offers, the same teaching beats, and the same opinion line,
+   all gated on the sheet pose so nothing fires while she stands
+   in the header. Her line still renders in flow in the sheet
+   body through the Player's own sheet bubble, never from this
+   figure: in the sheet pose she renders figure only, exactly as
+   the 2026-10-18 bubble repair settled it. */
+function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStreak = 0, quizFeed = null, opinionLine = null, teach = null, speech = null, anchorRef = null, headerSlot = null, sheetSlot = null }) {
   const [phase, setPhase] = useState(0);
-  useEffect(() => {
-    const t1 = setTimeout(() => setPhase(1), 650);
-    const t2 = setTimeout(() => setPhase(2), 2350);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, []);
-  /* Her speech on this sheet runs through the one controller
-     (2026-10-15, the speech unification). Ownership moved to
-     the Player on 2026-10-18 (the feedback sheet bubble
-     repair): the Player creates the controller and hands it
-     in, SheetNova still drives it (the offers below are
-     unchanged) and passes it to her NovaRive, which pulses
-     her mouth from it. The Player is the one who renders the
-     current line, as an in flow sheet bubble in the sheet
-     body; her figure here renders figure only. Until today
-     NovaRive rendered the line itself, always as a header
-     bubble floating centered on this 48px figure, and that
-     bubble hung over the sheet's text and past the sheet
-     column's left edge, where the sheet scroll box clipped
-     every line mid word. The controller object is fresh
-     every render, so the effects below reach it through a
-     ref and fire on value changes only. */
   const speechRef = useRef(speech);
   speechRef.current = speech;
-  /* An opinion from the quirks engine (a genuinely hard card
-     answered well, a very fast clean answer, a long easy streak)
-     can name the verdict face; without one the sheet's own
-     reading of the answer stands. */
-  const shown = phase === 0 ? "thinking"
-    : phase === 1 ? (face || (good ? "pleased" : streak >= 2 ? "worried" : "deadpan"))
-    : "explaining";
-  /* The Rive contract rides along (2026-10-15): the sheet's
-     phases map to quizState through quizStateForSheet (thinking
-     beat 1, or 2 while the learner's hover feed says suspense;
-     verdict 3, 4 on a miss, 5 when a correct streak reaches
-     three), and the Player's hover pointer feeds the joystick
-     inputs, so the shipped asset runs in a live state machine
-     on every sheet. */
-  const quizState = quizStateForSheet({ phase, good, correctStreak, hover: !!(quizFeed && quizFeed.hover) });
   /* Her teaching props, reached through refs like the
-     controller (2026-10-15): the Player rebuilds the teach
-     object every render, so the effects below read the latest
-     values without refiring on identity alone. */
+     controller: the Player rebuilds the teach object every
+     render, so the effects below read the latest values without
+     refiring on identity alone. */
   const teachRef = useRef(null);
   teachRef.current = teach;
   const opinionRef = useRef(null);
   opinionRef.current = opinionLine;
+  const shown = phase === 0 ? "thinking"
+    : phase === 1 ? (face || (good ? "pleased" : streak >= 2 ? "worried" : "deadpan"))
+    : "explaining";
+  /* The Rive contract rides along (2026-10-15): the poses map to
+     quizState through quizStateForSheet (thinking beat 1, or 2
+     while the learner's hover feed says suspense; verdict 3, 4
+     on a miss, 5 when a correct streak reaches three), and the
+     Player's hover pointer feeds the joystick inputs, so the
+     shipped asset runs in a live state machine in both poses.
+     The header pose is the sheet mapping at phase 0 with no
+     verdict, which is the call the header mount always made. */
+  const quizState = quizStateForSheet({ phase: inSheet ? phase : 0, good: inSheet ? good : false, correctStreak, hover: !!(quizFeed && quizFeed.hover) });
+  const quizStateRef = useRef(quizState);
+  quizStateRef.current = quizState;
+  /* The sheet beats start when the sheet pose begins, the way a
+     fresh SheetNova mount started them, and leaving the sheet
+     resets the clock and the speech bookkeeping, so the next
+     card's sheet starts clean and never queues across cards. */
+  const prevQuizRef = useRef(quizState);
+  const opinionSaidRef = useRef(null);
+  const teachFiredRef = useRef(null);
+  useEffect(() => {
+    if (!inSheet) {
+      setPhase(0);
+      opinionSaidRef.current = null;
+      teachFiredRef.current = null;
+      return undefined;
+    }
+    setPhase(0);
+    prevQuizRef.current = quizStateRef.current;
+    const t1 = setTimeout(() => setPhase(1), 650);
+    const t2 = setTimeout(() => setPhase(2), 2350);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [inSheet]);
   /* Quiz state transitions offer their category to the
      controller, the offer the retired quip engine used to make
      from inside NovaRive: thinking as the sheet opens its
@@ -1954,27 +1966,27 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
      teach line, though, these canned offers stand down: her
      teaching (the effect below) is the sheet's reaction now,
      and it lands on every answer instead of on a roll. */
-  const prevQuizRef = useRef(quizState);
   useEffect(() => {
     const prev = prevQuizRef.current;
     prevQuizRef.current = quizState;
+    if (!inSheet) return;
     if (prev === quizState) return;
     if (teachRef.current) return;
     const cat = quizCategoryForState(quizState);
     if (cat) speechRef.current.offerCategory(cat);
-  }, [quizState]);
+  }, [quizState, inSheet]);
   /* The opinion line, when the Player's quirks engine produced
      one for this answer, is said as a lesson line: caused, so
      it outranks ambient speech and is never cut off by typing.
      It used to render as static copy under the sheet's WHY;
      now it is speech, in her bubble, with her mouth moving. */
-  const opinionSaidRef = useRef(null);
   useEffect(() => {
+    if (!inSheet) return;
     if (opinionLine && opinionSaidRef.current !== opinionLine) {
       opinionSaidRef.current = opinionLine;
       speechRef.current.say({ source: "lesson", text: opinionLine });
     }
-  }, [opinionLine]);
+  }, [opinionLine, inSheet]);
   /* The teaching itself (2026-10-15, the owner: Nova is the
      one who teaches on right and wrong answers). As the
      verdict beat lands, she speaks in two beats through this
@@ -1989,9 +2001,8 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
      and the opener stays silent. The sheet still prints the
      full why as text; this is the same teaching in her voice,
      with her mouth moving. */
-  const teachFiredRef = useRef(null);
   useEffect(() => {
-    if (phase !== 1) return;
+    if (!inSheet || phase !== 1) return;
     const t = teachRef.current;
     if (!t || !t.line) return;
     if (teachFiredRef.current === t.line) return;
@@ -2001,11 +2012,15 @@ function SheetNova({ good, streak = 0, face = null, correctStreak = 0, quizFeed 
       if (opener) speechRef.current.say({ source: "lesson", text: opener });
     }
     speechRef.current.say({ source: "lesson", text: t.line });
-  }, [phase]);
-  return (
-    <NovaRive state={shown} size={48} scanning={phase === 0} quizState={quizState}
-      pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={anchorRef} speech={speech} bubbleVariant={null} />
+  }, [phase, inSheet]);
+  const figure = (
+    <NovaRive state={inSheet ? shown : "thinking"} size={inSheet ? 48 : 40} scanning={inSheet ? phase === 0 : true}
+      quizState={quizState}
+      pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={anchorRef} speech={inSheet ? speech : null} bubbleVariant={inSheet ? null : undefined} />
   );
+  const target = inSheet ? (sheetSlot || headerSlot) : headerSlot;
+  if (!target) return null;
+  return createPortal(figure, target);
 }
 
 /* The completion screen's Nova (2026-10-15, the speech
@@ -2772,7 +2787,7 @@ export const NOVA_POKE_LINES = [
    one who teaches on right and wrong answers). The feedback
    sheet's reaction beat draws from these banks: one opener
    in her voice, then the card's own why follows as her
-   spoken teaching through the same controller (SheetNova).
+   spoken teaching through the same controller (the Player figure).
    Right answers never gush, wrong answers never mock; a
    miss is a falsified hypothesis, and she loves those. */
 export const NOVA_FEEDBACK_RIGHT_LINES = [
@@ -11006,7 +11021,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const [missStreak, setMissStreak] = useState(0);
   /* Consecutive correct answers, the mirror count: three or
      more in a row is her streak state on the Rive contract
-     (quizState 5), read by SheetNova at the verdict. */
+     (quizState 5), read by the Player figure at the verdict. */
   const [rightStreak, setRightStreak] = useState(0);
   /* Nova's quiz feed (Rive wiring, 2026-10-15): while a question
      is unanswered, hovering or focusing an answer option sets
@@ -11020,13 +11035,21 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const novaAnchorRef = useRef(null);
   /* The feedback sheet's speech controller (2026-10-18, the
      feedback sheet bubble repair): the Player owns it and
-     SheetNova drives it, so the Player can render the current
+     the Player figure drives it, so the Player can render the current
      line itself, in flow in the sheet body at the sheet
      column's full width. SheetNova used to own the controller
      and its NovaRive rendered the line as a floating header
      bubble on the 48px sheet figure; that bubble overlapped
      the sheet's text and was clipped at the column's edge. */
   const sheetSpeech = useNovaSpeech();
+  /* The one figure's two homes (structural wave, 2026-10-19):
+     the header slot in the top bar and the sheet slot inside
+     the feedback sheet. PlayerNovaFigure portals between them
+     and never unmounts across a check and Continue cycle. The
+     slots are state so the figure follows the commit that
+     renders or removes the sheet slot. */
+  const [novaHeaderSlot, setNovaHeaderSlot] = useState(null);
+  const [novaSheetSlot, setNovaSheetSlot] = useState(null);
   /* Nova's opinions (quirks wave, 2026-10-14): a card timer so
      answer speed is a fact, an easy streak so her raised brow
      has a count, and the opinion the quirks engine returned for
@@ -11814,7 +11837,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
      fields by feedbackTeachLine. On a miss it states the
      correct answer first, resolved through the display order
      the learner actually saw, then carries the card's why.
-     SheetNova speaks it in two beats with her reaction
+     the Player figure speaks it in two beats with her reaction
      opener; the sheet below keeps printing the full why as
      text for rereading, unchanged. */
   const sheetTeach = checked && interactive && card ? {
@@ -11840,9 +11863,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }}>
       <div style={{ maxWidth: LAYOUT.sheet, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
         <div className="lv-sheet-scroll" style={{ overflowY: "auto", minHeight: 0 }}>
-        <div style={{ float: "left", marginRight: 14, marginBottom: 4 }}>
-          <SheetNova good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} teach={sheetTeach} speech={sheetSpeech} />
-        </div>
+        <div ref={(el) => setNovaSheetSlot(el)} style={{ float: "left", marginRight: 14, marginBottom: 4 }} />
         <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, marginBottom: 6, color: sheetGood ? goodInk : badInk }}>
           {card.kind === "match" ? (isRight ? "Every pair, first try." : "All pairs matched.")
             : card.kind === "order" || card.kind === "build" ? (orderResult && orderResult.perfect ? (card.kind === "build" ? "Built in the right order." : "In the right order.")
@@ -11856,7 +11877,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
         </div>
         {/* Her line on the sheet, in flow (2026-10-18, the
             feedback sheet bubble repair): the current line of
-            the controller SheetNova drives, rendered here by
+            the controller the Player figure drives, rendered here by
             the Player as a sheet bubble under the verdict,
             clearing the floated figure, at the full width of
             the sheet's text column (the sheet variant's own
@@ -11934,7 +11955,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             )}
         </>
         {/* The opinion line is speech now (2026-10-15): it
-            reaches the sheet through SheetNova's opinionLine
+            reaches the sheet through the Player figure's opinionLine
             prop and is said through her controller, so it no
             longer renders as static copy here. */}
         {!sheetGood && (
@@ -11957,6 +11978,13 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
 
   return shell(
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
+      {/* Her one figure for the whole card session (structural
+          wave, 2026-10-19): mounted here once, portaled between
+          the header slot below and the feedback sheet's slot.
+          The intro, lesson done, and course complete screens
+          above keep their own one off figures; this mount is
+          the card session's only one, in both its states. */}
+      <PlayerNovaFigure inSheet={checked} good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} teach={sheetTeach} speech={sheetSpeech} anchorRef={novaAnchorRef} headerSlot={novaHeaderSlot} sheetSlot={novaSheetSlot} />
       {/* top bar: close, segmented course progress, session XP */}
       <div style={{ maxWidth: LAYOUT.lesson, width: "100%", margin: "0 auto", padding: "20px 24px 0", boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
@@ -11984,15 +12012,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
             line from two in a row; at three her quizState is
             already the streak state. */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
-          {/* One Nova at a time in the Player too (2026-10-15):
-              while the feedback sheet is open she is in the
-              sheet, so the header mount steps aside; the caption
-              line, streak included, stays. */}
-          {!checked && (
-            <NovaRive state="thinking" size={40} scanning
-              quizState={quizStateForSheet({ phase: 0, good: false, correctStreak: rightStreak, hover: !!(quizFeed && quizFeed.hover) })}
-              pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={novaAnchorRef} />
-          )}
+          {/* One Nova in the Player (structural wave,
+              2026-10-19): her one figure stands in this header
+              slot while a question is unanswered and moves to
+              the feedback sheet's slot when the sheet opens;
+              the figure itself is PlayerNovaFigure, rendered
+              once in this return and portaled here. The caption
+              line, streak included, stays either way. */}
+          <span ref={(el) => setNovaHeaderSlot(el)} style={{ display: "contents" }} />
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, letterSpacing: "0.05em" }}>
             {lesson.title.toUpperCase()} · CARD {cardIdx + 1} OF {lesson.cards.length}
             {rightStreak >= 2 ? " · " + rightStreak + " IN A ROW" : ""}
