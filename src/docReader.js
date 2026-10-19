@@ -313,12 +313,33 @@ function isFrontMatterLine(l) {
 }
 
 export function docTitleOf(text) {
-  const line = String(text || "")
+  const lines = String(text || "")
     .split("\n")
-    .map((l) => l.trim())
-    .find((l) => l.length > 12 && !isFrontMatterLine(l));
-  if (!line) return "Untitled document";
-  return line.length > 80 ? line.slice(0, 77) + "…" : line;
+    .map((l) => l.trim());
+  const idx = lines.findIndex((l) => l.length > 12 && !isFrontMatterLine(l));
+  if (idx < 0) return "Untitled document";
+  let title = lines[idx];
+  /* Wrapped titles (2026-10-19, M35): PDF text wraps a real title
+     across lines, and taking the first surviving line only left
+     titles cut mid phrase, the bundled sample's own two line title
+     among them, ending at its colon. When the title line ends in a
+     colon or a comma, or the next line plainly continues it by
+     starting lowercase, join the lines before display. The front
+     matter screen above still decides which line may headline at
+     all, and a metadata line is never joined in. A joined title is
+     shown whole rather than capped, since capping it would cut the
+     very title the join recovered. */
+  let joined = false;
+  for (let i = idx + 1; i < lines.length && i <= idx + 2; i++) {
+    const next = lines[i];
+    if (!next || isFrontMatterLine(next)) break;
+    const continues = /[:,]$/.test(title) || (/^[a-z]/.test(next) && !/[.!?]$/.test(title));
+    if (!continues) break;
+    title = `${title} ${next}`;
+    joined = true;
+  }
+  if (joined) return title;
+  return title.length > 80 ? title.slice(0, 77) + "…" : title;
 }
 
 /* Heading detection for plain document text, used to give the Read

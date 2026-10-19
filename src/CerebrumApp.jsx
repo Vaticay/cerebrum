@@ -17231,9 +17231,15 @@ const SAMPLE_DOCUMENT = [
 ].join("\n");
 
 /* Identifier-first intake: DOI / PMID / arXiv ID / URL. Local pattern
-   matching only — the document backend has no identifier resolver, so a
-   bare identifier is labelled honestly as an identifier and attached as
-   the document's citation once the text or file is supplied. */
+   matching only. DOI, PMID and arXiv IDs resolve against their
+   registries (functions/api/resolve-identifier.js); a URL never does.
+   That resolver fetches only its three fixed registry hosts and
+   refuses a URL kind outright, so it cannot become an open fetch
+   proxy, and functions/api/document.js carries no arbitrary URL
+   fetch path either. A pasted URL is therefore labelled honestly as
+   an identifier, the intake copy no longer invites one, and the
+   identifier card tells the reader to paste the text or upload the
+   file instead (2026-10-19, M34, fallback branch). */
 function detectDocIdentifier(text) {
   const t = String(text || "").trim();
   if (!t) return null;
@@ -18478,7 +18484,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               options={[{ id: "source", label: "Source" }, { id: "read", label: "Read" }]} />
           ) : (
             /* Identifier-first intake header: one field below takes a DOI,
-               PMID, arXiv ID, URL, or the full pasted text — no tabs. */
+               PMID, arXiv ID, or the full pasted text — no tabs. */
             <div className="cb-kicker">Source document</div>
           )}
         </div>
@@ -18547,6 +18553,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </div>
               </nav>
             )}
+            {/* Reading voice (2026-10-19, H16): the body below sets in
+                TYPE.reading (Source Serif 4) at the plan body size with
+                1.55 leading, and its section headings take the section
+                role at weight 500. This is the longest reading surface
+                in the product; it reads in the reading face, not the
+                interface face. */}
             <div ref={readBodyRef} onMouseUp={onReadSelect} onTouchEnd={onReadSelect}
               onKeyUp={(e) => { if (e.shiftKey) onReadSelect(); }}
               className="cb-doc-reader"
@@ -18555,9 +18567,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                  the document's line breaks. Segments partition the text
                  exactly, so selection offsets still map 1:1 to highlight
                  offsets. onKeyUp raises Highlight for keyboard selections. */
-              style={{ ...TYPE.body, fontSize: 16, color: P.ink, whiteSpace: "pre-wrap", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
+              style={{ ...TYPE.reading, fontSize: FONT_SIZES.body, color: P.ink, whiteSpace: "pre-wrap", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
               {docSegments.map((seg, i) => (seg.heading ? (
-                <div key={i} data-seg={i} style={{ fontWeight: 500, fontSize: FONT_SIZES.title, lineHeight: 1.4, color: P.ink, margin: "20px 0 4px", whiteSpace: "pre-wrap" }}>{renderMarkedRange(seg.text, seg.start)}</div>
+                <div key={i} data-seg={i} style={{ fontWeight: 500, fontSize: FONT_SIZES.section, lineHeight: 1.3, color: P.ink, margin: "20px 0 4px", whiteSpace: "pre-wrap" }}>{renderMarkedRange(seg.text, seg.start)}</div>
               ) : (
                 <div key={i} data-seg={i} style={{ whiteSpace: "pre-wrap" }}>{renderMarkedRange(seg.text, seg.start)}</div>
               )))}
@@ -18636,7 +18648,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           /* SOURCE — paste or upload, as before. */
           <>
             {/* Identifier-first intake: one field takes a DOI, PMID, arXiv ID,
-                URL, or the full pasted text. The file chooser and drag-drop
+                or the full pasted text. The file chooser and drag-drop
                 handle PDFs and text files. Presentation only — the read and
                 analysis pipeline below is untouched. */}
             <div
@@ -18656,8 +18668,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               <textarea
                 value={documentText}
                 onChange={(e) => { setDocumentText(e.target.value); setCustomTitle(null); }}
-                aria-label="Document: DOI, PMID, arXiv ID, URL, or the full text of a paper, report, or document"
-                placeholder="DOI, PMID, arXiv ID, or URL. Or paste the full text"
+                aria-label="Document: DOI, PMID, arXiv ID, or the full text of a paper, report, or document"
+                placeholder="DOI, PMID, or arXiv ID. Or paste the full text"
                 rows={docIdentMode ? 2 : 8}
                 style={{ ...textareaStyle, border: "none", background: "transparent", borderRadius: 0, outline: "none", ...(docIdentMode ? { minHeight: 44, resize: "none" } : null) }}
               />
@@ -18712,7 +18724,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </div>
                 {docIdentOnly && !identMeta && (
                   <div style={{ padding: "0 16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
-                    Cerebrum reads the document you paste or upload. Add the text or file and this identifier is attached as its citation.
+                    {docMeta.ident.kind === "URL"
+                      ? "Cerebrum cannot fetch a page from a link, so a URL on its own cannot be read. Paste the text or upload the file instead."
+                      : "Cerebrum reads the document you paste or upload. Add the text or file and this identifier is attached as its citation."}
                   </div>
                 )}
               </div>
@@ -18731,7 +18745,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             </div>
             <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 12, flexWrap: "wrap" }}>
               <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {!docStats ? <span>Paste a paper, report, or any long document</span> : <>
+                {!docStats ? <span>Paste a paper, report, or any long document. You can also upload a file or drop one here.</span> : <>
                   <span>{docStats.words.toLocaleString()} words</span>
                   <span style={{ opacity: 0.5 }}>·</span>
                   <span>~{docStats.mins} min read</span>
@@ -18749,7 +18763,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     color: (!hasDoc || analyzing) ? P.ink2 : at, fontWeight: 500, fontSize: FONT_SIZES.small, flexShrink: 0,
                     opacity: (!hasDoc || analyzing) ? 0.75 : 1, fontFamily: "var(--cb-font)",
                   }}
-                >{analyzing ? "Reading it…" : rerunArmed ? "Clear questions and re run" : "Inspect document"}</UIButton>
+                >{analyzing ? "Reading it…" : rerunArmed ? "Clear questions and run again" : "Inspect document"}</UIButton>
                 {analyzing && (
                   <UIButton P={P} variant="ghost"
                     onClick={cancelAnalyze}
@@ -18764,7 +18778,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               </div>
               {rerunArmed && (
                 <div role="note" style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.55, flexBasis: "100%" }}>
-                  Re running the analysis clears your follow up questions for this document. Press the button again to continue.
+                  Running the analysis again clears your follow up questions for this document. Press the button again to continue.
                 </div>
               )}
               {(docIsPro || docCap != null) && (
@@ -18836,6 +18850,23 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       borderRadius: RADIUS.xl, padding: isMobile ? SP.xl : SP.xxl, border: `1px solid ${P.line}`,
       boxShadow: SHADOW.sm(P),
     };
+    /* One navigation system for the report (2026-10-19, M31): the tab
+       bar alone. A section chips row used to sit above the tabs,
+       duplicating them without mapping one to one (Limitations and
+       Findings were two chips but one tab). The one thing the chips
+       carried that the tabs did not, the missing section marker, now
+       rides on the tab labels themselves. The findings tab covers both
+       the findings and limitations sections, so it is marked when
+       either one is missing. */
+    const tabOptions = allTabOptions.map((o) => {
+      if (!summary) return o;
+      const filled = (v) => !!(v && String(v).trim());
+      const missing =
+        (o.id === "summary" && !filled(summary.executiveSummary)) ||
+        (o.id === "methodology" && !filled(summary.methodology)) ||
+        (o.id === "findings" && !(filled(summary.keyFindings) && filled(summary.limitations)));
+      return missing ? { ...o, label: o.label + " · missing" } : o;
+    });
     return (
       <>
         {!summary && !analyzing && (
@@ -18962,7 +18993,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 an orphaned control at the top of a box. */}
             <div style={{ marginBottom: SP.lg }}>
               <div style={{ ...docEyebrow, marginBottom: SP.sm }}>Document analysis</div>
-              <h2 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+              {/* Full title, unclamped (2026-10-19, M35): the clamp
+                  below used to cut a wrapped title at two lines on
+                  the very surface whose job is naming the document. */}
+              <h2 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0 }}>
                 {docDisplayTitle}
               </h2>
               {docStats && (
@@ -19008,34 +19042,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   reasons, and the details only the stages can tell,
                   such as sections that could not be read. */}
               <DocStageHealth stageHealth={summary.stageHealth} P={P} />
-              {/* The report's table of contents: every section the read
-                  promises, marked present or honestly missing, each one
-                  a jump to its tab. */}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 12 }} aria-label="Report sections">
-                {[
-                  { tab: "summary", label: "Summary", field: summary.executiveSummary },
-                  { tab: "methodology", label: "Methodology", field: summary.methodology },
-                  { tab: "findings", label: "Findings", field: summary.keyFindings },
-                  { tab: "findings", label: "Limitations", field: summary.limitations },
-                  { tab: "qa", label: "Questions", field: null },
-                ].map((s) => {
-                  const present = s.field == null ? true : !!(s.field && String(s.field).trim());
-                  const active = rightTab === s.tab;
-                  return (
-                    <button key={s.label} type="button" onClick={() => setRightTab(s.tab)} aria-pressed={active}
-                      style={{ minHeight: 44, padding: "7px 13px", borderRadius: RADIUS.pill, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: active ? 500 : 500,
-                        background: active ? withAlpha(accent, 0.2) : present ? withAlpha(accent, 0.08) : "transparent",
-                        color: present ? P.ink : P.faint,
-                        border: `1px solid ${active ? withAlpha(accent, 0.5) : present ? withAlpha(accent, 0.3) : P.line}` }}>
-                      {s.label}{s.field != null && !present ? " · missing" : ""}
-                    </button>
-                  );
-                })}
-              </div>
             </div>
             <div className="cb-doc-tabs" style={{ marginBottom: 14, }}>
               <SegControl small={isMobile} value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
-                options={allTabOptions} />
+                options={tabOptions} />
             </div>
             {/* An edited document must not wear its earlier read as
                 current: the analysis below describes the text as it
@@ -19375,11 +19385,14 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         </div>
         {isMobile && !!docTextTrimmed && (
           /* A phone reader should never have to scroll past the whole
-             document to ask about it: the ask bar floats above the
-             app bottom navigation and jumps to the composer. */
-          <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(78px + env(safe-area-inset-bottom, 0px))", zIndex: 40, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+             document to ask about it: the ask bar docks above the app
+             bottom navigation and jumps to the composer. Docked, not
+             floating (2026-10-19, tail 19): a bordered solid strip on
+             the named Z.headerBar slot, no shadow, replacing the
+             shadowed pill that sat on a raw zIndex of 40. */
+          <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(78px + env(safe-area-inset-bottom, 0px))", zIndex: Z.headerBar, background: P.surface, borderTop: `1px solid ${P.line}`, padding: "10px 16px", display: "flex" }}>
             <button type="button" onClick={focusDocAsk}
-              style={{ pointerEvents: "auto", minHeight: 48, padding: "12px 22px", borderRadius: RADIUS.pill, border: "none", background: accent, color: at, fontWeight: 500, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer", boxShadow: "none" }}>
+              style={{ flex: 1, minHeight: 48, padding: "12px 22px", borderRadius: RADIUS.md, border: "1px solid transparent", background: accent, color: at, fontWeight: 500, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer", boxShadow: "none" }}>
               Ask this document
             </button>
           </div>
@@ -26105,12 +26118,10 @@ summary::-webkit-details-marker { display: none; }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-accent, #8ba888) 16%, transparent);
 }
 @media (prefers-reduced-motion: reduce) { .cb-doc-intake { transition: none; } }
-/* Document Mode analysis: a roomier reading surface than the answer
-   thread. The analysis card's prose sets at 1.75 leading with generous
-   section rhythm — the document deserves the air. (!important: the
-   paragraphs carry inline line-height from the shared renderer.) */
-.cb-doc-analysis-card .cb-doc-reader p,
-.cb-doc-analysis-card .cb-doc-reader li { line-height: 1.75 !important; }
+/* Document Mode analysis leading (2026-10-19, M30): the old override
+   pushing analysis prose to 1.75 is deleted. Analysis prose now keeps
+   the plan leading of 1.55 from the shared renderer, the same leading
+   the Q&A answers on the facing surface already use. */
 /* A reading measure, not a billboard: on wide screens the analysis
    column runs past ninety characters a line, which tires the eye and
    buries the findings. Cap the prose at a bookish measure. */

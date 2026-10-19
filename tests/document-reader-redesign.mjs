@@ -56,9 +56,13 @@ await test("the empty reader shows the four part report it produces", () => {
   assert.ok(appSrc.includes("Follow up questions"), "report outline missing its questions row");
 });
 
-await test("the masthead section index marks missing sections honestly", () => {
-  assert.ok(appSrc.includes("Report sections"), "section index missing");
-  assert.ok(appSrc.includes('" · missing"'), "missing marker missing");
+await test("the tab bar alone marks missing sections honestly", () => {
+  // Pin changed 2026-10-19 (M31): the masthead section index (the
+  // chips row) is deleted on purpose; the tab bar is the one
+  // navigation system for the report, and the missing section marker
+  // the chips carried now rides on the tab labels.
+  assert.ok(!appSrc.includes("Report sections"), "duplicate section chips row is back");
+  assert.ok(appSrc.includes('" · missing"'), "missing marker missing from the tab labels");
 });
 
 await test("follow up copy no longer claims questions cost a read", () => {
