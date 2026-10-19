@@ -122,16 +122,16 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
               <Icon name="check" size={18} />
             </div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink }}>Report received</div>
-            <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, marginTop: 6 }}>Thanks for flagging this.</div>
+            <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 6 }}>Thanks for flagging this.</div>
           </div>
         ) : (
           <form onSubmit={submit}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-              <div style={{ fontSize: FONT_SIZES.heading, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)" }}>{title}</div>
+              <div style={{ fontSize: FONT_SIZES.section, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)" }}>{title}</div>
               <button type="button" onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 13, display: "inline-flex" }}><Icon name="close" size={18} /></button>
             </div>
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink2, marginBottom: 8 }}>Reason</div>
+              <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink2, marginBottom: 8 }}>Reason</div>
               <div role="radiogroup" aria-label="Report reason" style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {REPORT_REASONS.map((r) => (
                   <UIButton P={P} variant="ghost" key={r.id} type="button" role="radio" aria-checked={reason === r.id} onClick={() => setReason(r.id)} style={{ minHeight: 44,
@@ -145,7 +145,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
               </div>
             </div>
             <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink2, marginBottom: 6 }}>Anything else? (optional)</div>
+              <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink2, marginBottom: 6 }}>Anything else? (optional)</div>
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} aria-label="Add context for the review team (optional)" placeholder="Add context for the review team" style={{
                 width: "100%", padding: "11px 13px", fontSize: 16, borderRadius: RADIUS.md,
                 border: `1px solid ${P.line}`, background: P.surface,
@@ -1819,7 +1819,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 <NovaLive size={66} />
               </span>
               <div style={{ minWidth: 0 }}>
-                <h1 style={{ margin: 0, fontSize: FONT_SIZES.heading, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Inbox</h1>
+                <h1 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Inbox</h1>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>Messages and shared papers</div>
               </div>
             </div>
@@ -1873,7 +1873,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             )}
             {threads.length === 0 && listLoaded && listFailed && (
               <div style={{ padding: "16px 12px", lineHeight: 1.6 }}>
-                <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, marginBottom: 5 }}>Conversations did not load</div>
+                <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, marginBottom: 5 }}>Conversations did not load</div>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>
                   The connection did not answer. This list keeps retrying on its own, and anything already open stays where it is.
                 </div>
@@ -1881,7 +1881,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             )}
             {threads.length === 0 && listLoaded && !listFailed && (
               <div style={{ padding: "16px 12px", lineHeight: 1.6 }}>
-                <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, marginBottom: 5 }}>No conversations yet</div>
+                <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, marginBottom: 5 }}>No conversations yet</div>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>
                   Search for someone in Find people and start one. By default only people you follow can open a conversation with you.
                 </div>
@@ -1917,13 +1917,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   boxShadow: activeId === t.id ? `none` : "none",
                   display: "flex", gap: 11, alignItems: "flex-start", fontFamily: "var(--cb-font)",
                 }}>
-                  <span style={{ width: 42, height: 42, borderRadius: "50%", ...avatarSkin(t.name || t.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>{initials}</span>
+                  <span style={{ width: 42, height: 42, borderRadius: "50%", ...avatarSkin(t.name || t.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>{initials}</span>
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "baseline" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                         {t.unread && <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: accent, flexShrink: 0 }} />}
-                        <span style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
-                        {t.otherUsername && <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, whiteSpace: "nowrap", flexShrink: 0 }}>@{t.otherUsername}</span>}
+                        <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
+                        {t.otherUsername && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, whiteSpace: "nowrap", flexShrink: 0 }}>@{t.otherUsername}</span>}
                         {/* E2EE Phase 1.4 — list badge ONLY when the server
                             says encrypted. Same promise as the header badge. */}
                         {t.encrypted && <Icon name="lock" size={11} style={{ color: statusGood(P), flexShrink: 0 }} title="Encrypted" />}
@@ -1940,7 +1940,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         {t.unreadCount > 0 && (
                           <span aria-label={`${t.unreadCount} unread`} style={{ minWidth: 19, height: 19, borderRadius: 2, background: STATUS.bad, color: "#fff", fontSize: 10, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px", fontVariantNumeric: "tabular-nums" }}>{t.unreadCount > 99 ? "99+" : t.unreadCount}</span>
                         )}
-                        <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>{relativeTime(t.lastMessage?.createdAt)}</span>
+                        <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{relativeTime(t.lastMessage?.createdAt)}</span>
                       </span>
                     </span>
                     <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", fontSize: FONT_SIZES.caption, color: t.unread ? P.ink2 : P.faint, fontWeight: t.unread ? 500 : 400, marginTop: 3, overflow: "hidden", lineHeight: 1.5 }}>{preview}</span>
@@ -1956,7 +1956,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 opens its conversation. */}
             {threadQuery.trim().length >= 2 && (
               <div style={{ padding: "14px 8px 4px" }}>
-                <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: TRACKING.labelTight, color: P.faint, fontFamily: "var(--cb-font)", textTransform: "uppercase", marginBottom: 4 }}>Messages</div>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.labelTight, color: P.faint, fontFamily: "var(--cb-font)", textTransform: "uppercase", marginBottom: 4 }}>Messages</div>
                 {msgSearchState === "searching" && msgResults.length === 0 && localMsgResults.length === 0 && (
                   <div style={{ padding: "10px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Searching messages…</div>
                 )}
@@ -1967,7 +1967,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   <button key={(r.onDevice ? "local-" : "srv-") + r.messageId} onClick={() => setActiveId(r.threadId)} className="cb-row" style={{ minHeight: 44, width: "100%", textAlign: "left", padding: "9px 10px", borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: "transparent", display: "block", fontFamily: "var(--cb-font)" }}>
                     <span style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "baseline" }}>
                       <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.threadName}</span>
-                      <span style={{ fontSize: FONT_SIZES.micro, color: P.faint, flexShrink: 0 }}>{relativeTime(r.createdAt)}</span>
+                      <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, flexShrink: 0 }}>{relativeTime(r.createdAt)}</span>
                     </span>
                     <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, lineHeight: 1.5, overflow: "hidden" }}>
                       {r.matchedIn === "transcript" ? "Voice note: " : ""}{r.snippet}
@@ -1978,7 +1978,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   <div style={{ padding: "10px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>No messages match "{threadQuery}".</div>
                 )}
                 {(encryptedExcluded > 0 || threads.some((t) => t.encrypted)) && (
-                  <div style={{ padding: "8px 4px 2px", fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+                  <div style={{ padding: "8px 4px 2px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
                     Encrypted conversations are not searched on the server. Open one to search it on this device.
                   </div>
                 )}
@@ -1998,7 +1998,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     <Icon name="arrowRight" size={16} style={{ transform: "rotate(180deg)" }} />
                   </button>
                 )}
-                <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: "50%", ...avatarSkin(activeThread.name || activeThread.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+                <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: "50%", ...avatarSkin(activeThread.name || activeThread.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
                   {activeThread.kind === "group" ? <Icon name="network" size={16} /> : (activeThread.name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()}
                 </span>
                 <div style={{ minWidth: 0 }}>
@@ -2010,7 +2010,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       <button onClick={openGroupInfo} aria-label={`Group info for ${activeThread.name}`} style={{ background: "none", border: "none", padding: 0, margin: 0, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0, fontFamily: "var(--cb-font)", color: P.ink, textAlign: "left" }}>
                         <span style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeThread.name}</span>
                         {activeThread.memberCount ? (
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: RADIUS.viewport, flexShrink: 0, fontFamily: "var(--cb-font)" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "3px 8px", borderRadius: RADIUS.viewport, flexShrink: 0, fontFamily: "var(--cb-font)" }}>
                             <Icon name="network" size={11} /> {activeThread.memberCount}
                           </span>
                         ) : null}
@@ -2026,7 +2026,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         crushed the person name to nothing at phone widths.
                         The word stays available as the label. */}
                     {activeThread.encrypted && (
-                      <span aria-label={isMobile ? "Encrypted" : undefined} title={isMobile ? "Encrypted" : undefined} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.micro, fontWeight: 500, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: RADIUS.viewport, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>
+                      <span aria-label={isMobile ? "Encrypted" : undefined} title={isMobile ? "Encrypted" : undefined} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.caption, fontWeight: 500, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: RADIUS.viewport, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>
                         <Icon name="lock" size={11} />{isMobile ? null : " Encrypted"}
                       </span>
                     )}
@@ -2115,7 +2115,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         background: P.dark ? "#161822" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md,
                         boxShadow: "none", padding: 6, display: "flex", flexDirection: "column",
                       }}>
-                        <UIButton P={P} variant="ghost" onClick={markThreadUnread} disabled={markUnreadBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: markUnreadBusy ? "default" : "pointer", textAlign: "left" }}>
+                        <UIButton P={P} variant="ghost" onClick={markThreadUnread} disabled={markUnreadBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: markUnreadBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="mail" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> Mark as unread
                         </UIButton>
                         {/* Pin and Mute apply to every thread kind, like
@@ -2123,17 +2123,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                             reader's own list state, stored on their
                             participant row, so they sit outside the DM
                             only block and report gate below. */}
-                        <UIButton P={P} variant="ghost" onClick={toggleThreadPinned} disabled={!!prefBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
+                        <UIButton P={P} variant="ghost" onClick={toggleThreadPinned} disabled={!!prefBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name={activeThread.pinned ? "pinFilled" : "pin"} size={15} style={{ color: P.ink2, flexShrink: 0 }} /> {activeThread.pinned ? "Unpin" : "Pin"}
                         </UIButton>
-                        <UIButton P={P} variant="ghost" onClick={toggleThreadMuted} disabled={!!prefBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
+                        <UIButton P={P} variant="ghost" onClick={toggleThreadMuted} disabled={!!prefBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="volumeOff" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> {activeThread.muted ? "Unmute" : "Mute"}
                         </UIButton>
                         {activeThread.kind === "dm" && activeThread.otherId && (<>
-                        <UIButton P={P} variant="ghost" onClick={toggleBlock} disabled={blockBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
+                        <UIButton P={P} variant="ghost" onClick={toggleBlock} disabled={blockBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="block" size={15} style={{ minHeight: 44, color: P.ink2, flexShrink: 0 }} /> {activeThread.blocked ? "Unblock" : "Block"} {activeThread.name}
                         </UIButton>
-                        <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                        <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                           <Icon name="flag" size={15} style={{ flexShrink: 0 }} /> Report {activeThread.name}
                         </button>
                         </>)}
@@ -2141,7 +2141,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                             DMs: there's nothing to verify on a plaintext
                             thread. */}
                         {activeThread.encrypted && (
-                          <UIButton P={P} variant="ghost" onClick={openSafetyModal} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.small, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                          <UIButton P={P} variant="ghost" onClick={openSafetyModal} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                             <Icon name="shield" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> Verify encryption
                           </UIButton>
                         )}
@@ -2209,7 +2209,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 long enough to scroll. */}
             <div ref={msgPaneRef} onScroll={handleMsgScroll} style={{ flex: 1, overflowY: "auto", padding: isMobile ? "18px 14px" : "22px 24px", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0, background: P.bg }}>
               {(activeThread.messages || []).length === 0 && (
-                <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.small, marginTop: 20 }}>No messages yet. Say hello.</div>
+                <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.label, marginTop: 20 }}>No messages yet. Say hello.</div>
               )}
               {activeThread.hasMore && (
                 <button onClick={loadEarlier} disabled={loadingEarlier} style={{ alignSelf: "center", minHeight: 44, padding: "8px 18px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: loadingEarlier ? "default" : "pointer", opacity: loadingEarlier ? 0.6 : 1 }}>
@@ -2268,18 +2268,18 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 {showUnreadDivider && (
                   <div role="separator" aria-label="New messages" style={{ display: "flex", alignItems: "center", gap: 10, margin: "8px 0 2px" }}>
                     <span style={{ flex: 1, height: 1, background: withAlpha(STATUS.bad, 0.45) }} />
-                    <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: statusBad(P), fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>New messages</span>
+                    <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: statusBad(P), fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>New messages</span>
                     <span style={{ flex: 1, height: 1, background: withAlpha(STATUS.bad, 0.45) }} />
                   </div>
                 )}
                 {showLegacyDivider && (
-                  <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 16px", fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, border: `1px solid ${P.line}`, borderRadius: RADIUS.viewport, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, border: `1px solid ${P.line}`, borderRadius: RADIUS.viewport, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
                     <Icon name="lock" size={11} style={{ flexShrink: 0 }} />
                     Messages before encryption: these were readable by the server
                   </div>
                 )}
                 {showDay && (
-                  <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{dayLabel}</div>
+                  <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{dayLabel}</div>
                 )}
                 <div className="cb-msg-bubble" style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start", marginTop: groupedWithPrev ? -8 : 0 }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
@@ -2290,7 +2290,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   {activeThread?.kind === "group" && !m.mine && m.who && !groupedWithPrev && (
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, paddingLeft: 2 }}>
                       <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: "50%", ...avatarSkin(senderKey), display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 500, fontFamily: "var(--cb-font)" }}>{(m.who || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()}</span>
-                      <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: senderColor(senderKey), fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{m.who}</span>
+                      <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: senderColor(senderKey), fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{m.who}</span>
                     </div>
                   )}
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: m.mine ? "row-reverse" : "row" }}>
@@ -2355,9 +2355,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
                             <Icon name="bookOpen" size={13} style={{ color: accent, flexShrink: 0 }} />
-                            <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: accent, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>Paper</span>
+                            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>Paper</span>
                           </div>
-                          <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, lineHeight: 1.4 }}>{m.attachmentTitle}</div>
+                          <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.4 }}>{m.attachmentTitle}</div>
                           {m.attachmentMeta && (m.attachmentMeta.journal || m.attachmentMeta.year) && (
                             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>
                               {[m.attachmentMeta.journal, m.attachmentMeta.year].filter(Boolean).join(" · ")}
@@ -2371,7 +2371,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                           background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.2)}`,
                         }}>
                           <Icon name="external" size={15} style={{ color: accent, flexShrink: 0 }} />
-                          <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>Attached: {m.attachmentTitle}</span>
+                          <span style={{ fontSize: FONT_SIZES.label, color: P.ink, fontWeight: 500 }}>Attached: {m.attachmentTitle}</span>
                         </div>
                       )}
                     </div>
@@ -2402,7 +2402,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   <div style={{
                     display: "flex", alignItems: "center", gap: 6, marginTop: 4,
                     justifyContent: m.mine ? "flex-end" : "flex-start",
-                    fontSize: FONT_SIZES.micro, color: P.faint,
+                    fontSize: FONT_SIZES.caption, color: P.faint,
                   }}>
                     {/* A message with no time on it is a message you can't
                         place in a conversation. Inside a group of
@@ -2425,19 +2425,19 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       a partial encrypted send admits exactly how far
                       it got. */}
                   {m.mine && m.pending === "sending" && (
-                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4, fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>Sending…</div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Sending…</div>
                   )}
                   {m.mine && m.pending === "failed" && (
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
-                      <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Failed to send</span>
-                      <button onClick={() => retrySend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: accent, fontSize: FONT_SIZES.micro, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Retry</button>
-                      <button onClick={() => discardSend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.micro, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
+                      <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Failed to send</span>
+                      <button onClick={() => retrySend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: accent, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Retry</button>
+                      <button onClick={() => discardSend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
                     </div>
                   )}
                   {m.mine && m.pending === "partial" && (
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
-                      <span style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Sent to {m.partialSent} of {m.partialTotal} devices</span>
-                      <button onClick={() => discardSend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.micro, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
+                      <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Sent to {m.partialSent} of {m.partialTotal} devices</span>
+                      <button onClick={() => discardSend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
                     </div>
                   )}
                 </div>
@@ -2482,8 +2482,8 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       background: withAlpha(STATUS.bad, 0.1), border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
                     }}>
                       <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: "50%", background: STATUS.bad, animation: "cbMicPulse 1.4s ease-in-out infinite" }} />
-                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500 }}>Recording</span>
-                      <span style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)" }}>
+                      <span style={{ fontSize: FONT_SIZES.label, color: P.ink, fontWeight: 500 }}>Recording</span>
+                      <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)" }}>
                         {String(Math.floor(recSeconds / 60)).padStart(2, "0")}:{String(recSeconds % 60).padStart(2, "0")}
                       </span>
                       <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.caption, color: P.faint }}>Max 90s</span>
@@ -2528,7 +2528,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   </button>}
                 </div>
                 {!isMobile && !recording && (
-                  <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 52 }}>Enter to send · Shift + Enter for a new line · Drafts are kept per conversation</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 52 }}>Enter to send · Shift + Enter for a new line · Drafts are kept per conversation</div>
                 )}
               </>)}
             </div>
@@ -2543,7 +2543,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 background: withAlpha(STATUS.bad, 0.1), color: statusBad(P), marginBottom: 2,
               }}><Icon name="warning" size={20} /></div>
               <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>This conversation did not load</div>
-              <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, maxWidth: 380 }}>
+              <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.65, maxWidth: 380 }}>
                 {threadError}
               </div>
               <button onClick={() => { setThreadError(null); setLoadingThread(true); setThreadRetryNonce((n) => n + 1); }} className="cb-press" style={{ minHeight: 44,
@@ -2559,7 +2559,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                indistinguishable from a page that failed to load. */
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 32, gap: 10 }}>
               {loadingThread ? (
-                <div style={{ color: P.faint, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>Opening thread…</div>
+                <div style={{ color: P.faint, fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)" }}>Opening thread…</div>
               ) : threads.length === 0 ? (
                 <>
                   <div style={{
@@ -2567,7 +2567,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     background: withAlpha(accent, 0.1), color: accent, marginBottom: 2,
                   }}><Icon name="mail" size={20} /></div>
                   <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Your conversations live here</div>
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, maxWidth: 380 }}>
+                  <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.65, maxWidth: 380 }}>
                     Messages, shared papers, and calls with other researchers. Nothing you say here is used to train anything or shown on your profile.
                   </div>
                   <button onClick={onCompose} className="cb-press" style={{ minHeight: 44,
@@ -2577,7 +2577,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   }}>Find someone to message</button>
                 </>
               ) : (
-                <div style={{ color: P.faint, fontSize: FONT_SIZES.small }}>Pick a conversation on the left.</div>
+                <div style={{ color: P.faint, fontSize: FONT_SIZES.label }}>Pick a conversation on the left.</div>
               )}
             </div>
           )}
@@ -2631,14 +2631,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
           const mCard = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
           const mLine = P.line;
           return safetyModal.loading ? (
-            <div style={{ padding: "32px 0", textAlign: "center", color: mFaint, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)" }}>
+            <div style={{ padding: "32px 0", textAlign: "center", color: mFaint, fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)" }}>
               Loading security numbers…
             </div>
           ) : (<>
             {safetyModal.changed && (
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px", borderRadius: RADIUS.lg, background: withAlpha(STATUS.bad, 0.12), border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`, marginBottom: 16 }}>
                 <Icon name="warning" size={17} style={{ color: STATUS.bad, flexShrink: 0, marginTop: 1 }} />
-                <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.55, color: mInk, fontFamily: "var(--cb-font)" }}>
+                <div style={{ fontSize: FONT_SIZES.label, lineHeight: 1.55, color: mInk, fontFamily: "var(--cb-font)" }}>
                   <strong>The security numbers changed.</strong> {activeThread.name}'s devices changed since you last verified. Make sure this was them (a new phone, a reinstalled app) before continuing. If you can't confirm it, don't send anything sensitive.
                 </div>
               </div>
@@ -2658,7 +2658,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 }}>{g}</div>
               ))}
             </div>
-            <div style={{ fontSize: FONT_SIZES.small, lineHeight: 1.6, color: mDim, fontFamily: "var(--cb-font)", marginBottom: 6 }}>
+            <div style={{ fontSize: FONT_SIZES.label, lineHeight: 1.6, color: mDim, fontFamily: "var(--cb-font)", marginBottom: 6 }}>
               Compare these numbers with {activeThread.name} on a call or in person. If they match, your conversation is private. No one else can read it.
             </div>
             <div style={{ fontSize: FONT_SIZES.caption, color: mFaint, fontFamily: "var(--cb-font)", marginBottom: 18 }}>
@@ -2666,14 +2666,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               {safetyModal.verified ? (<>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.small, fontWeight: 500, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "7px 16px", borderRadius: RADIUS.viewport, fontFamily: "var(--cb-font)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.label, fontWeight: 500, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "7px 16px", borderRadius: RADIUS.viewport, fontFamily: "var(--cb-font)" }}>
                   <Icon name="check" size={14} /> Verified
                 </span>
-                <button onClick={doForgetSafetyVerified} disabled={safetyBusy === "forget"} style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: "transparent", color: mFaint, border: `1px solid ${mLine}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                <button onClick={doForgetSafetyVerified} disabled={safetyBusy === "forget"} style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: mFaint, border: `1px solid ${mLine}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                   {safetyBusy === "forget" ? "Clearing…" : "Forget verification"}
                 </button>
               </>) : (
-                <button onClick={doMarkSafetyVerified} disabled={safetyBusy === "verify"} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.small, fontWeight: 500, background: withAlpha(accent, 0.2), color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+                <button onClick={doMarkSafetyVerified} disabled={safetyBusy === "verify"} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: withAlpha(accent, 0.2), color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                   {safetyBusy === "verify" ? "Saving…" : safetyModal.changed ? "I checked, it's them" : "The numbers match"}
                 </button>
               )}
@@ -2693,7 +2693,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>GROUP NAME</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>GROUP NAME</div>
             <input
               value={groupName}
               onChange={(e) => setGroupName(e.target.value.slice(0, 80))}
@@ -2708,7 +2708,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             />
           </div>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>ADD PEOPLE ({groupMembers.length})</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>ADD PEOPLE ({groupMembers.length})</div>
             {groupMembers.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
                 {groupMembers.map((m) => (
@@ -2749,7 +2749,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       {(r.name || r.username || "?").charAt(0).toUpperCase()}
                     </span>
                     <span style={{ minWidth: 0 }}>
-                      <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || r.username}</span>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || r.username}</span>
                       {r.username && <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint }}>@{r.username}</span>}
                     </span>
                   </button>
@@ -2783,7 +2783,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>GROUP NAME</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>GROUP NAME</div>
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 value={settingsName}
@@ -2806,7 +2806,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
           </div>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>MEMBERS ({(activeThread.members || []).length})</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>MEMBERS ({(activeThread.members || []).length})</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 260, overflowY: "auto" }}>
               {(activeThread.members || []).map((m) => (
                 <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", minHeight: 44 }}>
@@ -2814,7 +2814,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     {(m.name || m.username || "?").charAt(0).toUpperCase()}
                   </span>
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {m.name || m.username}{m.mine ? " (you)" : ""}
                     </span>
                     {m.username && <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint }}>@{m.username}</span>}
@@ -2845,7 +2845,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         ? { minWidth: 44, height: 44, padding: "0 14px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, background: withAlpha(STATUS.bad, 0.1), color: statusBad(P), fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }
                         : { width: 44, height: 44, borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: settingsBusy === "remove:" + m.id ? "default" : "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
                     >
-                      {settingsBusy === "remove:" + m.id ? <span style={{ fontSize: FONT_SIZES.micro }}>…</span> : confirmRemoveId === m.id ? "Remove?" : <Icon name="close" size={13} />}
+                      {settingsBusy === "remove:" + m.id ? <span style={{ fontSize: FONT_SIZES.caption }}>…</span> : confirmRemoveId === m.id ? "Remove?" : <Icon name="close" size={13} />}
                     </UIButton>
                   )}
                 </div>
@@ -2853,7 +2853,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
           </div>
           <div>
-            <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>ADD PEOPLE</div>
+            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.label, marginBottom: 6 }}>ADD PEOPLE</div>
             <input
               value={settingsQuery}
               onChange={(e) => setSettingsQuery(e.target.value)}
@@ -2877,7 +2877,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       {(r.name || r.username || "?").charAt(0).toUpperCase()}
                     </span>
                     <span style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ display: "block", fontSize: FONT_SIZES.small, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || r.username}</span>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || r.username}</span>
                       {r.username && <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint }}>@{r.username}</span>}
                     </span>
                     <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, flexShrink: 0 }}>{settingsBusy === "add" ? "Adding…" : "Add"}</span>

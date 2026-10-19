@@ -1170,12 +1170,12 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                     <path d="M60 43 h14" stroke={P.faint} strokeWidth="1.5" /><path d="M71 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
                     <path d="M146 43 h10" stroke={P.faint} strokeWidth="1.5" strokeDasharray="3 3" /><path d="M153 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
                   </svg>
-                  <div style={{ fontSize: FONT_SIZES.title, fontWeight: 500, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>A blank bench</div>
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.faint, lineHeight: 1.65, marginBottom: answerText ? 16 : 0 }}>
+                  <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>A blank bench</div>
+                  <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.65, marginBottom: answerText ? 16 : 0 }}>
                     {answerText ? "Add nodes from the rail, or draft a starting chart from this answer." : "Add nodes from the rail to start building."}
                   </div>
                   {answerText && (
-                    <button type="button" onClick={doDraft} style={{ minHeight: 44, pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: RADIUS.sm, border: `1px solid ${accent}`, background: accent, color: at, fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                    <button type="button" onClick={doDraft} style={{ minHeight: 44, pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: RADIUS.sm, border: `1px solid ${accent}`, background: accent, color: at, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
                       <Icon name="edit" size={14} /> Draft from answer
                     </button>
                   )}
@@ -1220,7 +1220,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             </div>
             {!selection && (
               <div>
-                <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontWeight: 500, marginBottom: 6 }}>Nothing selected</div>
+                <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontWeight: 500, marginBottom: 6 }}>Nothing selected</div>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.7 }}>
                   Click a node or arrow to edit it here.
                 </div>
@@ -1890,7 +1890,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   };
 
   const paneLabel = {
-    fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: "normal", textTransform: "none",
+    fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "normal", textTransform: "none",
     color: P.faint, fontFamily: "var(--cb-font)", padding: "12px 16px",
     borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
   };
@@ -1927,7 +1927,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
     <UIButton P={P} variant="ghost" key={key} onClick={() => setRailTab(key)}
       style={{
         flex: 1, minHeight: 44, border: 0, cursor: "pointer", fontFamily: "var(--cb-font)",
-        fontSize: FONT_SIZES.small, fontWeight: 500,
+        fontSize: FONT_SIZES.label, fontWeight: 500,
         color: railTab === key ? P.ink : P.faint,
         background: "transparent",
         borderBottom: `2px solid ${railTab === key ? accent : "transparent"}`,
@@ -1939,7 +1939,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   const railItem = {
     display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "12px 12px",
     borderRadius: RADIUS.lg, background: "transparent", border: 0, color: P.ink,
-    fontSize: FONT_SIZES.small, cursor: "pointer", textAlign: "left",
+    fontSize: FONT_SIZES.label, cursor: "pointer", textAlign: "left",
     fontFamily: "var(--cb-font)", minHeight: 44,
   };
 
@@ -1969,7 +1969,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                 <button onClick={() => { openDiagram(d); if (isMobile) setRailOpen(false); }} style={{ ...railItem, flex: 1, minWidth: 0 }} title={d.code.slice(0, 120)}>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
                     <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", fontWeight: d.id === activeId ? 500 : 400 }}>{d.title}</span>
-                    <span style={{ display: "block", fontSize: FONT_SIZES.micro, color: P.faint, marginTop: 2 }}>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2 }}>
                       {new Date(d.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {d.code.split("\n").length} lines
                     </span>
                   </span>
@@ -2014,7 +2014,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
         .mm-railitem:hover { background: ${dark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.035)"} !important; }
         .mm-rail-del { transition: opacity 150ms ease; }
         .mm-railitem:hover .mm-rail-del { opacity: 1 !important; }
-        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 2px; font-size: ${FONT_SIZES.small}px; font-weight: 500; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; transition: border-color 280ms ease, background-color 280ms ease, color 280ms ease, filter 280ms ease; }
+        .mm-topbtn { min-height: 44px; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px; border-radius: 2px; font-size: ${FONT_SIZES.label}px; font-weight: 500; font-family: var(--cb-font); cursor: pointer; border: 1px solid ${P.line2}; background: ${P.dark ? "rgba(255,255,255,0.05)" : "#ffffff"}; color: ${P.ink}; white-space: nowrap; transition: border-color 280ms ease, background-color 280ms ease, color 280ms ease, filter 280ms ease; }
         .mm-topbtn:hover { border-color: ${accent}; background: ${P.dark ? "rgba(255,255,255,0.09)" : "#f4f4f2"}; }
         .mm-topbtn-primary { background: ${accent}; border-color: transparent; color: ${at}; }
         .mm-topbtn-primary:hover { background: ${accent}; border-color: transparent; filter: brightness(1.06); }
@@ -2053,8 +2053,8 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           <StudioMark size={22} accent={accent} />
         </span>
         <div style={{ minWidth: 0, flexShrink: 0 }}>
-          <div style={{ fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: FONT_SIZES.small, color: P.ink, letterSpacing: "-0.015em", lineHeight: 1.25 }}>Diagram Studio</div>
-          <div style={{ fontSize: FONT_SIZES.micro, color: P.faint, fontFamily: "var(--cb-font)" }}>Mermaid, rendered live</div>
+          <div style={{ fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: FONT_SIZES.label, color: P.ink, letterSpacing: "-0.015em", lineHeight: 1.25 }}>Diagram Studio</div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Mermaid, rendered live</div>
         </div>
         <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Diagram title" placeholder="Untitled diagram"
           className="mm-titleinput"
@@ -2109,7 +2109,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                 <UIButton P={P} variant="ghost" key={key} onClick={() => setMobilePane(key)}
                   style={{
                     minHeight: 44, flex: 1, padding: "9px 0", borderRadius: RADIUS.sm,
-                    fontSize: FONT_SIZES.small, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer",
+                    fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer",
                     background: mobilePane === key ? withAlpha(accent, 0.14) : "transparent",
                     color: mobilePane === key ? accent : P.faint,
                     border: `1px solid ${mobilePane === key ? withAlpha(accent, 0.4) : P.line}`,
@@ -2134,7 +2134,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
             <div style={paneLabel}>
               <span>Source</span>
               <button onClick={copyCode} title="Copy diagram source"
-                style={{ minHeight: 44, padding: "6px 12px", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" }}>
+                style={{ minHeight: 44, padding: "6px 12px", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" }}>
                 {copied ? "Copied ✓" : "Copy"}
               </button>
               <span style={{ marginLeft: "auto", fontWeight: 400, letterSpacing: TRACKING.tight, textTransform: "none" }}>{diagramKind} · {code.split("\n").length} lines</span>
@@ -2169,7 +2169,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
               }} />
               {mmError && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
-                  <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", maxWidth: 320 }}>{mmError}</div>
+                  <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", maxWidth: 320 }}>{mmError}</div>
                 </div>
               )}
               {/* Guided empty canvas: a blank source is a starting point, not a
@@ -2181,7 +2181,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                     <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
                       <StudioMark size={28} accent={accent} />
                     </div>
-                    <div style={{ fontSize: FONT_SIZES.small, color: P.ink2, fontFamily: "var(--cb-font)", marginBottom: 14 }}>
+                    <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", marginBottom: 14 }}>
                       Nothing here yet. Start from a template.
                     </div>
                     <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
@@ -2203,7 +2203,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
               {!mmError && code.trim() && !svg && !diagError && (
                 <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                    <div style={{ fontSize: FONT_SIZES.small, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                    <div style={{ fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)" }}>
                       {mm ? "Rendering…" : "Loading diagram engine…"}
                     </div>
                     <div style={{ marginTop: 12, width: 120, height: 1, background: P.line, position: "relative", overflow: "hidden" }}>
@@ -2218,7 +2218,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                   background: dark ? "#3c1010" : "#fee2e2",
                   border: "1px solid rgba(248,113,113,0.5)", zIndex: Z.float,
                 }}>
-                  <div style={{ fontSize: FONT_SIZES.small, fontWeight: 500, color: dark ? "#fca5a5" : "#b91c1c", fontFamily: "var(--cb-font)", marginBottom: 4 }}>
+                  <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: dark ? "#fca5a5" : "#b91c1c", fontFamily: "var(--cb-font)", marginBottom: 4 }}>
                     Mermaid could not parse this
                   </div>
                   <pre style={{
@@ -2231,9 +2231,9 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
               <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 6, alignItems: "center", zIndex: Z.float }}>
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.max(0.2, p.k / 1.25) })); }} aria-label="Zoom out" title="Zoom out">−</button>
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: 1 })); }} aria-label="Reset zoom to 100 percent" title="Reset to 100%"
-                  style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.small, fontWeight: 500 }}>{Math.round(pan.k * 100)}%</button>
+                  style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.label, fontWeight: 500 }}>{Math.round(pan.k * 100)}%</button>
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.min(3, p.k * 1.25) })); }} aria-label="Zoom in" title="Zoom in">＋</button>
-                <button className="mm-zoombtn" onClick={fitToView} aria-label="Fit diagram to view" title="Fit to view" style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.small, fontWeight: 500 }}>Fit</button>
+                <button className="mm-zoombtn" onClick={fitToView} aria-label="Fit diagram to view" title="Fit to view" style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.label, fontWeight: 500 }}>Fit</button>
               </div>
             </div>
           </section>
@@ -2303,14 +2303,14 @@ function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, 
       <div style={{ flex: 1, minWidth: 0 }}>
         {eyebrow && (
           <div style={{
-            fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, fontWeight: 500,
+            fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500,
             letterSpacing: "normal", textTransform: "none",
             color: withAlpha(accent, 0.9), marginBottom: 5,
           }}>{eyebrow}</div>
         )}
         {title ? (
         <div style={{
-          fontSize: FONT_SIZES.title, fontWeight: 500, color: ink,
+          fontSize: FONT_SIZES.subhead, fontWeight: 500, color: ink,
           letterSpacing: "-0.015em", lineHeight: 1.3, fontFamily: "var(--cb-font)",
         }}>{title}</div>
         ) : null}

@@ -930,7 +930,11 @@ group("Typography: design tokens, not raw sizes");
 
 await test("LearnView takes its sizes from FONT_SIZES", () => {
   assert.match(learnSrc, /import \{[^}]*\bFONT_SIZES\b[^}]*\} from "\.\/designSystem\.jsx"/, "FONT_SIZES is not imported from the design system");
-  const uses = (learnSrc.match(/FONT_SIZES\.(caption|label|body|title|display|hero)/g) || []).length;
+  // Pin changed 2026-10-19 (design audit M1): the counted roles are
+  // the plan roles only. The legacy aliases title and hero folded
+  // into subhead and display when the off plan size 18 left the
+  // scale, so the count now reads subhead and section reads too.
+  const uses = (learnSrc.match(/FONT_SIZES\.(caption|label|body|subhead|section|display)/g) || []).length;
   assert.ok(uses >= 150, `expected at least 150 token sizes in LearnView, found ${uses}`);
 });
 
