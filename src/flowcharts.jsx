@@ -2001,11 +2001,11 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
         {railTab === "diagrams" && (
           <>
             <button onClick={newDiagram} style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: accent, fontWeight: 500, marginBottom: 8 }}>
-              <span aria-hidden="true">＋</span> New diagram
+              <Icon name="plus" size={14} /> New diagram
             </button>
             <button onClick={() => fileRef.current && fileRef.current.click()} title="Import a .mmd file, loaded verbatim"
               style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: P.ink2, fontWeight: 500, marginBottom: 8 }}>
-              <span aria-hidden="true">⤒</span> Import .mmd
+              <Icon name="upload" size={14} /> Import .mmd
             </button>
             {diagrams.length === 0 && (
               <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
@@ -2023,10 +2023,12 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                   </span>
                   {d.id === activeId && <span style={{ color: accent, fontSize: FONT_SIZES.caption, flexShrink: 0 }} aria-label="Open">●</span>}
                 </button>
+                {/* Delete uses the Icon set at full opacity (tail 21,
+                    2026-10-19), the way the Reader shelf delete does:
+                    no hover dependent text cross at 45 percent. */}
                 <button onClick={() => deleteDiagram(d.id)} aria-label={`Delete ${d.title}`} title="Delete"
-                  className="mm-rail-del"
-                  style={{ background: "transparent", border: 0, color: P.faint, cursor: "pointer", minWidth: 44, minHeight: 44, fontSize: 14, opacity: 0.45 }}>
-                  ✕
+                  style={{ background: "transparent", border: 0, color: P.faint, cursor: "pointer", minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", opacity: 1 }}>
+                  <Icon name="trash" size={14} />
                 </button>
               </div>
             ))}
@@ -2263,7 +2265,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.max(0.2, p.k / 1.25) })); }} aria-label="Zoom out" title="Zoom out">−</button>
                 <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: 1 })); }} aria-label="Reset zoom to 100 percent" title="Reset to 100%"
                   style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.small, fontWeight: 500 }}>{Math.round(pan.k * 100)}%</button>
-                <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.min(3, p.k * 1.25) })); }} aria-label="Zoom in" title="Zoom in">＋</button>
+                <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.min(3, p.k * 1.25) })); }} aria-label="Zoom in" title="Zoom in"><Icon name="plus" size={16} /></button>
                 <button className="mm-zoombtn" onClick={fitToView} aria-label="Fit diagram to view" title="Fit to view" style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.small, fontWeight: 500 }}>Fit</button>
               </div>
             </div>
@@ -2307,7 +2309,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
           }} role="dialog" aria-label="Diagram library and templates">
             <div style={{ display: "flex", alignItems: "center", padding: "12px 10px 0" }}>
               <UIButton P={P} variant="ghost" onClick={() => setRailOpen(false)} aria-label="Close panel"
-                style={{ minWidth: 44, minHeight: 44, background: "transparent", border: 0, color: P.faint, fontSize: 16, cursor: "pointer", marginLeft: "auto" }}>✕</UIButton>
+                style={{ minWidth: 44, minHeight: 44, background: "transparent", border: 0, color: P.faint, cursor: "pointer", marginLeft: "auto" }}><Icon name="close" size={16} /></UIButton>
             </div>
             <div style={{ height: "calc(100% - 54px)" }}>{rail}</div>
           </div>
