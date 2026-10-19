@@ -21640,6 +21640,11 @@ function App() {
   // per-item "Delete" had no confirmation at all. One pattern now: an
   // inline Cancel/Delete swap, same as Settings already had.
   const [confirmClearSaved, setConfirmClearSaved] = useState(false);
+  /* 2026-10-19 (audit M41): the Library's four destructive actions arm
+     in place instead of opening window.confirm. The arm names its target
+     ("bulk", a paper's sourceKey, or "map:" plus the map id); the first
+     press arms and says what will happen, the second press commits. */
+  const [libArm, setLibArm] = useState(null);
   const [excelBusy, setExcelBusy] = useState(false);
   // Commit 88 — library page state. A modal that showed everything at once
   // never needed these; a page that can hold a few hundred papers does.
@@ -24840,7 +24845,16 @@ function App() {
                             options={[{ value: "", label: "Move to collection…" }, ...collections.map((c) => ({ value: c.id, label: c.name }))]}
                             ariaLabel="Move selected to collection" style={{ fontSize: FONT_SIZES.caption }} />
                         )}
-                        <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { if (window.confirm(`Remove ${selectedSavedKeys.size} saved paper${selectedSavedKeys.size === 1 ? "" : "s"} from your library?`)) { setSaved((prev) => prev.filter((s) => !selectedSavedKeys.has(sourceKey(s)))); setSelectedSavedKeys(new Set()); sfx(); } }}>Remove selected</UIButton>
+                        {/* 2026-10-19 (audit M41): first press arms and says
+                            what will happen, second press removes. */}
+                        {libArm === "bulk" ? (
+                          <>
+                            <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setLibArm(null)}>Keep them</UIButton>
+                            <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setLibArm(null); setSaved((prev) => prev.filter((s) => !selectedSavedKeys.has(sourceKey(s)))); setSelectedSavedKeys(new Set()); sfx(); }}>Remove {selectedSavedKeys.size} paper{selectedSavedKeys.size === 1 ? "" : "s"} for good</UIButton>
+                          </>
+                        ) : (
+                          <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => setLibArm("bulk")}>Remove selected</UIButton>
+                        )}
                         <button onClick={() => setSelectedSavedKeys(new Set())} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", minHeight: 44, padding: "0 8px" }}>Clear</button>
                       </div>
                     )}
@@ -24868,8 +24882,13 @@ function App() {
                         const collName = sv.collectionId ? (collections.find((c) => c.id === sv.collectionId)?.name || null) : null;
                         const usedIn = savedUsage.get(key) || [];
                         const savedDate = sv.savedAt || sv.createdAt;
-                        const typeLabel = sv.type || "n/a";
-                        const journalLabel = sv.journal || sv.source || "n/a";
+                        /* 2026-10-19 (audit tail 22): missing type, journal,
+                           date, and use leave their cells empty in this
+                           ledger too, the same rule as the investigations
+                           ledger. No placeholder prose borrows a real
+                           value's place. */
+                        const typeLabel = sv.type || "";
+                        const journalLabel = sv.journal || sv.source || "";
                         return (
                           <div key={key} role="listitem"
                             style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: isMobile ? "14px 16px" : "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none", background: checked ? withAlpha(accent, 0.06) : "transparent", minWidth: isMobile ? 0 : 780 }}>
@@ -24885,7 +24904,7 @@ function App() {
                                 {sv.year ? ` · ${sv.year}` : ""}
                                 {(() => { const c = formatCitationCount(sv.citations, sv.year, "citation"); return c ? ` · ${c}` : ""; })()}
                                 {collName ? ` · ${collName}` : ""}
-                                {isMobile ? ` · ${typeLabel}` : ""}
+                                {isMobile && typeLabel ? ` · ${typeLabel}` : ""}
                                 {isMobile && savedDate ? ` · ${new Date(savedDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""}
                                 {isMobile && usedIn.length > 0 ? ` · ${usedIn.length} investigation${usedIn.length === 1 ? "" : "s"}` : ""}
                               </span>
@@ -24899,32 +24918,48 @@ function App() {
                               )}
                               {isMobile && (
                                 <span style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap" }}>
-                                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { if (window.confirm("Remove this paper from your library?")) setSaved((prev) => prev.filter((x) => sourceKey(x) !== key)); }}>Remove</UIButton>
+                                  {libArm === `paper:${key}` ? (
+                                    <>
+                                      <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setLibArm(null)}>Keep</UIButton>
+                                      <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setLibArm(null); setSaved((prev) => prev.filter((x) => sourceKey(x) !== key)); }}>Remove this paper for good</UIButton>
+                                    </>
+                                  ) : (
+                                    <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setLibArm(`paper:${key}`)}>Remove</UIButton>
+                                  )}
                                 </span>
                               )}
                             </span>
                             {!isMobile && (
                               <>
                                 <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={sv.type || undefined}>{typeLabel}</span>
-                                <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={journalLabel}>{journalLabel}</span>
+                                <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={journalLabel || undefined}>{journalLabel}</span>
                                 <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-                                  {savedDate ? new Date(savedDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "n/a"}
+                                  {savedDate ? new Date(savedDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : ""}
                                 </span>
                                 <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)" }}
                                   title={usedIn.length ? usedIn.map((h) => h.title).join("\n") : undefined}>
-                                  {usedIn.length ? `${usedIn.length} investigation${usedIn.length === 1 ? "" : "s"}` : "n/a"}
+                                  {usedIn.length ? `${usedIn.length} investigation${usedIn.length === 1 ? "" : "s"}` : ""}
                                 </span>
-                                <span style={{ width: 76, flexShrink: 0, display: "inline-flex", gap: 4, justifyContent: "flex-end" }}>
-                                  {sv.authors && (
-                                    <button onClick={() => { setView("search"); ask(`papers by ${(sv.authors || "").replace(" et al.", "")}`); }} title="More by these authors" aria-label={`More papers by ${sv.authors}`}
-                                      style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: RADIUS.md }}>
-                                      <Icon name="search" size={15} />
-                                    </button>
+                                <span style={{ width: libArm === `paper:${key}` ? "auto" : 76, flexShrink: 0, display: "inline-flex", gap: 4, justifyContent: "flex-end", alignItems: "center" }}>
+                                  {libArm === `paper:${key}` ? (
+                                    <>
+                                      <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setLibArm(null)}>Keep</UIButton>
+                                      <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setLibArm(null); setSaved((prev) => prev.filter((x) => sourceKey(x) !== key)); }}>Remove this paper for good</UIButton>
+                                    </>
+                                  ) : (
+                                    <>
+                                      {sv.authors && (
+                                        <button onClick={() => { setView("search"); ask(`papers by ${(sv.authors || "").replace(" et al.", "")}`); }} title="More by these authors" aria-label={`More papers by ${sv.authors}`}
+                                          style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: RADIUS.md }}>
+                                          <Icon name="search" size={15} />
+                                        </button>
+                                      )}
+                                      <button onClick={() => setLibArm(`paper:${key}`)} title="Remove from library" aria-label={`Remove ${sv.title || "paper"} from library`}
+                                        style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: RADIUS.md }}>
+                                        <Icon name="close" size={15} />
+                                      </button>
+                                    </>
                                   )}
-                                  <button onClick={() => { if (window.confirm("Remove this paper from your library?")) setSaved((prev) => prev.filter((x) => sourceKey(x) !== key)); }} title="Remove from library" aria-label={`Remove ${sv.title || "paper"} from library`}
-                                    style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: RADIUS.md }}>
-                                    <Icon name="close" size={15} />
-                                  </button>
                                 </span>
                               </>
                             )}
@@ -24937,19 +24972,24 @@ function App() {
               </>
             )}
             </div>
-          </WorkspacePage>
           {/* Flowchart Studio — saved charts live in the library next to saved
               papers, because a diagram of what the evidence says is a research
-              artifact in the same sense a saved paper is. */}
-          <div id="lib-maps" style={{ scrollMarginTop: 80 }}>
-          <WorkspacePage
-            P={P} accent={accent} isMobile={isMobile} wide
-            title="Evidence maps" count={flowcharts.length}
-            description="Evidence maps you've built: processes, decisions and claim diagrams. They sync to your account when you're signed in, and stay in this browser when you're not."
-            actions={(
-              <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" variant="primary" onClick={() => { sfx(); setFlowchartOpen({ title: "Untitled evidence map", chartId: null }); }}>New evidence map</UIButton>
-            )}
-          >
+              artifact in the same sense a saved paper is.
+              2026-10-19 (audit H21): Evidence maps and Exports are sections
+              inside the one Library page below, not page shells of their
+              own. The whole view now mounts one WorkspacePage, one resident
+              Nova, and one top level heading. */}
+          <div id="lib-maps" style={{ scrollMarginTop: 80, marginTop: 44 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+              <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Evidence maps</h2>
+              {flowcharts.length > 0 && (
+                <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.ink2, background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, padding: "4px 11px", borderRadius: RADIUS.pill, fontVariantNumeric: "tabular-nums" }}>{flowcharts.length}</span>
+              )}
+              <div style={{ marginLeft: isMobile ? 0 : "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" variant="primary" onClick={() => { sfx(); setFlowchartOpen({ title: "Untitled evidence map", chartId: null }); }}>New evidence map</UIButton>
+              </div>
+            </div>
+            <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>Evidence maps you've built: processes, decisions and claim diagrams. They sync to your account when you're signed in, and stay in this browser when you're not.</p>
             {flowcharts.length === 0 ? (
               <WorkspaceEmpty P={P} accent={accent} icon="flowchart"
                 title="No evidence maps yet"
@@ -24976,29 +25016,44 @@ function App() {
                     <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
                       <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }}>Open</UIButton>
                       <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", fcSvgString(fc.nodes || [], fc.edges || [], fc.title)); }}>SVG</UIButton>
-                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { if (window.confirm("Delete this evidence map? This can't be undone.")) { sfx(); setFlowcharts((prev) => prev.filter((c) => c.id !== fc.id)); } }}>Delete</UIButton>
+                      {/* 2026-10-19 (audit M41): first press arms and says
+                          what will happen, second press deletes. */}
+                      {libArm === `map:${fc.id}` ? (
+                        <>
+                          <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setLibArm(null)}>Keep</UIButton>
+                          <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { sfx(); setLibArm(null); setFlowcharts((prev) => prev.filter((c) => c.id !== fc.id)); }}>Delete this map for good</UIButton>
+                        </>
+                      ) : (
+                        <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setLibArm(`map:${fc.id}`)}>Delete</UIButton>
+                      )}
                     </span>
                   </div>
                 ))}
               </div>
             )}
-          </WorkspacePage>
           </div>
           {/* Exports: this browser's export receipts. Every export Cerebrum
               has produced in this session (or earlier) leaves a receipt —
               format, filename, time. The receipts are local, like everything
               else here. */}
-          <div id="lib-exports" style={{ scrollMarginTop: 80 }}>
-            <WorkspacePage
-              P={P} accent={accent} isMobile={isMobile} wide
-              title="Exports" count={exportLog.length}
-              description="Every export Cerebrum has produced in this browser: the format, the file, and when it left."
-            >
+          <div id="lib-exports" style={{ scrollMarginTop: 80, marginTop: 44 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+              <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Exports</h2>
+              {exportLog.length > 0 && (
+                <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.ink2, background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, padding: "4px 11px", borderRadius: RADIUS.pill, fontVariantNumeric: "tabular-nums" }}>{exportLog.length}</span>
+              )}
+            </div>
+            <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.small, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>Every export Cerebrum has produced in this browser: the format, the file, and when it left.</p>
               {exportLog.length === 0 ? (
-                <WorkspaceEmpty P={P} accent={accent} icon="download" size="sm"
+                /* 2026-10-19 (audit M42): the action goes through the
+                   shared empty state's action prop as a UIButton, the
+                   form every other call site uses. The old actionLabel
+                   and onAction props were never read by WorkspaceEmpty,
+                   so the Browse saved papers action was silently dropped. */
+                <WorkspaceEmpty P={P} accent={accent} icon="download"
                   title="Nothing exported yet"
                   body="Export a bibliography, your saved papers, an investigation, or a diagram. The receipt lands here."
-                  actionLabel="Browse saved papers" onAction={() => scrollToLibSection("lib-papers")} />
+                  action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => scrollToLibSection("lib-papers")}>Browse saved papers</UIButton>} />
               ) : (
                 <div role="list" aria-label="Export history" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflowX: "auto", background: P.surface }}>
                   {!isMobile && (
@@ -25022,8 +25077,8 @@ function App() {
                   ))}
                 </div>
               )}
-            </WorkspacePage>
           </div>
+          </WorkspacePage>
         </Reveal>
       )}
       {/* Citation import modal — BibTeX/RIS from Zotero, Mendeley, etc. */}
