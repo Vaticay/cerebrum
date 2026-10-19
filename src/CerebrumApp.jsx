@@ -1110,6 +1110,12 @@ function usePremiumPointer() {
    `--cb-ease` is the same curve the CSS layer uses, so a GSAP tween and a CSS
    transition on the same element cannot disagree.
    ════════════════════════════════════════════════════════════════════════ */
+/* One scroll behavior helper (2026-10-19, S7 shell lane, audit M5):
+   "auto" under reduced motion (the OS preference or the app motion
+   toggle), "smooth" otherwise. Every programmatic scroll in the shell
+   routes through it instead of passing "smooth" unconditionally. */
+const scrollBehavior = () => (cbMotionOff() || (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) ? "auto" : "smooth";
+
 const MOTION = {
   feedback: 0.15,
   panel: 0.28,
@@ -24097,7 +24103,7 @@ function App() {
           edge of a card is its quiet side. Opaque, shadowed, and on the
           right on mobile — desktop keeps the left, where nothing collides
           and the right is the sources panel's territory. */}
-      {showScrollTop && <UIButton P={P} variant="ghost" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? "none" /* 2026-10-16 layout fix (finding 2): 88px plus inset in every state. The unstarted 24px state sat inside the bottom nav band with only a 4px sliver showing. */ : 24, [isMobile ? "right" : "left"]: isMobile ? "none" : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: Z.fab, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "none" : "none", fontSize: FONT_SIZES.subhead }}>↑</UIButton>}
+      {showScrollTop && <UIButton P={P} variant="ghost" onClick={() => window.scrollTo({ top: 0, behavior: scrollBehavior() })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? "none" /* 2026-10-16 layout fix (finding 2): 88px plus inset in every state. The unstarted 24px state sat inside the bottom nav band with only a 4px sliver showing. */ : 24, [isMobile ? "right" : "left"]: isMobile ? "none" : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: Z.fab, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "none" : "none", fontSize: FONT_SIZES.subhead }}>↑</UIButton>}
       <Sidebar
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
@@ -24543,7 +24549,7 @@ function App() {
                   return (
                     <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
                       onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
-                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: scrollBehavior(), block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
                     </div>
                   );
                 })}
@@ -25753,10 +25759,14 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .cb-msg-report:focus-visible,
 .cb-msg-bubble:focus-within .cb-msg-report { opacity: 1 !important; }
 .cb-skip-link:focus-visible { transform: translateY(0); outline: 2px solid #fff; outline-offset: 2px; }
-/* Universal keyboard focus indicator. Any element that receives keyboard
-   focus gets a visible ring unless it defines its own. This covers every
-   focusable surface in one rule instead of chasing individual outline:none
-   overrides. Mouse/touch focus keeps the clean look via :focus-visible. */
+/* THE one global focus ring rule (2026-10-19, S7 shell lane, audit M4):
+   2px in the active accent with a 2px offset. Every later duplicate and
+   variant in this stylesheet (the 3px emerald rules, the hardcoded teal
+   .cb-focus-ring, the gold intro scoped rings) is deleted or aligned to
+   this rule; cascade order no longer decides what a keyboard user sees.
+   Any element that receives keyboard focus gets this ring unless it
+   defines its own in the same treatment. Mouse and touch focus keep the
+   clean look via :focus-visible. */
 *:focus-visible {
   outline: 2px solid var(--cb-acc, #7c9a82) !important;
   outline-offset: 2px !important;
@@ -26020,7 +26030,7 @@ summary::-webkit-details-marker { display: none; }
    the shared component. */
 .cb-doc-page .cb-seg button { min-height: 44px; }
 /* The outline-chip CTA gets the same keyboard ring as the primary. */
-.cb-intro-chip:focus-visible { outline: 2px solid rgba(217,164,65,0.75); outline-offset: 4px; border-radius: 2px; }
+.cb-intro-chip:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; border-radius: 2px; }
 
 /* ── Intro: quiet sci-fi title card ──
    The door opens like a title sequence: a beat of near-black lifting off
@@ -26180,7 +26190,7 @@ summary::-webkit-details-marker { display: none; }
   transition: background-color 150ms ease-out;
 }
 #cb-intro-wrap .cb-intro-go:hover { box-shadow: none; transform: none !important; }
-.cb-intro-go:focus-visible { outline: 2px solid rgba(217,164,65,0.85); outline-offset: 3px; }
+.cb-intro-go:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; }
 /* ── Intro, quiet sci-fi pass ──
    Restraint: the type choreography is blur/opacity only, on the one shared
    cbFocusIn entrance; the button is a quiet outline with no sweep. */
@@ -26222,7 +26232,7 @@ summary::-webkit-details-marker { display: none; }
   background: rgba(255,255,255,0.05) !important;
   transform: none;
 }
-.cb-intro-how:focus-visible { outline: 2px solid rgba(217,164,65,0.75); outline-offset: 4px; border-radius: 2px; }
+.cb-intro-how:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; border-radius: 2px; }
 
 /* ── Intro: the calibration chamber (2026-10-08) ──
    The cinematic door is retired — no film, no scrim, no motion behind
@@ -26630,13 +26640,13 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-starter-item:last-child { border-bottom: 0; }
 .cb-starter-num {
-  font-size: 11px; font-weight: 500; letter-spacing: 0.08em;
+  font-size: 11px; font-weight: 500; letter-spacing: 0;
   color: var(--cb-acc); flex-shrink: 0; transform: translateY(1px);
 }
 /* The editorial section label: Inter Tight, faint, no tracking, no caps. */
 .cb-starter-cat {
   font-family: var(--cb-font); font-size: 11px; font-weight: 500;
-  letter-spacing: 0.06em; color: var(--cb-faint);
+  letter-spacing: 0; color: var(--cb-faint);
   flex-shrink: 0; transform: translateY(1px); white-space: nowrap;
 }
 .cb-starter-q {
@@ -26772,7 +26782,7 @@ summary::-webkit-details-marker { display: none; }
 /* Shapeshifter + paper chip: Inter Tight, sharp. */
 .cb-bench .cb-shape {
   border-radius: 2px;
-  font-family: var(--cb-font); font-size: 12px; letter-spacing: 0.02em;
+  font-family: var(--cb-font); font-size: 12px; letter-spacing: 0;
 }
 .cb-bench .cb-paperchip { border-radius: 2px; border-style: dashed; }
 .cb-bench .cb-ask-hint { font-family: var(--cb-font); font-size: 11px; }
@@ -26840,7 +26850,7 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-bench-foot-mode { display: inline-flex; gap: 10px; align-items: baseline; min-width: 0; }
 .cb-bench-foot-idx { color: var(--cb-acc); font-weight: 500; flex-shrink: 0; }
-.cb-bench-foot-ev { white-space: nowrap; letter-spacing: 0.06em; flex-shrink: 0; }
+.cb-bench-foot-ev { white-space: nowrap; letter-spacing: 0; flex-shrink: 0; }
 
 /* ── Work Log: the deck as the bench's second module ──
    Same instrument language as the console — tick frame, mono header —
@@ -26856,7 +26866,7 @@ summary::-webkit-details-marker { display: none; }
   letter-spacing: 0.12em; color: var(--cb-ink2); margin: 0;
 }
 .cb-deck-sub {
-  font-family: var(--cb-font); font-size: 11px; letter-spacing: 0.06em;
+  font-family: var(--cb-font); font-size: 11px; letter-spacing: 0;
   color: var(--cb-faint); white-space: nowrap;
 }
 .cb-deck-body { padding: 18px; }
@@ -26992,7 +27002,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-dive-stage { display: flex; flex-direction: column; min-width: 0; }
 .cb-dive-label {
   font-family: var(--cb-font); font-size: 13px; font-weight: 500;
-  color: var(--cb-ink); letter-spacing: 0.01em;
+  color: var(--cb-ink); letter-spacing: 0;
 }
 .cb-dive-stratum.is-pending .cb-dive-label { color: var(--cb-faint); font-weight: 500; }
 .cb-dive-detail {
@@ -27007,7 +27017,7 @@ summary::-webkit-details-marker { display: none; }
   position: relative; z-index: 1;
   margin-top: 22px;
   font-family: var(--cb-font); font-weight: 500;
-  font-size: 15px; letter-spacing: -0.01em;
+  font-size: 15px; letter-spacing: 0;
   color: var(--cb-ink);
   font-variant-numeric: tabular-nums;
 }
@@ -27450,23 +27460,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    call site anywhere in the repo) running an infinite box-shadow
    animation — continuous paint for nothing. */
 
-/* Focus */
-:focus { outline: none; }
-:focus-visible {
-  /* Was "currentColor", which resolves to the focused element's own text
-     color - on the faint/ghost buttons this app uses everywhere, that's a
-     low-contrast grey ring on a low-contrast surface, i.e. a focus
-     indicator you can't find with the keyboard. The accent is the one
-     color guaranteed to be legible against every surface in every palette
-     (it's chosen for exactly that), and the paired dark/light halo keeps
-     it visible whichever side of the theme it lands on.
-     Strengthened to 3px: every interactive element carries a ring you can
-     actually see, keyboard or switch-control. */
-  outline: 3px solid var(--cb-accent-ink, var(--cb-accent, #34d399));
-  outline-offset: 2px;
-  border-radius: 2px;
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--cb-accent, #34d399) 26%, transparent);
-}
+/* Focus: the one global ring rule lives at the top of this stylesheet
+   (*:focus-visible, 2px accent, 2px offset, audit M4). The 3px emerald
+   :focus-visible rule that used to sit here is deleted. */
 
 /* v31: was an animated emerald→sky→indigo gradient cycling every 8s behind
    the wordmark — exactly the "heavy 80s neon" look this round retires.
@@ -27596,16 +27592,14 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
   word-spacing: 0.15em !important;
 }
 
-/* ── Focus ring indicators ── */
-.cb-focus-ring *:focus {
-  outline: 3px solid #5eead4 !important;
-  outline-offset: 3px !important;
-  border-radius: 2px;
-}
+/* ── Focus ring indicators ──
+   The focus highlight class carries the one global ring (2026-10-19,
+   audit M4): 2px in the active accent with an offset. The hardcoded
+   teal 3px treatment that used to live here is gone. */
 .cb-focus-ring *:focus:not(:focus-visible) { outline: none !important; }
 .cb-focus-ring *:focus-visible {
-  outline: 3px solid #5eead4 !important;
-  outline-offset: 3px !important;
+  outline: 2px solid var(--cb-acc) !important;
+  outline-offset: 2px !important;
 }
 
 /* ── Scroll progress bar ──
@@ -27912,36 +27906,15 @@ button, a {
 }
 @media (prefers-reduced-motion: reduce) {
 }
-@media (prefers-reduced-motion: reduce) {
-}
-
 /* ── Selection ──
    (Single source of truth lives up near the base resets; the duplicate
    that used to sit here is gone.) */
 
 /* ── Keyboard focus ──
-   Scrollbars are hidden app-wide (see above), which makes keyboard
-   navigation the only way some surfaces are reachable — so the focus ring
-   has to be genuinely visible, and in the user's accent rather than the
-   platform default. :focus-visible only, so it never fires on a mouse
-   click. Matches the designed 3px + halo ring (.cb-focus-ring above) so
-   focus looks the same everywhere, not faint outside the ring scope. */
-:focus-visible {
-  outline: 3px solid var(--cb-accent-ink, var(--cb-accent, #34d399));
-  outline-offset: 3px;
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--cb-accent, #34d399) 22%, transparent);
-  border-radius: 2px;
-}
-/* Text inputs kill their outline inline (outline: "none") with no
-   replacement — keyboard users get zero focus indication. This restores
-   a visible ring on inputs specifically; inline outline:none still wins
-   for non-input elements (dialog panels, decorative wrappers) where the
-   ring would be noise. */
-input:focus-visible, textarea:focus-visible, select:focus-visible {
-  outline: 2px solid var(--cb-accent-ink, var(--cb-accent, #34d399)) !important;
-  outline-offset: 2px;
-  border-radius: 2px;
-}
+   The one global ring rule at the top of this stylesheet covers every
+   element including inputs (its !important beats inline outline none).
+   The duplicate 3px ring and input specific rule that used to sit here
+   are deleted (2026-10-19, audit M4). */
 
 /* The existing reduced-motion block at the end of this stylesheet zeroes
    animations and transitions. The one thing it can't do is un-hide
@@ -28093,7 +28066,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   }
 }
 .cb-glass-action:focus-visible, .cb-intro-go:focus-visible, .cb-intro-chip:focus-visible {
-  outline: 2px solid var(--cb-accent, #A3B899); outline-offset: 3px;
+  outline: 2px solid var(--cb-acc); outline-offset: 2px;
 }
 .cb-intro-header { border-bottom: 0; }
 #cb-intro-wrap h1 { text-wrap: balance; }
@@ -28515,11 +28488,6 @@ button.cb-cite { min-height: 0; min-width: 0; }
 @keyframes cbSheetIn { from { opacity: 0; transform: translateY(48px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .cb-ev-rail { animation: none !important; }
-}
-
-/* Reduced motion: no animated typing caret. (The ambient-layer half of
-   this rule retired with the ambient stack in the 2026-09-17 pass 1.) */
-@media (prefers-reduced-motion: reduce) {
 }
 
 `;
