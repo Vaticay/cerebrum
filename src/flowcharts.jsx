@@ -415,19 +415,30 @@ function fcBounds(nodes, pad = 60) {
   }
   return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + pad * 2, h: y1 - y0 + pad * 2 };
 }
+/* Standalone file default only: an exported SVG that leaves the app
+   cannot read a live palette, so fcSvgString keeps these literal
+   values as its fallback. Every in app export passes palette colors
+   instead (fcPaletteColors, M38, 2026-10-19). */
 const FC_EXPORT_COLORS = {
   bg: "#ffffff", fill: "#f6f7f6", stroke: "#232723", text: "#161916",
   accent: "#2e7d52", accentText: "#ffffff", edge: "#5b625b", decisionFill: "#eef4ef",
 };
-function fcNodeSvg(n) {
-  const C = FC_EXPORT_COLORS;
+/* The live palette as export colors, built from tokens only. */
+function fcPaletteColors(P, accent, at) {
+  return {
+    bg: P.bg, fill: P.surface, stroke: P.ink2, text: P.ink,
+    accent, accentText: at, edge: P.faint, decisionFill: withAlpha(accent, 0.14),
+  };
+}
+function fcNodeSvg(n, colors) {
+  const C = colors || FC_EXPORT_COLORS;
   const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
   const lines = fcWrap(n.label, Math.max(8, Math.floor((n.w - 30) / 7)));
   const lh = 16;
   const ty = cy - ((lines.length - 1) * lh) / 2 + 5;
   const isAccent = n.type === "start" || n.type === "end";
   const textFill = isAccent ? C.accentText : C.text;
-  const text = lines.map((ln, i) => `<text x="${cx}" y="${(ty + i * lh).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="${textFill}">${fcEsc(ln)}</text>`).join("");
+  const text = lines.map((ln, i) => `<text x="${cx}" y="${(ty + i * lh).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="500" fill="${textFill}">${fcEsc(ln)}</text>`).join("");
   let shape = "";
   if (n.type === "start" || n.type === "end") {
     shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${n.h / 2}" fill="${C.accent}"/>`;
@@ -443,8 +454,8 @@ function fcNodeSvg(n) {
   }
   return `<g>${shape}${text}</g>`;
 }
-function fcSvgString(nodes, edges, title) {
-  const C = FC_EXPORT_COLORS;
+function fcSvgString(nodes, edges, title, colors) {
+  const C = colors || FC_EXPORT_COLORS;
   const b = fcBounds(nodes);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const edgeSvg = edges.map((e) => {
@@ -454,7 +465,7 @@ function fcSvgString(nodes, edges, title) {
     const lbl = e.label ? `<text x="${g.mx}" y="${(g.my - 7).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-style="italic" fill="${C.edge}">${fcEsc(e.label)}</text>` : "";
     return `<path d="${g.d}" fill="none" stroke="${C.edge}" stroke-width="1.6" marker-end="url(#fcArrow)"/>${lbl}`;
   }).join("");
-  const nodeSvg = nodes.map(fcNodeSvg).join("");
+  const nodeSvg = nodes.map((n) => fcNodeSvg(n, C)).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(b.w)}" height="${Math.ceil(b.h)}" viewBox="${b.x} ${b.y} ${b.w} ${b.h}"><title>${fcEsc(title || "Flowchart")}</title><defs><marker id="fcArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="${C.edge}"/></marker></defs><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${C.bg}"/>${edgeSvg}${nodeSvg}</svg>`;
 }
 function fcToMarkdown(nodes, edges, title) {
@@ -491,7 +502,7 @@ function FcThumb({ chart, accent }) {
   const scale = Math.min(1, 280 / b.w, 120 / b.h);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   return (
-    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: 96, display: "block", background: "rgba(127,140,127,0.06)", borderRadius: RADIUS.md }}>
+    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: 96, display: "block", background: withAlpha(accent, 0.06), borderRadius: RADIUS.md }}>
       {(chart.edges || []).map((e) => {
         const a = byId.get(e.from), bb = byId.get(e.to);
         if (!a || !bb) return null;
@@ -544,8 +555,11 @@ function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
 function FcNodeShape({ n, P, accent, selected, pending }) {
   const cx = n.w / 2, cy = n.h / 2;
   const isAccent = n.type === "start" || n.type === "end";
-  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.055)" : "#ffffff");
-  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : (P.dark ? "rgba(255,255,255,0.20)" : "rgba(20,30,20,0.24)");
+  /* Canvas values on palette tokens (M38, 2026-10-19): the regular
+     node fill is P.surface and its stroke is P.line2, so switching
+     palettes restyles the canvas with the chrome. */
+  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : P.surface;
+  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : P.line2;
   const sw = selected || pending ? 2.6 : 1.5;
   const shape = (() => {
     if (n.type === "decision") return <polygon points={`${cx},0 ${n.w},${cy} ${cx},${n.h} 0,${cy}`} />;
@@ -709,12 +723,12 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
     setTimeout(() => setSavedFlash(false), 1800);
   };
   const doExportSVG = () => {
-    download(fcSlug(title) + ".svg", fcSvgString(nodes, edges, title));
+    download(fcSlug(title) + ".svg", fcSvgString(nodes, edges, title, fcPaletteColors(P, accent, at)));
     setExportOpen(false);
   };
   const doExportPNG = () => {
     const b = fcBounds(nodes);
-    const svg = fcSvgString(nodes, edges, title);
+    const svg = fcSvgString(nodes, edges, title, fcPaletteColors(P, accent, at));
     const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
     const img = new Image();
     // 2026-09-14: Surface export failures. The old code closed the menu
@@ -729,7 +743,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
         c.height = Math.max(1, Math.ceil(b.h * scale));
         const ctx = c.getContext("2d");
         if (!ctx) throw new Error("canvas unavailable");
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = P.bg;
         ctx.fillRect(0, 0, c.width, c.height);
         ctx.drawImage(img, 0, 0, c.width, c.height);
         c.toBlob((blob) => {
@@ -1068,15 +1082,15 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
           </div>
 
           {/* Canvas */}
-          <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0, background: P.dark ? "#0b0d0b" : "#eef0ec", overflow: "hidden" }}>
+          <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0, background: P.bg, overflow: "hidden" }}>
             <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block", cursor: tool === "connect" ? "crosshair" : "grab", touchAction: "none" }}
               onPointerDown={onCanvasPointerDown} onPointerMove={onCanvasPointerMove} onPointerUp={onCanvasPointerUp} onPointerCancel={onCanvasPointerCancel}>
               <defs>
                 <pattern id="fcGrid" width="28" height="28" patternUnits="userSpaceOnUse">
-                  <circle cx="1.2" cy="1.2" r="1.1" fill={P.dark ? "rgba(255,255,255,0.055)" : "rgba(20,30,20,0.07)"} />
+                  <circle cx="1.2" cy="1.2" r="1.1" fill={P.line2} />
                 </pattern>
                 <pattern id="fcGridMajor" width="140" height="140" patternUnits="userSpaceOnUse">
-                  <path d="M 140 0 L 0 0 0 140" fill="none" stroke={P.dark ? "rgba(255,255,255,0.045)" : "rgba(20,30,20,0.06)"} strokeWidth="1" />
+                  <path d="M 140 0 L 0 0 0 140" fill="none" stroke={P.line} strokeWidth="1" />
                 </pattern>
                 {/* Arrowheads carry the accent now, not faint grey: the eye
                     follows the flow instead of hunting for it. */}
@@ -1133,7 +1147,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                       {pend && <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={RADIUS.lg} fill="none" stroke={accent} strokeWidth={1.6} strokeDasharray="6 4" opacity={0.8} />}
                       <FcNodeShape n={n} P={P} accent={accent} selected={sel} pending={pend} />
                       {kicker && (
-                        <text x={n.w / 2} y={ty + 4} textAnchor="middle" fontSize={10.5} fill={accent}
+                        <text x={n.w / 2} y={ty + 4} textAnchor="middle" fontSize={FONT_SIZES.caption} fill={accent}
                           style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: "normal" }}>
                           {kicker}
                         </text>
@@ -1145,7 +1159,7 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
                         </text>
                       ))}
                       {n.type === "evidence" && typeof n.sourceIdx === "number" && sources?.[n.sourceIdx] && (
-                        <text x={n.w / 2} y={n.h - 10} textAnchor="middle" fontSize={10} fill={P.faint}
+                        <text x={n.w / 2} y={n.h - 10} textAnchor="middle" fontSize={FONT_SIZES.caption} fill={P.faint}
                           style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontStyle: "italic" }}>
                           {String(sources[n.sourceIdx].title || "source").slice(0, 34)}{String(sources[n.sourceIdx].title || "").length > 34 ? "…" : ""}
                         </text>
@@ -1607,29 +1621,33 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
              to run scripts, no matter what a pasted .mmd contains. */
           securityLevel: "strict",
           theme: "base",
+          /* Canvas colors from palette tokens (M38, 2026-10-19): node
+             and actor fills are P.surface, secondary fills P.raised,
+             and the ground behind edge labels P.bg, so a palette
+             switch restyles this canvas with the chrome. */
           themeVariables: {
             darkMode: dark,
             background: "transparent",
-            primaryColor: dark ? "#1c1c21" : "#ffffff",
+            primaryColor: P.surface,
             primaryBorderColor: accent,
             primaryTextColor: P.ink,
-            secondaryColor: dark ? "#26262c" : "#f1f0ec",
-            tertiaryColor: dark ? "#131316" : "#e9e7e2",
+            secondaryColor: P.raised,
+            tertiaryColor: P.bg,
             lineColor: P.faint,
             textColor: P.ink,
-            mainBkg: dark ? "#1c1c21" : "#ffffff",
-            nodeBkg: dark ? "#1c1c21" : "#ffffff",
+            mainBkg: P.surface,
+            nodeBkg: P.surface,
             nodeBorder: accent,
-            clusterBkg: dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.025)",
+            clusterBkg: P.raised,
             clusterBorder: P.line2,
             titleColor: P.ink,
-            edgeLabelBackground: dark ? "#131316" : "#f4f3ef",
-            actorBkg: dark ? "#1c1c21" : "#ffffff",
+            edgeLabelBackground: P.bg,
+            actorBkg: P.surface,
             actorBorder: accent,
             actorTextColor: P.ink,
             signalColor: P.ink,
             signalTextColor: P.ink,
-            labelBoxBkgColor: dark ? "#1c1c21" : "#ffffff",
+            labelBoxBkgColor: P.surface,
             labelBoxBorderColor: P.line2,
             labelTextColor: P.ink,
             pie1: accent,
@@ -1642,7 +1660,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [dark, accent, P.ink, P.faint, P.line2]);
+  }, [dark, accent, P.ink, P.faint, P.line2, P.surface, P.raised, P.bg]);
 
   /* Debounced live render. */
   useEffect(() => {
@@ -1843,7 +1861,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
       canvas.height = h * scale;
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("canvas unavailable");
-      ctx.fillStyle = dark ? "#101013" : "#ffffff";
+      ctx.fillStyle = P.surface;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
@@ -1896,9 +1914,7 @@ export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
   };
   /* Ruled lines, not dots: the canvas reads as a working surface, and the
      diagram stays the figure against it. */
-  const ruledBg = dark
-    ? "repeating-linear-gradient(to bottom, transparent 0, transparent 27px, rgba(255,255,255,0.05) 27px, rgba(255,255,255,0.05) 28px)"
-    : "repeating-linear-gradient(to bottom, transparent 0, transparent 27px, rgba(0,0,0,0.055) 27px, rgba(0,0,0,0.055) 28px)";
+  const ruledBg = `repeating-linear-gradient(to bottom, transparent 0, transparent 27px, ${withAlpha(P.ink, 0.055)} 27px, ${withAlpha(P.ink, 0.055)} 28px)`;
   const status = mmError
     ? { dot: "#f87171", text: "Engine failed to load" }
     : !mm ? { dot: P.faint, text: "Loading engine…" }
