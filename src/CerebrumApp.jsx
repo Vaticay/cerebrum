@@ -104,7 +104,7 @@ import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTempl
 
 /* Intro + film helpers (extracted 2026-10-07, monolith split). */
 import {
-  InvestigationOpening, usePrefersReducedMotion, useReducedMotion,
+  usePrefersReducedMotion, useReducedMotion,
   FILM_CLIPS_LANDSCAPE, FILM_CLIPS_PORTRAIT,
   videoUrl, filmReel, FILM_POSTER, FILM_HOLD_MS,
   FILM_CREDITS, FILM_MODIFICATIONS, FilmCreditsDialog, FILM_SCENES,
@@ -2952,12 +2952,8 @@ function looksLikeMechanismQuestion(q) {
      stageDetailFor ("12 of 40 candidates kept"), accumulated in
      stream.history by pushStage.
 
-   The marine snow is a light CSS field, not the 190-particle canvas —
-   that stays with the intro. It densifies as the dive goes deeper: more
-   motes in the same water.
-
    Reduced motion: a static stage list with checkmarks. No descent
-   animation, no snow, no pulsing traveler. The stage names and the
+   animation, no pulsing traveler. The stage names and the
    database count carry the state, paired, never motion alone. */
 const DIVE_DEPTHS = ["0m", "200m", "400m", "600m", "800m"];
 function Dive({ P, accent, q, contextual = false, videosLocated = false, stream = null, onCancel = null }) {
@@ -2972,25 +2968,9 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
     } catch (cbErr) { console.error("[Cerebrum] Dive honesty flag:", cbErr); }
   }, []);
 
-  /* Deterministic snow field: seeded so re-renders never reshuffle the
-     water. Built once per mount. */
-  const snow = useMemo(() => {
-    const arr = [];
-    let seed = 20261008;
-    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-    for (let i = 0; i < 30; i++) {
-      arr.push({
-        left: rnd() * 100,
-        top: rnd() * 100,
-        size: 1 + rnd() * 2.5,
-        dur: 9 + rnd() * 14,
-        delay: -rnd() * 20,
-        op: 0.12 + rnd() * 0.38,
-      });
-    }
-    return arr;
-  }, []);
-
+  /* The marine snow field is gone (2026-10-19, S7 shell lane, audit H9):
+     motes that multiplied with depth were decoration competing with the
+     room's one job, which is the honest stage rail below. */
   /* Elapsed time in the current stage (2026-10-15, on the owner's order).
      The stream sends one frame when synthesis starts and nothing further
      until the citation check begins (functions/api/search.js emits the
@@ -3026,10 +3006,6 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
   const history = (stream && Array.isArray(stream.history)) ? stream.history : [];
   const histFor = (i) => history.find((h) => h.index === i);
 
-  /* Snow densifies with depth: a sparse field at the surface, the full
-     column at the deepest stratum. */
-  const snowCount = reduced ? 0 : 8 + Math.max(0, activeIndex) * 5;
-
   /* The honest count. dbAnswered/dbTotal ride the finding_papers stream
      frames (real per-rung completions from the backend). Before the first
      progress frame — or on the single-fetch fallback where stream is
@@ -3052,19 +3028,7 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
   const markPct = activeIndex < 0 ? 0 : 10 + activeIndex * 20;
 
   return (
-    <div className={reduced ? "cb-dive" : "cb-dive cb-dive-descend"} style={{ "--cb-acc": accent }} role="status" aria-label="Search in progress">
-      {!reduced && (
-        <div className="cb-dive-snowfield" aria-hidden="true">
-          {snow.slice(0, Math.min(snow.length, snowCount)).map((m, i) => (
-            <span key={i} className="cb-dive-mote" style={{
-              left: m.left + "%", top: m.top + "%",
-              width: m.size, height: m.size, opacity: m.op,
-              animationDuration: m.dur + "s", animationDelay: m.delay + "s",
-            }} />
-          ))}
-        </div>
-      )}
-
+    <div className={reduced ? "cb-dive" : "cb-dive cb-dive-descend"} style={{ "--cb-acc": accent, "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint, "--cb-line": P.line }} role="status" aria-label="Search in progress">
       <div className="cb-dive-kicker">Query</div>
       <h2 className="cb-dive-q">{q}</h2>
 
@@ -23793,19 +23757,10 @@ function App() {
      Fires on the edge, not the state: the signature belongs to the moment a
      question becomes an investigation, so it plays once on the transition
      into `started` and never again while you are in there. */
-  const [opening, setOpening] = useState(false);
-  const wasStarted = useRef(false);
-  const startedNow = turns.length > 0 || busy;
-  useEffect(() => {
-    if (startedNow && !wasStarted.current) {
-      setOpening(true);
-      wasStarted.current = true;
-      const t = setTimeout(() => setOpening(false), 1150);
-      return () => clearTimeout(t);
-    }
-    if (!startedNow) wasStarted.current = false;
-  }, [startedNow]);
-
+  /* The glowing brain veil that used to play here on the first ask is
+     deleted (2026-10-19, S7 shell lane, audit M13): the Dive is the
+     single transition into a search, with no veil before it and no
+     column narrowing during it. */
   if (!entered) {
     // Plate redesign (2026-10-13) — the consent gate no longer overlays
     // the Intro. The trigger moved from page load to the way in, and
@@ -24027,7 +23982,7 @@ function App() {
         {!cbMotionOff() && animationMode !== "off" && (
           <div aria-hidden="true" style={{
             position: "fixed", inset: 0, zIndex: Z.base + 1, pointerEvents: "none",
-            filter: "brightness(0.30) saturate(0.60)",
+            filter: "brightness(0.30) saturate(0.60) blur(12px)",
           }}>
             <CinematicFilm
               reel="calm"
@@ -24071,7 +24026,7 @@ function App() {
           animationMode={animationMode}
         />
       ) : (
-        <div style={{ position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none", filter: "brightness(0.72) saturate(0.85)" }} aria-hidden="true">
+        <div style={{ position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none", filter: "brightness(0.30) saturate(0.60) blur(12px)" }} aria-hidden="true">
           <CinematicFilm
             ref={wsFilmRef}
             animationMode={animationMode}
@@ -24086,9 +24041,9 @@ function App() {
             /* Opens on the door's clip when the visitor just stepped through,
                so the background frame is retained across the handoff. */
             startAt={enterClip}
-            /* Darkest while reading — an answer is the one screen where the
-               footage must be felt, never seen. Brighter on the home search
-               screen, which is mostly empty space around the composer. */
+            /* One grade for every view (2026-10-19, S7 shell lane, audit H6):
+               the wrapper filter above is the same dark, blurred grade the
+               search home uses. No view grades brighter than another. */
             intensity={
               started ? 0.16
                 : (view && view !== "search") ? 0.20
@@ -24130,7 +24085,6 @@ function App() {
       {filmCreditsOpen && <FilmCreditsDialog accent={accent} onClose={() => setFilmCreditsOpen(false)} />}
 
       {updateReady && <VersionBanner P={P} accent={accent} isMobile={isMobile} onRefresh={() => window.location.reload()} onDismiss={() => setUpdateReady(false)} />}
-      {opening && <InvestigationOpening accent={accent} animationMode={animationMode} />}
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {/* Back to top. Two mobile fixes: it sat at 10% white over the page,
           so the Home Deck's rows read straight through it (a watchlist
@@ -24324,7 +24278,8 @@ function App() {
                The home stage: the empty search home as one wide
                stage inside the standard shell. Dusty's evening
                revision (2026-10-13) supersedes the plate stage and
-               its narrow column: the stage runs wide (1160), a
+               its narrow column: the stage column is the thread
+               column (LAYOUT.answer, 1080, since 2026-10-19, audit M13), a
                plain Cerebrum masthead sits at the top like the pre
                plate layout had, and the copy goes quiet and human.
                No eyebrow, no manifesto headline, no marketing
@@ -24348,7 +24303,7 @@ function App() {
             <Reveal style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 40px" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               <div style={{
-                width: "100%", maxWidth: 1160, padding: isMobile ? "0 20px" : "0 24px",
+                width: "100%", maxWidth: LAYOUT.answer, padding: isMobile ? "0 20px" : "0 24px",
                 "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
                 "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
               }}>
@@ -26258,83 +26213,16 @@ summary::-webkit-details-marker { display: none; }
   -webkit-mask-image: radial-gradient(ellipse 78% 66% at 50% 44%, black 25%, transparent 100%);
   mask-image: radial-gradient(ellipse 78% 66% at 50% 44%, black 25%, transparent 100%);
 }
-/* ── Intro atmosphere: the cinematic feel, calmed (2026-10-08) ──
-   Dusty: the flat sterile grid "looks HORRIBLE," bring the cinema back —
-   but calm. So no footage, no bokeh, nothing recognizable: three vast
-   blurred light fields drifting on 90s+ alternate cycles over the grid
-   bed, plus a slow-breathing light well from above. Very dark (peak
-   alpha 0.10), heavily blurred (60-90vmax radial falloffs), barely
-   perceptible motion (±8vmax drift). The room has air, not a movie.
-   All motion is transform/opacity, ease-in-out alternate so loops never
-   snap. Reduced motion (media query or the cb-intro-still class) freezes
-   every blob at its rest frame: the same atmosphere, one still image. */
-.cb-intro-atmosphere {
-  position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden;
-}
-.cb-intro-atmosphere > div { position: absolute; border-radius: 50%; will-change: transform, opacity; }
-.cb-atmo-a {
-  width: 72vmax; height: 72vmax; left: -18vmax; top: -22vmax;
-  background: none;
-  animation: cbAtmoDriftA 110s ease-in-out infinite alternate;
-}
-.cb-atmo-b {
-  width: 84vmax; height: 84vmax; right: -26vmax; bottom: -30vmax;
-  background: none;
-  animation: cbAtmoDriftB 130s ease-in-out infinite alternate;
-}
-.cb-atmo-c {
-  width: 58vmax; height: 58vmax; left: 24vmax; top: 30vmax;
-  background: none;
-  animation: cbAtmoDriftC 92s ease-in-out infinite alternate;
-}
-.cb-atmo-well {
-  width: 120vmax; height: 70vmax; left: -10vmax; top: -42vmax; border-radius: 0;
-  background: none;
-  animation: cbAtmoWell 64s ease-in-out infinite alternate;
-}
-@keyframes cbAtmoDriftA {
-  from { transform: translate(0, 0); }
-  to { transform: translate(7vmax, 5vmax); }
-}
-@keyframes cbAtmoDriftB {
-  from { transform: translate(0, 0); }
-  to { transform: translate(-8vmax, -6vmax); }
-}
-@keyframes cbAtmoDriftC {
-  from { transform: translate(0, 0) scale(1); opacity: 0.75; }
-  to { transform: translate(-5vmax, 7vmax) scale(1.08); opacity: 1; }
-}
-@keyframes cbAtmoWell {
-  from { opacity: 0.55; }
-  to { opacity: 1; }
-}
-/* Still frame: reduced motion gets the same atmosphere with zero movement. */
-.cb-intro-still .cb-intro-atmosphere > div { animation: none; }
-@media (prefers-reduced-motion: reduce) {
-  .cb-intro-atmosphere > div { animation: none; }
-}
+/* The intro atmosphere layer that used to be defined here (the
+   blurred .cb-intro-atmosphere fields and their drift keyframes) had
+   no mount anywhere in src/ and is deleted (2026-10-19, S7 shell lane,
+   audit H6). The mounted search atmosphere is .cb-atmo below. */
 /* Viewport ticks: the whole screen is the instrument, not just the panel. */
 .cb-instr-viewport { position: fixed !important; inset: 14px; z-index: 5; pointer-events: none; }
-/* Depth rail: the descent motif as a static scale. The door sits at the
-   surface; the workspace is the descent. */
-.cb-depth-rail {
-  position: fixed; right: 30px; top: 50%; transform: translateY(-50%);
-  z-index: 6; pointer-events: none;
-  display: flex; flex-direction: column; gap: 30px; align-items: flex-end;
-  font-family: var(--cb-mono); font-size: 10px; letter-spacing: 0.18em;
-  color: rgba(238,241,238,0.30); font-variant-numeric: tabular-nums;
-}
-.cb-depth-rail .cb-depth-mark { display: flex; align-items: center; gap: 9px; }
-.cb-depth-rail .cb-depth-mark i {
-  display: block; width: 16px; height: 1px; background: rgba(238,241,238,0.22);
-}
-.cb-depth-rail .cb-depth-mark.cb-depth-here { color: rgba(217,164,65,0.85); }
-.cb-depth-rail .cb-depth-mark.cb-depth-here i { width: 26px; background: rgba(217,164,65,0.65); }
-.cb-depth-rail .cb-depth-surface {
-  font-size: 9px; letter-spacing: 0.3em; color: rgba(238,241,238,0.22);
-  margin-top: 6px;
-}
-@media (max-width: 900px) { .cb-depth-rail { display: none; } }
+/* The depth rail selectors that used to sit here (.cb-depth-rail and
+   its marks) had no mount anywhere in src/ and are deleted
+   (2026-10-19, S7 shell lane, audit H6). */
+
 /* Leaving: the chamber descends into the workspace — the Dive motif in
    reverse, sinking through the door. 420ms to match the handoff timer. */
 #cb-intro-wrap.cb-intro-leaving {
@@ -26960,8 +26848,9 @@ summary::-webkit-details-marker { display: none; }
 /* ── Dive: the descent instrument ──
    The one loading language. Five depth strata, one per real pipeline
    stage; the rail fills and the traveler rides as stage frames arrive.
-   Marine snow is a light CSS field that densifies with depth. No elapsed
-   clock, no fake progress, no fake geometry. */
+   No fake progress, no fake geometry. The room is colored from the
+   palette tokens the component root sets (2026-10-19, audit H9); the
+   old dark room hexes, the traveler pulse and the snow field are gone. */
 .cb-dive {
   --cb-acc: #d9a441;
   position: relative;
@@ -26978,36 +26867,22 @@ summary::-webkit-details-marker { display: none; }
 .cb-dive-kicker {
   /* Inter Tight label, not a tracked-out eyebrow. */
   font-family: var(--cb-font); font-size: 11px; font-weight: 500;
-  color: color-mix(in srgb, var(--cb-acc) 85%, white);
+  color: var(--cb-faint);
   margin-bottom: 14px;
   position: relative; z-index: 1;
 }
 .cb-dive-q {
   font-family: var(--cb-font); font-weight: 500;
   letter-spacing: -0.015em; line-height: 1.28;
-  font-size: clamp(20px, 4.2vw, 30px);
-  color: #f2f4f2;
+  /* Plan size and weight (2026-10-19, audit H9): the section role,
+     22 at 500, in the palette ink, not a fluid dark room size. */
+  font-size: 22px;
+  color: var(--cb-ink);
   max-width: 720px; margin: 0;
   position: relative; z-index: 1;
 }
-/* Marine snow: the water column. Motes drift downward on transform only;
-   each carries its own duration and negative delay so the field is
-   already mid-drift on mount. */
-.cb-dive-snowfield {
-  position: absolute; inset: 0;
-  pointer-events: none; overflow: hidden;
-}
-.cb-dive-mote {
-  position: absolute;
-  border-radius: 50%;
-  background: #ffffff;
-  animation: cbSnowDrift linear infinite;
-  will-change: transform;
-}
-@keyframes cbSnowDrift {
-  from { transform: translateY(-16px); }
-  to { transform: translateY(48px); }
-}
+/* The snow field CSS that used to sit here is deleted with its JSX
+   (2026-10-19, S7 shell lane, audit H9). */
 /* The depth well: the stage rail as a depth cross-section. Strata are a
    fixed 64px so the rail marks land exactly: node centers at
    10/30/50/70/90% of the well. */
@@ -27019,7 +26894,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-dive-rail {
   position: relative; flex-shrink: 0;
   width: 2px; align-self: stretch;
-  background: rgba(255,255,255,0.12);
+  background: var(--cb-line);
   border-radius: 2px;
 }
 .cb-dive-railfill {
@@ -27034,12 +26909,9 @@ summary::-webkit-details-marker { display: none; }
   width: 11px; height: 11px; margin-left: -5.5px;
   border-radius: 50%; background: var(--cb-acc);
   box-shadow: none;
+  /* No glow and no pulse (2026-10-19, audit H9): the traveler marks the
+     live stage by position on the rail, nothing else. */
   transition: top 550ms var(--cb-ease);
-  animation: cbTravelerPulse 1.8s var(--cb-ease) infinite;
-}
-@keyframes cbTravelerPulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.35); opacity: 0.75; }
 }
 .cb-dive-strata {
   list-style: none; margin: 0; padding: 0;
@@ -27052,7 +26924,7 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-dive-depth {
   font-family: var(--cb-mono); font-size: 10px; font-weight: 500;
-  color: rgba(242,244,242,0.35);
+  color: var(--cb-faint);
   width: 38px; flex-shrink: 0; text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -27063,7 +26935,7 @@ summary::-webkit-details-marker { display: none; }
   color: var(--cb-acc);
 }
 .cb-dive-stratum.is-pending .cb-dive-node {
-  border: 1px solid rgba(255,255,255,0.22);
+  border: 1px solid var(--cb-line);
 }
 .cb-dive-stratum.is-active .cb-dive-node {
   border: 1px solid var(--cb-acc);
@@ -27076,12 +26948,12 @@ summary::-webkit-details-marker { display: none; }
 .cb-dive-stage { display: flex; flex-direction: column; min-width: 0; }
 .cb-dive-label {
   font-family: var(--cb-font); font-size: 13px; font-weight: 500;
-  color: #f2f4f2; letter-spacing: 0.01em;
+  color: var(--cb-ink); letter-spacing: 0.01em;
 }
-.cb-dive-stratum.is-pending .cb-dive-label { color: rgba(242,244,242,0.4); font-weight: 500; }
+.cb-dive-stratum.is-pending .cb-dive-label { color: var(--cb-faint); font-weight: 500; }
 .cb-dive-detail {
   font-family: var(--cb-font); font-size: 11px;
-  color: rgba(242,244,242,0.5); margin-top: 2px;
+  color: var(--cb-faint); margin-top: 2px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   max-width: 100%;
 }
@@ -27092,7 +26964,7 @@ summary::-webkit-details-marker { display: none; }
   margin-top: 22px;
   font-family: var(--cb-font); font-weight: 500;
   font-size: 15px; letter-spacing: -0.01em;
-  color: #f5f7f5;
+  color: var(--cb-ink);
   font-variant-numeric: tabular-nums;
 }
 .cb-dive-line {
@@ -27100,7 +26972,7 @@ summary::-webkit-details-marker { display: none; }
   margin-top: 8px;
   font-family: var(--cb-font); font-size: 11px;
   letter-spacing: 0.02em;
-  color: rgba(242,244,242,0.45);
+  color: var(--cb-faint);
   max-width: 560px;
 }
 /* First-run honesty caption. One line, plain words, shown once. */
@@ -27108,7 +26980,7 @@ summary::-webkit-details-marker { display: none; }
   position: relative; z-index: 1;
   margin-top: 14px; max-width: 560px;
   font-family: var(--cb-font); font-size: 12px; line-height: 1.6;
-  color: color-mix(in srgb, var(--cb-acc) 80%, white);
+  color: var(--cb-ink2);
   border-left: 2px solid color-mix(in srgb, var(--cb-acc) 55%, transparent);
   padding-left: 12px;
 }
@@ -27118,7 +26990,7 @@ summary::-webkit-details-marker { display: none; }
   display: inline-flex; align-items: center; gap: 8px;
   font-family: var(--cb-font); font-size: 11px; font-weight: 500;
   letter-spacing: 0.02em;
-  color: rgba(242,244,242,0.85);
+  color: var(--cb-ink2);
   animation: cbRise 320ms var(--cb-ease) both;
 }
 .cb-dive-dot {
@@ -27142,14 +27014,12 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-view-ascend { animation: cbAscend 550ms var(--cb-ease) both; }
 @media (prefers-reduced-motion: reduce) {
-  .cb-dive-mote { animation: none; }
   .cb-dive-traveler { animation: none; }
 }
 /* The in-product motion toggle (Settings → Sound & motion → Off) applies
    the same kills via body.cb-motion-off, for stylesheet-driven motion the
    OS media query can't reach. Components gate their own motion through
    useReducedMotion(); this is the backstop for the loops above. */
-body.cb-motion-off .cb-dive-mote,
 body.cb-motion-off .cb-dive-traveler,
 body.cb-motion-off .cb-turn-ascend,
 body.cb-motion-off .cb-view-descend,

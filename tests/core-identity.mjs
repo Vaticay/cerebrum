@@ -289,7 +289,10 @@ group("Home stage: sidebar restored, one column, one navigation");
        survives, but at the wide measure Dusty ordered from his
        photo of the live stage, and the Continue row carries its
        plain label, not the plate one. */
-    assert.ok(stage.includes('width: "100%", maxWidth: 1160'), "stage column is not the single wide column");
+    /* Pin updated 2026-10-19 (S7 shell lane, audit M13): the stage column
+       now holds the thread's own width (LAYOUT.answer, 1080) from stage
+       into thread, instead of narrowing from 1160 mid ceremony. */
+    assert.ok(stage.includes('width: "100%", maxWidth: LAYOUT.answer'), "stage column is not the single wide column");
     assert.ok(!stage.includes("paddingLeft"), "a second left padding crept into the stage column");
     assert.ok(stage.includes("<HomeDeck"), "deck missing from the stage column");
     assert.ok(stage.includes(">Continue<"), "continue row missing from the column");
