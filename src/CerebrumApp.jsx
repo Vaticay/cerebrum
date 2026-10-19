@@ -18643,7 +18643,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             </div>
             <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 12, flexWrap: "wrap" }}>
               <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {!docStats ? <span>Paste a paper, report, or any long document</span> : <>
+                {!docStats ? <span>Paste a paper, report, or any long document. You can also upload a file or drop one here.</span> : <>
                   <span>{docStats.words.toLocaleString()} words</span>
                   <span style={{ opacity: 0.5 }}>·</span>
                   <span>~{docStats.mins} min read</span>
@@ -18661,7 +18661,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                     color: (!hasDoc || analyzing) ? P.ink2 : at, fontWeight: 500, fontSize: FONT_SIZES.small, flexShrink: 0,
                     opacity: (!hasDoc || analyzing) ? 0.75 : 1, fontFamily: "var(--cb-font)",
                   }}
-                >{analyzing ? "Reading it…" : rerunArmed ? "Clear questions and re run" : "Inspect document"}</UIButton>
+                >{analyzing ? "Reading it…" : rerunArmed ? "Clear questions and run again" : "Inspect document"}</UIButton>
                 {analyzing && (
                   <UIButton P={P} variant="ghost"
                     onClick={cancelAnalyze}
@@ -18676,7 +18676,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               </div>
               {rerunArmed && (
                 <div role="note" style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.55, flexBasis: "100%" }}>
-                  Re running the analysis clears your follow up questions for this document. Press the button again to continue.
+                  Running the analysis again clears your follow up questions for this document. Press the button again to continue.
                 </div>
               )}
               {(docIsPro || docCap != null) && (
@@ -19283,11 +19283,14 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         </div>
         {isMobile && !!docTextTrimmed && (
           /* A phone reader should never have to scroll past the whole
-             document to ask about it: the ask bar floats above the
-             app bottom navigation and jumps to the composer. */
-          <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(78px + env(safe-area-inset-bottom, 0px))", zIndex: 40, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+             document to ask about it: the ask bar docks above the app
+             bottom navigation and jumps to the composer. Docked, not
+             floating (2026-10-19, tail 19): a bordered solid strip on
+             the named Z.headerBar slot, no shadow, replacing the
+             shadowed pill that sat on a raw zIndex of 40. */
+          <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(78px + env(safe-area-inset-bottom, 0px))", zIndex: Z.headerBar, background: P.surface, borderTop: `1px solid ${P.line}`, padding: "10px 16px", display: "flex" }}>
             <button type="button" onClick={focusDocAsk}
-              style={{ pointerEvents: "auto", minHeight: 48, padding: "12px 22px", borderRadius: RADIUS.pill, border: "none", background: accent, color: at, fontWeight: 500, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer", boxShadow: "none" }}>
+              style={{ flex: 1, minHeight: 48, padding: "12px 22px", borderRadius: RADIUS.md, border: "1px solid transparent", background: accent, color: at, fontWeight: 500, fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)", cursor: "pointer", boxShadow: "none" }}>
               Ask this document
             </button>
           </div>
