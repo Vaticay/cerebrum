@@ -3471,7 +3471,10 @@ await test("the live Nova stands at the persistent spots and the artwork moments
   // over her"): the 68px cream circle that wrapped the header
   // Nova is gone; she stands on the page. The absence is the pin.
   assert.ok(!learnSrc.includes("width: 68, height: 68"), "the header circle came back");
-  assert.ok(learnSrc.includes("<SheetNova good={sheetGood}"), "the feedback sheet lost its timed Nova reaction");
+  // Pin moved 2026-10-19 (structural wave, the Player single
+  // mount): the sheet's timed Nova reaction is the sheet pose of
+  // the Player's one figure now, handed the same verdict props.
+  assert.ok(learnSrc.includes("<PlayerNovaFigure inSheet={checked} good={sheetGood}"), "the feedback sheet lost its timed Nova reaction");
   // Pins replaced 2026-10-15 (owner's one Nova per screen
   // ruling, "There's too many Novas on this one page"): the
   // review bench greeter (fading, 54px) and the library empty
@@ -4102,12 +4105,14 @@ await test("her feedback teaching: the why is spoken on both outcomes, and a mis
   assert.equal(feedbackTeachLine({ kind: "quiz", why: "" }, { good: false, correctText: null }), null);
 });
 
-await test("the feedback sheet routes her teaching through SheetNova, and the canned sheet quips stand down while she teaches", () => {
-  assert.ok(learnSrc.includes("teach={sheetTeach}"), "the Player does not hand SheetNova its teaching");
+// Retitled 2026-10-19 (structural wave): SheetNova is the sheet
+// pose of PlayerNovaFigure now; the teaching route is unchanged.
+await test("the feedback sheet routes her teaching through the Player figure, and the canned sheet quips stand down while she teaches", () => {
+  assert.ok(learnSrc.includes("teach={sheetTeach}"), "the Player does not hand the Player figure its teaching");
   assert.ok(learnSrc.includes("feedbackTeachLine(card, {"), "the Player does not compose the teaching from the answered card");
   assert.ok(learnSrc.includes("displayOptions[displayCorrect]"), "the correction is not resolved through the order the learner saw");
   assert.ok(learnSrc.includes("NOVA_FEEDBACK_RIGHT_LINES") && learnSrc.includes("NOVA_FEEDBACK_WRONG_LINES"),
-    "SheetNova does not draw her reaction openers from the banks");
+    "the Player figure does not draw her reaction openers from the banks");
   assert.ok(learnSrc.includes("if (teachRef.current) return;"), "the sheet's category quips do not stand down while she teaches");
   assert.ok(learnSrc.includes(">WHY</p>"), "the sheet stopped printing the why as text for rereading");
 });
@@ -4120,15 +4125,21 @@ await test("the feedback sheet routes her teaching through SheetNova, and the ca
    extending 94px past the sheet column's left edge and
    clipped there by the sheet scroll box, mid word on every
    line (the owner's photo). The corrected contract: the
-   Player owns the sheet controller, SheetNova drives it,
+   Player owns the sheet controller, the Player figure drives
+   it (SheetNova before the 2026-10-19 single mount),
    the sheet figure renders figure only, and the Player
    renders the current line in flow in the sheet body. */
 await test("the feedback sheet renders her speech in flow at the sheet column's width, never as a floating header bubble", () => {
   assert.ok(learnSrc.includes("const sheetSpeech = useNovaSpeech();"),
     "the Player does not own the feedback sheet's speech controller");
   assert.ok(learnSrc.includes("teach={sheetTeach} speech={sheetSpeech}"),
-    "SheetNova is not handed the Player's controller to drive");
-  assert.ok(learnSrc.includes("bubbleVariant={null}"),
+    "the Player figure is not handed the Player's controller to drive");
+  // Pin moved 2026-10-19 (structural wave, the Player single
+  // mount): the sheet figure is the one figure in its sheet
+  // pose, so the null bubble variant is now the sheet branch of
+  // its pose ternary. The contract is unchanged and stronger:
+  // in the sheet pose the figure renders figure only.
+  assert.ok(learnSrc.includes("bubbleVariant={inSheet ? null : undefined}"),
     "the sheet figure still renders a bubble from its anchor");
   assert.ok(riveSrc.includes('props.bubbleVariant === undefined ? "header" : props.bubbleVariant'),
     "NovaRive surfaces no longer default to the header bubble");
@@ -4148,9 +4159,12 @@ await test("the feedback sheet renders her speech in flow at the sheet column's 
     "the sheet bubble does not carry the controller's full current line");
   assert.ok(learnSrc.includes('style={{ clear: "both", marginTop: 12, marginBottom: 14 }}'),
     "her sheet bubble does not sit in flow below the floated figure and verdict");
-  // The Player's own header figure stays figure only: it
-  // takes no speech prop at all, before and after the fix.
-  assert.ok(learnSrc.includes('anchorRef={novaAnchorRef} />'),
+  // The Player's own header figure stays figure only.
+  // Pin moved 2026-10-19 (structural wave, the Player single
+  // mount): the one figure now receives the controller gated
+  // by pose, null outside the sheet, so the header pose still
+  // takes no speech surface at all.
+  assert.ok(learnSrc.includes("speech={inSheet ? speech : null}"),
     "the Player header figure took a speech surface");
 });
 
@@ -4776,12 +4790,14 @@ await test("her silence is priced in: praise is the rarest category, warnings th
   assert.ok(speechSrc.includes("SPEECH_DISPLAY_MIN_MS = 2400") && speechSrc.includes("SPEECH_DISPLAY_MAX_MS = 9000"), "the speech controller no longer prices display time by reading time");
 });
 
-await test("NovaLive and SheetNova render NovaRive behind their existing props", () => {
+// Retitled 2026-10-19 (structural wave): SheetNova's render is
+// PlayerNovaFigure's one NovaRive, posed by inSheet.
+await test("NovaLive and the Player figure render NovaRive behind their existing props", () => {
   assert.ok(learnSrc.includes("<NovaRive state={shownState}"), "NovaLive must render NovaRive");
   assert.ok(learnSrc.includes("appState={appStateForActivity(activityState)}"), "NovaLive must map activity onto appState");
   assert.ok(learnSrc.includes("sleepStage={sleepStage}"), "NovaLive must feed the brain sleep stage");
-  assert.ok(learnSrc.includes("<NovaRive state={shown}"), "SheetNova must render NovaRive");
-  assert.ok(learnSrc.includes("quizStateForSheet({ phase, good, correctStreak"), "SheetNova must map its phases onto quizState");
+  assert.ok(learnSrc.includes("<NovaRive state={inSheet ? shown"), "the Player figure must render NovaRive");
+  assert.ok(learnSrc.includes("quizStateForSheet({ phase: inSheet ? phase : 0, good: inSheet ? good : false, correctStreak"), "the Player figure must map its poses onto quizState");
   // Pin replaced 2026-10-15 (the old model purge): this slot
   // pinned the avatar's export for the NovaRive fallback. The
   // fallback and the avatar are both deleted; the absence is
@@ -4798,12 +4814,51 @@ await test("the Player wires option hover and focus into the quiz feed", () => {
   assert.ok(hovers >= 3, `expected the hover wiring on at least 3 option surfaces, found ${hovers}`);
   const focuses = (learnSrc.match(/onFocus=\{quizHoverStart\}/g) || []).length;
   assert.ok(focuses >= 3, `expected the focus wiring on at least 3 option surfaces, found ${focuses}`);
-  assert.ok(learnSrc.includes("correctStreak={rightStreak}"), "SheetNova must receive the correct streak");
-  assert.ok(learnSrc.includes("quizFeed={quizFeed}"), "SheetNova must receive the quiz feed");
+  assert.ok(learnSrc.includes("correctStreak={rightStreak}"), "the Player figure must receive the correct streak");
+  assert.ok(learnSrc.includes("quizFeed={quizFeed}"), "the Player figure must receive the quiz feed");
   // Pin corrected 2026-10-15 (audit fix 3): the pointer anchor is
   // registered by the header Nova now, because she is mounted for
-  // the whole lesson; SheetNova no longer owns the anchor.
+  // the whole lesson; the sheet pose no longer owns the anchor.
+  // Since 2026-10-19 the one figure carries the anchor in both
+  // poses, because the mount itself moves.
   assert.ok(learnSrc.includes("anchorRef={novaAnchorRef}"), "a mounted Nova must register her box as the pointer anchor");
+});
+
+/* Pin added 2026-10-19 (structural wave, the Player single mount
+   restructure): the card session used to mount a header NovaRive,
+   kill it on answer check, and mount a second figure inside the
+   feedback sheet, two Rive restarts per card. The restructure
+   mounts exactly one figure for the whole session: PlayerNovaFigure
+   holds the session's only NovaRive and portals it between the
+   header slot (answering state) and the sheet slot (feedback
+   state), changing only its pose inputs. This pin counts mounts,
+   so the two mount pattern cannot quietly come back. */
+await test("the Player mounts exactly one Nova figure across the answering and feedback states", () => {
+  const figStart = learnSrc.indexOf("function PlayerNovaFigure");
+  const figEnd = learnSrc.indexOf("/* The completion screen's Nova", figStart);
+  assert.ok(figStart > 0 && figEnd > figStart, "PlayerNovaFigure is missing");
+  const figSrc = learnSrc.slice(figStart, figEnd);
+  assert.equal((figSrc.match(/<NovaRive/g) || []).length, 1,
+    "PlayerNovaFigure must hold exactly one NovaRive mount");
+  assert.ok(figSrc.includes("createPortal(figure, target)"),
+    "the one figure does not move by portal between its two slots");
+  assert.ok(figSrc.includes("sheetSlot || headerSlot"),
+    "the figure does not fall back to the header slot while the sheet slot mounts");
+  const playerStart = learnSrc.indexOf("function Player(");
+  const playerEnd = learnSrc.indexOf("/* ── course path + library", playerStart);
+  assert.ok(playerStart > 0 && playerEnd > playerStart, "the Player body is missing");
+  const playerSrc = learnSrc.slice(playerStart, playerEnd);
+  const playerMounts = playerSrc.match(/<NovaRive[^>]*>/g) || [];
+  assert.equal(playerMounts.length, 1,
+    `the Player body must mount no card session figure directly, found: ${playerMounts.join(" | ")}`);
+  assert.ok(playerMounts[0].includes('state="greeting"') && playerMounts[0].includes("size={128}"),
+    "the Player body's one direct NovaRive is not the lesson intro greeting figure");
+  assert.ok(playerSrc.includes("<PlayerNovaFigure inSheet={checked}"),
+    "the Player does not render its one figure posed by the checked state");
+  assert.ok(playerSrc.includes("setNovaHeaderSlot") && playerSrc.includes("setNovaSheetSlot"),
+    "the Player does not render both slots the one figure moves between");
+  assert.ok(!learnSrc.includes("<SheetNova"), "the retired second mount SheetNova is back");
+  assert.ok(!playerSrc.includes("{!checked && ("), "the header figure is unmounted on check again");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -4846,18 +4901,19 @@ await test("Nova stands on the lesson complete screen, pleased, with a line from
   assert.ok(NOVA_LESSON_DONE_LINES.includes(pickNovaLine(NOVA_LESSON_DONE_LINES, 7)), "pickNovaLine does not serve the completion lines");
 });
 
+// Rewritten 2026-10-19 (structural wave, the Player single
+// mount): she is mounted for the whole lesson as one figure.
+// The header pose owns the gaze anchor while a question is
+// unanswered; on check the same mount moves to the sheet pose
+// instead of a second figure mounting, so the old gate and
+// phase needles are replaced by the slot and pose pins below.
 await test("Nova is mounted in the lesson header for the whole lesson, with the streak beside her", () => {
-  const play = learnSrc.slice(learnSrc.indexOf("top bar: close, segmented course progress"));
-  assert.ok(play.includes("<NovaRive"), "the play screen header mounts no Nova");
+  const play = learnSrc.slice(learnSrc.indexOf("function Player("));
+  assert.ok(play.includes("setNovaHeaderSlot"), "the play screen header has no slot for her figure");
   assert.ok(play.includes("anchorRef={novaAnchorRef}"), "the header Nova does not own the gaze anchor");
   assert.ok(play.includes('rightStreak >= 2 ? " · " + rightStreak + " IN A ROW"'), "the streak does not show from two in a row");
-  // Pin moved 2026-10-15 (owner's one Nova per screen ruling):
-  // while the feedback sheet is open she is in the sheet, so
-  // the header mount now renders only when no verdict is up,
-  // in the unanswered phase; the verdict quizState belongs to
-  // the sheet's Nova alone.
-  assert.ok(play.includes("{!checked && ("), "the header Nova does not step aside while the sheet is open");
-  assert.ok(play.includes("quizStateForSheet({ phase: 0, good: false,"), "the header Nova does not take the unanswered phase mapping");
+  assert.ok(play.includes("<PlayerNovaFigure inSheet={checked}"), "her pose is not driven by the checked state");
+  assert.ok(learnSrc.includes("quizStateForSheet({ phase: inSheet ? phase : 0, good: inSheet ? good : false,"), "the header pose does not take the unanswered phase mapping");
 });
 
 await test("a miss sheet states the answer before the why", () => {
@@ -4987,12 +5043,16 @@ await test("one Nova per screen: exactly one resident figure on every home scree
   const shelf = learnSrc.slice(learnSrc.indexOf("NOVA'S SHELF"), learnSrc.indexOf("NOVA'S SHELF") + 1600);
   assert.ok(shelf.includes("ShelfObjectMark"), "the shelf lost its objects with her figure");
   assert.ok(shelf.includes("Nothing on the shelf yet"), "the shelf's empty line went with her figure");
-  // In the Player the header Nova steps aside while the sheet
-  // is open, so exactly one Nova is visible there at a time.
-  const play = learnSrc.slice(learnSrc.indexOf("top bar: close, segmented course progress"));
-  const gate = play.indexOf("{!checked && (");
-  const headerNova = play.indexOf('<NovaRive state="thinking" size={40}');
-  assert.ok(gate !== -1 && headerNova !== -1 && gate < headerNova, "the lesson header Nova is not gated on the sheet being closed");
+  // In the Player exactly one Nova is visible at a time.
+  // Pin replaced 2026-10-19 (structural wave, the Player single
+  // mount): the header mount no longer steps aside on check,
+  // because there is no second mount to step aside for. The one
+  // figure is posed by the checked state and moves to the sheet
+  // slot, so the old gated header mount must stay gone.
+  const play = learnSrc.slice(learnSrc.indexOf("function Player("));
+  const gate = play.indexOf("<PlayerNovaFigure inSheet={checked}");
+  assert.ok(gate !== -1, "the Player figure is not posed on the sheet being open");
+  assert.ok(!learnSrc.includes('<NovaRive state="thinking" size={40}'), "the old gated header mount is back");
 });
 
 /* ── Extract the sidebar pop's pure helpers from NovaSidebarPop.jsx
