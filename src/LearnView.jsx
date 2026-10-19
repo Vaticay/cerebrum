@@ -1544,7 +1544,7 @@ const CSS = `
    Player's full screens carry the bar's height as extra bottom
    room, so the actions are always tappable. Desktop widths
    are untouched. */
-@media (max-width: 899px) {
+@media (max-width: 900px) {
   .lv-actionbar { padding-bottom: calc(22px + 72px + env(safe-area-inset-bottom, 0px)) !important; }
   .lv-sheet { padding-bottom: calc(24px + 72px + env(safe-area-inset-bottom, 0px)) !important; }
   .lv-screen { padding-bottom: calc(48px + 72px + env(safe-area-inset-bottom, 0px)) !important; }

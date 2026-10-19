@@ -66,7 +66,12 @@ await test("workspace CinematicFilm mount exists, darker than before", () => {
   const introFn = introSrc.slice(introSrc.indexOf("function Intro({"), introSrc.indexOf("function CerebrumFieldCanvas"));
   assert.ok(!introFn.includes("<CinematicFilm"), "the rebuilt intro mounts the film reel again");
   assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
-  assert.match(appSrc, /brightness\(0\.72\)/, "extra CSS grade missing on the workspace reel wrapper");
+  /* Pin updated 2026-10-19 (S7 shell lane, audit H6): the workspace reel
+     no longer grades brighter than the search home. Both wrappers carry
+     the one grade, dark and blurred, so this asserts the unified grade
+     and the absence of the old brighter one. */
+  assert.match(appSrc, /brightness\(0\.30\) saturate\(0\.60\) blur\(12px\)/, "the unified film grade is missing");
+  assert.ok(!appSrc.includes("brightness(0.72)"), "the brighter workspace grade is still present");
 });
 await test("generated field is the fallback when film is blocked", () => {
   assert.match(appSrc, /<CerebrumFieldCanvas/, "CerebrumFieldCanvas mount missing");
@@ -278,7 +283,10 @@ group("Home stage: sidebar restored, one column, one navigation");
     const mount = appSrc.slice(appSrc.indexOf("<Sidebar"), appSrc.indexOf('id="cb-main"'));
     assert.ok(mount.includes("onNavigate={stableSidebarNavigate}"), "sidebar mount lost its navigate wiring");
     assert.ok(mount.includes("isMobile={isMobile} mobileOpen={sidebarMobileOpen}"), "mobile drawer wiring changed");
-    assert.ok(appSrc.includes("marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216)"), "main offset is not the standard sidebar offset");
+    /* Pin updated 2026-10-19 (S7 shell lane, audit M14): the main offset
+       now reads the LAYOUT tokens instead of the 68 and 216 literals; the
+       tokens lane corrects LAYOUT itself to sidebar 216, collapsed 68. */
+    assert.ok(appSrc.includes("marginLeft: isMobile ? 0 : (railCollapsed ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar)"), "main offset is not the standard sidebar offset");
     assert.ok(!appSrc.includes("marginLeft: isMobile || homeStage ? 0"), "stage still zeroes the sidebar offset");
   });
   await test("the stage column keeps one width and one left edge", () => {
@@ -286,7 +294,10 @@ group("Home stage: sidebar restored, one column, one navigation");
        survives, but at the wide measure Dusty ordered from his
        photo of the live stage, and the Continue row carries its
        plain label, not the plate one. */
-    assert.ok(stage.includes('width: "100%", maxWidth: 1160'), "stage column is not the single wide column");
+    /* Pin updated 2026-10-19 (S7 shell lane, audit M13): the stage column
+       now holds the thread's own width (LAYOUT.answer, 1080) from stage
+       into thread, instead of narrowing from 1160 mid ceremony. */
+    assert.ok(stage.includes('width: "100%", maxWidth: LAYOUT.answer'), "stage column is not the single wide column");
     assert.ok(!stage.includes("paddingLeft"), "a second left padding crept into the stage column");
     assert.ok(stage.includes("<HomeDeck"), "deck missing from the stage column");
     assert.ok(stage.includes(">Continue<"), "continue row missing from the column");
@@ -397,17 +408,21 @@ await test("widthToMode pins the breakpoint logic at real widths", () => {
   assert.ok(fnAt > 0, "widthToMode is missing from appUtils.js");
   const fnSrc = appUtilsSrc.slice(fnAt, appUtilsSrc.indexOf("\n}", fnAt) + 2);
   const widthToMode = new Function(`${fnSrc}; return widthToMode;`)();
-  // The app's main breakpoint is 900: below it is mobile, at it is not.
+  /* Pin updated 2026-10-19 (S7 shell lane, deferred Lane B): the one
+     breakpoint convention is inclusive, at or below the breakpoint is
+     mobile, matching the CSS max-width form the shipped bands use.
+     The breakpoint itself is mobile now, on both sides of the line. */
   assert.strictEqual(widthToMode(390), "mobile", "a phone width must read as mobile");
   assert.strictEqual(widthToMode(768), "mobile", "a tablet width must read as mobile");
   assert.strictEqual(widthToMode(899), "mobile");
-  assert.strictEqual(widthToMode(900), "desktop", "the breakpoint itself is desktop");
+  assert.strictEqual(widthToMode(900), "mobile", "the breakpoint itself is mobile under the one convention");
+  assert.strictEqual(widthToMode(901), "desktop");
   assert.strictEqual(widthToMode(1440), "desktop");
   // A caller with its own threshold (the Trending feed's narrow layout
-  // at 560) gets the same strict below test at its own breakpoint.
+  // at 560) gets the same inclusive test at its own breakpoint.
   assert.strictEqual(widthToMode(390, 560), "mobile");
   assert.strictEqual(widthToMode(559, 560), "mobile");
-  assert.strictEqual(widthToMode(560, 560), "desktop");
+  assert.strictEqual(widthToMode(560, 560), "mobile");
   assert.strictEqual(widthToMode(768, 560), "desktop");
 });
 
@@ -512,7 +527,10 @@ await test("the autopsy, turn, and trending surfaces take their mode from the ho
   const trend = appSrc.slice(trendAt, appSrc.indexOf("\nfunction ", trendAt + 10));
   assert.ok(trend.includes("const winW = useWindowWidth();"),
     "TrendingView still keeps its own width state instead of the shared hook");
-  assert.ok(trend.includes("const narrow = winW < 560;"),
+  /* Pin updated 2026-10-19 (S7 shell lane, deferred Lane B): the
+     Trending narrow test now reads <= 560, the one inclusive convention,
+     agreeing with the bench CSS at max-width 560 at exactly 560. */
+  assert.ok(trend.includes("const narrow = winW <= 560;"),
     "TrendingView's narrow threshold moved; the swap must preserve it exactly");
   assert.ok(!appSrc.includes("setWinW"), "the hand rolled winW state survives somewhere in CerebrumApp.jsx");
 });

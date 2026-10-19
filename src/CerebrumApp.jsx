@@ -113,7 +113,7 @@ import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTempl
 
 /* Intro + film helpers (extracted 2026-10-07, monolith split). */
 import {
-  InvestigationOpening, usePrefersReducedMotion, useReducedMotion,
+  usePrefersReducedMotion, useReducedMotion,
   FILM_CLIPS_LANDSCAPE, FILM_CLIPS_PORTRAIT,
   videoUrl, filmReel, FILM_POSTER, FILM_HOLD_MS,
   FILM_CREDITS, FILM_MODIFICATIONS, FilmCreditsDialog, FILM_SCENES,
@@ -957,6 +957,12 @@ function usePremiumPointer() {
    `--cb-ease` is the same curve the CSS layer uses, so a GSAP tween and a CSS
    transition on the same element cannot disagree.
    ════════════════════════════════════════════════════════════════════════ */
+/* One scroll behavior helper (2026-10-19, S7 shell lane, audit M5):
+   "auto" under reduced motion (the OS preference or the app motion
+   toggle), "smooth" otherwise. Every programmatic scroll in the shell
+   routes through it instead of passing "smooth" unconditionally. */
+const scrollBehavior = () => (cbMotionOff() || (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) ? "auto" : "smooth";
+
 const MOTION = {
   feedback: 0.15,
   panel: 0.28,
@@ -1529,7 +1535,7 @@ function DeckBtn({ children, onClick, accent, at, P, primary = false, title }) {
    wall of grey locked badges is not. Every number is a row count from
    the database — see resource "milestones" in functions/api/data.js. */
 
-function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "", flush = false, suppressContinue = false }) {
+function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "", flush = false, suppressContinue = false, stageDeck = false }) {
   const deckRef = useGsapReveal([user ? user.id : "anon", history.length, saved.length], {
     y: 14, stagger: 0.06, duration: 0.85, descend: false,
   });
@@ -1604,7 +1610,11 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
             letterSpacing: TYPE.display.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)",
             display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
           }}>
-            {lastQ
+            {/* On the stage the greeting never leads with Continue
+                (2026-10-19, S7 shell lane, audit M12): the stage already
+                quotes the last question in full in its Continue row, so
+                the deck falls back to the plain greeting and date. */}
+            {lastQ && !stageDeck
               ? <>Continue <span style={{ color: accent }}>&ldquo;{shortSubject(lastQ)}&rdquo;</span></>
               : <>{greeting()}{greetingName ? <>, <span style={{ color: accent }}>{greetingName}</span></> : null}</>}
           </h2>
@@ -1613,7 +1623,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
             fontFamily: "var(--cb-font)", display: "flex", flexWrap: "wrap",
             alignItems: "center", gap: 8,
           }}>
-            {lastQ && <><span>{greeting()}{greetingName ? ", " + greetingName : ""}</span><span aria-hidden="true" style={{ opacity: 0.4 }}>·</span></>}
+            {lastQ && !stageDeck && <><span>{greeting()}{greetingName ? ", " + greetingName : ""}</span><span aria-hidden="true" style={{ opacity: 0.4 }}>·</span></>}
             <span>{todayLabel()}</span>
           </p>
         </div>
@@ -2285,8 +2295,8 @@ function SignalComposer({
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
-    let lineH = 25.5;
-    try { lineH = parseFloat(getComputedStyle(el).lineHeight) || 25.5; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx autosize lineHeight:", cbErr); }
+    let lineH = 23.25;
+    try { lineH = parseFloat(getComputedStyle(el).lineHeight) || 23.25; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx autosize lineHeight:", cbErr); }
     const max = lineH * 6 + 26;
     el.style.height = Math.min(el.scrollHeight, max) + "px";
     el.style.overflowY = el.scrollHeight > max + 1 ? "auto" : "hidden";
@@ -2799,12 +2809,8 @@ function looksLikeMechanismQuestion(q) {
      stageDetailFor ("12 of 40 candidates kept"), accumulated in
      stream.history by pushStage.
 
-   The marine snow is a light CSS field, not the 190-particle canvas —
-   that stays with the intro. It densifies as the dive goes deeper: more
-   motes in the same water.
-
    Reduced motion: a static stage list with checkmarks. No descent
-   animation, no snow, no pulsing traveler. The stage names and the
+   animation, no pulsing traveler. The stage names and the
    database count carry the state, paired, never motion alone. */
 const DIVE_DEPTHS = ["0m", "200m", "400m", "600m", "800m"];
 function Dive({ P, accent, q, contextual = false, videosLocated = false, stream = null, onCancel = null }) {
@@ -2819,25 +2825,9 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
     } catch (cbErr) { console.error("[Cerebrum] Dive honesty flag:", cbErr); }
   }, []);
 
-  /* Deterministic snow field: seeded so re-renders never reshuffle the
-     water. Built once per mount. */
-  const snow = useMemo(() => {
-    const arr = [];
-    let seed = 20261008;
-    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
-    for (let i = 0; i < 30; i++) {
-      arr.push({
-        left: rnd() * 100,
-        top: rnd() * 100,
-        size: 1 + rnd() * 2.5,
-        dur: 9 + rnd() * 14,
-        delay: -rnd() * 20,
-        op: 0.12 + rnd() * 0.38,
-      });
-    }
-    return arr;
-  }, []);
-
+  /* The marine snow field is gone (2026-10-19, S7 shell lane, audit H9):
+     motes that multiplied with depth were decoration competing with the
+     room's one job, which is the honest stage rail below. */
   /* Elapsed time in the current stage (2026-10-15, on the owner's order).
      The stream sends one frame when synthesis starts and nothing further
      until the citation check begins (functions/api/search.js emits the
@@ -2873,10 +2863,6 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
   const history = (stream && Array.isArray(stream.history)) ? stream.history : [];
   const histFor = (i) => history.find((h) => h.index === i);
 
-  /* Snow densifies with depth: a sparse field at the surface, the full
-     column at the deepest stratum. */
-  const snowCount = reduced ? 0 : 8 + Math.max(0, activeIndex) * 5;
-
   /* The honest count. dbAnswered/dbTotal ride the finding_papers stream
      frames (real per-rung completions from the backend). Before the first
      progress frame — or on the single-fetch fallback where stream is
@@ -2899,19 +2885,7 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
   const markPct = activeIndex < 0 ? 0 : 10 + activeIndex * 20;
 
   return (
-    <div className={reduced ? "cb-dive" : "cb-dive cb-dive-descend"} style={{ "--cb-acc": accent }} role="status" aria-label="Search in progress">
-      {!reduced && (
-        <div className="cb-dive-snowfield" aria-hidden="true">
-          {snow.slice(0, Math.min(snow.length, snowCount)).map((m, i) => (
-            <span key={i} className="cb-dive-mote" style={{
-              left: m.left + "%", top: m.top + "%",
-              width: m.size, height: m.size, opacity: m.op,
-              animationDuration: m.dur + "s", animationDelay: m.delay + "s",
-            }} />
-          ))}
-        </div>
-      )}
-
+    <div className={reduced ? "cb-dive" : "cb-dive cb-dive-descend"} style={{ "--cb-acc": accent, "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint, "--cb-line": P.line }} role="status" aria-label="Search in progress">
       <div className="cb-dive-kicker">Query</div>
       <h2 className="cb-dive-q">{q}</h2>
 
@@ -12803,7 +12777,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
      own width state and resize listener, the same subscription
      useWindowWidth now owns for the whole app. */
   const winW = useWindowWidth();
-  const narrow = winW < 560;
+  const narrow = winW <= 560;
 
   useEffect(() => {
     let cancelled = false;
@@ -19584,7 +19558,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        becomes a slide-in drawer (see `sidebarMobile*` below) and `appMain`
        stays full-width, opened with a hamburger button in the header. */
     sidebar: {
-      position: "fixed", top: 0, left: 0, bottom: 0, width: 216, zIndex: Z.dropdown,
+      position: "fixed", top: 0, left: 0, bottom: 0, width: LAYOUT.sidebar, zIndex: Z.dropdown,
       /* Pass 1 (2026-09-17): solid. The smoked-glass treatment existed to
          sit over the ambient reel; the reel is gone, so the rail is an
          opaque surface with a 1px hairline — no blur, no translucency. */
@@ -19602,7 +19576,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
       /* 44px min-height for touch targets (was 38px, which defeated the
          global 44px button floor via inline style). */
-      padding: "9px 12px", minHeight: 44, borderRadius: 0, border: "none", background: "transparent",
+      padding: "9px 12px", minHeight: 44, borderRadius: 2, border: "none", background: "transparent",
       color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.small, fontWeight: 500,
       fontFamily: "var(--cb-font)", transition: "background 150ms ease, color 150ms ease",
     },
@@ -19641,7 +19615,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // zIndex:1. Giving appMain the identical treatment covers every view it
     // wraps (the search hero included) with the same one fix, rather than
     // relying on each view to separately remember to opt in.
-    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : 216, position: "relative", zIndex: Z.content },
+    appMain: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", marginLeft: isMobile ? 0 : LAYOUT.sidebar, position: "relative", zIndex: Z.content },
 
     /* ── Full-page views (Profile / Settings / Trending) ──
        Replace what used to be centered modal dialogs — no backdrop, no
@@ -20218,7 +20192,7 @@ function CommandPalette({ open, onClose, P, accent, query, setQuery, groups, act
   let flatIdx = -1;
   const kbdStyle = { fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.micro, color: P.faint, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "2px 7px", flexShrink: 0 };
   return (
-    <ModalChrome label="Command palette" P={P} accent={accent} onClose={onClose} zIndex={220} width={640}
+    <ModalChrome label="Command palette" P={P} accent={accent} onClose={onClose} zIndex={Z.dialog} width={640}
       eyebrow="Command" title={null}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "2px 2px 16px", borderBottom: `1px solid ${P.line}`, marginBottom: 6 }}>
         <Icon name="search" size={17} style={{ color: P.faint, flexShrink: 0 }} />
@@ -20446,7 +20420,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     ["new", "New search", "plus"],
     ["search", "Search", "search"],
     ["document", "Document Reader", "bookOpen"],
-    ["studio", "Diagram Studio", "flowchart"],
+    ["studio", "Diagram Studio · Code diagram", "flowchart"],
     ["trending", "Trending", "chart"],
     ["investigations", "Investigations", "history"],
     ["library", "Library", "bookmark"],
@@ -20467,7 +20441,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
      mobile keeps the full slide-over drawer. */
   const [railHover, setRailHover] = useState(false);
   const expanded = isMobile || !railCollapsed || railHover;
-  const railW = !isMobile && railCollapsed && !railHover ? 68 : 216;
+  const railW = !isMobile && railCollapsed && !railHover ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar;
 
   // The rail is persistent chrome, so this fires once on mount rather than
   // on every navigation — a sidebar that re-animates each time you click an
@@ -20506,8 +20480,8 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
         >✕</UIButton>
       )}
       <div style={{ ...S.sidebarBrand, ...(expanded ? {} : { padding: "24px 0 24px", justifyContent: "center" }) }} onClick={onLogoClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLogoClick(); } }} aria-label="Back to landing page">
-        <Mark size={18} accent={accent} glow={P.dark} />
-        {expanded && <span style={{ fontWeight: 500, fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-font)" }}>Cerebrum</span>}
+        <Mark size={22} accent={accent} glow={false} />
+        {expanded && <span style={{ fontWeight: 500, fontSize: FONT_SIZES.section, color: P.ink, fontFamily: "var(--cb-font)" }}>Cerebrum</span>}
       </div>
       {/* Workstream E (2026-10-08): the command palette gets a visible
           trigger. A palette nobody can find is a feature nobody has. */}
@@ -20578,7 +20552,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             <UIButton P={P} variant="ghost" onClick={onToggleRail} title={railCollapsed ? "Expand navigation" : "Collapse to icons"} aria-pressed={!!railCollapsed} aria-label={railCollapsed ? "Expand navigation" : "Collapse navigation to icons"}
               style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
+                width: 44, height: 44, borderRadius: 2, cursor: "pointer",
                 background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
                 transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
               }}
@@ -20592,7 +20566,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             onMouseEnter={hoverIn} onMouseLeave={hoverOut("__mute")}
             style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
+              width: 44, height: 44, borderRadius: 2, cursor: "pointer",
               background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
               transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
             }}>
@@ -20617,7 +20591,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             }}
           >
             <span aria-hidden="true" style={{
-              width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+              width: 28, height: 28, borderRadius: 2, flexShrink: 0,
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
               ...avatarSkin(user.email || user.id || "cerebrum"),
@@ -20753,7 +20727,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
 
   return (
     <Dialog labelledBy="cb-consent-title" onClose={() => {}} dismissable={false}
-      zIndex={Z.max} width={640}
+      zIndex={Z.consent} width={640}
       scrimStyle={{ background: "rgba(0,0,0,0.72)" }}
       panelStyle={{
         background: P.bg, color: P.ink, position: "relative",
@@ -23797,7 +23771,7 @@ function App() {
     { label: "New search", hint: kbdLabel("J"), run: () => newSession() },
     { label: "New evidence map", run: () => { setCmdOpen(false); setFlowchartOpen({ title: "Untitled evidence map", chartId: null }); } },
     { label: "Open your library", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setView("library"); } },
-    { label: "Open Diagram Studio", run: () => { setCmdOpen(false); setView("studio"); } },
+    { label: "Open Diagram Studio · Code diagram", run: () => { setCmdOpen(false); setView("studio"); } },
     { label: "Open your investigations", run: () => { setCmdOpen(false); setView("investigations"); } },
     // Collections' header button is desktop-only (there's no room for it in
     // the mobile header), but this palette is available on every viewport —
@@ -23951,19 +23925,10 @@ function App() {
      Fires on the edge, not the state: the signature belongs to the moment a
      question becomes an investigation, so it plays once on the transition
      into `started` and never again while you are in there. */
-  const [opening, setOpening] = useState(false);
-  const wasStarted = useRef(false);
-  const startedNow = turns.length > 0 || busy;
-  useEffect(() => {
-    if (startedNow && !wasStarted.current) {
-      setOpening(true);
-      wasStarted.current = true;
-      const t = setTimeout(() => setOpening(false), 1150);
-      return () => clearTimeout(t);
-    }
-    if (!startedNow) wasStarted.current = false;
-  }, [startedNow]);
-
+  /* The glowing brain veil that used to play here on the first ask is
+     deleted (2026-10-19, S7 shell lane, audit M13): the Dive is the
+     single transition into a search, with no veil before it and no
+     column narrowing during it. */
   if (!entered) {
     // Plate redesign (2026-10-13) — the consent gate no longer overlays
     // the Intro. The trigger moved from page load to the way in, and
@@ -24185,7 +24150,7 @@ function App() {
         {!cbMotionOff() && animationMode !== "off" && (
           <div aria-hidden="true" style={{
             position: "fixed", inset: 0, zIndex: Z.base + 1, pointerEvents: "none",
-            filter: "brightness(0.30) saturate(0.60)",
+            filter: "brightness(0.30) saturate(0.60) blur(12px)",
           }}>
             <CinematicFilm
               reel="calm"
@@ -24229,7 +24194,7 @@ function App() {
           animationMode={animationMode}
         />
       ) : (
-        <div style={{ position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none", filter: "brightness(0.72) saturate(0.85)" }} aria-hidden="true">
+        <div style={{ position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none", filter: "brightness(0.30) saturate(0.60) blur(12px)" }} aria-hidden="true">
           <CinematicFilm
             ref={wsFilmRef}
             animationMode={animationMode}
@@ -24244,9 +24209,9 @@ function App() {
             /* Opens on the door's clip when the visitor just stepped through,
                so the background frame is retained across the handoff. */
             startAt={enterClip}
-            /* Darkest while reading — an answer is the one screen where the
-               footage must be felt, never seen. Brighter on the home search
-               screen, which is mostly empty space around the composer. */
+            /* One grade for every view (2026-10-19, S7 shell lane, audit H6):
+               the wrapper filter above is the same dark, blurred grade the
+               search home uses. No view grades brighter than another. */
             intensity={
               started ? 0.16
                 : (view && view !== "search") ? 0.20
@@ -24288,7 +24253,6 @@ function App() {
       {filmCreditsOpen && <FilmCreditsDialog accent={accent} onClose={() => setFilmCreditsOpen(false)} />}
 
       {updateReady && <VersionBanner P={P} accent={accent} isMobile={isMobile} onRefresh={() => window.location.reload()} onDismiss={() => setUpdateReady(false)} />}
-      {opening && <InvestigationOpening accent={accent} animationMode={animationMode} />}
       {started && <div className="cb-scroll-progress" style={{ transform: "scaleX(" + scrollProg + ")" }} />}
       {/* Back to top. Two mobile fixes: it sat at 10% white over the page,
           so the Home Deck's rows read straight through it (a watchlist
@@ -24297,7 +24261,7 @@ function App() {
           edge of a card is its quiet side. Opaque, shadowed, and on the
           right on mobile — desktop keeps the left, where nothing collides
           and the right is the sources panel's territory. */}
-      {showScrollTop && <UIButton P={P} variant="ghost" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? "none" /* 2026-10-16 layout fix (finding 2): 88px plus inset in every state. The unstarted 24px state sat inside the bottom nav band with only a 4px sliver showing. */ : 24, [isMobile ? "right" : "left"]: isMobile ? "none" : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: Z.fab, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "none" : "none", fontSize: FONT_SIZES.subhead }}>↑</UIButton>}
+      {showScrollTop && <UIButton P={P} variant="ghost" onClick={() => window.scrollTo({ top: 0, behavior: scrollBehavior() })} aria-label="Back to top" title="Back to top" style={{ position: "fixed", bottom: isMobile ? "none" /* 2026-10-16 layout fix (finding 2): 88px plus inset in every state. The unstarted 24px state sat inside the bottom nav band with only a 4px sliver showing. */ : 24, [isMobile ? "right" : "left"]: isMobile ? "none" : 24, width: 44, height: 44, borderRadius: "50%", background: P.dark ? "#101317" : "#ffffff", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", zIndex: Z.fab, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: P.dark ? "none" : "none", fontSize: FONT_SIZES.subhead }}>↑</UIButton>}
       <Sidebar
         P={P} accent={accent} at={at} S={S}
         view={view} onNavigate={stableSidebarNavigate}
@@ -24311,7 +24275,7 @@ function App() {
         onOpenInvestigation={openHistoryItem}
         onOpenPalette={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}
       />
-      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216), outline: "none"}}>
+      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar), outline: "none"}}>
       {/* Commit 46: the top header is gone for good — every destination it
           used to hold (search command bar, Inbox, Profile/Sign-in, the
           brand/back-to-landing mark) already lives in the Sidebar too (see
@@ -24344,7 +24308,7 @@ function App() {
           clear the 64px nav plus inset. */}
       {isMobile && <style>{`body{padding-bottom:calc(72px + env(safe-area-inset-bottom)) !important;}`}</style>}
       {isMobile && (() => {
-        const VIEW_TITLES = { search: "Search", document: "Document Reader", studio: "Diagram Studio", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile", learn: "Nova" };
+        const VIEW_TITLES = { search: "Search", document: "Document Reader", studio: "Diagram Studio · Code diagram", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile", learn: "Nova" };
         let headerTitle = VIEW_TITLES[view] || "Cerebrum";
         if (view === "search" && turns.length > 0 && (history || []).length > 0) {
           const recent = [...history].sort((a, b) => (b.lastOpened || b.ts || 0) - (a.lastOpened || a.ts || 0))[0];
@@ -24482,7 +24446,8 @@ function App() {
                The home stage: the empty search home as one wide
                stage inside the standard shell. Dusty's evening
                revision (2026-10-13) supersedes the plate stage and
-               its narrow column: the stage runs wide (1160), a
+               its narrow column: the stage column is the thread
+               column (LAYOUT.answer, 1080, since 2026-10-19, audit M13), a
                plain Cerebrum masthead sits at the top like the pre
                plate layout had, and the copy goes quiet and human.
                No eyebrow, no manifesto headline, no marketing
@@ -24506,7 +24471,7 @@ function App() {
             <Reveal style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 40px" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               <div style={{
-                width: "100%", maxWidth: 1160, padding: isMobile ? "0 20px" : "0 24px",
+                width: "100%", maxWidth: LAYOUT.answer, padding: isMobile ? "0" : "0 24px",
                 "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
                 "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
               }}>
@@ -24523,7 +24488,10 @@ function App() {
                   <Mark size={22} accent={accent} glow={false} />
                   <span className="cb-stage-wordmark" style={{
                     fontFamily: "var(--cb-font)", fontWeight: 500,
-                    fontSize: FONT_SIZES.display, color: P.ink, lineHeight: 1,
+                    /* One lockup everywhere (2026-10-19, S7 shell lane, audit H8):
+                       Mark 22 plus the name at section 22 weight 500, the same
+                       pairing as the door and the sidebar. */
+                    fontSize: FONT_SIZES.section, color: P.ink, lineHeight: 1,
                   }}>Cerebrum</span>
                   {/* The resident header Nova (2026-10-15) stands
                       at the masthead's right end on the empty home
@@ -24614,21 +24582,18 @@ function App() {
 
                   {/* Example questions: three full sentence
                       questions as a plain ruled list under a plain
-                      label. First timers run the search at a tap,
-                      as before; returning visitors fill the
-                      composer to edit first, as before. Hidden
-                      while typing. */}
+                      label. One behavior for everyone since
+                      2026-10-19 (audit tail 10): a tap fills the
+                      composer so the question can be edited before
+                      it runs. Hidden while typing. */}
                   {!input.trim() && stageInquiries.length > 0 && (
                     <div style={{ marginTop: 34 }}>
                       <div style={{ fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, color: P.faint }}>Try asking</div>
                       <div style={{ marginTop: 6 }}>
                         {stageInquiries.map((ex) => (
                           <button key={ex.q} type="button" className="cb-stage-inq"
-                            onClick={() => {
-                              if (!deckHasContent) { ask(ex.q); }
-                              else { setInput(ex.q); setTimeout(() => inputRef.current?.focus(), 30); }
-                            }}
-                            title={!deckHasContent ? `Search: ${ex.q}` : `Ask: ${ex.q}`}
+                            onClick={() => { setInput(ex.q); setTimeout(() => inputRef.current?.focus(), 30); }}
+                            title={`Ask: ${ex.q}`}
                             style={{
                               display: "flex", alignItems: "baseline", gap: 14,
                               width: "100%", textAlign: "left", background: "none",
@@ -24647,18 +24612,54 @@ function App() {
                     </div>
                   )}
 
+                  {/* Trending, one quiet row (2026-10-19, S7 shell lane,
+                      audit tail 11): the home names the Trending view
+                      once, under Try asking, in the same ruled list
+                      language, and sends you there. It carries no feed
+                      of its own. */}
+                  {!input.trim() && (
+                    <div style={{ marginTop: 26 }}>
+                      <button type="button" className="cb-stage-inq"
+                        onClick={() => setView("trending")}
+                        style={{
+                          display: "flex", alignItems: "baseline", gap: 14,
+                          width: "100%", textAlign: "left", background: "none",
+                          border: "none", borderTop: `1px solid ${P.line}`,
+                          padding: "13px 0", cursor: "pointer",
+                        }}>
+                        <span style={{ fontFamily: "var(--cb-font)", flex: 1, fontSize: 13, lineHeight: 1.55, color: P.ink2 }}>
+                          Trending in research, updated through the day
+                        </span>
+                        <span aria-hidden="true" style={{ color: accent, fontSize: 14 }}>&#8594;</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Signed out visitors get one plain line with an
+                      action (2026-10-19, audit tail 11); until now the
+                      stage they saw was identical to a signed in one. */}
+                  {!user && (
+                    <div style={{ marginTop: 26, borderTop: `1px solid ${P.line}`, paddingTop: 14, display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" }}>
+                      <span style={{ fontFamily: "var(--cb-font)", fontSize: 13, lineHeight: 1.55, color: P.ink2, flex: 1, minWidth: 220 }}>
+                        You are browsing signed out. Sign in to save investigations and pick them up on another device.
+                      </span>
+                      <button type="button" onClick={() => { setAuthInitialTab("login"); setAuthOpen(true); }} className="cb-stage-textbtn" style={{ color: accent, fontWeight: 500, fontSize: 13 }}>
+                        Sign in
+                      </button>
+                    </div>
+                  )}
+
                   {/* Your work, at the stage's own width and left
                       edge. The deck component is unchanged; only its
                       wrapper lost the second helping of left padding
                       and the mismatched width. */}
-                  {deckHasContent && (
-                    <div style={{ marginTop: 34, fontSize: FONT_SIZES.small, color: P.faint }}>
-                      {(history || []).length} investigations{(saved || []).length > 0 ? `, ${(saved || []).length} saved` : ""}
-                    </div>
-                  )}
-                  <div style={{ marginTop: deckHasContent ? 10 : 36 }}>
+                  {/* The bare count line that used to sit here is cut
+                      (2026-10-19, audit M12): it repeated the deck's own
+                      counts with no label and no action. */}
+                  <div style={{ marginTop: 36 }}>
                     <HomeDeck
                       suppressContinue
+                      stageDeck
                       P={P} accent={accent} at={at} user={user} isMobile={isMobile}
                       greetingName={firstName} flush={deckHasContent}
                       history={history} saved={saved} sessions={sessions}
@@ -24674,10 +24675,13 @@ function App() {
                       quote and the paper say what it is. */}
                   <div style={{ marginTop: 44, borderTop: `1px solid ${P.line}`, paddingTop: 14 }}>
                     <p style={{
+                      /* The door's claim treatment (2026-10-19, S7 shell lane,
+                         audit tail 9): upright serif at the section size,
+                         weight 400, 1.55. No italics, no second size. */
                       margin: "0", fontFamily: "var(--cb-serif)",
-                      fontStyle: "italic", fontSize: 15.5, lineHeight: 1.5, color: P.ink2,
+                      fontStyle: "normal", fontSize: FONT_SIZES.section, fontWeight: 400, lineHeight: 1.55, color: P.ink2,
                     }}>&ldquo;{stageSpecimen.claim}&rdquo;</p>
-                    <p style={{ margin: "6px 0 0", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.faint }}>
+                    <p style={{ margin: "16px 0 0", paddingTop: 12, borderTop: `1px solid ${P.line}`, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, lineHeight: 1.6, color: P.faint }}>
                       {stageSpecimen.paper}{" "}
                       <a href={stageSpecimen.doi} target="_blank" rel="noopener noreferrer"
                         style={{ color: accent, textDecoration: "none", fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: FONT_SIZES.caption }}>
@@ -24703,7 +24707,7 @@ function App() {
                   return (
                     <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
                       onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
-                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[data-cb-followup="true"]'); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: scrollBehavior(), block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
                     </div>
                   );
                 })}
@@ -25944,12 +25948,16 @@ const CSS = `
      answer body) is set in Inter Tight like everything else — a reading
      serif at these sizes read as a magazine, and Cerebrum is software. */
   /* 2026-10-14, wave 1 foundation: the plan now sets Inter as the UI face with the self hosted Inter Tight as its guaranteed local face, Source Serif 4 exists for answer body and lesson text only via --cb-serif, weights are 400 and 500 only. */
-  --cb-font:  'Inter', 'Inter Tight', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --cb-serif: 'Source Serif 4', Charter, 'Bitstream Charter', Georgia, 'Times New Roman', serif;
-  --cb-ease:    cubic-bezier(0, 0, 0.58, 1);
-  --cb-ease-in: cubic-bezier(0, 0, 0.58, 1);
+  /* Font variables live in one home only (2026-10-19, S7 shell lane,
+     audit H2): the :root in public/fonts/cerebrum-fonts.css. This block
+     keeps only the motion tokens. */
+  /* Easing tokens (2026-10-19, S7 shell lane, audit tail 4): two real
+     curves, named. --cb-ease is the signature curve, the same value as
+     MOTION.ease in JS. --cb-ease-out is the decelerating fade curve.
+     The old --cb-ease-in and --cb-spring were byte identical copies of
+     the fade curve under extra names and are deleted. */
+  --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
   --cb-ease-out: cubic-bezier(0, 0, 0.58, 1);
-  --cb-spring:  cubic-bezier(0, 0, 0.58, 1);
 }
 
 *, *::before, *::after {
@@ -26015,10 +26023,14 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .cb-msg-report:focus-visible,
 .cb-msg-bubble:focus-within .cb-msg-report { opacity: 1 !important; }
 .cb-skip-link:focus-visible { transform: translateY(0); outline: 2px solid #fff; outline-offset: 2px; }
-/* Universal keyboard focus indicator. Any element that receives keyboard
-   focus gets a visible ring unless it defines its own. This covers every
-   focusable surface in one rule instead of chasing individual outline:none
-   overrides. Mouse/touch focus keeps the clean look via :focus-visible. */
+/* THE one global focus ring rule (2026-10-19, S7 shell lane, audit M4):
+   2px in the active accent with a 2px offset. Every later duplicate and
+   variant in this stylesheet (the 3px emerald rules, the hardcoded teal
+   .cb-focus-ring, the gold intro scoped rings) is deleted or aligned to
+   this rule; cascade order no longer decides what a keyboard user sees.
+   Any element that receives keyboard focus gets this ring unless it
+   defines its own in the same treatment. Mouse and touch focus keep the
+   clean look via :focus-visible. */
 *:focus-visible {
   outline: 2px solid var(--cb-acc, #7c9a82) !important;
   outline-offset: 2px !important;
@@ -26280,7 +26292,7 @@ summary::-webkit-details-marker { display: none; }
    the shared component. */
 .cb-doc-page .cb-seg button { min-height: 44px; }
 /* The outline-chip CTA gets the same keyboard ring as the primary. */
-.cb-intro-chip:focus-visible { outline: 2px solid rgba(217,164,65,0.75); outline-offset: 4px; border-radius: 2px; }
+.cb-intro-chip:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; border-radius: 2px; }
 
 /* ── Intro: quiet sci-fi title card ──
    The door opens like a title sequence: a beat of near-black lifting off
@@ -26440,7 +26452,7 @@ summary::-webkit-details-marker { display: none; }
   transition: background-color 150ms ease-out;
 }
 #cb-intro-wrap .cb-intro-go:hover { box-shadow: none; transform: none !important; }
-.cb-intro-go:focus-visible { outline: 2px solid rgba(217,164,65,0.85); outline-offset: 3px; }
+.cb-intro-go:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; }
 /* ── Intro, quiet sci-fi pass ──
    Restraint: the type choreography is blur/opacity only, on the one shared
    cbFocusIn entrance; the button is a quiet outline with no sweep. */
@@ -26482,7 +26494,7 @@ summary::-webkit-details-marker { display: none; }
   background: rgba(255,255,255,0.05) !important;
   transform: none;
 }
-.cb-intro-how:focus-visible { outline: 2px solid rgba(217,164,65,0.75); outline-offset: 4px; border-radius: 2px; }
+.cb-intro-how:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; border-radius: 2px; }
 
 /* ── Intro: the calibration chamber (2026-10-08) ──
    The cinematic door is retired — no film, no scrim, no motion behind
@@ -26513,83 +26525,16 @@ summary::-webkit-details-marker { display: none; }
   -webkit-mask-image: radial-gradient(ellipse 78% 66% at 50% 44%, black 25%, transparent 100%);
   mask-image: radial-gradient(ellipse 78% 66% at 50% 44%, black 25%, transparent 100%);
 }
-/* ── Intro atmosphere: the cinematic feel, calmed (2026-10-08) ──
-   Dusty: the flat sterile grid "looks HORRIBLE," bring the cinema back —
-   but calm. So no footage, no bokeh, nothing recognizable: three vast
-   blurred light fields drifting on 90s+ alternate cycles over the grid
-   bed, plus a slow-breathing light well from above. Very dark (peak
-   alpha 0.10), heavily blurred (60-90vmax radial falloffs), barely
-   perceptible motion (±8vmax drift). The room has air, not a movie.
-   All motion is transform/opacity, ease-in-out alternate so loops never
-   snap. Reduced motion (media query or the cb-intro-still class) freezes
-   every blob at its rest frame: the same atmosphere, one still image. */
-.cb-intro-atmosphere {
-  position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden;
-}
-.cb-intro-atmosphere > div { position: absolute; border-radius: 50%; will-change: transform, opacity; }
-.cb-atmo-a {
-  width: 72vmax; height: 72vmax; left: -18vmax; top: -22vmax;
-  background: none;
-  animation: cbAtmoDriftA 110s ease-in-out infinite alternate;
-}
-.cb-atmo-b {
-  width: 84vmax; height: 84vmax; right: -26vmax; bottom: -30vmax;
-  background: none;
-  animation: cbAtmoDriftB 130s ease-in-out infinite alternate;
-}
-.cb-atmo-c {
-  width: 58vmax; height: 58vmax; left: 24vmax; top: 30vmax;
-  background: none;
-  animation: cbAtmoDriftC 92s ease-in-out infinite alternate;
-}
-.cb-atmo-well {
-  width: 120vmax; height: 70vmax; left: -10vmax; top: -42vmax; border-radius: 0;
-  background: none;
-  animation: cbAtmoWell 64s ease-in-out infinite alternate;
-}
-@keyframes cbAtmoDriftA {
-  from { transform: translate(0, 0); }
-  to { transform: translate(7vmax, 5vmax); }
-}
-@keyframes cbAtmoDriftB {
-  from { transform: translate(0, 0); }
-  to { transform: translate(-8vmax, -6vmax); }
-}
-@keyframes cbAtmoDriftC {
-  from { transform: translate(0, 0) scale(1); opacity: 0.75; }
-  to { transform: translate(-5vmax, 7vmax) scale(1.08); opacity: 1; }
-}
-@keyframes cbAtmoWell {
-  from { opacity: 0.55; }
-  to { opacity: 1; }
-}
-/* Still frame: reduced motion gets the same atmosphere with zero movement. */
-.cb-intro-still .cb-intro-atmosphere > div { animation: none; }
-@media (prefers-reduced-motion: reduce) {
-  .cb-intro-atmosphere > div { animation: none; }
-}
+/* The intro atmosphere layer that used to be defined here (the
+   blurred .cb-intro-atmosphere fields and their drift keyframes) had
+   no mount anywhere in src/ and is deleted (2026-10-19, S7 shell lane,
+   audit H6). The mounted search atmosphere is .cb-atmo below. */
 /* Viewport ticks: the whole screen is the instrument, not just the panel. */
 .cb-instr-viewport { position: fixed !important; inset: 14px; z-index: 5; pointer-events: none; }
-/* Depth rail: the descent motif as a static scale. The door sits at the
-   surface; the workspace is the descent. */
-.cb-depth-rail {
-  position: fixed; right: 30px; top: 50%; transform: translateY(-50%);
-  z-index: 6; pointer-events: none;
-  display: flex; flex-direction: column; gap: 30px; align-items: flex-end;
-  font-family: var(--cb-mono); font-size: 10px; letter-spacing: 0.18em;
-  color: rgba(238,241,238,0.30); font-variant-numeric: tabular-nums;
-}
-.cb-depth-rail .cb-depth-mark { display: flex; align-items: center; gap: 9px; }
-.cb-depth-rail .cb-depth-mark i {
-  display: block; width: 16px; height: 1px; background: rgba(238,241,238,0.22);
-}
-.cb-depth-rail .cb-depth-mark.cb-depth-here { color: rgba(217,164,65,0.85); }
-.cb-depth-rail .cb-depth-mark.cb-depth-here i { width: 26px; background: rgba(217,164,65,0.65); }
-.cb-depth-rail .cb-depth-surface {
-  font-size: 9px; letter-spacing: 0.3em; color: rgba(238,241,238,0.22);
-  margin-top: 6px;
-}
-@media (max-width: 900px) { .cb-depth-rail { display: none; } }
+/* The depth rail selectors that used to sit here (.cb-depth-rail and
+   its marks) had no mount anywhere in src/ and are deleted
+   (2026-10-19, S7 shell lane, audit H6). */
+
 /* Leaving: the chamber descends into the workspace — the Dive motif in
    reverse, sinking through the door. 420ms to match the handoff timer. */
 #cb-intro-wrap.cb-intro-leaving {
@@ -26703,8 +26648,11 @@ summary::-webkit-details-marker { display: none; }
   width: 100%; min-height: 52px;
   border: 0; background: transparent; outline: none;
   padding: 12px 4px 12px 18px;
-  font-family: var(--cb-font); font-size: 17px; font-weight: 500;
-  line-height: 1.5; color: var(--cb-ink);
+  /* Body role, one size across variants (2026-10-19, S7 shell lane,
+     audit M11): 15 at 1.55, the plan body. The stage variant no longer
+     overrides this to 17.5 at 1.4. */
+  font-family: var(--cb-font); font-size: 15px; font-weight: 500;
+  line-height: 1.55; color: var(--cb-ink);
   caret-color: var(--cb-acc);
   resize: none; overflow-y: hidden;
 }
@@ -26784,8 +26732,9 @@ summary::-webkit-details-marker { display: none; }
   transform: none;
 }
 .cb-ask--stage .cb-ask-input {
-  font-size: 17.5px; min-height: 46px;
-  padding: 10px 4px 10px 16px; line-height: 1.4;
+  /* Size and leading inherit the one composer rule above (audit M11). */
+  min-height: 46px;
+  padding: 10px 4px 10px 16px;
 }
 .cb-ask--stage .cb-ask-tools { padding: 0 6px 0 0; }
 .cb-ask--stage .cb-ask-tool { color: var(--cb-faint); }
@@ -26953,13 +26902,13 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-starter-item:last-child { border-bottom: 0; }
 .cb-starter-num {
-  font-size: 11px; font-weight: 500; letter-spacing: 0.08em;
+  font-size: 11px; font-weight: 500; letter-spacing: 0;
   color: var(--cb-acc); flex-shrink: 0; transform: translateY(1px);
 }
 /* The editorial section label: Inter Tight, faint, no tracking, no caps. */
 .cb-starter-cat {
   font-family: var(--cb-font); font-size: 11px; font-weight: 500;
-  letter-spacing: 0.06em; color: var(--cb-faint);
+  letter-spacing: 0; color: var(--cb-faint);
   flex-shrink: 0; transform: translateY(1px); white-space: nowrap;
 }
 .cb-starter-q {
@@ -27095,7 +27044,7 @@ summary::-webkit-details-marker { display: none; }
 /* Shapeshifter + paper chip: Inter Tight, sharp. */
 .cb-bench .cb-shape {
   border-radius: 2px;
-  font-family: var(--cb-font); font-size: 12px; letter-spacing: 0.02em;
+  font-family: var(--cb-font); font-size: 12px; letter-spacing: 0;
 }
 .cb-bench .cb-paperchip { border-radius: 2px; border-style: dashed; }
 .cb-bench .cb-ask-hint { font-family: var(--cb-font); font-size: 11px; }
@@ -27163,7 +27112,7 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-bench-foot-mode { display: inline-flex; gap: 10px; align-items: baseline; min-width: 0; }
 .cb-bench-foot-idx { color: var(--cb-acc); font-weight: 500; flex-shrink: 0; }
-.cb-bench-foot-ev { white-space: nowrap; letter-spacing: 0.06em; flex-shrink: 0; }
+.cb-bench-foot-ev { white-space: nowrap; letter-spacing: 0; flex-shrink: 0; }
 
 /* ── Work Log: the deck as the bench's second module ──
    Same instrument language as the console — tick frame, mono header —
@@ -27179,7 +27128,7 @@ summary::-webkit-details-marker { display: none; }
   letter-spacing: 0.12em; color: var(--cb-ink2); margin: 0;
 }
 .cb-deck-sub {
-  font-family: var(--cb-font); font-size: 11px; letter-spacing: 0.06em;
+  font-family: var(--cb-font); font-size: 11px; letter-spacing: 0;
   color: var(--cb-faint); white-space: nowrap;
 }
 .cb-deck-body { padding: 18px; }
@@ -27215,8 +27164,9 @@ summary::-webkit-details-marker { display: none; }
 /* ── Dive: the descent instrument ──
    The one loading language. Five depth strata, one per real pipeline
    stage; the rail fills and the traveler rides as stage frames arrive.
-   Marine snow is a light CSS field that densifies with depth. No elapsed
-   clock, no fake progress, no fake geometry. */
+   No fake progress, no fake geometry. The room is colored from the
+   palette tokens the component root sets (2026-10-19, audit H9); the
+   old dark room hexes, the traveler pulse and the snow field are gone. */
 .cb-dive {
   --cb-acc: #d9a441;
   position: relative;
@@ -27233,36 +27183,22 @@ summary::-webkit-details-marker { display: none; }
 .cb-dive-kicker {
   /* Inter Tight label, not a tracked-out eyebrow. */
   font-family: var(--cb-font); font-size: 11px; font-weight: 500;
-  color: color-mix(in srgb, var(--cb-acc) 85%, white);
+  color: var(--cb-faint);
   margin-bottom: 14px;
   position: relative; z-index: 1;
 }
 .cb-dive-q {
   font-family: var(--cb-font); font-weight: 500;
   letter-spacing: -0.015em; line-height: 1.28;
-  font-size: clamp(20px, 4.2vw, 30px);
-  color: #f2f4f2;
+  /* Plan size and weight (2026-10-19, audit H9): the section role,
+     22 at 500, in the palette ink, not a fluid dark room size. */
+  font-size: 22px;
+  color: var(--cb-ink);
   max-width: 720px; margin: 0;
   position: relative; z-index: 1;
 }
-/* Marine snow: the water column. Motes drift downward on transform only;
-   each carries its own duration and negative delay so the field is
-   already mid-drift on mount. */
-.cb-dive-snowfield {
-  position: absolute; inset: 0;
-  pointer-events: none; overflow: hidden;
-}
-.cb-dive-mote {
-  position: absolute;
-  border-radius: 50%;
-  background: #ffffff;
-  animation: cbSnowDrift linear infinite;
-  will-change: transform;
-}
-@keyframes cbSnowDrift {
-  from { transform: translateY(-16px); }
-  to { transform: translateY(48px); }
-}
+/* The snow field CSS that used to sit here is deleted with its JSX
+   (2026-10-19, S7 shell lane, audit H9). */
 /* The depth well: the stage rail as a depth cross-section. Strata are a
    fixed 64px so the rail marks land exactly: node centers at
    10/30/50/70/90% of the well. */
@@ -27274,7 +27210,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-dive-rail {
   position: relative; flex-shrink: 0;
   width: 2px; align-self: stretch;
-  background: rgba(255,255,255,0.12);
+  background: var(--cb-line);
   border-radius: 2px;
 }
 .cb-dive-railfill {
@@ -27289,12 +27225,9 @@ summary::-webkit-details-marker { display: none; }
   width: 11px; height: 11px; margin-left: -5.5px;
   border-radius: 50%; background: var(--cb-acc);
   box-shadow: none;
+  /* No glow and no pulse (2026-10-19, audit H9): the traveler marks the
+     live stage by position on the rail, nothing else. */
   transition: top 550ms var(--cb-ease);
-  animation: cbTravelerPulse 1.8s var(--cb-ease) infinite;
-}
-@keyframes cbTravelerPulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.35); opacity: 0.75; }
 }
 .cb-dive-strata {
   list-style: none; margin: 0; padding: 0;
@@ -27307,7 +27240,7 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-dive-depth {
   font-family: var(--cb-mono); font-size: 10px; font-weight: 500;
-  color: rgba(242,244,242,0.35);
+  color: var(--cb-faint);
   width: 38px; flex-shrink: 0; text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -27318,7 +27251,7 @@ summary::-webkit-details-marker { display: none; }
   color: var(--cb-acc);
 }
 .cb-dive-stratum.is-pending .cb-dive-node {
-  border: 1px solid rgba(255,255,255,0.22);
+  border: 1px solid var(--cb-line);
 }
 .cb-dive-stratum.is-active .cb-dive-node {
   border: 1px solid var(--cb-acc);
@@ -27331,12 +27264,12 @@ summary::-webkit-details-marker { display: none; }
 .cb-dive-stage { display: flex; flex-direction: column; min-width: 0; }
 .cb-dive-label {
   font-family: var(--cb-font); font-size: 13px; font-weight: 500;
-  color: #f2f4f2; letter-spacing: 0.01em;
+  color: var(--cb-ink); letter-spacing: 0;
 }
-.cb-dive-stratum.is-pending .cb-dive-label { color: rgba(242,244,242,0.4); font-weight: 500; }
+.cb-dive-stratum.is-pending .cb-dive-label { color: var(--cb-faint); font-weight: 500; }
 .cb-dive-detail {
   font-family: var(--cb-font); font-size: 11px;
-  color: rgba(242,244,242,0.5); margin-top: 2px;
+  color: var(--cb-faint); margin-top: 2px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   max-width: 100%;
 }
@@ -27346,8 +27279,8 @@ summary::-webkit-details-marker { display: none; }
   position: relative; z-index: 1;
   margin-top: 22px;
   font-family: var(--cb-font); font-weight: 500;
-  font-size: 15px; letter-spacing: -0.01em;
-  color: #f5f7f5;
+  font-size: 15px; letter-spacing: 0;
+  color: var(--cb-ink);
   font-variant-numeric: tabular-nums;
 }
 .cb-dive-line {
@@ -27355,7 +27288,7 @@ summary::-webkit-details-marker { display: none; }
   margin-top: 8px;
   font-family: var(--cb-font); font-size: 11px;
   letter-spacing: 0.02em;
-  color: rgba(242,244,242,0.45);
+  color: var(--cb-faint);
   max-width: 560px;
 }
 /* First-run honesty caption. One line, plain words, shown once. */
@@ -27363,7 +27296,7 @@ summary::-webkit-details-marker { display: none; }
   position: relative; z-index: 1;
   margin-top: 14px; max-width: 560px;
   font-family: var(--cb-font); font-size: 12px; line-height: 1.6;
-  color: color-mix(in srgb, var(--cb-acc) 80%, white);
+  color: var(--cb-ink2);
   border-left: 2px solid color-mix(in srgb, var(--cb-acc) 55%, transparent);
   padding-left: 12px;
 }
@@ -27373,7 +27306,7 @@ summary::-webkit-details-marker { display: none; }
   display: inline-flex; align-items: center; gap: 8px;
   font-family: var(--cb-font); font-size: 11px; font-weight: 500;
   letter-spacing: 0.02em;
-  color: rgba(242,244,242,0.85);
+  color: var(--cb-ink2);
   animation: cbRise 320ms var(--cb-ease) both;
 }
 .cb-dive-dot {
@@ -27397,14 +27330,12 @@ summary::-webkit-details-marker { display: none; }
 }
 .cb-view-ascend { animation: cbAscend 550ms var(--cb-ease) both; }
 @media (prefers-reduced-motion: reduce) {
-  .cb-dive-mote { animation: none; }
   .cb-dive-traveler { animation: none; }
 }
 /* The in-product motion toggle (Settings → Sound & motion → Off) applies
    the same kills via body.cb-motion-off, for stylesheet-driven motion the
    OS media query can't reach. Components gate their own motion through
    useReducedMotion(); this is the backstop for the loops above. */
-body.cb-motion-off .cb-dive-mote,
 body.cb-motion-off .cb-dive-traveler,
 body.cb-motion-off .cb-turn-ascend,
 body.cb-motion-off .cb-view-descend,
@@ -27791,23 +27722,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    call site anywhere in the repo) running an infinite box-shadow
    animation — continuous paint for nothing. */
 
-/* Focus */
-:focus { outline: none; }
-:focus-visible {
-  /* Was "currentColor", which resolves to the focused element's own text
-     color - on the faint/ghost buttons this app uses everywhere, that's a
-     low-contrast grey ring on a low-contrast surface, i.e. a focus
-     indicator you can't find with the keyboard. The accent is the one
-     color guaranteed to be legible against every surface in every palette
-     (it's chosen for exactly that), and the paired dark/light halo keeps
-     it visible whichever side of the theme it lands on.
-     Strengthened to 3px: every interactive element carries a ring you can
-     actually see, keyboard or switch-control. */
-  outline: 3px solid var(--cb-accent-ink, var(--cb-accent, #34d399));
-  outline-offset: 2px;
-  border-radius: 2px;
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--cb-accent, #34d399) 26%, transparent);
-}
+/* Focus: the one global ring rule lives at the top of this stylesheet
+   (*:focus-visible, 2px accent, 2px offset, audit M4). The 3px emerald
+   :focus-visible rule that used to sit here is deleted. */
 
 /* v31: was an animated emerald→sky→indigo gradient cycling every 8s behind
    the wordmark — exactly the "heavy 80s neon" look this round retires.
@@ -27937,16 +27854,14 @@ input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.35); }
   word-spacing: 0.15em !important;
 }
 
-/* ── Focus ring indicators ── */
-.cb-focus-ring *:focus {
-  outline: 3px solid #5eead4 !important;
-  outline-offset: 3px !important;
-  border-radius: 2px;
-}
+/* ── Focus ring indicators ──
+   The focus highlight class carries the one global ring (2026-10-19,
+   audit M4): 2px in the active accent with an offset. The hardcoded
+   teal 3px treatment that used to live here is gone. */
 .cb-focus-ring *:focus:not(:focus-visible) { outline: none !important; }
 .cb-focus-ring *:focus-visible {
-  outline: 3px solid #5eead4 !important;
-  outline-offset: 3px !important;
+  outline: 2px solid var(--cb-acc) !important;
+  outline-offset: 2px !important;
 }
 
 /* ── Scroll progress bar ──
@@ -28235,36 +28150,15 @@ button, a {
 }
 @media (prefers-reduced-motion: reduce) {
 }
-@media (prefers-reduced-motion: reduce) {
-}
-
 /* ── Selection ──
    (Single source of truth lives up near the base resets; the duplicate
    that used to sit here is gone.) */
 
 /* ── Keyboard focus ──
-   Scrollbars are hidden app-wide (see above), which makes keyboard
-   navigation the only way some surfaces are reachable — so the focus ring
-   has to be genuinely visible, and in the user's accent rather than the
-   platform default. :focus-visible only, so it never fires on a mouse
-   click. Matches the designed 3px + halo ring (.cb-focus-ring above) so
-   focus looks the same everywhere, not faint outside the ring scope. */
-:focus-visible {
-  outline: 3px solid var(--cb-accent-ink, var(--cb-accent, #34d399));
-  outline-offset: 3px;
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--cb-accent, #34d399) 22%, transparent);
-  border-radius: 2px;
-}
-/* Text inputs kill their outline inline (outline: "none") with no
-   replacement — keyboard users get zero focus indication. This restores
-   a visible ring on inputs specifically; inline outline:none still wins
-   for non-input elements (dialog panels, decorative wrappers) where the
-   ring would be noise. */
-input:focus-visible, textarea:focus-visible, select:focus-visible {
-  outline: 2px solid var(--cb-accent-ink, var(--cb-accent, #34d399)) !important;
-  outline-offset: 2px;
-  border-radius: 2px;
-}
+   The one global ring rule at the top of this stylesheet covers every
+   element including inputs (its !important beats inline outline none).
+   The duplicate 3px ring and input specific rule that used to sit here
+   are deleted (2026-10-19, audit M4). */
 
 /* The existing reduced-motion block at the end of this stylesheet zeroes
    animations and transitions. The one thing it can't do is un-hide
@@ -28416,7 +28310,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   }
 }
 .cb-glass-action:focus-visible, .cb-intro-go:focus-visible, .cb-intro-chip:focus-visible {
-  outline: 2px solid var(--cb-accent, #A3B899); outline-offset: 3px;
+  outline: 2px solid var(--cb-acc); outline-offset: 2px;
 }
 .cb-intro-header { border-bottom: 0; }
 #cb-intro-wrap h1 { text-wrap: balance; }
@@ -28576,16 +28470,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
    SignalComposer for the pattern). Colours always come from the
    palette; these classes carry only shape, type and layout.
 
-   Radius scale (enforced in component code, documented here):
-     2px  controls, buttons, chips, status pills — the working radius
-     8px  inputs, selects, textareas
-     12px cards, panels — the maximum anywhere
-     999px NEVER — pills are the AI default. Sharp corners are the brand.
+   Radius contract (2026-10-19, S7 shell lane, audit H1): every radius
+     resolves to 2. The rival scale that used to be documented here
+     (2 for controls, 8 for inputs, 12 for cards) is deleted; the plan
+     contract in designSystem.jsx (RADIUS, all values 2) is the only one.
    ════════════════════════════════════════════════════════════════════ */
-:root {
-  --cb-serif: 'Source Serif 4', Charter, 'Bitstream Charter', Georgia, 'Times New Roman', serif;
-  --cb-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
-}
 .cb-serif { font-family: var(--cb-serif); }
 .cb-mono { font-family: var(--cb-mono); font-variant-numeric: tabular-nums; }
 
@@ -28727,7 +28616,10 @@ button.cb-cite { min-height: 0; min-width: 0; }
   border-right: 1px solid var(--cb-line, rgba(128,128,128,0.22)); padding-right: 10px;
   color: var(--cb-faint, #888);
 }
-@media (max-width: 720px) {
+@media (max-width: 900px) {
+  /* Moved from the 720 line to the one breakpoint line (2026-10-19,
+     deferred Lane B): the claim rail collapses across the whole mobile
+     band the JS mode already claims, 721 to 900 included. */
   .cb-claim { grid-template-columns: 1fr; }
   .cb-claim-refs {
     text-align: left; border-right: none;
@@ -28795,8 +28687,11 @@ button.cb-cite { min-height: 0; min-width: 0; }
 .cb-answer-wrap .cb-article { max-width: 100%; min-width: 0; margin-left: 0; margin-right: auto; }
 /* Mobile readability (2026-10-08): Dusty reported the answer view is hard
    to read on phones. Larger type, looser leading, more air between
-   sections, smaller citation chips, stacked buttons. */
-@media (max-width: 720px) {
+   sections, smaller citation chips, stacked buttons. Moved from the
+   720 line to the one breakpoint line (2026-10-19, deferred Lane B) so
+   the 721 to 900 band gets the same reading treatment the JS mobile
+   mode already gives its chrome. */
+@media (max-width: 900px) {
   .cb-answer-wrap { padding-left: 16px; padding-right: 16px; }
   .cb-answer-wrap .cb-article { font-size: 17px !important; line-height: 1.75 !important; }
   .cb-answer-wrap .cb-article p { margin-bottom: 1.1em; }
@@ -28822,11 +28717,6 @@ button.cb-cite { min-height: 0; min-width: 0; }
 @keyframes cbSheetIn { from { opacity: 0; transform: translateY(48px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .cb-ev-rail { animation: none !important; }
-}
-
-/* Reduced motion: no animated typing caret. (The ambient-layer half of
-   this rule retired with the ambient stack in the 2026-09-17 pass 1.) */
-@media (prefers-reduced-motion: reduce) {
 }
 
 `;

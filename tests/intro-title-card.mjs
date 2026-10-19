@@ -475,7 +475,9 @@ await test("the stage keeps one centred column inside the standard shell", () =>
      restored"). */
   assert.ok(appSrc.includes('const homeStage = view === "search" && !started'), "homeStage not derived from the empty state");
   assert.ok(!appSrc.includes("(!homeStage || isMobile)"), "sidebar is still conditional on the stage");
-  assert.ok(appSrc.includes("marginLeft: isMobile ? 0 : (railCollapsed ? 68 : 216)"), "main offset is not the standard sidebar offset");
+  /* Pin updated 2026-10-19 (S7 shell lane, audit M14): the offset reads
+     the LAYOUT tokens, corrected to 216 and 68 by the tokens lane. */
+  assert.ok(appSrc.includes("marginLeft: isMobile ? 0 : (railCollapsed ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar)"), "main offset is not the standard sidebar offset");
   assert.ok(!appSrc.includes("marginLeft: isMobile || homeStage ? 0"), "stage still zeroes the sidebar offset");
 });
 
@@ -494,7 +496,9 @@ await test("the stage carries the plain order and no corpus number", () => {
     appSrc.indexOf("<div style={{ ...S.workspace,")
   );
   assert.ok(stage.length > 1000, "stage block not found");
-  assert.ok(stage.includes("maxWidth: 1160"), "stage column is not the wide 1160 measure");
+  /* Pin updated 2026-10-19 (S7 shell lane, audit M13): the column now
+     holds the thread width, LAYOUT.answer, from stage into thread. */
+  assert.ok(stage.includes("maxWidth: LAYOUT.answer"), "stage column is not the thread measure");
   assert.ok(stage.includes("cb-stage-wordmark"), "masthead wordmark missing from the stage");
   assert.ok(stage.includes(">Cerebrum<"), "masthead does not carry the name");
   assert.ok(stage.includes('variant="stage"'), "composer not in its stage variant");

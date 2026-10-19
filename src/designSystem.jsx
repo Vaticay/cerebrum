@@ -357,6 +357,7 @@ export const Z = {
   sheetScrim: 258,  // bottom-sheet scrims (under the sheet)
   modal: 300,       // full-screen modals
   modalTop: 320,    // modals that must clear other modals
+  consent: 330,     // the consent gate (2026-10-19, S7 shell lane, audit M3): above every dialog, below menus and toasts; Z.max stays dev overlays only
   selectMenu: 400,  // UISelect's portaled menu — must clear dialogs/modals
   toast: 9999,      // toasts and critical overlays
   max: 10000,       // absolute top (dev overlays only)
@@ -820,7 +821,9 @@ export function UISelect({
             maxHeight: 280, overflowY: "auto",
             background: pal.dark ? COLOR.surface1 : "#ffffff",
             border: `1px solid ${pal.dark ? COLOR.line : pal.line}`, borderRadius: RADIUS.lg, padding: 6,
-            boxShadow: SHADOW.xl(P),
+            /* No shadow on menus (2026-10-19, S7 shell lane, audit M3):
+               the 1px border carries the menu, like every other menu. */
+            boxShadow: "none",
             ...menuStyle,
           }}
         >
