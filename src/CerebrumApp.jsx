@@ -18740,6 +18740,23 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       borderRadius: RADIUS.xl, padding: isMobile ? SP.xl : SP.xxl, border: `1px solid ${P.line}`,
       boxShadow: SHADOW.sm(P),
     };
+    /* One navigation system for the report (2026-10-19, M31): the tab
+       bar alone. A section chips row used to sit above the tabs,
+       duplicating them without mapping one to one (Limitations and
+       Findings were two chips but one tab). The one thing the chips
+       carried that the tabs did not, the missing section marker, now
+       rides on the tab labels themselves. The findings tab covers both
+       the findings and limitations sections, so it is marked when
+       either one is missing. */
+    const tabOptions = allTabOptions.map((o) => {
+      if (!summary) return o;
+      const filled = (v) => !!(v && String(v).trim());
+      const missing =
+        (o.id === "summary" && !filled(summary.executiveSummary)) ||
+        (o.id === "methodology" && !filled(summary.methodology)) ||
+        (o.id === "findings" && !(filled(summary.keyFindings) && filled(summary.limitations)));
+      return missing ? { ...o, label: o.label + " · missing" } : o;
+    });
     return (
       <>
         {!summary && !analyzing && (
@@ -18912,34 +18929,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   reasons, and the details only the stages can tell,
                   such as sections that could not be read. */}
               <DocStageHealth stageHealth={summary.stageHealth} P={P} />
-              {/* The report's table of contents: every section the read
-                  promises, marked present or honestly missing, each one
-                  a jump to its tab. */}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 12 }} aria-label="Report sections">
-                {[
-                  { tab: "summary", label: "Summary", field: summary.executiveSummary },
-                  { tab: "methodology", label: "Methodology", field: summary.methodology },
-                  { tab: "findings", label: "Findings", field: summary.keyFindings },
-                  { tab: "findings", label: "Limitations", field: summary.limitations },
-                  { tab: "qa", label: "Questions", field: null },
-                ].map((s) => {
-                  const present = s.field == null ? true : !!(s.field && String(s.field).trim());
-                  const active = rightTab === s.tab;
-                  return (
-                    <button key={s.label} type="button" onClick={() => setRightTab(s.tab)} aria-pressed={active}
-                      style={{ minHeight: 44, padding: "7px 13px", borderRadius: RADIUS.pill, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: active ? 500 : 500,
-                        background: active ? withAlpha(accent, 0.2) : present ? withAlpha(accent, 0.08) : "transparent",
-                        color: present ? P.ink : P.faint,
-                        border: `1px solid ${active ? withAlpha(accent, 0.5) : present ? withAlpha(accent, 0.3) : P.line}` }}>
-                      {s.label}{s.field != null && !present ? " · missing" : ""}
-                    </button>
-                  );
-                })}
-              </div>
             </div>
             <div className="cb-doc-tabs" style={{ marginBottom: 14, }}>
               <SegControl small={isMobile} value={rightTab} onChange={setRightTab} P={P} accent={accent} ariaLabel="Analysis section"
-                options={allTabOptions} />
+                options={tabOptions} />
             </div>
             {/* An edited document must not wear its earlier read as
                 current: the analysis below describes the text as it
