@@ -16839,7 +16839,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
       scrimStyle={isMobile ? { alignItems: "flex-end", padding: 0 } : {}}
       panelStyle={{
         background: P.surface, border: `1px solid ${P.line}`,
-        borderRadius: isMobile ? `${RADIUS.lg}px ${RADIUS.lg}px 0 0` : RADIUS.lg,
+        borderRadius: isMobile ? "2px 2px 0 0" : RADIUS.lg,
         maxHeight: isMobile ? "92dvh" : "86dvh",
         display: "flex", flexDirection: "column", overflow: "hidden", outline: "none",
         boxShadow: "none",
@@ -20281,7 +20281,7 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
       scrimStyle={isMobile ? { alignItems: "flex-end", padding: 0 } : {}}
       panelStyle={{
         background: P.surface, border: `1px solid ${P.line}`,
-        borderRadius: isMobile ? "2px 2px 0 0" : RADIUS.lg,
+        borderRadius: isMobile ? `${RADIUS.lg}px ${RADIUS.lg}px 0 0` : RADIUS.lg,
         padding: 0, overflow: "hidden", outline: "none",
         boxShadow: "none",
       }}
