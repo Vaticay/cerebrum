@@ -288,11 +288,16 @@ function cbNotify(title, body, tag, kind) {
 }
 
 /* The app's one breakpoint test, pure so tests can pin it without a
-   DOM: a viewport narrower than the breakpoint is the mobile mode.
-   900 is the app's main breakpoint; a surface with its own threshold
-   (the Trending feed's narrow layout at 560) passes it explicitly. */
+   DOM. The single breakpoint convention (2026-10-19, S7 shell lane,
+   deferred Lane B): a viewport AT or BELOW the breakpoint is the
+   mobile mode, matching the CSS form @media (max-width: Npx) that the
+   shipped bands already use by majority. JS tests read width <= N and
+   CSS bands read max-width: Npx, so the two agree at every width,
+   including exactly 900 and exactly 560. 900 is the app's main
+   breakpoint; a surface with its own threshold (the Trending feed's
+   narrow layout at 560) passes it explicitly. */
 function widthToMode(width, breakpoint = 900) {
-  return width < breakpoint ? "mobile" : "desktop";
+  return width <= breakpoint ? "mobile" : "desktop";
 }
 
 /* Resize aware viewport width: the numeric companion to useIsMobile

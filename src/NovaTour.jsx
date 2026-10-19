@@ -286,7 +286,7 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
     return () => window.removeEventListener("keydown", fn);
   }, []);
 
-  const narrow = winW < 600;
+  const narrow = winW <= 600;
   /* One figure size for the whole tour (the narrow switch
      is the only variation): her box never resizes between
      stops, so the canvas never reattributes its drawing

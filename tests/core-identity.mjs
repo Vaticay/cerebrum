@@ -408,17 +408,21 @@ await test("widthToMode pins the breakpoint logic at real widths", () => {
   assert.ok(fnAt > 0, "widthToMode is missing from appUtils.js");
   const fnSrc = appUtilsSrc.slice(fnAt, appUtilsSrc.indexOf("\n}", fnAt) + 2);
   const widthToMode = new Function(`${fnSrc}; return widthToMode;`)();
-  // The app's main breakpoint is 900: below it is mobile, at it is not.
+  /* Pin updated 2026-10-19 (S7 shell lane, deferred Lane B): the one
+     breakpoint convention is inclusive, at or below the breakpoint is
+     mobile, matching the CSS max-width form the shipped bands use.
+     The breakpoint itself is mobile now, on both sides of the line. */
   assert.strictEqual(widthToMode(390), "mobile", "a phone width must read as mobile");
   assert.strictEqual(widthToMode(768), "mobile", "a tablet width must read as mobile");
   assert.strictEqual(widthToMode(899), "mobile");
-  assert.strictEqual(widthToMode(900), "desktop", "the breakpoint itself is desktop");
+  assert.strictEqual(widthToMode(900), "mobile", "the breakpoint itself is mobile under the one convention");
+  assert.strictEqual(widthToMode(901), "desktop");
   assert.strictEqual(widthToMode(1440), "desktop");
   // A caller with its own threshold (the Trending feed's narrow layout
-  // at 560) gets the same strict below test at its own breakpoint.
+  // at 560) gets the same inclusive test at its own breakpoint.
   assert.strictEqual(widthToMode(390, 560), "mobile");
   assert.strictEqual(widthToMode(559, 560), "mobile");
-  assert.strictEqual(widthToMode(560, 560), "desktop");
+  assert.strictEqual(widthToMode(560, 560), "mobile");
   assert.strictEqual(widthToMode(768, 560), "desktop");
 });
 
@@ -523,7 +527,10 @@ await test("the autopsy, turn, and trending surfaces take their mode from the ho
   const trend = appSrc.slice(trendAt, appSrc.indexOf("\nfunction ", trendAt + 10));
   assert.ok(trend.includes("const winW = useWindowWidth();"),
     "TrendingView still keeps its own width state instead of the shared hook");
-  assert.ok(trend.includes("const narrow = winW < 560;"),
+  /* Pin updated 2026-10-19 (S7 shell lane, deferred Lane B): the
+     Trending narrow test now reads <= 560, the one inclusive convention,
+     agreeing with the bench CSS at max-width 560 at exactly 560. */
+  assert.ok(trend.includes("const narrow = winW <= 560;"),
     "TrendingView's narrow threshold moved; the swap must preserve it exactly");
   assert.ok(!appSrc.includes("setWinW"), "the hand rolled winW state survives somewhere in CerebrumApp.jsx");
 });

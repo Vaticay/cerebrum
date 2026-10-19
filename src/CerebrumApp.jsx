@@ -12635,7 +12635,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
      own width state and resize listener, the same subscription
      useWindowWidth now owns for the whole app. */
   const winW = useWindowWidth();
-  const narrow = winW < 560;
+  const narrow = winW <= 560;
 
   useEffect(() => {
     let cancelled = false;
@@ -28392,7 +28392,10 @@ button.cb-cite { min-height: 0; min-width: 0; }
   border-right: 1px solid var(--cb-line, rgba(128,128,128,0.22)); padding-right: 10px;
   color: var(--cb-faint, #888);
 }
-@media (max-width: 720px) {
+@media (max-width: 900px) {
+  /* Moved from the 720 line to the one breakpoint line (2026-10-19,
+     deferred Lane B): the claim rail collapses across the whole mobile
+     band the JS mode already claims, 721 to 900 included. */
   .cb-claim { grid-template-columns: 1fr; }
   .cb-claim-refs {
     text-align: left; border-right: none;
@@ -28460,8 +28463,11 @@ button.cb-cite { min-height: 0; min-width: 0; }
 .cb-answer-wrap .cb-article { max-width: 100%; min-width: 0; margin-left: 0; margin-right: auto; }
 /* Mobile readability (2026-10-08): Dusty reported the answer view is hard
    to read on phones. Larger type, looser leading, more air between
-   sections, smaller citation chips, stacked buttons. */
-@media (max-width: 720px) {
+   sections, smaller citation chips, stacked buttons. Moved from the
+   720 line to the one breakpoint line (2026-10-19, deferred Lane B) so
+   the 721 to 900 band gets the same reading treatment the JS mobile
+   mode already gives its chrome. */
+@media (max-width: 900px) {
   .cb-answer-wrap { padding-left: 16px; padding-right: 16px; }
   .cb-answer-wrap .cb-article { font-size: 17px !important; line-height: 1.75 !important; }
   .cb-answer-wrap .cb-article p { margin-bottom: 1.1em; }
