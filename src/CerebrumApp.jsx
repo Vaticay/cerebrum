@@ -25680,12 +25680,16 @@ const CSS = `
      answer body) is set in Inter Tight like everything else — a reading
      serif at these sizes read as a magazine, and Cerebrum is software. */
   /* 2026-10-14, wave 1 foundation: the plan now sets Inter as the UI face with the self hosted Inter Tight as its guaranteed local face, Source Serif 4 exists for answer body and lesson text only via --cb-serif, weights are 400 and 500 only. */
-  --cb-font:  'Inter', 'Inter Tight', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --cb-serif: 'Source Serif 4', Charter, 'Bitstream Charter', Georgia, 'Times New Roman', serif;
-  --cb-ease:    cubic-bezier(0, 0, 0.58, 1);
-  --cb-ease-in: cubic-bezier(0, 0, 0.58, 1);
+  /* Font variables live in one home only (2026-10-19, S7 shell lane,
+     audit H2): the :root in public/fonts/cerebrum-fonts.css. This block
+     keeps only the motion tokens. */
+  /* Easing tokens (2026-10-19, S7 shell lane, audit tail 4): two real
+     curves, named. --cb-ease is the signature curve, the same value as
+     MOTION.ease in JS. --cb-ease-out is the decelerating fade curve.
+     The old --cb-ease-in and --cb-spring were byte identical copies of
+     the fade curve under extra names and are deleted. */
+  --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
   --cb-ease-out: cubic-bezier(0, 0, 0.58, 1);
-  --cb-spring:  cubic-bezier(0, 0, 0.58, 1);
 }
 
 *, *::before, *::after {
@@ -28332,16 +28336,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
    SignalComposer for the pattern). Colours always come from the
    palette; these classes carry only shape, type and layout.
 
-   Radius scale (enforced in component code, documented here):
-     2px  controls, buttons, chips, status pills — the working radius
-     8px  inputs, selects, textareas
-     12px cards, panels — the maximum anywhere
-     999px NEVER — pills are the AI default. Sharp corners are the brand.
+   Radius contract (2026-10-19, S7 shell lane, audit H1): every radius
+     resolves to 2. The rival scale that used to be documented here
+     (2 for controls, 8 for inputs, 12 for cards) is deleted; the plan
+     contract in designSystem.jsx (RADIUS, all values 2) is the only one.
    ════════════════════════════════════════════════════════════════════ */
-:root {
-  --cb-serif: 'Source Serif 4', Charter, 'Bitstream Charter', Georgia, 'Times New Roman', serif;
-  --cb-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
-}
 .cb-serif { font-family: var(--cb-serif); }
 .cb-mono { font-family: var(--cb-mono); font-variant-numeric: tabular-nums; }
 
