@@ -17129,9 +17129,15 @@ const SAMPLE_DOCUMENT = [
 ].join("\n");
 
 /* Identifier-first intake: DOI / PMID / arXiv ID / URL. Local pattern
-   matching only — the document backend has no identifier resolver, so a
-   bare identifier is labelled honestly as an identifier and attached as
-   the document's citation once the text or file is supplied. */
+   matching only. DOI, PMID and arXiv IDs resolve against their
+   registries (functions/api/resolve-identifier.js); a URL never does.
+   That resolver fetches only its three fixed registry hosts and
+   refuses a URL kind outright, so it cannot become an open fetch
+   proxy, and functions/api/document.js carries no arbitrary URL
+   fetch path either. A pasted URL is therefore labelled honestly as
+   an identifier, the intake copy no longer invites one, and the
+   identifier card tells the reader to paste the text or upload the
+   file instead (2026-10-19, M34, fallback branch). */
 function detectDocIdentifier(text) {
   const t = String(text || "").trim();
   if (!t) return null;
@@ -18376,7 +18382,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               options={[{ id: "source", label: "Source" }, { id: "read", label: "Read" }]} />
           ) : (
             /* Identifier-first intake header: one field below takes a DOI,
-               PMID, arXiv ID, URL, or the full pasted text — no tabs. */
+               PMID, arXiv ID, or the full pasted text — no tabs. */
             <div className="cb-kicker">Source document</div>
           )}
         </div>
@@ -18540,7 +18546,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           /* SOURCE — paste or upload, as before. */
           <>
             {/* Identifier-first intake: one field takes a DOI, PMID, arXiv ID,
-                URL, or the full pasted text. The file chooser and drag-drop
+                or the full pasted text. The file chooser and drag-drop
                 handle PDFs and text files. Presentation only — the read and
                 analysis pipeline below is untouched. */}
             <div
@@ -18560,8 +18566,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               <textarea
                 value={documentText}
                 onChange={(e) => { setDocumentText(e.target.value); setCustomTitle(null); }}
-                aria-label="Document: DOI, PMID, arXiv ID, URL, or the full text of a paper, report, or document"
-                placeholder="DOI, PMID, arXiv ID, or URL. Or paste the full text"
+                aria-label="Document: DOI, PMID, arXiv ID, or the full text of a paper, report, or document"
+                placeholder="DOI, PMID, or arXiv ID. Or paste the full text"
                 rows={docIdentMode ? 2 : 8}
                 style={{ ...textareaStyle, border: "none", background: "transparent", borderRadius: 0, outline: "none", ...(docIdentMode ? { minHeight: 44, resize: "none" } : null) }}
               />
@@ -18616,7 +18622,9 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </div>
                 {docIdentOnly && !identMeta && (
                   <div style={{ padding: "0 16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
-                    Cerebrum reads the document you paste or upload. Add the text or file and this identifier is attached as its citation.
+                    {docMeta.ident.kind === "URL"
+                      ? "Cerebrum cannot fetch a page from a link, so a URL on its own cannot be read. Paste the text or upload the file instead."
+                      : "Cerebrum reads the document you paste or upload. Add the text or file and this identifier is attached as its citation."}
                   </div>
                 )}
               </div>
@@ -18883,7 +18891,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 an orphaned control at the top of a box. */}
             <div style={{ marginBottom: SP.lg }}>
               <div style={{ ...docEyebrow, marginBottom: SP.sm }}>Document analysis</div>
-              <h2 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+              {/* Full title, unclamped (2026-10-19, M35): the clamp
+                  below used to cut a wrapped title at two lines on
+                  the very surface whose job is naming the document. */}
+              <h2 style={{ ...TYPE.heading, fontSize: FONT_SIZES.title, color: P.ink, margin: 0 }}>
                 {docDisplayTitle}
               </h2>
               {docStats && (
