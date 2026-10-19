@@ -18448,14 +18448,20 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             <div ref={readBodyRef} onMouseUp={onReadSelect} onTouchEnd={onReadSelect}
               onKeyUp={(e) => { if (e.shiftKey) onReadSelect(); }}
               className="cb-doc-reader"
-              /* Containment: min-width 0 + width 100% keep it inside its
+              /* Reading voice (2026-10-19, H16): the body sets in
+                 TYPE.reading (Source Serif 4) at the plan body size
+                 with 1.55 leading, and section headings take the
+                 section role at weight 500. This is the longest
+                 reading surface in the product; it reads in the
+                 reading face, not the interface face.
+                 Containment: min-width 0 + width 100% keep it inside its
                  column; overflow-wrap breaks long tokens; pre-wrap keeps
                  the document's line breaks. Segments partition the text
                  exactly, so selection offsets still map 1:1 to highlight
                  offsets. onKeyUp raises Highlight for keyboard selections. */
-              style={{ ...TYPE.body, fontSize: 16, color: P.ink, whiteSpace: "pre-wrap", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
+              style={{ ...TYPE.reading, fontSize: FONT_SIZES.body, color: P.ink, whiteSpace: "pre-wrap", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
               {docSegments.map((seg, i) => (seg.heading ? (
-                <div key={i} data-seg={i} style={{ fontWeight: 500, fontSize: FONT_SIZES.title, lineHeight: 1.4, color: P.ink, margin: "20px 0 4px", whiteSpace: "pre-wrap" }}>{renderMarkedRange(seg.text, seg.start)}</div>
+                <div key={i} data-seg={i} style={{ fontWeight: 500, fontSize: FONT_SIZES.section, lineHeight: 1.3, color: P.ink, margin: "20px 0 4px", whiteSpace: "pre-wrap" }}>{renderMarkedRange(seg.text, seg.start)}</div>
               ) : (
                 <div key={i} data-seg={i} style={{ whiteSpace: "pre-wrap" }}>{renderMarkedRange(seg.text, seg.start)}</div>
               )))}
@@ -25999,12 +26005,10 @@ summary::-webkit-details-marker { display: none; }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-accent, #8ba888) 16%, transparent);
 }
 @media (prefers-reduced-motion: reduce) { .cb-doc-intake { transition: none; } }
-/* Document Mode analysis: a roomier reading surface than the answer
-   thread. The analysis card's prose sets at 1.75 leading with generous
-   section rhythm — the document deserves the air. (!important: the
-   paragraphs carry inline line-height from the shared renderer.) */
-.cb-doc-analysis-card .cb-doc-reader p,
-.cb-doc-analysis-card .cb-doc-reader li { line-height: 1.75 !important; }
+/* Document Mode analysis leading (2026-10-19, M30): the old override
+   pushing analysis prose to 1.75 is deleted. Analysis prose now keeps
+   the plan leading of 1.55 from the shared renderer, the same leading
+   the Q&A answers on the facing surface already use. */
 /* A reading measure, not a billboard: on wide screens the analysis
    column runs past ninety characters a line, which tires the eye and
    buries the findings. Cap the prose at a bookish measure. */

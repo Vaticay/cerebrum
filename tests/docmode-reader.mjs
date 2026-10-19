@@ -584,8 +584,10 @@ await test("wider page and roomier analysis card", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
   assert.match(src, /maxWidth: 1280/, "document page not widened to 1280");
   assert.match(src, /className="cb-doc-analysis-card"/, "analysis card missing hook class");
-  assert.match(src, /\.cb-doc-analysis-card \.cb-doc-reader p,/, "analysis leading rule missing");
-  assert.match(src, /line-height: 1\.75 !important/, "analysis leading not set to 1.75");
+  // Pin changed 2026-10-19 (M30): the 1.75 analysis leading override
+  // is deleted on purpose; analysis prose returns to the plan 1.55 the
+  // shared renderer already sets, so the override must stay gone.
+  assert.ok(!/\.cb-doc-analysis-card \.cb-doc-reader (p|li) \{ line-height: 1\.75/.test(src), "analysis leading override is back");
 });
 
 await test("Q&A and findings sections have section spacing", async () => {
