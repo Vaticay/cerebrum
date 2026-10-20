@@ -365,6 +365,63 @@ async function storeSessions(peerUserId, peerDeviceId, sessions) {
   await saveSessionPickles(key, pickles).catch(() => {});
 }
 
+// ── Sender key verification ──────────────────────────────────────────
+// The envelope carries the sender's claimed identity key (sk). Until
+// 2026-10-20 the receiver compared it only when a brand new inbound
+// session was created, so any message an existing session opened was
+// accepted on the envelope's word alone. Now the expected key for a
+// (sender user, sender device) pair is resolved on EVERY message from
+// sources that never come from the envelope itself: a local pin
+// recorded when a session was established (inbound creation yields the
+// key from inside the crypto; outbound creation takes it from the key
+// claim), or the peer device directory. A fresh directory entry wins
+// over a stale pin, so a legitimate key replacement recovers by
+// opening the conversation (which refetches the directory) instead of
+// locking the thread forever. When nothing is known yet (a legacy
+// session from before pins existed, directory never fetched) the
+// message is not blocked on absence alone: the server send path
+// already refuses envelopes whose sk is not the sending device's
+// registered key, and the type 0 path in decryptOne still verifies
+// from inside the message before any pin is written from it.
+const SENDER_KEY_META = "e2ee:senderKeys";
+let gSenderKeyPins = null; // Map<`${userId}:${deviceId}`, identityKey>
+
+async function loadSenderKeyPins() {
+  if (gSenderKeyPins) return gSenderKeyPins;
+  const raw = (await loadMeta(SENDER_KEY_META).catch(() => null)) || {};
+  gSenderKeyPins = new Map(Object.entries(raw));
+  return gSenderKeyPins;
+}
+
+async function pinSenderKey(userId, deviceId, identityKey) {
+  if (!userId || !deviceId || !identityKey) return;
+  const pins = await loadSenderKeyPins();
+  const k = `${userId}:${deviceId}`;
+  if (pins.get(k) === identityKey) return;
+  pins.set(k, identityKey);
+  await saveMeta(SENDER_KEY_META, Object.fromEntries(pins)).catch(() => {});
+}
+
+function directorySenderKey(userId, deviceId) {
+  const cached = gDirCache.get(userId);
+  if (!cached || !Array.isArray(cached.devices)) return null;
+  const d = cached.devices.find((x) => x && x.deviceId === deviceId);
+  if (!d || !d.identityKey) return null;
+  return { key: d.identityKey, fresh: Date.now() - cached.at < CLAIM_CACHE_MS };
+}
+
+async function expectedSenderKey(userId, deviceId) {
+  const dir = directorySenderKey(userId, deviceId);
+  const pins = await loadSenderKeyPins();
+  const pin = pins.get(`${userId}:${deviceId}`) || null;
+  if (dir && dir.fresh) {
+    if (pin !== dir.key) await pinSenderKey(userId, deviceId, dir.key);
+    return dir.key;
+  }
+  if (pin) return pin;
+  return dir ? dir.key : null;
+}
+
 /**
  * The peer's public device directory (e2ee-peer-devices): device ids,
  * identity keys, labels, revocation state. Consumes NOTHING server-side,
@@ -454,6 +511,10 @@ export async function encryptMessage({ apiAction, peerUserId, plaintext }) {
         throw new Error("Couldn't start an encrypted session with one of their devices. No keys are available.");
       }
       session = gAccount.createOutboundSession(c.identityKey, otk);
+      // The key came from the server directory at claim time; pin it
+      // so inbound messages from this device are verified against it
+      // from the first reply on.
+      pinSenderKey(peerUserId, device.deviceId, c.identityKey).catch(() => {});
       list = [session];
     }
     let msg;
@@ -585,6 +646,17 @@ async function decryptOne(m, myDeviceId, peerUserId) {
   const senderUserId = m.senderId;
   const senderDeviceId = env.sd;
 
+  // Sender key verification on EVERY message (2026-10-20): the claimed
+  // sk must match the key this sender device is pinned or registered
+  // under, not only on the new session path below. When no expected
+  // key is known yet, expectedSenderKey returns null and the message
+  // proceeds to the session checks (which still verify type 0
+  // messages from inside the crypto before accepting them).
+  const expectedSk = await expectedSenderKey(senderUserId, senderDeviceId);
+  if (expectedSk && env.sk !== expectedSk) {
+    return fail("This message failed verification and wasn't opened.");
+  }
+
   // Try every known session for this sender device, newest first. This
   // handles normal messages AND repeated prekey (type 0) messages from the
   // same sender session: a vodozemac outbound session keeps emitting
@@ -617,6 +689,10 @@ async function decryptOne(m, myDeviceId, peerUserId) {
       if (inbound.senderIdentityKey !== env.sk) {
         return fail("This message failed verification and wasn't opened.");
       }
+      // The key came out of the crypto itself and matched the claim:
+      // pin it, so later messages from this device verify against it
+      // even when they arrive over an existing session.
+      await pinSenderKey(senderUserId, senderDeviceId, env.sk);
       await storeSessions(senderUserId, senderDeviceId, [inbound.session, ...sessions]);
       return okWithText(m, inbound.plaintext, tag);
     } catch {
@@ -857,6 +933,7 @@ export function clearE2EEMemory() {
   gSessionLists.clear();
   gDirCache.clear();
   gDecryptCache.clear();
+  gSenderKeyPins = null;
   gAccount = null;
   gDeviceId = null;
   gIdentityKey = null;
