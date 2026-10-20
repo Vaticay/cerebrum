@@ -846,6 +846,41 @@ await test("match pair buttons expose their selection state", () => {
   assert.ok(learnSrc.includes("aria-pressed={donePair}"), "right match buttons lack aria-pressed");
 });
 
+await test("the match wrong tap flash timer is stored and cleared (2026-10-20)", () => {
+  // Added 2026-10-20: the wrong pair flash used to clear on a
+  // bare setTimeout whose handle was never stored, so an old
+  // timer could clear a later flash early or fire after the
+  // Player unmounted. The handle now lives in a ref, cleared
+  // before a new flash, on a card reset, and on unmount.
+  assert.ok(learnSrc.includes("const matchFlashTimer = useRef(null)"), "the flash timer handle is not stored in a ref");
+  assert.ok(!learnSrc.includes("setTimeout(() => setMatchFlash(null), 480)"), "the bare flash timer is back");
+  const tap = learnSrc.slice(learnSrc.indexOf("const matchRightTap"), learnSrc.indexOf("const orderTap"));
+  assert.ok(tap.includes("if (matchFlashTimer.current) clearTimeout(matchFlashTimer.current);"),
+    "a new flash does not cancel the previous flash timer");
+  assert.ok(tap.includes("matchFlashTimer.current = setTimeout("), "the flash timer is not stored when set");
+  assert.ok(tap.indexOf("clearTimeout(matchFlashTimer.current)") < tap.indexOf("matchFlashTimer.current = setTimeout("),
+    "the previous timer is cleared only after the new one is set");
+  assert.ok(tap.includes("}, 480);"), "the flash no longer clears after 480ms");
+  const reset = learnSrc.slice(learnSrc.indexOf("const resetCardState"), learnSrc.indexOf("const award"));
+  assert.ok(reset.includes("clearTimeout(matchFlashTimer.current)"), "a card reset leaves a pending flash timer behind");
+  const playerSrc = learnSrc.slice(learnSrc.indexOf("function Player("));
+  const cleanupAt = playerSrc.indexOf("useEffect(() => () => {");
+  const cleanup = playerSrc.slice(cleanupAt, cleanupAt + 220);
+  assert.ok(cleanup.includes("clearTimeout(matchFlashTimer.current)"), "unmount leaves a pending flash timer behind");
+});
+
+await test("the catalog filter chips meet the 44px tap floor (2026-10-20)", () => {
+  // Added 2026-10-20: the catalog filter chips rendered about
+  // 38px tall (padding 9px 15px, no minimum height) under the
+  // app 44px tap floor the onboarding chips already clear.
+  // The chip keeps its padding and look, and gains minHeight 44.
+  const chipAt = learnSrc.indexOf('className="lv-chip" onClick={() => setCatFilter(name)}');
+  assert.ok(chipAt >= 0, "the catalog filter chips are missing");
+  const chip = learnSrc.slice(chipAt, chipAt + 700);
+  assert.ok(chip.includes("minHeight: 44"), "the catalog filter chips sit under the 44px tap floor");
+  assert.ok(chip.includes('padding: "9px 15px"'), "the catalog filter chips lost their padding in the fix");
+});
+
 await test("motion respects prefers reduced motion", () => {
   const css = learnSrc.slice(learnSrc.indexOf("@media (prefers-reduced-motion: reduce)"));
   assert.ok(css.length > 0, "no reduced motion block in the stylesheet");
@@ -3612,23 +3647,45 @@ await test("Nova's brain: drives in, behavior out, and she never repeats herself
     "a long idle chooses to drift a sleep stage");
   assert.equal(novaBrainDecide(createNovaBrain(null), ctx({ idleMs: 1000, stage: 2 })).behavior, "wake",
     "fresh activity at stage two chooses to wake");
-  // Curiosity performs: it flutters her gills, and the same
-  // brain immediately after cannot repeat the trick (the
-  // cooldown and the no repeat penalty both bind), and a
-  // third decision with both tricks cooling falls to watch.
+  // Pins replaced 2026-10-20: this block pinned the picker
+  // choosing noticing, then gill flutter, then a glasses push
+  // after thinking. Those three behaviors were dead end to
+  // end: the Rive contract (NOVA_RIVE_INPUTS) has no input
+  // they could drive, NovaCanvas never destructured the
+  // pushN, flutterN, or noticeN counters NovaLive passed, and
+  // data nova doing still reported her doing them. The
+  // corrected contract: the picker only ever returns a
+  // behavior the figure actually performs (watch, glance,
+  // line, drift, wake), a high curiosity brain at an idle
+  // screen settles to watch instead of performing a trick
+  // nobody can see, and no dead counters are kept or passed.
   const curious = { ...createNovaBrain(null), curiosity: 0.95 };
   const first = novaBrainDecide(curious, ctx({ idleMs: 10000 }));
-  assert.equal(first.behavior, "noticing", "high curiosity at an idle screen chooses the noticing routine");
-  assert.ok(first.brain.cooldowns.noticing > 1000000, "the chosen behavior rests on its cooldown");
-  const second = novaBrainDecide(first.brain, ctx({ idleMs: 10000 }));
-  assert.notEqual(second.behavior, "noticing", "she never does the same trick twice in a row");
-  assert.equal(second.behavior, "gill-flutter", "the next best fit takes the turn");
-  const third = novaBrainDecide(second.brain, ctx({ idleMs: 10000 }));
-  assert.equal(third.behavior, "watch", "with her tricks cooling she settles back to watching");
-  // The glasses push is her resettle fidget: it wins shortly
-  // after a thinking stretch ends.
-  assert.equal(novaBrainDecide(createNovaBrain(null), ctx({ idleMs: 1000, afterThinking: true })).behavior, "glasses-push",
-    "after thinking she pushes her glasses up");
+  assert.equal(first.behavior, "watch", "high curiosity at an idle screen settles to watch; the dead noticing routine is gone");
+  assert.ok(!("noticing" in first.brain.cooldowns), "the dead noticing behavior still rests on a cooldown");
+  assert.ok(!("gill-flutter" in first.brain.cooldowns), "the dead gill flutter still rests on a cooldown");
+  assert.ok(!("glasses-push" in first.brain.cooldowns), "the dead glasses push still rests on a cooldown");
+  const allowedBehaviors = ["watch", "glance", "line", "drift", "wake"];
+  for (const curiosity of [0, 0.5, 0.95, 1]) {
+    for (const attention of [0, 0.5, 1]) {
+      for (const idleMs of [0, 1000, 10000, 25000, 130000]) {
+        for (const afterThinking of [false, true]) {
+          const out = novaBrainDecide({ ...createNovaBrain(null), curiosity, attention },
+            ctx({ idleMs, afterThinking, lineReady: true }));
+          assert.ok(allowedBehaviors.includes(out.behavior),
+            `the picker returned a behavior the figure never performs: ${out.behavior}`);
+        }
+      }
+    }
+  }
+  assert.ok(!learnSrc.includes("pushN"), "the dead glasses push counter is back in LearnView");
+  assert.ok(!learnSrc.includes("flutterN"), "the dead gill flutter counter is back in LearnView");
+  assert.ok(!learnSrc.includes("noticeN"), "the dead noticing counter is back in LearnView");
+  assert.ok(!learnSrc.includes('"glasses-push"'), "the picker offers the dead glasses push again");
+  assert.ok(!learnSrc.includes('"gill-flutter"'), "the picker offers the dead gill flutter again");
+  assert.ok(!learnSrc.includes('"noticing"'), "the picker offers the dead noticing routine again");
+  assert.ok(!riveSrc.includes("pushN") && !riveSrc.includes("flutterN") && !riveSrc.includes("noticeN"),
+    "the canvas grew a reader for the dead counters instead of the counters being removed");
   // Moods accumulate: two misses darken a greeting baseline
   // to worried before any line appears, one miss only to
   // deadpan, and a calm stretch warms a darkened bias back.
@@ -3692,7 +3749,7 @@ await test("Nova's brain: a full tick simulation of an untouched page drifts on 
       const idleMs = now - lastRefresh;
       const out = novaBrainDecide(brain, {
         now, hour, idleMs, stage, base,
-        busy: false, lineReady: false, afterThinking: false,
+        busy: false, lineReady: false,
         calm: now - 0 > 60000, rand: 0.5,
       });
       brain = out.brain;
@@ -3757,7 +3814,7 @@ await test("Nova's brain: the live failure shape is a fed idle clock, and only t
     for (const curiosity of [0, 0.5, 1]) {
       const b = { ...createNovaBrain(null), attention, curiosity };
       for (const idleMs of [20000, 45000, 80000, 130000]) {
-        const out = novaBrainDecide(b, { now: 1760000000000 + idleMs, hour: 21, idleMs, stage: 0, base: "greeting", busy: false, lineReady: true, afterThinking: false, calm: true, rand: 0.5 });
+        const out = novaBrainDecide(b, { now: 1760000000000 + idleMs, hour: 21, idleMs, stage: 0, base: "greeting", busy: false, lineReady: true, calm: true, rand: 0.5 });
         assert.notEqual(out.behavior, "glance", `glance won at a ${idleMs}ms idle span with attention ${attention}`);
       }
     }
@@ -3780,7 +3837,7 @@ await test("Nova's brain: the live failure shape is a fed idle clock, and only t
       if (now - lastRefresh >= refreshEveryMs) lastRefresh = now;
       const out = novaBrainDecide(brain, {
         now, hour: 21, idleMs: now - lastRefresh, stage, base: "greeting",
-        busy: false, lineReady: false, afterThinking: false, calm: true, rand: 0.5,
+        busy: false, lineReady: false, calm: true, rand: 0.5,
       });
       brain = out.brain;
       seen.add(out.behavior);
@@ -4928,7 +4985,16 @@ await test("Nova stands on the lesson complete screen, pleased, with a line from
   const doneNova = learnSrc.slice(learnSrc.indexOf("function LessonDoneNova"), learnSrc.indexOf("function LessonDoneNova") + 1200);
   assert.ok(doneNova.includes("<NovaRive"), "LessonDoneNova renders no NovaRive");
   assert.ok(doneNova.includes('state="pleased"'), "she is not pleased on the completion screen");
-  assert.ok(doneNova.includes("celebrateN={1}"), "the celebrate trigger is not raised for the asset");
+  /* Pin updated 2026-10-20: this slot pinned celebrateN={1}, a
+     constant the canvas can never fire on (NovaCanvas seeds its
+     previous counter from the first prop value and fires only
+     on a rise). The corrected contract matches
+     NovaCelebrateFigure: the counter starts at 0 and rises to
+     1 after 700ms, with the timer cleared on unmount. */
+  assert.ok(!doneNova.includes("celebrateN={1}"), "the celebrate counter starts high again, so the canvas never fires it");
+  assert.ok(doneNova.includes("const [celebrateN, setCelebrateN] = useState(0)"), "the celebrate counter does not start at 0");
+  assert.ok(doneNova.includes("setTimeout(() => setCelebrateN(1), 700)"), "the celebrate counter does not rise a beat after mount");
+  assert.ok(doneNova.includes("celebrateN={celebrateN}"), "the celebrate trigger is not raised for the asset");
   assert.ok(doneNova.includes('say({ source: "lesson", text: line })'), "the completion line is not spoken through the controller");
   assert.ok(Array.isArray(NOVA_LESSON_DONE_LINES) && NOVA_LESSON_DONE_LINES.length >= 3, "the completion lines are missing from her library");
   for (const line of NOVA_LESSON_DONE_LINES) {
