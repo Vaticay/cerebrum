@@ -1932,31 +1932,33 @@ export function novaBrainDecide(brain, ctx) {
   }
   const target = novaIdleStageFor(idleMs, hour, base);
   const cooled = (name) => typeof b.cooldowns[name] === "number" && b.cooldowns[name] > now;
+  /* Only behaviors the figure actually performs are scored
+     (2026-10-20): the Rive contract has no input for a glasses
+     push, a gill flutter, or a noticing routine, and the canvas
+     never read the counters those choices used to raise, so
+     the picker no longer offers them and the doing report can
+     never name a move she does not make. What remains drives
+     real behavior: a glance holds her gaze, a line speaks,
+     drift and wake move the sleep stage the canvas reads. */
   const scores = {
     watch: 0.45,
     glance: idleMs < 20000 ? 0.1 + b.attention * 0.5 : -1,
-    "glasses-push": 0.16 + (1 - b.energy) * 0.22 + (c.afterThinking ? 0.55 : 0),
-    "gill-flutter": 0.04 + b.curiosity * 0.62,
-    noticing: idleMs > 8000 ? 0.06 + b.curiosity * 0.5 + (1 - b.attention) * 0.25 : -1,
     line: c.lineReady ? 0.1 + b.curiosity * 0.18 : -1,
     drift: target > stage ? 0.78 + (1 - b.energy) * 0.2 : -1,
     wake: target < stage ? 0.85 : -1,
   };
-  const performative = ["glance", "glasses-push", "gill-flutter", "noticing", "line"];
+  const performative = ["glance", "line"];
   for (const name of performative) {
     if (cooled(name)) scores[name] = -1;
     else if (b.lastBehavior === name) scores[name] -= 0.5;
   }
   let behavior = "watch";
   let best = scores.watch;
-  for (const name of ["glance", "glasses-push", "gill-flutter", "noticing", "line", "drift", "wake"]) {
+  for (const name of ["glance", "line", "drift", "wake"]) {
     if (scores[name] > best) { best = scores[name]; behavior = name; }
   }
   const spans = {
     glance: [9000, 5000],
-    "glasses-push": [35000, 15000],
-    "gill-flutter": [20000, 10000],
-    noticing: [24000, 8000],
     line: [90000, 60000],
   };
   if (spans[behavior]) b.cooldowns[behavior] = now + spans[behavior][0] + rand * spans[behavior][1];
@@ -2114,13 +2116,23 @@ function LessonDoneNova({ line }) {
   const speechRef = useRef(speech);
   speechRef.current = speech;
   const saidRef = useRef(null);
+  /* The celebrate counter starts at 0 and rises a beat after
+     mount (2026-10-20), the same pattern NovaCelebrateFigure
+     uses: NovaCanvas seeds its previous counter from the first
+     prop value and fires only on a rise, so a counter that
+     starts at 1 never fires at all. */
+  const [celebrateN, setCelebrateN] = useState(0);
+  useEffect(() => {
+    const t = setTimeout(() => setCelebrateN(1), 700);
+    return () => clearTimeout(t);
+  }, []);
   useEffect(() => {
     if (line && saidRef.current !== line) {
       saidRef.current = line;
       speechRef.current.say({ source: "lesson", text: line });
     }
   }, [line]);
-  return <NovaRive state="pleased" size={104} framing="panel" celebrateN={1} quips={false} speech={speech} />;
+  return <NovaRive state="pleased" size={104} framing="panel" celebrateN={celebrateN} quips={false} speech={speech} />;
 }
 
 /* The big completion figure (2026-10-15, the old model
@@ -2196,19 +2208,14 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const pointerKey = useRef("");
   /* The brain (2026-10-15): drives and memory in a ref, its
      current mood and chosen behavior in state where the
-     wrapper's data attributes and the shown face read them,
-     and the cue counters her signature beats fire from.
+     wrapper's data attributes and the shown face read them.
      The brain's state persists inside the quirks store; on
      unmount the visit records how it ended for her. */
-  const [pushN, setPushN] = useState(0);
-  const [flutterN, setFlutterN] = useState(0);
-  const [noticeN, setNoticeN] = useState(0);
   const [glanceHold, setGlanceHold] = useState(null);
   const [brainUi, setBrainUi] = useState(() => ({ mood: state, doing: "watch" }));
   const brainRef = useRef(null);
   const beatRef = useRef(null);
   const activityRef = useRef(null);
-  const afterThinkingRef = useRef(false);
   const lastMissAtRef = useRef(0);
   const visitEndRef = useRef("ignored");
   const glanceTimer = useRef(null);
@@ -2357,12 +2364,9 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     try { reducedRef.current = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch { reducedRef.current = false; }
   }, []);
 
-  /* Beat and thinking mirrors for the brain tick, plus the
-     resettle cue: the glasses push likes to fire once shortly
-     after a thinking stretch ends. */
+  /* Beat and thinking mirrors for the brain tick. */
   useEffect(() => { beatRef.current = beat; }, [beat]);
   useEffect(() => {
-    if (activityRef.current === "thinking" && activityState !== "thinking") afterThinkingRef.current = true;
     activityRef.current = activityState;
   }, [activityState]);
 
@@ -2386,10 +2390,10 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   /* The brain tick: every few seconds she decides what to do
      next. Beats own her while they run (the picker can only
      watch then); otherwise the chosen behavior is applied:
-     cues increment their counters, drift and wake move the
-     sleep stage one step, a glance holds her gaze to a side
-     briefly, and a line, rarely, fills the bubble from the
-     written libraries only. Nothing here invents speech. */
+     drift and wake move the sleep stage one step, a glance
+     holds her gaze to a side briefly, and a line, rarely,
+     fills the bubble from the written libraries only.
+     Nothing here invents speech. */
   useEffect(() => {
     const applyBehavior = (name) => {
       if (name === "drift") {
@@ -2397,12 +2401,6 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
       } else if (name === "wake") {
         const floor = baseRef.current === "fading" ? 1 : 0;
         setSleepStageBoth(Math.max(floor, sleepStageRef.current - 1));
-      } else if (name === "glasses-push") {
-        if (!reducedRef.current) setPushN((n) => n + 1);
-      } else if (name === "gill-flutter") {
-        if (!reducedRef.current) setFlutterN((n) => n + 1);
-      } else if (name === "noticing") {
-        if (!reducedRef.current) setNoticeN((n) => n + 1);
       } else if (name === "glance") {
         if (!reducedRef.current) {
           glanceSideRef.current = -glanceSideRef.current;
@@ -2432,11 +2430,9 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
         base: baseRef.current,
         busy,
         lineReady: lineReadyRef.current,
-        afterThinking: afterThinkingRef.current,
         calm: nowB - lastMissAtRef.current > 60000,
         rand: Math.random(),
       });
-      afterThinkingRef.current = false;
       brainRef.current = out.brain;
       setBrainUi({ mood: out.mood, doing: out.behavior });
       persistBrain();
@@ -2617,7 +2613,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
           header bubble inside its own anchor span, in the spot
           this wrapper's private bubble used to occupy, and
           pulses her mouth from its talking flag. */}
-      <NovaRive state={shownState} size={size} framing={framing} scanning={activityState === "thinking"} pushN={pushN} flutterN={flutterN} noticeN={noticeN}
+      <NovaRive state={shownState} size={size} framing={framing} scanning={activityState === "thinking"}
         appState={appStateForActivity(activityState)} sleepStage={sleepStage} pokeN={pokeCount} pointer={pointer}
         idleMs={Date.now() - lastActivity.current} speech={speech} reducedMotion={reducedRef.current} />
     </span>
@@ -11530,6 +11526,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const [matchDone, setMatchDone] = useState([]);
   const [matchMistakes, setMatchMistakes] = useState(0);
   const [matchFlash, setMatchFlash] = useState(null);
+  /* The wrong pair flash timer (2026-10-20): its handle lives
+     in a ref so a new flash cancels the previous clear, a card
+     reset cancels it, and unmount cancels it. A bare timer
+     could clear a later flash early or fire after unmount. */
+  const matchFlashTimer = useRef(null);
   const [orderPlaced, setOrderPlaced] = useState([]);
   const [orderCorrect, setOrderCorrect] = useState(false);
   const [sessionXp, setSessionXp] = useState(0);
@@ -11637,6 +11638,11 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const shellRef = useRef(null);
   const exitRef = useRef(onExit);
   exitRef.current = onExit;
+
+  useEffect(() => () => {
+    if (matchFlashTimer.current) clearTimeout(matchFlashTimer.current);
+    matchFlashTimer.current = null;
+  }, []);
 
   /* The Player is a full screen layer: focus moves into it on open
      and back to whatever held it on close, Escape closes it, and Tab
@@ -11750,6 +11756,8 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
   const resetCardState = () => {
     setPicked(null); setChecked(false);
     setQuizFeed({ hover: false, x: 0, y: 0 });
+    if (matchFlashTimer.current) clearTimeout(matchFlashTimer.current);
+    matchFlashTimer.current = null;
     setMatchSel(null); setMatchDone([]); setMatchMistakes(0); setMatchFlash(null);
     setOrderPlaced([]); setOrderCorrect(false); setOrderResult(null);
     setAttempt((n) => n + 1);
@@ -11840,10 +11848,14 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
       }
     } else {
       setMatchMistakes((m) => m + 1);
+      if (matchFlashTimer.current) clearTimeout(matchFlashTimer.current);
       setMatchFlash(pairIdx);
       playSound("wrong", soundOn);
       say("That pair does not match.");
-      setTimeout(() => setMatchFlash(null), 480);
+      matchFlashTimer.current = setTimeout(() => {
+        matchFlashTimer.current = null;
+        setMatchFlash(null);
+      }, 480);
     }
   };
 
@@ -14639,7 +14651,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           {["All", ...CATALOG.map((c) => c.name), ...(published.length ? ["From contributors"] : [])].map((name) => (
             <button key={name} className="lv-chip" onClick={() => setCatFilter(name)}
               style={{
-                borderRadius: RADIUS.pill, padding: "9px 15px", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)",
+                borderRadius: RADIUS.pill, padding: "9px 15px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)",
                 background: catFilter === name ? accent : "transparent",
                 color: catFilter === name ? (at || "#101408") : P.ink,
                 border: "1px solid " + (catFilter === name ? accent : P.line),
