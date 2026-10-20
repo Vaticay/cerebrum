@@ -1000,7 +1000,8 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
      * empty, legs record as budget trims, the fact check falls
      * back to its zero network heuristic. Post assembly
      * bookkeeping (the record store, the slot release, the stage
-     * health aggregate) does NOT pass through this grant at all:
+     * health aggregate, and per key usage accounting since
+     * 2026-10-20) does NOT pass through this grant at all:
      * it spends through spendBookkeeping below, which tallies
      * without refusing, because the fifth panel proved what this
      * refusal cost — a capped run could no longer afford its own
@@ -1054,7 +1055,8 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
     /* The bookkeeping funding lane (2026-10-14, fifth panel,
      * Job 1): post assembly writes that must ALWAYS happen — the
      * search record store, the stage health aggregate, the queue
-     * slot release — tally into the invocation total exactly like
+     * slot release, and per key usage accounting (added to this
+     * lane 2026-10-20) — tally into the invocation total exactly like
      * spendBinding (usedCount, byStage, phase tallies), but the
      * tally is never refused: no grant() call, no throw, and no
      * refusal tally of any kind moves. The wave five total cap
@@ -1070,7 +1072,7 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
      * readily, never less, and the response's shipped _ledger
      * snapshot is taken before bookkeeping runs, so it stays at
      * or under the limit while the diag total honestly exceeds
-     * it by exactly the bookkeeping spend. Only the three named
+     * it by exactly the bookkeeping spend. Only the named
      * bookkeeping consumers may use this lane; everything that
      * shapes the answer keeps paying through grant(). */
     spendBookkeeping(label, n = 1) {
@@ -30743,9 +30745,14 @@ async function runSearchPipeline(pctx) {
     }
     // Per-key usage dashboard: record this API-key-authenticated request
     // in the background . accounting must never delay the response.
-    // Same budget rule as the slot release: not fired when the ledger
-    // knows the platform will refuse it.
-    if (apiKeyIdentity && ledger.remaining() > 0) {
+    // Bookkeeping lane (2026-10-20): the record fires whenever an API
+    // key identity is set, at any budget state, exactly like the slot
+    // release above. Its charge rides the bookkeeping lane inside
+    // recordApiKeyUsage (counted, never refused), so a run closing at
+    // exactly the cap still lands on the per key dashboard. The old
+    // gate (fire only while budget remained) made capped runs vanish
+    // from that dashboard.
+    if (apiKeyIdentity) {
       try {
         const { recordApiKeyUsage } = await import("../lib/apiKeys.js");
         const p = recordApiKeyUsage(env, apiKeyIdentity.keyId, apiKeyRequestErrored, ledger);

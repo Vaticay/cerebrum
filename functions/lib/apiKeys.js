@@ -142,11 +142,27 @@ export async function resolveApiKey(request, env, ledger = null) {
 // Daily aggregate counters per key: calls and errors (non-2xx / degraded
 // pipeline outcomes). No query content is stored — counts only.
 
+/* The bookkeeping funding lane (2026-10-20): recordApiKeyUsage is
+ * post response bookkeeping fired from the search handler's finally
+ * block, so its charges tally into the invocation total through the
+ * ledger's bookkeeping lane (spendBookkeeping: counted, never
+ * refused) when the ledger provides it. The plain binding charge
+ * threw at exactly the cap, so capped runs wrote no usage row even
+ * once the handler stopped gating the call on budget remaining.
+ * Ledger shaped objects carrying only spendBinding (test fakes)
+ * keep the old charge. Mirrors releaseSearchSlot in
+ * functions/lib/searchPriority.js. */
+function chargeUsage(ledger, n = 1) {
+  if (!ledger) return;
+  if (typeof ledger.spendBookkeeping === "function") ledger.spendBookkeeping("apikey", n);
+  else if (typeof ledger.spendBinding === "function") ledger.spendBinding("apikey", n);
+}
+
 let usageTableReady = null;
 export function ensureUsageTable(env, ledger = null) {
   if (!env || !env.DB) return Promise.resolve(false);
   if (!usageTableReady) {
-    if (ledger) ledger.spendBinding("apikey", 1);
+    chargeUsage(ledger, 1);
     usageTableReady = env.DB.exec(
       "CREATE TABLE IF NOT EXISTS api_key_usage (" +
         "key_id TEXT NOT NULL, " +
@@ -178,7 +194,7 @@ export async function recordApiKeyUsage(env, keyId, isError, ledger = null) {
     if (!env || !env.DB || !keyId) return;
     await ensureUsageTable(env, ledger);
     const day = utcDay(Date.now());
-    if (ledger) ledger.spendBinding("apikey", 1);
+    chargeUsage(ledger, 1);
     await env.DB.prepare(
       "INSERT INTO api_key_usage (key_id, day, calls, errors) VALUES (?, ?, 1, ?) " +
       "ON CONFLICT(key_id, day) DO UPDATE SET calls = calls + 1, errors = errors + ?"
