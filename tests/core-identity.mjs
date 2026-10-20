@@ -61,10 +61,16 @@ await test("workspace CinematicFilm mount exists, darker than before", () => {
   // off product), so the door mounts no reel again and two mounts
   // stand: the calm reel on the search backdrop and the workspace
   // backdrop. The component itself is unchanged.
+  // 2026-10-20: Dusty saw the 2026-10-19 two column ledger door live
+  // and rejected it ("way too AI and busy"), ordering the cinematic
+  // back. The intro mount returns and three mounts stand again
+  // (intro, calm, workspace), the door's reel under the same unified
+  // grade asserted below. Pin updated to the corrected contract.
   const mounts = (appSrc.match(/<CinematicFilm/g) || []).concat(introSrc.match(/<CinematicFilm/g) || []);
-  assert.strictEqual(mounts.length, 2, `expected calm+workspace mounts, found ${mounts.length}`);
+  assert.strictEqual(mounts.length, 3, `expected intro+calm+workspace mounts, found ${mounts.length}`);
   const introFn = introSrc.slice(introSrc.indexOf("function Intro({"), introSrc.indexOf("function CerebrumFieldCanvas"));
-  assert.ok(!introFn.includes("<CinematicFilm"), "the rebuilt intro mounts the film reel again");
+  assert.ok(introFn.includes("<CinematicFilm"), "the restored intro lost the film reel");
+  assert.ok(introFn.includes('filter: "brightness(0.30) saturate(0.60) blur(12px)"'), "the door's film is not under the unified grade");
   assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
   /* Pin updated 2026-10-19 (S7 shell lane, audit H6): the workspace reel
      no longer grades brighter than the search home. Both wrappers carry
