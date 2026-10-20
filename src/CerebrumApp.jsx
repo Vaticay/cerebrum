@@ -106,7 +106,7 @@ import { useNovaSpeech } from "./NovaSpeech.jsx";
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
 import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
-import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, accentInkOn, statusBad, statusWarn, statusGood, tabListKeyDown, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, ensureDyslexicFont } from "./appUtils.js";
+import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, accentInkOn, statusBad, statusWarn, statusGood, tabListKeyDown, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, cbToastHostMount, cbToastHostUnmount, ensureDyslexicFont } from "./appUtils.js";
 
 /* Pro-only investigation templates. */
 import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTemplates.js";
@@ -12310,7 +12310,13 @@ function WorkspacePage({ P, accent, isMobile, title, count, description, actions
         // Pass 1 (2026-09-17): vertical padding cut ~25% — the film scrim
         // this page used to veil is gone, and the page is now a quiet
         // opaque surface; it no longer needs the extra air.
-        padding: isMobile ? "52px 18px 56px" : "58px 32px 70px",
+        // 2026-10-20, tail item 16: the mobile top padding rises from
+        // 52px to 64px. The fixed mobile header bar is 56px tall, so
+        // 52px left the top 4px of the title row under the bar on
+        // Library, Investigations, Collections and Find people.
+        // 64px clears the bar with an 8px breathing gap. The desktop
+        // value is separate and unchanged.
+        padding: isMobile ? "64px 18px 56px" : "58px 32px 70px",
       }}>
         <div style={{ marginBottom: 26 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -12813,6 +12819,15 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
 
     const load = (isBackground) => {
       if (viewingEditionRef.current) return;
+      /* 2026-10-20, tail item 7: the edition generation this load
+         started under. It is null here because the guard above refuses
+         to start while a past edition is on screen, but a load that is
+         already in flight when openEdition runs must still not land:
+         its completion path compares this capture against the live
+         ref and drops the result if a past edition is being viewed
+         by then, instead of replacing that edition's items while the
+         screen still labels them as that edition. */
+      const editionAtStart = viewingEditionRef.current;
       if (!isBackground) {
         setStatus((s) => (s === "ready" ? s : "loading"));
         /* Her context on this tab, in the same nova-activity
@@ -12826,6 +12841,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
         .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
         .then(({ ok, data }) => {
           if (cancelled) return;
+          if (viewingEditionRef.current !== editionAtStart) return;
           if (!ok || !data || !Array.isArray(data.items) || data.items.length === 0) {
             // A background poll that comes back empty shouldn't nuke a
             // feed that's already on screen — only a genuine first-load
@@ -12856,6 +12872,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk }) {
         })
         .catch(() => {
           if (cancelled) return;
+          if (viewingEditionRef.current !== editionAtStart) return;
           if (!isBackground) { setStatus("error"); emitNovaActivity("search", "failed"); }
           else setFeedMeta((prev) => ({ ...prev, stale: true }));
         });
@@ -13705,6 +13722,7 @@ const OTP_LENGTH = 6;
 const OTP_RESEND_COOLDOWN_S = 30;
 
 function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
+  const winW = useWindowWidth();
   const [step, setStep] = useState("email"); // "email" | "code"
   const [email, setEmail] = useState("");
   const [digits, setDigits] = useState(Array(OTP_LENGTH).fill(""));
@@ -13873,7 +13891,18 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
   }
 
   const inputStyle = { width: "100%", padding: "11px 13px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", marginTop: 6 };
-  const boxStyle = { width: 44, height: 52, textAlign: "center", fontSize: 22, fontWeight: 500, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", outline: "none" };
+  /* 2026-10-20, tail item 14, recomputed from the shipped chrome: the
+     Dialog scrim pads 16px a side and ModalChrome pads its panel
+     22px a side, so at a 360px viewport the panel is 328px wide and
+     its inner width is 284px. Six 44px boxes with five 8px gaps need
+     304px and spilled by 20px. On narrow widths the boxes drop to
+     40px and the gaps to 6px: 6 by 40 plus 5 by 6 is 270px, which
+     fits the 284px inner width at 360 and the 314px inner width at
+     390 with room to spare. Wider viewports keep the 44px boxes,
+     whose 304px row fits the full 440px panel inner width of 396px. */
+  const narrowOtp = winW <= 480;
+  const otpGap = narrowOtp ? 6 : 8;
+  const boxStyle = { width: narrowOtp ? 40 : 44, height: 52, flexShrink: 0, textAlign: "center", fontSize: narrowOtp ? 20 : 22, fontWeight: 500, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", outline: "none" };
 
   return (
     <ModalChrome label="Sign in to Cerebrum" P={P} accent={accent} onClose={close} zIndex={Z.dialogAuth} width={440}
@@ -13904,7 +13933,7 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
         ) : (
           <div style={{ paddingTop: 4 }}>
             <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, marginBottom: 18 }}>We sent a 6 digit code to <strong>{email}</strong>. It expires in 15 minutes.</div>
-            <div key={shakeKey} style={{ display: "flex", gap: 8, justifyContent: "center", animation: shakeKey > 0 ? "cb-otp-shake 320ms cubic-bezier(0.16, 1, 0.3, 1)" : "none" }} onPaste={(e) => onBoxPaste(0, e)}>
+            <div key={shakeKey} style={{ display: "flex", gap: otpGap, justifyContent: "center", animation: shakeKey > 0 ? "cb-otp-shake 320ms cubic-bezier(0.16, 1, 0.3, 1)" : "none" }} onPaste={(e) => onBoxPaste(0, e)}>
               {digits.map((d, i) => (
                 <input
                   key={i}
@@ -16442,6 +16471,12 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
   const [followBusy, setFollowBusy] = useState(() => new Set());
   const [messageBusy, setMessageBusy] = useState(() => new Set());
   const searchTimer = useRef(null);
+  /* 2026-10-20, tail items 5 and 15: searchSeq is the sequence guard
+     for the debounced search below, and winW drives the narrow row
+     layout recomputed in the row render. */
+  const searchSeq = useRef(0);
+  const winW = useWindowWidth();
+  const narrowPeople = winW <= 560;
   // The founder card is fetched once, not on every keystroke: clearing the
   // search box used to re-fire search-users with q:"" per keystroke.
   const founderFetched = useRef(false);
@@ -16469,6 +16504,14 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
      response entirely — see the endpoint. */
   useEffect(() => {
     clearTimeout(searchTimer.current);
+    /* 2026-10-20, tail item 5: every query change takes the next
+       sequence number. A fetch already in flight when the query moved
+       on compares its captured number on landing and drops its result
+       if a newer query has taken over, so a slower earlier search can
+       no longer overwrite a newer one. The cleanup used to clear only
+       the debounce timer, which never stopped a fetch that had
+       already started. */
+    const seq = ++searchSeq.current;
     const q = query.trim();
     if (q.length < 2) {
       setResults([]);
@@ -16489,12 +16532,13 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
     const timerId = setTimeout(async () => {
       try {
         const data = await apiDataGet("search-users", { q });
+        if (seq !== searchSeq.current) return;
         setResults(data && Array.isArray(data.items) ? data.items : []);
         setFounder((data && data.founder) || null);
       } catch {
         // Keep the previous results; just stop the spinner.
       } finally {
-        setLoading(false);
+        if (seq === searchSeq.current) setLoading(false);
       }
     }, 300);
     searchTimer.current = timerId;
@@ -16678,7 +16722,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenProfile(r.id); } }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 8px", borderRadius: RADIUS.lg, cursor: "pointer", transition: "background 150ms ease" }}
+                style={{ display: "flex", alignItems: "center", gap: narrowPeople ? 8 : 12, padding: narrowPeople ? "12px 4px" : "12px 8px", borderRadius: RADIUS.lg, cursor: "pointer", transition: "background 150ms ease" }}
               >
                 {/* Commit 100 — this was `api.dicebear.com/...?seed=<username>`.
                     Every search sent the username of every person it matched
@@ -16708,7 +16752,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                   onClick={(e) => { e.stopPropagation(); toggleFollow(r); }}
                   disabled={isFollowBusy}
                   style={{
-                    fontSize: FONT_SIZES.caption, fontWeight: 500, padding: "12px 16px", minHeight: 44, borderRadius: RADIUS.viewport, cursor: isFollowBusy ? "default" : "pointer", flexShrink: 0,
+                    fontSize: FONT_SIZES.caption, fontWeight: 500, padding: narrowPeople ? "12px 10px" : "12px 16px", minHeight: 44, borderRadius: RADIUS.viewport, cursor: isFollowBusy ? "default" : "pointer", flexShrink: 0,
                     opacity: isFollowBusy ? 0.6 : 1,
                     color: isFollowing ? P.ink2 : accent,
                     background: isFollowing ? (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)") : withAlpha(accent, 0.1),
@@ -20290,13 +20334,19 @@ function CommandPalette({ open, onClose, P, accent, query, setQuery, groups, act
 function ToastHost({ P, accent, isMobile = false }) {
   const [toasts, setToasts] = useState([]);
   useEffect(() => {
-    const onToast = (e) => {
-      const t = e.detail;
+    const showToast = (t) => {
       setToasts((prev) => [...prev, t]);
       setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== t.id)), 2600);
     };
+    const onToast = (e) => showToast(e.detail);
+    /* 2026-10-20, tail item 4: claiming the host also drains the
+       buffer in appUtils, so a toast fired before this host mounted
+       (on the door, or in the gap while the shell replaces the door
+       host) is delivered here instead of having been lost. */
+    const queued = cbToastHostMount();
     window.addEventListener("cb-toast", onToast);
-    return () => window.removeEventListener("cb-toast", onToast);
+    for (const t of queued) showToast(t);
+    return () => { window.removeEventListener("cb-toast", onToast); cbToastHostUnmount(); };
   }, []);
   if (!toasts.length) return null;
   return (
@@ -21562,26 +21612,25 @@ function App() {
     } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: passkey offer check:", cbErr); }
   }
 
-  // Restores an existing session on load, and completes a magic-link
-  // sign-in when the browser arrives via the emailed `?magic=` link.
+  // Restores an existing session on load.
+  // 2026-10-20, tail item 9: the magic link completion path is removed.
+  // The auth server implements no magic verify action and no server
+  // code issues magic links, so calling it could only fail. A `magic`
+  // parameter arriving in the URL is now stripped and ignored, with
+  // every other parameter and the hash preserved (a #pro=success
+  // fragment belongs to the checkout return effect below), and the
+  // visitor continues to the normal session restore and sign in.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const params = new URLSearchParams(window.location.search);
-      const magicToken = params.get("magic");
-      if (magicToken) {
-        // Consume the token from the URL, but preserve the hash: a
-        // #pro=success fragment arriving alongside ?magic= belongs to the
-        // checkout-return effect below and must survive sign-in.
-        window.history.replaceState({}, "", window.location.pathname + window.location.hash);
-        try {
-          const data = await apiAuth("magic-verify", { token: magicToken });
-          if (!cancelled) await handleAuthed(data.user, { checkImport: true });
-        } catch (e) {
-          if (!cancelled) toast(e.message || "That sign-in link didn't work.", { tone: "error" });
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has("magic")) {
+          url.searchParams.delete("magic");
+          const rest = url.searchParams.toString();
+          window.history.replaceState({}, "", url.pathname + (rest ? "?" + rest : "") + url.hash);
         }
-        return;
-      }
+      } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: strip dead magic parameter:", cbErr); }
       const u = await apiWhoAmI();
       if (cancelled || !u) return;
       await handleAuthed(u, { checkImport: false });
@@ -21594,8 +21643,9 @@ function App() {
   // advertises https://askcerebrum.org/?q={search_term_string}, so arriving
   // with ?q= prefills the composer and runs the search once on load — the
   // same question a visitor would get from typing it and pressing Enter.
-  // Coexists with ?magic= (getDeepLinkQuery yields to the sign-in flow) and
-  // #pro= (a separate effect on the fragment). The param is consumed from
+  // Coexists with #pro= (a separate effect on the fragment), and the
+  // session effect above has already stripped any dead `magic`
+  // parameter by the time this runs. The param is consumed from
   // the URL so a reload does not re-run the search. askRef is the stable
   // indirection to the ask callback (it closes over `input`, so calling it
   // directly would read a stale closure).
@@ -21633,8 +21683,8 @@ function App() {
   // takes initialThreadId and calls onConsumeInitialThread once it
   // has selected it); a call link opens the Inbox surface, where the
   // incoming call poll raises the call card itself. Both parameters
-  // are stripped from the URL once consumed, the way the magic link
-  // and ?q= handling above strip theirs, so a reload does not
+  // are stripped from the URL once consumed, the way the ?q= handling
+  // above strips its own, so a reload does not
   // re-trigger the jump.
   useEffect(() => {
     let params;
@@ -22474,8 +22524,14 @@ function App() {
   const [libraryQuery, setLibraryQuery] = useState("");
   const [librarySort, setLibrarySort] = useState("recent");
   /* Library bulk selection: a Set of sourceKeys. Powers the bulk bar
-     (export selected, move to collection, remove selected). Cleared
-     whenever the underlying list changes shape. */
+     (export selected, move to collection, remove selected).
+     2026-10-20, tail item 6: the old note here claimed the set was
+     cleared whenever the list changed shape, but nothing did that.
+     It is now pruned by the effect below visibleSaved: whenever the
+     saved list or the filter changes, the set is intersected with
+     the keys the visible list actually carries, so the bulk bar
+     count and the select all checkbox can only ever describe papers
+     that are on screen. */
   const [selectedSavedKeys, setSelectedSavedKeys] = useState(() => new Set());
   const toggleSavedKey = (key) => setSelectedSavedKeys((prev) => {
     const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next;
@@ -22527,6 +22583,23 @@ function App() {
     return list.sort((x, y) => (y.savedAt || y.createdAt || 0) - (x.savedAt || x.createdAt || 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved, libraryQuery, librarySort, zkIndexReady]);
+
+  /* 2026-10-20, tail item 6: prune the bulk selection to the visible
+     list whenever that list changes shape, whether from the saved
+     list itself, the filter query, or the sort. Keys use the same
+     sourceKey with index fallback the rows render with. Returning
+     the previous set untouched when nothing is stale keeps this
+     from looping. */
+  useEffect(() => {
+    setSelectedSavedKeys((prev) => {
+      if (prev.size === 0) return prev;
+      const visibleKeys = new Set(visibleSaved.map((s, i) => sourceKey(s) || `idx-${i}`));
+      let stale = false;
+      for (const k of prev) { if (!visibleKeys.has(k)) { stale = true; break; } }
+      if (!stale) return prev;
+      return new Set([...prev].filter((k) => visibleKeys.has(k)));
+    });
+  }, [visibleSaved]);
 
   const [sessions, setSessions] = useState([]);
   const [mobilePanel, setMobilePanel] = useState(false);
@@ -24011,6 +24084,11 @@ function App() {
     // before can reach any part of the app without consenting now.
     return (
       <>
+        {/* 2026-10-20, tail item 4: the toast host mounts on the door
+            too, not only inside the entered shell. Toasts fired before
+            entry, landing sign in failures and checkout results among
+            them, used to have no listener here and were dropped. */}
+        <ToastHost P={P} accent={accent} isMobile={isMobile} />
         <Intro accent={accent} P={P} animationMode={animationMode} user={user}
           onEnter={(seed, submit, clipSrc) => {
             sfx();
@@ -24302,7 +24380,13 @@ function App() {
           onClick={() => { try { wsFilmRef.current?.playNow(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: wsFilmRef.current?.playNow(); }:", cbErr); } }}
           aria-label="Play background video"
           style={{
-            position: "fixed", bottom: "max(18px, env(safe-area-inset-bottom))", right: 18,
+            /* 2026-10-20, tail item 18: on mobile this button sat at
+               bottom 18px, inside the bottom nav footprint. The nav
+               buttons are minHeight 64 plus the safe area inset, and
+               the mobile toast host already anchors at 88px plus the
+               inset to clear it, so mobile uses that same offset and
+               clears the nav by 24px. Desktop placement is unchanged. */
+            position: "fixed", bottom: isMobile ? "calc(88px + env(safe-area-inset-bottom, 0px))" : "max(18px, env(safe-area-inset-bottom))", right: 18,
             zIndex: Z.fabPrimary, width: 44, height: 44, borderRadius: RADIUS.viewport,
             border: "1px solid rgba(255,255,255,0.18)",
             background: "rgba(10,12,14,0.95)", color: "#f2f4f2",
@@ -25060,9 +25144,9 @@ function App() {
                     <div role="list" aria-label="Saved papers" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflowX: "auto", background: P.surface }}>
                       {!isMobile && (
                         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${P.line}`, background: withAlpha(accent, 0.04), minWidth: 780 }}>
-                          <input type="checkbox" aria-label={selectedSavedKeys.size === visibleSaved.length ? "Deselect all papers" : "Select all papers"}
-                            checked={visibleSaved.length > 0 && selectedSavedKeys.size === visibleSaved.length}
-                            onChange={() => { setSelectedSavedKeys(selectedSavedKeys.size === visibleSaved.length ? new Set() : new Set(visibleSaved.map((s) => sourceKey(s)))); }}
+                          <input type="checkbox" aria-label={visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`)) ? "Deselect all papers" : "Select all papers"}
+                            checked={visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`))}
+                            onChange={() => { setSelectedSavedKeys(visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`)) ? new Set() : new Set(visibleSaved.map((s, i) => sourceKey(s) || `idx-${i}`))); }}
                             style={{ width: 18, height: 18, accentColor: accent, cursor: "pointer", flexShrink: 0 }} />
                           <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TITLE</span>
                           <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TYPE</span>
