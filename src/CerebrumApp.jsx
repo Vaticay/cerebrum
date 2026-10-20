@@ -24630,6 +24630,29 @@ function App() {
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               <div style={{
                 width: "100%", maxWidth: LAYOUT.answer, padding: isMobile ? "0" : "0 24px",
+                /* Solid stage backing in light palettes only
+                   (2026-10-20, readability residue wave): the stage
+                   text tones are dark in a light palette (ink #22252a,
+                   ink2 #4b5058, faint #5f656d) and sat directly over
+                   the graded calm film (wrapper brightness 0.30, reel
+                   intensity 0.35), where they compute to 0.98 to 3.50
+                   to 1 against the film patches, under the 4.5 to 1
+                   floor. Suppressing the film alone would not fix it:
+                   the cb-atmo gradient under it darkens toward the
+                   viewport bottom and computes to 1.47 to 3.84 to 1
+                   at its worst patch. So in light palettes the column
+                   itself carries a solid opaque P.bg backing, per the
+                   owner's standing rule that text sits on a solid
+                   opaque background: every stage tone then computes
+                   at 5.16 to 1 or better (faint on bg, the worst).
+                   Dark palettes spread nothing here, so their
+                   rendered stage is unchanged: their light tones pass over the
+                   film at 4.85 to 1 or better, and the film still
+                   mounts behind the panel margins in light too. */
+                ...(P.dark ? {} : {
+                  background: P.bg, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg,
+                  padding: isMobile ? "20px 16px 24px" : "20px 24px 28px",
+                }),
                 "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
                 "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
               }}>
@@ -24674,7 +24697,11 @@ function App() {
                 <button type="button" onClick={() => setProvenanceOpen(true)}
                   style={{
                     margin: "8px 0 0", padding: 0, background: "none", border: "none", cursor: "pointer",
-                    textAlign: "left", fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.faint,
+                    /* 2026-10-20, readability residue wave: the stage
+                       proof line rises from the caption role (12) to
+                       the label role (13); it is a working control
+                       that opens the sources dialog, not metadata. */
+                    textAlign: "left", fontSize: FONT_SIZES.label, lineHeight: 1.6, color: P.faint,
                     fontFamily: "var(--cb-font)",
                   }}>
                   Answers from {SCHOLARLY_SOURCES.length} scholarly databases, every claim linked.
