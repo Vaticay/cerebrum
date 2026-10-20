@@ -2267,10 +2267,19 @@ export async function onRequest(context) {
           return errRes("This conversation is encrypted — the sending device isn't identified.", 400, "e2ee_bad_device", cors);
         }
         const ownDevice = await env.DB.prepare(
-          "SELECT 1 FROM e2ee_devices WHERE user_id = ? AND device_id = ? AND revoked_at IS NULL"
+          "SELECT identity_key FROM e2ee_devices WHERE user_id = ? AND device_id = ? AND revoked_at IS NULL"
         ).bind(user.id, senderDeviceId).first();
         if (!ownDevice) {
           return errRes("This conversation is encrypted — the sending device isn't registered.", 403, "e2ee_unknown_device", cors);
+        }
+        // The envelope's claimed sender key must be the identity key
+        // registered for that device (2026-10-20). Shape alone was
+        // checked before (any well formed 32 byte key passed), so a
+        // client could claim one device while presenting another
+        // device's key, or a key no device holds, and the envelope
+        // was stored anyway.
+        if (envelope.sk !== ownDevice.identity_key) {
+          return errRes("This conversation is encrypted. The sender key does not match the sending device.", 400, "e2ee_sender_key_mismatch", cors);
         }
         // Phase 1 is text-only for encrypted threads: attachments get
         // their own data-key flow in 1.7. Accepting a plaintext attachment

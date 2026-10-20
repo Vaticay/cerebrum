@@ -154,6 +154,15 @@ await test("send-message gates encrypted threads fully", async () => {
   srcHas(dataJs, "sender_device_id", "device recorded on the row");
 });
 
+await test("send-message compares the envelope sender key against the registered identity key", async () => {
+  // 2026-10-20: shape alone let any well formed key claim any device.
+  // The send path must load the registered identity_key for the
+  // sending device and reject when the envelope sk differs from it.
+  srcHas(dataJs, "SELECT identity_key FROM e2ee_devices", "registered identity key is loaded on the send path");
+  srcHas(dataJs, "envelope.sk !== ownDevice.identity_key", "envelope sender key is compared to the registered identity key");
+  srcHas(dataJs, "e2ee_sender_key_mismatch", "sender key mismatch is rejected");
+});
+
 await test("claim-keys is atomic and anti-enumerating", async () => {
   srcHas(dataJs, "e2ee-claim-keys");
   srcHas(dataJs, "AND claimed_at IS NULL", "claim guarded");

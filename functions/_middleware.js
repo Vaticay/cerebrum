@@ -8,10 +8,13 @@
  * canonical tags — is reachable on two hosts, which splits ranking signals
  * and crawl budget between them. Canonical tags mitigate; they do not fix.
  *
- * This middleware 301-redirects every request whose hostname is not the
- * canonical one, preserving path and query. Local development hostnames
- * (localhost, 127.0.0.1, ::1) are left alone so `wrangler pages dev` keeps
- * working.
+ * This middleware redirects every request whose hostname is not the
+ * canonical one, preserving path and query: 301 for GET and HEAD, and
+ * 308 for every other method, because a 301 can let a client rewrite a
+ * POST into a GET and drop its body while a 308 guarantees the method
+ * and body survive the redirect (2026-10-20). Local development
+ * hostnames (localhost, 127.0.0.1, ::1) are left alone so
+ * `wrangler pages dev` keeps working.
  *
  * Safety properties (all covered by tests/seo-host-redirect.mjs):
  * - No redirect loops: the target is always the canonical host, and a
@@ -61,10 +64,16 @@ export async function onRequest(context) {
   const path = url.pathname;
   if (host !== CANONICAL_HOST && !DEV_HOSTS.has(host)) {
     const target = `https://${CANONICAL_HOST}${url.pathname}${url.search}`;
+    // Method preserving status (2026-10-20): GET and HEAD keep 301,
+    // since they carry no body and 301 is the long standing canonical
+    // signal for them. Every other method gets 308, which guarantees
+    // the redirected request keeps its method and body instead of
+    // being rewritten into a GET with the body dropped.
+    const status = method === "GET" || method === "HEAD" ? 301 : 308;
     jsonLog("info", "redirect_canonical", { requestId, method, path, from: host });
     // Built manually (not Response.redirect) so the headers stay mutable
     // and the request id rides along on the redirect too.
-    return withId(new Response(null, { status: 301, headers: { location: target } }));
+    return withId(new Response(null, { status, headers: { location: target } }));
   }
   jsonLog("info", "request_start", { requestId, method, path });
   let res;

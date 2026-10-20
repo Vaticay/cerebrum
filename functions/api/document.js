@@ -1943,7 +1943,7 @@ export async function onRequest(context) {
   // are SameSite=Lax; this is defence in depth.
   if (!requireTrustedOrigin(request, env)) return forbiddenOrigin(cors);
 
-  const clientIP = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
+  const clientIP = clientIp(request);
   // Use the hashed privacyKey (not the raw IP) — consistent with every
   // other endpoint, and avoids storing raw IPs in the rate-limit KV.
   // NB: privacyKey is async — it MUST be awaited. Passing the raw promise

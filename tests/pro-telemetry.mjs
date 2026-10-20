@@ -103,6 +103,21 @@ function ok(name, cond) {
   ok("getApiKeyUsage returns [] without DB", Array.isArray(empty) && empty.length === 0);
 }
 
+// ── API key usage on a capped run (2026-10-20) ──
+{
+  const db = mockDb();
+  const env = { DB: db };
+  const bookkeepingCharges = [];
+  const cappedLedger = {
+    spendBinding() { throw new Error("invocation budget exhausted"); },
+    spendBookkeeping(label, n) { bookkeepingCharges.push([label, n]); },
+  };
+  await recordApiKeyUsage(env, "k2", false, cappedLedger);
+  const rows = db.tables.api_key_usage.filter((r) => r.key_id === "k2");
+  ok("recordApiKeyUsage records a capped run", rows.length === 1 && rows[0].calls === 1);
+  ok("recordApiKeyUsage charges the bookkeeping lane at the cap", bookkeepingCharges.length >= 1 && bookkeepingCharges.every(([label]) => label === "apikey"));
+}
+
 // ── Template telemetry ──
 {
   const db = mockDb();

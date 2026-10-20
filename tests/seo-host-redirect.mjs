@@ -3,9 +3,11 @@
  *
  * The duplicate-host bug: cerebrum-2pz.pages.dev serves the full site with
  * no redirect and no noindex, splitting ranking signals with
- * askcerebrum.org. The middleware must 301 every non-canonical hostname to
- * the canonical one (preserving path + query), never redirect the canonical
- * host or local dev hosts, and never loop.
+ * askcerebrum.org. The middleware must redirect every non-canonical
+ * hostname to the canonical one (preserving path + query), with 301 for
+ * GET and HEAD and the method preserving 308 for every other method
+ * (2026-10-20), never redirect the canonical host or local dev hosts,
+ * and never loop.
  *
  * Run with: node tests/seo-host-redirect.mjs
  */
@@ -24,11 +26,11 @@ const t = async (name, fn) => {
   catch (e) { failed++; console.log(`  ✗ ${name}: ${e.message}`); }
 };
 
-function ctx(url) {
+function ctx(url, method) {
   let nextCalled = false;
   return {
     context: {
-      request: new Request(url),
+      request: method ? new Request(url, { method }) : new Request(url),
       async next() { nextCalled = true; return new Response("passthrough"); },
     },
     wasNextCalled: () => nextCalled,
@@ -48,6 +50,25 @@ await t("unknown non-canonical host redirects too", async () => {
   const res = await onRequest(context);
   assert.equal(res.status, 301);
   assert.equal(res.headers.get("location"), "https://askcerebrum.org/deep/path");
+});
+
+await t("non GET methods redirect with the method preserving 308", async () => {
+  // 2026-10-20: a 301 can let a client rewrite a POST into a GET and
+  // drop its body, so every method with a body must get 308 instead.
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+    const { context, wasNextCalled } = ctx("https://cerebrum-2pz.pages.dev/api/data?x=1", method);
+    const res = await onRequest(context);
+    assert.equal(wasNextCalled(), false);
+    assert.equal(res.status, 308, `${method} did not get a 308`);
+    assert.equal(res.headers.get("location"), "https://askcerebrum.org/api/data?x=1");
+  }
+});
+
+await t("HEAD keeps 301 like GET", async () => {
+  const { context } = ctx("https://cerebrum-2pz.pages.dev/about", "HEAD");
+  const res = await onRequest(context);
+  assert.equal(res.status, 301);
+  assert.equal(res.headers.get("location"), "https://askcerebrum.org/about");
 });
 
 await t("canonical host passes through untouched", async () => {
