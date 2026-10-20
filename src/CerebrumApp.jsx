@@ -126,6 +126,10 @@ import {
 
 /* Unified scroll lock (replaces the three competing implementations). */
 import { cbDialogLockScroll, cbDialogUnlockScroll, useScrollLock } from "./scrollLock.js";
+/* Shell offline state (2026-10-20, design audit M6): the connection
+   monitor hook and the designed offline notice. */
+import { useOnlineStatus } from "./useOnlineStatus.js";
+import { OfflineNotice, OFFLINE_SEARCH_HEADLINE, OFFLINE_SEARCH_BODY } from "./offlineNotice.jsx";
 
 import { createPortal } from "react-dom";
 import gsap from "gsap";
@@ -2678,6 +2682,11 @@ function safeJsonParse(text) {
    retried. */
 
 const SEARCH_ERROR_RECOVERY = {
+  /* 2026-10-20 (design audit M6): a search attempted while offline is
+     stopped by the shell guard before any fetch fires and lands here;
+     retry is the honest recovery, since it can only run once the
+     connection is back. */
+  offline: ["retry"],
   timeout: ["retry", "simplify"],
   network: ["retry"],
   http429: ["retry"],
@@ -2692,6 +2701,11 @@ function searchErrorInfo(kind, { status = 0, message = "", requestId = "", elaps
     .filter(Boolean).join(" · ") + req;
   const clean = String(message || "").trim();
   switch (kind) {
+    case "offline":
+      /* Copy is shared with the shell offline notice so the banner
+         and this panel never tell two different stories. No detail
+         caption: nothing was sent, so there is no request to stamp. */
+      return { headline: OFFLINE_SEARCH_HEADLINE, body: OFFLINE_SEARCH_BODY, detail: "" };
     case "timeout":
       return { headline: "The search timed out.", body: "Two minutes passed without an answer. The literature databases are slow right now, not your question.", detail: ("timeout · " + detail).replace(/^timeout · $/, "timeout") };
     case "network":
@@ -21037,6 +21051,14 @@ function useDynamicFavicon({ accent, busy, unread }) {
 
 function App() {
   const isMobile = useIsMobile();
+  /* Shell connection state (2026-10-20, design audit M6): the monitor
+     reads navigator.onLine at mount and follows window online and
+     offline events. The notice below renders from `online`; the ref
+     mirror lets the ask callback read the same state without joining
+     its dependency list. */
+  const online = useOnlineStatus();
+  const onlineRef = useRef(true);
+  useEffect(() => { onlineRef.current = online; }, [online]);
   const [entered, setEntered] = useState(false);
   const srcTabUid = useId().replace(/:/g, "");
   /* Public Beta 2 announcement (2026-10-12). Shows exactly once per
@@ -22863,6 +22885,14 @@ function App() {
       if (imageToSend) { setAttachedImage(imageToSend); setAttachedImageName(imageNameToSend); }
       setBusy(false);
     };
+    /* Offline guard (2026-10-20, design audit M6): a search started
+       with no connection never fires a fetch, so it cannot spin or
+       end in a raw network error. It lands in the same named failure
+       funnel as every other search failure, which says plainly that
+       nothing was sent and hands the question back to the composer.
+       The pending timeout is cleared first so it cannot abort a
+       later, unrelated search controller. */
+    if (!onlineRef.current) { clearTimeout(askTimeout); failSearch("offline"); return; }
     try {
       const priorUserTurn = [...turns].reverse().find((t) => t && t.q);
       const videoQuery = (priorUserTurn && priorUserTurn.q && looksLikeFollowupText(question)) ? priorUserTurn.q + " " + question : question;
@@ -24152,6 +24182,10 @@ function App() {
       <NovaSidebarPop searchRunning={busy} inCall={!!activeHuddle || !!incomingCall} novaOpen={view === "learn"} railCollapsed={railCollapsed} isMobile={isMobile} onOpenNova={() => handleSidebarNavigateRef.current("learn")} />
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
       <a href="#cb-search" className="cb-skip-link cb-skip-link--second" onClick={(e) => { e.preventDefault(); inputRef.current?.focus({ preventScroll: false }); }}>Skip to search</a>
+      {/* Shell offline state (2026-10-20, design audit M6): renders
+          only while the connection monitor reports offline and
+          clears itself when the connection returns. */}
+      <OfflineNotice P={P} online={online} />
       {/* Screen-reader search announcer: announces "Searching..." when a
           query starts and "Answer ready, N sources" when it completes.
           Visually hidden, never affects layout. */}
