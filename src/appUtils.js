@@ -372,11 +372,37 @@ const REPORT_REASONS = [
 ];
 
 let cbToastId = 0;
+/* Toast buffering (2026-10-20, tail item 4): toast() used to be a fire
+   and forget CustomEvent, so any toast fired while no ToastHost was
+   mounted had no listener and vanished. That was every toast fired on
+   the intro door, where the host did not mount at all, including
+   landing sign in failures and checkout results. A host now announces
+   itself through cbToastHostMount and cbToastHostUnmount. While no
+   host is mounted, toasts queue here instead of dispatching into the
+   void, and the next host to mount receives the queue from
+   cbToastHostMount and renders it. The queue is capped so a long
+   stretch with no host cannot build an unbounded backlog. */
+let cbToastQueue = [];
+let cbToastHostCount = 0;
+const CB_TOAST_QUEUE_MAX = 10;
+function cbToastHostMount() {
+  cbToastHostCount++;
+  const queued = cbToastQueue;
+  cbToastQueue = [];
+  return queued;
+}
+function cbToastHostUnmount() {
+  cbToastHostCount = Math.max(0, cbToastHostCount - 1);
+}
 function toast(message, opts = {}) {
+  const detail = { id: ++cbToastId, message, tone: opts.tone || "success" };
+  if (typeof window === "undefined" || cbToastHostCount === 0) {
+    cbToastQueue.push(detail);
+    if (cbToastQueue.length > CB_TOAST_QUEUE_MAX) cbToastQueue = cbToastQueue.slice(-CB_TOAST_QUEUE_MAX);
+    return;
+  }
   try {
-    window.dispatchEvent(new CustomEvent("cb-toast", {
-      detail: { id: ++cbToastId, message, tone: opts.tone || "success" },
-    }));
+    window.dispatchEvent(new CustomEvent("cb-toast", { detail }));
   } catch (cbErr) { console.error("[Cerebrum] appUtils.js toast: window.dispatchEvent(new CustomEvent('cb-toast', {:", cbErr); }
 }
-export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, accentInkOn, statusBad, statusWarn, statusGood, tabListKeyDown, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, widthToMode, useWindowHeight, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast };
+export { setCookie, getCookie, ensureDyslexicFont, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, accentInkOn, statusBad, statusWarn, statusGood, tabListKeyDown, selectChrome, __cbMotionCache, cbMotionCacheBust, cbMotionCacheSet, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, widthToMode, useWindowHeight, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, cbToastHostMount, cbToastHostUnmount };
