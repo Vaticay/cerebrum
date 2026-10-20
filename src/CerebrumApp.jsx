@@ -4509,11 +4509,12 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     const ev = evidenceMap ? evidenceMap(paraClean, paraCites) : null;
     const pNode = (
     <p className={ev && ev.cls ? ev.cls : undefined} style={{
-      /* The reading surface — the body role, ruthlessly (§7.1): 15px,
-         1.6 leading, one reading weight. The lede (first paragraph)
-         sets in the title role instead: 18px, 1.55 leading. No
-         negative tracking on reading text. Hierarchy comes from
-         measure and rhythm, not a second size. */
+      /* The reading surface — the body role, ruthlessly (§7.1): the
+         plan body size (16 since the 2026-10-20 readability order),
+         1.55 leading, one reading weight. The lede (first paragraph)
+         sets in the subhead role instead. No negative tracking on
+         reading text. Hierarchy comes from measure and rhythm, not
+         a second size. */
       fontSize: isLede ? FONT_SIZES.subhead : FONT_SIZES.body,
       lineHeight: 1.55,
       margin: 0, color: P.ink,
@@ -26836,9 +26837,12 @@ summary::-webkit-details-marker { display: none; }
   border: 0; background: transparent; outline: none;
   padding: 12px 4px 12px 18px;
   /* Body role, one size across variants (2026-10-19, S7 shell lane,
-     audit M11): 15 at 1.55, the plan body. The stage variant no longer
-     overrides this to 17.5 at 1.4. */
-  font-family: var(--cb-font); font-size: 15px; font-weight: 500;
+     audit M11): the plan body at 1.55. The stage variant no longer
+     overrides this to 17.5 at 1.4. 2026-10-20: the plan body rose
+     15 to 16 (owner readability order), so the field sets at 16,
+     which also clears the sub 16 size at which phone browsers zoom
+     the page when a field takes focus. */
+  font-family: var(--cb-font); font-size: 16px; font-weight: 500;
   line-height: 1.55; color: var(--cb-ink);
   caret-color: var(--cb-acc);
   resize: none; overflow-y: hidden;

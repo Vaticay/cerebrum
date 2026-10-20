@@ -26,6 +26,16 @@ export const FONT_SIZES = {
   // Plan scale, 2026-10-14: display 32/1.2/500, section 22/1.3/500,
   // subhead 17/1.4/500, body 15/1.55/400, label 13/1.4/400, caption
   // 12/1.3/400. Weights 400 and 500 only.
+  // 2026-10-20 (owner order, "fix the font, it's not readable"):
+  // the body role rises 15 to 16, settling his standing open call
+  // between body 15 and 16. Every sustained reading surface in the
+  // product set at the plan body size (answer prose at 15 serif,
+  // the Reader Read view at 15 serif, Nova lesson and feedback text
+  // at 15), and the diagnosis that shipped with this change measured
+  // contrast acquitted everywhere (palettes clear 4.5 to 1 on every
+  // solid surface; the cinematic door clears 5.38 to 1 at its
+  // faintest text against the brightest graded film frame), so size
+  // was the remaining cause. All other roles unchanged.
   // Folded 2026-10-19 (design audit M1): the old title and heading
   // size, 18, is a size the plan does not contain, so it is gone.
   // Title folded into subhead (card titles, ledes, prompts) and
@@ -33,7 +43,7 @@ export const FONT_SIZES = {
   // role or an exact plan value alias.
   caption: 12,      // caption and meta, timestamps, metadata, badges
   label: 13,        // label and control, form inputs, chips, buttons
-  body: 15,         // body, primary prose everywhere
+  body: 16,         // body, primary prose everywhere (16 since 2026-10-20, see above)
   subhead: 17,      // subhead, card titles, card subheads, ledes
   section: 22,      // section, plan role for section headings
   display: 32,      // display, mastheads, callouts, hero titles
@@ -286,8 +296,8 @@ export const TYPE = {
   section: { fontFamily: "var(--cb-font)", fontSize: 22, fontWeight: 500, letterSpacing: 0, lineHeight: 1.3 },
   heading: { fontFamily: "var(--cb-font)", fontSize: 22, fontWeight: 500, letterSpacing: 0, lineHeight: 1.3 },
   subhead: { fontFamily: "var(--cb-font)", fontSize: 17, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
-  body:    { fontFamily: "var(--cb-font)", fontSize: 15, fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 },
-  reading: { fontFamily: "var(--cb-serif)", fontSize: 15, fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 }, // reading, answer body and lesson text only
+  body:    { fontFamily: "var(--cb-font)", fontSize: 16, fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 },
+  reading: { fontFamily: "var(--cb-serif)", fontSize: 16, fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 }, // reading, answer body and lesson text only; 16 since 2026-10-20 (owner readability order, see FONT_SIZES)
   label:   { fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
   caption: { fontFamily: "var(--cb-font)", fontSize: 12, fontWeight: 400, letterSpacing: 0, lineHeight: 1.3 },
   mono:    { fontFamily: "var(--cb-mono)", fontSize: 12, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },

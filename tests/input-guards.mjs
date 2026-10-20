@@ -293,12 +293,19 @@ await test("the font size checker is not vacuous: it flags planted small fields 
     `const b = <select style={{ fontSize: FONT_SIZES.label }} />;`,
     `const c = <input style={{ fontSize: 16 }} />;`,
     `const d = <input type="checkbox" style={{ fontSize: 10 }} />;`,
-    `const e = <textarea style={{ fontSize: FONT_SIZES.body }} />;`,
+    // 2026-10-20 (owner readability order): the plan body role rose
+    // 15 to 16, so a field at FONT_SIZES.body now meets the 16 floor
+    // and is legal; the planted small textarea takes the label role
+    // instead, and the body role field sits on the spared side.
+    `const e = <textarea style={{ fontSize: FONT_SIZES.label }} />;`,
+    `const f = <textarea style={{ fontSize: FONT_SIZES.body }} />;`,
   ].join("\n");
   const els = fieldElements(planted);
   const text = els.filter((e) => !NON_TEXT_TYPES.has(e.type || ""));
   const flagged = text.filter((e) => e.fontSize !== null && e.fontSize < 16);
-  assert.equal(flagged.length, 3, `expected the 13px input, the small select, and the body textarea flagged, got ${JSON.stringify(els)}`);
+  assert.equal(flagged.length, 3, `expected the 13px input, the small select, and the label textarea flagged, got ${JSON.stringify(els)}`);
+  const spared = text.filter((e) => e.fontSize !== null && e.fontSize >= 16);
+  assert.equal(spared.length, 2, `expected the 16px input and the body role textarea spared, got ${JSON.stringify(els)}`);
 });
 
 await test("the background checker is not vacuous: it flags planted alpha and spares solid and transparent", () => {

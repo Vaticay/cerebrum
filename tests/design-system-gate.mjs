@@ -369,5 +369,40 @@ await test("the checker itself is not vacuous: it catches planted drift and spar
   assert.deepEqual(monoGood, [], `the token file's own definitions were flagged: ${monoGood.join("; ")}`);
 });
 
+/* The reading size floor (2026-10-20, owner order: "fix the font,
+   it's not readable"). The diagnosis measured contrast acquitted on
+   every surface and condemned the size: every sustained reading
+   surface set at the plan body role of 15. The body role rose to 16
+   the same day, settling the owner's standing 15 versus 16 call.
+   This pin holds the role at 16 so the reading size cannot quietly
+   shrink back; a future change needs the owner's word, not drift. */
+await test("the plan body and reading roles hold at 16 (2026-10-20 readability order)", () => {
+  const srcText = readFileSync(join(SRC, "designSystem.jsx"), "utf8");
+  const ast = parse(srcText, { sourceType: "module", plugins: ["jsx"] });
+  const objOf = (name) => {
+    for (const n of ast.program.body) {
+      if (n.type !== "ExportNamedDeclaration" || !n.declaration || n.declaration.type !== "VariableDeclaration") continue;
+      for (const d of n.declaration.declarations) {
+        if (d.id && d.id.name === name && d.init && d.init.type === "ObjectExpression") return d.init;
+      }
+    }
+    return null;
+  };
+  const propVal = (obj, key) => {
+    const p = obj.properties.find((x) => x.key && (x.key.name === key || x.key.value === key));
+    return p && p.value && typeof p.value.value === "number" ? p.value.value : null;
+  };
+  const sizes = objOf("FONT_SIZES");
+  assert.ok(sizes, "FONT_SIZES not found in designSystem.jsx");
+  assert.equal(propVal(sizes, "body"), 16, "FONT_SIZES.body must stay 16 (2026-10-20 readability order)");
+  const type = objOf("TYPE");
+  assert.ok(type, "TYPE not found in designSystem.jsx");
+  for (const role of ["body", "reading"]) {
+    const p = type.properties.find((x) => x.key && (x.key.name === role || x.key.value === role));
+    assert.ok(p && p.value && p.value.type === "ObjectExpression", `TYPE.${role} not an object`);
+    assert.equal(propVal(p.value, "fontSize"), 16, `TYPE.${role} fontSize must stay 16 (2026-10-20 readability order)`);
+  }
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
