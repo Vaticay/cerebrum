@@ -498,14 +498,22 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     /* Type roles (2026-10-19, S2 / H14): body text is the serif role
        and headings, labels and the footer are the sans role, the same
        two roles the print layout fills with Source Serif 4 and Inter.
-       jsPDF can only set fonts it can embed, its embeddable set is the
-       built in PostScript faces, and the repo ships Source Serif 4 and
-       Inter as woff2 webfonts only, which jsPDF cannot embed. So the
-       roles map onto the built in serif and sans faces here; the day a
-       TTF of either family ships in the repo, these two constants are
-       the whole change. */
-    const PDF_SERIF_FONT = "times";
-    const PDF_SANS_FONT = "helvetica";
+       2026-10-20 (H14 remainder): static TrueType faces for both
+       families now ship under public/fonts/ttf/, so the roles fill
+       with the real faces. src/pdfFonts.js loads and registers them
+       on this document (lazy, at export time only, like jspdf
+       itself). The built in faces stay only as the fallback when
+       that load fails, and the failure is logged, never silent. */
+    let PDF_SERIF_FONT = "times";
+    let PDF_SANS_FONT = "helvetica";
+    try {
+      const pdfFonts = await import("./pdfFonts.js");
+      const registeredFonts = await pdfFonts.registerPdfFonts(doc);
+      PDF_SERIF_FONT = registeredFonts.serif;
+      PDF_SANS_FONT = registeredFonts.sans;
+    } catch (fontErr) {
+      console.error("[Cerebrum] PDF embedded fonts failed; falling back to built in faces:", fontErr);
+    }
 
     const addPage = () => { doc.addPage(); y = MT; };
     const need = (h) => { if (y + h > pageBottom) addPage(); };
