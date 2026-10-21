@@ -5513,6 +5513,19 @@ await test("the Start daily practice button carries no opacity wash in any state
      topics 77.8 and 86.3), so a slow slide back fails here.
    - openers: a lesson's first check is never a counting card and
      never floats free of the reviewed list.
+   - strawmen: a screen for the defect the owner photographed on
+     2026-10-21, a testability card whose key was the only serious
+     option, the rest cartoon strawmen (the luckiest number, the
+     most beautiful song ever sung, a wish). The screen flags an
+     option card when a distractor carries a taste superlative,
+     luck or fate, or wish or magic marker while the key carries
+     none. It reads marker words only: it cannot see a strawman
+     phrased in plain serious words, and it cannot judge whether
+     a near miss is plausible, so plausibility stays a hand audit.
+     Its one known blindness runs the other way too: the word
+     spell catches plain weather idioms (dry spells), and the two
+     options that tripped it on idiom alone were reworded rather
+     than exempted, so the reviewed list below stands empty.
    - keys: a tripwire, not a proof. It flags a card when a
      distractor shares at least three more content words with the
      card's own explanation than the marked answer does, while
@@ -5638,7 +5651,7 @@ await test("no counting questions and no quantifier filler options in paths or t
 });
 
 const SM_FREE_REVIEWED = [
-  "Which of these questions can science test dir", // fair application pin: the cases live in the options
+  "Which of these questions can science test dir", // fair application pin: the cases live in the options; the owner ruled the original options strawmen on 2026-10-21 and they were rebuilt as near misses, the stem classification is unchanged
   "A claim is testable when...", // fair application pin
   "Which of these is a hypothesis?", // fair application pin
   "Which is the strongest evidence that a new m", // fair application pin
@@ -5737,6 +5750,54 @@ await test("the option quality gate names the photographed card's options as fil
   const photoCard = { kind: "predict", question: "How many kinds of traffic pass through your gut?",
     options: ["Two and no more, ever", "More than one", "Only one", "None of them at all"], correct: 1, why: "x" };
   assert.ok(cardOptionQualityProblem(photoCard), "the photographed card itself passes the quality gate");
+});
+
+const SM_STRAWMAN_MARKERS = [
+  /\b(luckiest|lucky|unlucky|luck|fate|destiny|destined|horoscope|zodiac|fortune)\b/i,
+  /\b(wish|wishes|wished|magic|magical|spells?|enchant|fairy|fairies|genie|cursed?|supernatural|ghosts?|haunted|miracle|miraculous|witch|wizard)\b/i,
+  /\b(most beautiful|most delicious|tastiest|prettiest|ugliest|most boring|most exciting|most wonderful|most amazing|best (song|color|colour|taste|smell|painting|meal|dress)|cutest|funniest|scariest|loveliest)\b/i,
+];
+const smStrawmanHit = (text) => SM_STRAWMAN_MARKERS.some((re) => re.test(String(text || "")));
+// Empty on purpose (2026-10-21): every card the screen flagged in
+// the census was rebuilt or reworded, none exempted. A future card
+// enters here only with a dated hand judgment beside it.
+const SM_STRAWMAN_REVIEWED = [];
+await test("no option card leaves its key as the only serious option", () => {
+  const flagged = [];
+  for (const p of [...LEARNING_PATHS, ...TOPIC_COURSES]) {
+    for (const lesson of flattenPathLessons(p)) {
+      for (const card of lesson.cards) {
+        if (!SM_OPTION_KINDS.includes(card.kind) || !card.options) continue;
+        if (smStrawmanHit(card.options[card.correct])) continue;
+        if (card.options.some((o, i) => i !== card.correct && smStrawmanHit(o))) {
+          flagged.push(String(card.question || "").slice(0, 44));
+        }
+      }
+    }
+  }
+  assert.deepEqual([...flagged].sort(), [...SM_STRAWMAN_REVIEWED].sort(),
+    `strawman screen flags differ from the reviewed set; rebuild the card or record a dated hand judgment.\nflagged: ${flagged.join(" | ")}`);
+});
+
+await test("the photographed testability card now earns its key", () => {
+  let photo = null;
+  for (const lesson of flattenPathLessons(LEARNING_PATHS.find((p) => p.id === "how-science-works"))) {
+    for (const card of lesson.cards) {
+      if (card.question === "Which of these questions can science test directly?") photo = card;
+    }
+  }
+  assert.ok(photo, "the photographed card is missing from How Science Works");
+  assert.deepEqual(Array.from(photo.options), [
+    "Does a plant grow toward light because it prefers the bright side?",
+    "Do bean seedlings sprout sooner in damp soil or in dry soil?",
+    "Do seedlings sprout sooner in soil that feels richer to the hand?",
+    "Did a lone seedling last spring sprout sooner than it should have?",
+  ]);
+  assert.equal(photo.correct, 1);
+  assert.ok(photo.options.every((o) => !smStrawmanHit(o)), "a rebuilt option still reads as a strawman");
+  assert.ok(!learnSrc.includes("luckiest number"), "the photographed strawman is still in the source");
+  assert.ok(!learnSrc.includes("most beautiful song ever sung"), "the photographed strawman is still in the source");
+  assert.ok(!learnSrc.includes("Which wish matters most"), "the photographed strawman is still in the source");
 });
 
 await test("a built course opens its first lesson on a thinking form, not a bare restatement", () => {
