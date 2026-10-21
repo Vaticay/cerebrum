@@ -1754,7 +1754,10 @@ const CSS = `
   .lv-home { padding: 22px 16px 44px !important; }
   .lv-head { flex-direction: column !important; gap: 12px !important; }
   .lv-wordmark { font-size: 27px !important; }
-  .lv-sub { font-size: 14.5px !important; }
+  /* No .lv-sub size override (2026-10-20 readability residue wave): the
+     home intro paragraph is the only .lv-sub use, and it carries the
+     body role inline, so it now takes body 16 at phone widths too
+     instead of being forced down to 14.5px here. */
   .lv-status { grid-template-columns: 1fr; }
   /* Sticky offset clears the 72px mobile bottom bar plus the safe
      area inset (layout audit finding 13, 2026-10-16); at 10px the
@@ -13138,7 +13141,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
             <div className="lv-fill" style={{ width: pp.pct + "%", height: "100%", background: accent, borderRadius: RADIUS.pill }} />
           </div>
         </div>
-        <p style={{ color: P.ink2, fontSize: FONT_SIZES.label, lineHeight: 1.55, margin: "10px 0 0" }}>
+        <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "10px 0 0" }}>
           A filled stop is a lesson you finished. A stop marked fading is due for review. It is still yours, and a short review session from the Nova home brings it back to full strength.
         </p>
       </div>
@@ -13198,7 +13201,11 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
                     </span>
                   </span>
                   <span style={{ display: "block", color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.5, marginTop: 5 }}>{lesson.subtitle}</span>
-                  <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
+                  {/* Status sentences read at the label role (2026-10-20
+                      readability residue wave); the one branch that is
+                      only a card and time count stays at caption, as
+                      counts are metadata. */}
+                  <span style={{ display: "block", fontSize: fading || mastered || isDone || !unlocked ? FONT_SIZES.label : FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
                     {fading
                       ? "Finished, and its review is due. A review session from the home brings it back."
                       : mastered
@@ -14714,7 +14721,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                     {pp.complete ? "Complete" : pp.done + " of " + pp.total + " stops"}
                   </span>
                 </span>
-                <span style={{ display: "block", fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, marginTop: 4 }}>{path.blurb}</span>
+                <span style={{ display: "block", fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.5, marginTop: 4 }}>{path.blurb}</span>
                 <span style={{ display: "block", height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", marginTop: 10 }}>
                   <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: pp.pct + "%" }} />
                 </span>
