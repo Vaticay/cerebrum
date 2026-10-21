@@ -42,7 +42,7 @@ const ERR_SAGE = {
   line2: "rgba(139,168,136,0.2)",
   accent: "#8ba888",
 };
-const ERR_FONT = "var(--cb-font, 'Inter', 'Inter Tight', system-ui, sans-serif)";
+const ERR_FONT = "var(--cb-font, 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif)";
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -227,7 +227,7 @@ function NotFound() {
     <div style={{
       minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center",
       background: P.bg, color: P.ink, padding: 24,
-      fontFamily: "var(--cb-font, 'Inter Tight', system-ui, sans-serif)",
+      fontFamily: "var(--cb-font, 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif)",
     }}>
       <div style={{ maxWidth: 560, width: "100%", textAlign: "center", padding: "48px 0" }}>
         <div style={{ fontSize: 13, letterSpacing: "0.14em", color: P.faint, marginBottom: 14, fontWeight: 500 }}>
