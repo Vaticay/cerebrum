@@ -26159,7 +26159,7 @@ const CSS = `
      answer body) is set in Inter Tight like everything else — a reading
      serif at these sizes read as a magazine, and Cerebrum is software. */
   /* 2026-10-14, wave 1 foundation: the plan now sets Inter as the UI face with the self hosted Inter Tight as its guaranteed local face, Source Serif 4 exists for answer body and lesson text only via --cb-serif, weights are 400 and 500 only. */
-  /* 2026-10-20, owner photos and his order: these tokens are deliberately defined in three places because the single home arrangement of 2026-10-19 is what broke. The one home was served stale under an immutable cache rule and the UI font was undefined in production. The other two homes are public/fonts/cerebrum-fonts.css and the :root block in index.html. Keep all three values identical. */
+  /* 2026-10-20, owner photos and his order: these tokens are deliberately defined in three places because the single home arrangement of 2026-10-19 is what broke. The one home was served stale under an immutable cache rule and the UI font was undefined in production. The other two homes are public/cerebrum-fonts.css and the :root block in index.html. Keep all three values identical. */
   --cb-display: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --cb-body: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --cb-serif: 'Source Serif 4', Charter, 'Bitstream Charter', Georgia, 'Times New Roman', serif;

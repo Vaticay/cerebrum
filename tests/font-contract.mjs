@@ -4,7 +4,7 @@
  * home stage width chain.
  *
  * Added 2026-10-20 (owner photos and his order). Production served a stale
- * copy of public/fonts/cerebrum-fonts.css under an immutable cache rule.
+ * copy of the font stylesheet (then at public/fonts/cerebrum-fonts.css) under an immutable cache rule.
  * That stylesheet was the only home of the UI font variable since
  * 2026-10-19, so the variable was undefined in production and every UI
  * text fell back to the browser default serif. These tests pin the fix:
@@ -41,7 +41,7 @@ function group(name) {
 
 const headersText = readFileSync(join(root, "public/_headers"), "utf8");
 const indexHtml = readFileSync(join(root, "index.html"), "utf8");
-const fontsCss = readFileSync(join(root, "public/fonts/cerebrum-fonts.css"), "utf8");
+const fontsCss = readFileSync(join(root, "public/cerebrum-fonts.css"), "utf8");
 const appSrc = readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8");
 const mainSrc = readFileSync(join(root, "src/main.jsx"), "utf8");
 const designSrc = readFileSync(join(root, "src/designSystem.jsx"), "utf8");
@@ -84,19 +84,32 @@ function effectiveBlock(blocks, path) {
 // ══════════════════════════════════════════════════════════════════════════
 group("Cache rule: the font stylesheet can never be immutable again");
 
-await test("a specific non immutable rule covers the font stylesheet and wins for that path", () => {
+await test("no rule that can match the font stylesheet grants immutable, under Pages merge semantics", () => {
+  /* Corrected 2026-10-20 (landing, proven against production): Cloudflare
+     Pages does not pick the most specific matching _headers rule, it
+     merges every matching rule. The first landing of this fix added a
+     specific max-age=0 block for the stylesheet under /fonts/, and
+     production served the file with the merged header
+     "max-age=31536000, must-revalidate, immutable": the wildcard's
+     immutable survived. The stylesheet therefore lives at
+     /cerebrum-fonts.css, outside /fonts/*, where the immutable font
+     rule can never match it. This test models the merge: collect every
+     block whose pattern can match the stylesheet path and assert none
+     of them carries immutable. */
   const blocks = headerBlocks(headersText);
-  const specific = blocks.find((b) => b.pattern === "/fonts/cerebrum-fonts.css");
-  assert.ok(specific, "no header block names /fonts/cerebrum-fonts.css specifically");
+  assert.ok(!headersText.includes("/fonts/cerebrum-fonts.css"), "the stylesheet is still referenced under /fonts/, where the immutable wildcard matches it");
+  const matching = blocks.filter((b) => b.pattern === "/cerebrum-fonts.css" || (b.pattern.endsWith("/*") && "/cerebrum-fonts.css".startsWith(b.pattern.slice(0, -1))));
+  assert.ok(matching.length >= 1, "no header block covers /cerebrum-fonts.css");
+  for (const b of matching) {
+    const cc = b.lines.find((l) => l.startsWith("Cache-Control:"));
+    if (cc) assert.ok(!cc.includes("immutable"), `the ${b.pattern} rule can match the stylesheet and grants immutable`);
+  }
+  const specific = blocks.find((b) => b.pattern === "/cerebrum-fonts.css");
+  assert.ok(specific, "no header block names /cerebrum-fonts.css specifically");
   const cc = specific.lines.find((l) => l.startsWith("Cache-Control:"));
   assert.ok(cc, "the stylesheet block carries no Cache-Control line");
   assert.match(cc, /max-age=0/);
   assert.match(cc, /must-revalidate/);
-  assert.ok(!cc.includes("immutable"), "the stylesheet rule is still immutable");
-  const effective = effectiveBlock(blocks, "/fonts/cerebrum-fonts.css");
-  assert.equal(effective.pattern, "/fonts/cerebrum-fonts.css", "a less specific rule wins for the stylesheet path");
-  const effectiveCc = effective.lines.find((l) => l.startsWith("Cache-Control:"));
-  assert.ok(effectiveCc && !effectiveCc.includes("immutable"), "the effective rule for the stylesheet is immutable");
 });
 
 await test("the font files themselves keep the immutable rule", () => {
