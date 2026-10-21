@@ -19787,7 +19787,8 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // lives in one place only, the mobile body rule in App (72px plus
     // inset), which is also the only clearance the non search views get.
     scroll: {
-      flex: 1, display: "flex", flexDirection: "column",
+      flex: 1, minWidth: 0, display: "flex", flexDirection: "column",
+      /* 2026-10-20, owner photos and his order: minWidth 0 here and on container below lets this flex chain size to the space beside the sidebar instead of sizing to content. Without it the search home stage ran past the right edge at laptop widths and S.page clipped it. */
       /* Sticky-footer fix: this wrapper used to be a plain block with
          S.container relying on minHeight:100% against its flex-derived
          height — a percentage resolution browsers don't honor
@@ -19799,7 +19800,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          the container just grows. */
       paddingBottom: 0,
     },
-    container: { width: "100%", maxWidth: 1200, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", flex: 1, display: "flex", flexDirection: "column" },
+    container: { width: "100%", maxWidth: 1200, margin: "0 auto", padding: `0 ${pad}px`, minHeight: "100%", flex: 1, minWidth: 0, display: "flex", flexDirection: "column" },
 
     /* ── Hero: LEFT-ALIGNED editorial layout ── */
     hero: { 
@@ -24626,10 +24627,10 @@ function App() {
                top, not a second nav. The first submit yields to
                the existing thread layout.
                ══════════════════════════════════════════════════════ */
-            <Reveal style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 40px" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
+            <Reveal style={{ flex: 1, minWidth: 0, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 40px" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               <div style={{
-                width: "100%", maxWidth: LAYOUT.answer, padding: isMobile ? "0" : "0 24px",
+                width: "100%", minWidth: 0, maxWidth: LAYOUT.answer, padding: isMobile ? "0" : "0 24px",
                 "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
                 "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
               }}>
@@ -26106,9 +26107,13 @@ const CSS = `
      answer body) is set in Inter Tight like everything else — a reading
      serif at these sizes read as a magazine, and Cerebrum is software. */
   /* 2026-10-14, wave 1 foundation: the plan now sets Inter as the UI face with the self hosted Inter Tight as its guaranteed local face, Source Serif 4 exists for answer body and lesson text only via --cb-serif, weights are 400 and 500 only. */
-  /* Font variables live in one home only (2026-10-19, S7 shell lane,
-     audit H2): the :root in public/fonts/cerebrum-fonts.css. This block
-     keeps only the motion tokens. */
+  /* 2026-10-20, owner photos and his order: these tokens are deliberately defined in three places because the single home arrangement of 2026-10-19 is what broke. The one home was served stale under an immutable cache rule and the UI font was undefined in production. The other two homes are public/fonts/cerebrum-fonts.css and the :root block in index.html. Keep all three values identical. */
+  --cb-display: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --cb-body: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --cb-serif: 'Source Serif 4', Charter, 'Bitstream Charter', Georgia, 'Times New Roman', serif;
+  --cb-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  --cb-wordmark: 'Orbitron', 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
+  --cb-font: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   /* Easing tokens (2026-10-19, S7 shell lane, audit tail 4): two real
      curves, named. --cb-ease is the signature curve, the same value as
      MOTION.ease in JS. --cb-ease-out is the decelerating fade curve.

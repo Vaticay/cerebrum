@@ -1,19 +1,15 @@
 /* Cerebrum: fast native typography, no font downloads required.
    2026-10-14: Inter is the UI face, Source Serif 4 serves answer body and lesson text only, IBM Plex Mono serves metadata; no third party font requests anywhere.
    2026-10-15: Orbitron 800 serves the Nova wordmark only.
-   (This :root is the one home for the font variables since 2026-10-19; it also covers the boot splash before the app mounts.)
+   2026-10-20, owner photos and his order: these tokens are deliberately defined in three places because the single home arrangement of 2026-10-19 is what broke. The one home was served stale under an immutable cache rule and the UI font was undefined in production. The other two homes are the :root block in index.html and the app :root block in src/CerebrumApp.jsx. Keep all three values identical. The stack leads with Inter Tight, the self hosted face actually declared via @font-face, so a load failure degrades to a clean system sans and never to a serif.
    Self hosted woff2, latin only. */
 :root {
-  --cb-display: 'Inter', 'Inter Tight', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --cb-body: 'Inter', 'Inter Tight', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --cb-display: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --cb-body: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --cb-serif: 'Source Serif 4', Charter, 'Bitstream Charter', Georgia, 'Times New Roman', serif;
   --cb-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
   --cb-wordmark: 'Orbitron', 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
-  /* 2026-10-19 (S7 shell lane, audit H2): --cb-font joins this :root so
-     the fonts stylesheet is the single home for every font variable.
-     The duplicate definitions in index.html and in CerebrumApp.jsx are
-     removed; nothing else defines these variables. */
-  --cb-font: 'Inter', 'Inter Tight', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --cb-font: 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 @font-face {

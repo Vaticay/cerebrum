@@ -61,6 +61,19 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
+# The font stylesheet is mutable and must never be immutable.
+# 2026-10-20 root cause, from the owner photos and his order: this rule used
+# to cover /fonts/cerebrum-fonts.css as well as the font files. Production
+# served a stale copy of that stylesheet, browsers held it under the immutable
+# rule, the stylesheet was the only home of the UI font variable, and every
+# UI text fell back to the browser default serif. The stylesheet rule below
+# is more specific than the wildcard, so Cloudflare Pages applies it to that
+# path alone. The font files themselves keep the immutable rule: their names
+# are content hashed by Google and they never change in place.
+/fonts/cerebrum-fonts.css
+  Cache-Control: public, max-age=0, must-revalidate
+  Cross-Origin-Resource-Policy: same-origin
+
 # Self-hosted fonts are content-hashed by Google's own filenames and never
 # change in place.
 /fonts/*
