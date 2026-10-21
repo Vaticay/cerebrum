@@ -289,8 +289,8 @@ await test("the ship paths run deDash: post process, run last, both cache serves
   // (earlyTrust/laterTrust.answer, the stored text with its
   // baked confidence line bound — 2026-10-14 cached serve
   // parity), not the raw stored text.
-  assert.ok(searchSrc.includes("italicizeScientificTerms(deDash(earlyTrust.answer), query)"), "the early cache serve does not deDash its bound body");
-  assert.ok(searchSrc.includes("italicizeScientificTerms(deDash(laterTrust.answer), query)"), "the late cache serve does not deDash its bound body");
+  assert.ok(searchSrc.includes("italicizeScientificTerms(deDash(earlySplit.answer), query)"), "the early cache serve does not deDash its bound body");
+  assert.ok(searchSrc.includes("italicizeScientificTerms(deDash(laterSplit.answer), query)"), "the late cache serve does not deDash its bound body");
 });
 
 // ═══════════════════════════════════════════════════════════════════

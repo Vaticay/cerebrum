@@ -953,10 +953,14 @@ await test("the handler admits the fact check on the reserve constant, the same 
 });
 
 await test("the fact check window is reserved before synthesis (the reserve arithmetic)", () => {
-  assert.equal(FACT_CHECK_RESERVE_MS, 5000);
+  // Raised 5,000 to 8,000 on 2026-10-21 (answer integrity
+  // lane): the Oct 20 batch still skipped the stage for
+  // budget on late finishing synthesis stages. The arithmetic
+  // is pinned against the constant, not a second literal.
+  assert.equal(FACT_CHECK_RESERVE_MS, 8000);
   const now = 1000000;
   const deadline = now + 19000;
-  assert.equal(synthesisDeadlineFor(now, deadline, true), deadline - 2500 - 5000,
+  assert.equal(synthesisDeadlineFor(now, deadline, true), deadline - 2500 - FACT_CHECK_RESERVE_MS,
     "with the check on, synthesis kept the check's window");
   assert.equal(synthesisDeadlineFor(now, deadline, false), deadline - 2500,
     "with the check off, the deadline changed");

@@ -1502,6 +1502,15 @@ function assertAnswerStagesFunded(data, counts) {
     `${counts.refused} attempts were refused past the cap; only a small post answer tail may overflow`);
 }
 
+// Shipped source split (2026-10-21, answer integrity lane):
+// the response presents cited papers as `sources` and uncited
+// gathered papers as `furtherReading`. This suite's "papers
+// shipped" assertions measure the whole presented list, which
+// is what the old single `sources` array carried.
+function presentedCount(data) {
+  return (data.sources || []).length + (data.furtherReading || []).length;
+}
+
 await test("cold isolate: every cold DDL execution counts, and the draw degrades honestly", async () => {
   const { data, counts, ledger } = await runScenario("rich");
   assertLedgerEqualsPlatform(counts, ledger);
@@ -1512,7 +1521,7 @@ await test("cold isolate: every cold DDL execution counts, and the draw degrades
   assert.equal(data._expansion && data._expansion.via, "groq", "cold: expansion did not fire");
   const validation = (data.stageHealth || []).find((s) => s.name === "validation");
   assert.ok(validation && validation.ok, "cold: validation did not answer");
-  assert.ok((data.sources || []).length >= 3, "cold: the draw should still ship its papers");
+  assert.ok(presentedCount(data) >= 3, "cold: the draw should still ship its papers");
   const synthesis = (data.stageHealth || []).find((s) => s.name === "synthesis");
   assert.ok(synthesis, "cold: no synthesis stage record shipped");
   if (!synthesis.ok) {
@@ -1598,7 +1607,7 @@ await test("rich retrieval (warm): expansion and validation fire, synthesis wins
   // the ladder's own catch here (this asserted 8 under the
   // phase local ceiling, whose arithmetic starved synthesis
   // live; the funded stages above are the contract).
-  assert.ok((data.sources || []).length >= 6, "the rich scenario should ship its papers");
+  assert.ok(presentedCount(data) >= 6, "the rich scenario should ship its papers");
   assertLedgerShips(data, counts, ledger);
   // Per stage ceilings for the fixed overhead, at their audited
   // minima for this harness's shape (assembly snapshot; the
@@ -1627,7 +1636,7 @@ await test("lean retrieval (warm): rungs and fallbacks trim, synthesis still get
   // absolute ceiling — the scenario's contract is the funded
   // synthesis above, not the shelf size (was 3 under the phase
   // local ceiling; see the rich scenario's note).
-  assert.ok((data.sources || []).length >= 2, "the lean scenario should still ship its papers");
+  assert.ok(presentedCount(data) >= 2, "the lean scenario should still ship its papers");
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -1780,7 +1789,7 @@ await test("starved primary: the nets are priced out and the answer stages keep 
   assert.equal(counts.s2Verbatim, 0, "a fallback net fired Semantic Scholar on the verbatim question");
   // And the stages the reserve exists for ran anyway.
   assertAnswerStagesFunded(data, counts);
-  assert.ok((data.sources || []).length >= 3, "the starved scenario should still ship its papers");
+  assert.ok(presentedCount(data) >= 3, "the starved scenario should still ship its papers");
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -1919,8 +1928,8 @@ await test("heavy draw, full rerank: validation runs and the synthesis race fire
   // phase local ceiling let both land (this asserted 8 before
   // the overhead audit — the funded validation and race below
   // are the scenario's contract, as in the rich scenario).
-  assert.ok((data.sources || []).length >= 4,
-    `heavy scenario shipped only ${(data.sources || []).length} sources`);
+  assert.ok(presentedCount(data) >= 4,
+    `heavy scenario shipped only ${presentedCount(data)} presented sources`);
   // Validation ran on a real leg.
   const validation = (data.stageHealth || []).find((s) => s.name === "validation");
   assert.ok(validation, "no validation stage record shipped");
@@ -2393,8 +2402,8 @@ await test("greedy draw: the phase ends at or under its allowance, the answer st
   // validation, and a winning synthesis (the shared funded
   // assertions), over a real shelf.
   assertAnswerStagesFunded(data, counts);
-  assert.ok((data.sources || []).length >= 8,
-    `greedy scenario shipped only ${(data.sources || []).length} sources`);
+  assert.ok(presentedCount(data) >= 8,
+    `greedy scenario shipped only ${presentedCount(data)} presented sources`);
 });
 
 // GREEDY VALIDATION (2026-10-14, stage allowances; binding
@@ -2585,8 +2594,8 @@ await test("greedy validation: the block stays inside its allowance, the trim is
   // And the answer stages synthesis exists for still ran funded:
   // a winning synthesis, an AI answer, a real shelf.
   assertAnswerStagesFunded(data, counts);
-  assert.ok((data.sources || []).length >= 8,
-    `greedy validation scenario shipped only ${(data.sources || []).length} sources`);
+  assert.ok(presentedCount(data) >= 8,
+    `greedy validation scenario shipped only ${presentedCount(data)} presented sources`);
 });
 
 // The phase ceiling binding the model legs themselves, at unit
@@ -2816,8 +2825,8 @@ await test("empty shelf: the cascade yield fires the first net past the ceiling"
   // And the papers only that net could find actually shipped:
   // every other engine and round in this stub answers nothing,
   // so a non-empty shelf is the net's own catch.
-  assert.ok((data.sources || []).length >= 2,
-    `the yielded net's papers did not ship (${(data.sources || []).length} sources) — the cap starved the cascade`);
+  assert.ok(presentedCount(data) >= 2,
+    `the yielded net's papers did not ship (${presentedCount(data)} presented sources) — the cap starved the cascade`);
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

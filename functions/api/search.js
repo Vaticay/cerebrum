@@ -456,9 +456,20 @@ export const DELAYED_RESCUE_MIN_WAIT_MS = 5000;
  * the stage) leaves every earlier stage free to spend the
  * window the gate then pretends exists; reserving up front
  * is the shape that keeps the total handler time bounded by
- * the same request deadline as before. 5,000 ms: the stage's
+ * the same request deadline as before. 8,000 ms: the stage's
  * budget plus the post synthesis text passes that run between
  * the synthesis deadline and the stage.
+ * RAISED 5,000 to 8,000 (2026-10-21, answer integrity lane,
+ * audit H4/M1): the Oct 20 live batch still skipped the stage
+ * for budget on 2 of 4 AI answers. The reserve only binds the
+ * synthesis WAVES; the rescue wave races 12,000 ms legs with
+ * no outer deadline and the post winner retries can also
+ * finish past the synthesis deadline, so a lawful synthesis
+ * stage could still arrive at the gate with less than the
+ * old reserve left. The wider window survives a late winner
+ * plus the assembly passes; synthesis keeps what remains,
+ * exactly as before, and the total stays bounded by the same
+ * request deadline.
  * ONE NUMBER FOR THE WHOLE STAGE (2026-10-16, finding 11):
  * this constant is now the stage budget in all three places
  * that spend it — the reserve (synthesis holds it back), the
@@ -472,7 +483,23 @@ export const DELAYED_RESCUE_MIN_WAIT_MS = 5000;
  * ceiling; with the deadline enforced inside the check, the
  * tier caps can no longer stack past the one budget the gate
  * and the reserve are both sized from. */
-export const FACT_CHECK_RESERVE_MS = 5000;
+export const FACT_CHECK_RESERVE_MS = 8000;
+
+/* PER TIER SLICE INSIDE THE STAGE BUDGET (2026-10-21, answer
+ * integrity lane, audit M1): inside deepFactCheck the tiers
+ * fire in sequence, and each tier's own cap used to be sized
+ * against the whole stage budget, so one slow tier could burn
+ * the stage alone — the Oct 20 batch's other two AI answers
+ * ended "nothing to verify" after the early deep tiers timed
+ * out and the last tier was skipped as no-time without ever
+ * firing. When the caller hands the stage a deadline (the
+ * production path), each tier is capped at this slice: three
+ * slices (2,500 ms each) fit inside the 8,000 ms stage budget
+ * with room to spare, so every tier gets a real attempt
+ * inside the budget instead of the first slow tier deciding
+ * the stage. Direct calls without a stage deadline keep the
+ * tiers' own larger caps. */
+export const FACT_CHECK_TIER_CAP_MS = 2500;
 
 /* synthesisDeadlineFor(nowMs, requestDeadlineMs, factCheckOn):
  * the synthesis stage's deadline — the request deadline less
@@ -571,7 +598,24 @@ export function planDelayedRescue(attempts, opts = {}) {
   if (eligible.length === 0) {
     return { action: "skip", reason: "no eligible leg", summary: "delayed rescue skipped: no leg will be unparked by the end of the wait" };
   }
-  return { action: "wait", waitMs, chosen: eligible.slice(0, 2) };
+  // INDEPENDENT SECOND LEG (2026-10-21, answer integrity lane,
+  // audit M3): the ranked roster can put two legs of the SAME
+  // provider family in both seats (the preferred Groq leg plus
+  // the best tracked Groq leg), so one family wide failure —
+  // the Oct 20 batch's Mistral 429 wall is the shape, mirrored
+  // here on Groq — decides the retry exactly as it decided
+  // the waves. When an eligible leg from a DIFFERENT provider
+  // bucket exists, it takes the second seat; the best tracked
+  // same family leg keeps the seat only when no independent
+  // leg is eligible.
+  const chosen = eligible.slice(0, 2);
+  if (chosen.length === 2 &&
+      synthesisBucketForLabel(chosen[0]) === synthesisBucketForLabel(chosen[1])) {
+    const independent = eligible.find(
+      (label) => synthesisBucketForLabel(label) !== synthesisBucketForLabel(chosen[0]));
+    if (independent) chosen[1] = independent;
+  }
+  return { action: "wait", waitMs, chosen };
 }
 
 // ── Per-request subrequest ledger (2026-10-13, third rescore) ────
@@ -9824,7 +9868,15 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   // the deadline has already passed is skipped with a named
   // trace outcome, exactly like a budget spent tier.
   const stageLeftMs = () => (stageDeadlineMs == null ? Infinity : stageDeadlineMs - Date.now());
-  const tierCapMs = (cap) => Math.max(0, Math.min(cap, stageLeftMs()));
+  // Per tier slice (2026-10-21, see FACT_CHECK_TIER_CAP_MS):
+  // under a stage deadline a tier may not spend more than its
+  // slice, however large its own cap is, so the later tiers
+  // still fire inside the stage budget.
+  const tierCapMs = (cap) => Math.max(0, Math.min(
+    cap,
+    stageDeadlineMs == null ? cap : FACT_CHECK_TIER_CAP_MS,
+    stageLeftMs()
+  ));
   const stageExpired = (tier) => {
     if (stageLeftMs() > 0) return false;
     note(tier, "no-time", "the fact check stage deadline passed before this tier could fire");
@@ -15574,6 +15626,38 @@ export function factCheckSupport(factCheck) {
   return { supported, checked: countable.length };
 }
 
+/* factCheckActuallyChecked(factCheck): did a real check run
+ * on this answer — a verification with at least one countable
+ * checked claim, or the extractive wording trace with at
+ * least one countable traced claim? (2026-10-21, answer
+ * integrity lane, audit M1/H3.) The confidence gate used to
+ * ask only whether the fact check OBJECT carried any claims
+ * at all, and the mechanical integrity flags panel (alignment,
+ * stripped, demoted — none of them a checked claim, all
+ * excluded by factCheckClaimCountable) satisfies that test:
+ * on the Oct 20 honey probe the stage was budget skipped,
+ * the flags formed a panel, the gate read "checked", no
+ * unchecked cap applied, and the answer shipped Strong with
+ * no check behind it. Every consumer that needs "a check
+ * ran" (the confidence gate, the did not run statement)
+ * asks here, so the answers cannot drift apart. */
+/* The plain statement an AI answer ships in its own body when
+ * the fact check genuinely did not run on it (2026-10-21,
+ * answer integrity lane, audit M1): user visible answer text,
+ * not a stage record. Wording is plain and names the
+ * consequence, and it carries no dash characters, per the
+ * standing house rule. */
+export const FACT_CHECK_DID_NOT_RUN_STATEMENT =
+  "The fact check did not run on this answer, so its claims have not been checked against the cited sources.";
+
+export function factCheckActuallyChecked(factCheck) {
+  if (!factCheck || typeof factCheck !== "object") return false;
+  if (factCheckSupport(factCheck) !== null) return true;
+  return factCheck.checked === true &&
+    Array.isArray(factCheck.claims) &&
+    factCheck.claims.some((c) => c && factCheckClaimCountable(c));
+}
+
 /* dedupeFactCheckClaims(factCheck): the same claim text checked
  * against two citations is ONE checked claim (sixth panel, Job
  * 1c). The deep check can emit a claim twice with different
@@ -15729,6 +15813,109 @@ export function confidenceLineText(level, parts) {
   return line;
 }
 
+/* ── Evidence class ladder (2026-10-21, answer integrity lane,
+ * audit H3) ──────────────────────────────────────────────────
+ * The Oct 20 batch shipped "Strong confidence: this answer
+ * rests on 3 cited sources" over one narrative review and two
+ * case reports, while comparable counts read "thin" on other
+ * probes: the label was a function of count and surface
+ * signals only, and never asked what KIND of evidence the
+ * cited papers are. The ladder below is the one rule every
+ * confidence surface reads. Classes, strongest first:
+ *   rank 4: systematic review or meta analysis
+ *   rank 3: controlled trial (randomized or otherwise
+ *     controlled)
+ *   rank 2: observational or other primary study (cohort,
+ *     case control, cross sectional, preclinical, and the
+ *     unclassified primary papers most questions rest on)
+ *   rank 1: case report, case series, narrative review,
+ *     editorial — the bottom class
+ * The class is read from data the papers already carry: the
+ * study type key stamped at ranking (studyTypeKey, from
+ * classifyStudyType in knowledge.js), the classifier itself
+ * over title and abstract when no key rides along (cached and
+ * stored entries), and the publication type text the source
+ * APIs supplied. Higher classes are tested before lower ones
+ * at every step, so a systematic review whose abstract
+ * mentions the case reports it excluded is never read as one.
+ * buildConfidenceLine caps the level at thin when the cited
+ * set's BEST class is the bottom class, whatever the count:
+ * a Strong label on case level evidence is impossible by
+ * construction, and calibrateConfidenceScore keeps the cap
+ * binding downstream, so the object, the line text, and any
+ * prose bound to them agree because they all read this cap. */
+const EVIDENCE_CLASS_BY_STUDY_KEY = {
+  SYSTEMATIC_REVIEW: { rank: 4, key: "systematic-review", label: "a systematic review or meta analysis" },
+  RCT: { rank: 3, key: "controlled-trial", label: "a controlled trial" },
+  COHORT: { rank: 2, key: "observational", label: "an observational or primary study" },
+  CASE_CONTROL: { rank: 2, key: "observational", label: "an observational or primary study" },
+  PRECLINICAL: { rank: 2, key: "observational", label: "an observational or primary study" },
+  CASE_REPORT: { rank: 1, key: "case-level", label: "a case report, case series, or narrative review" },
+  NARRATIVE_REVIEW: { rank: 1, key: "case-level", label: "a case report, case series, or narrative review" },
+  EDITORIAL: { rank: 1, key: "case-level", label: "a case report, case series, or narrative review" },
+};
+const EVIDENCE_CLASS_UNCLASSIFIED = { rank: 2, key: "observational", label: "an observational or primary study" };
+
+export function evidenceClassOfPaper(paper) {
+  const p = paper || {};
+  const keyed = typeof p.studyTypeKey === "string" ? EVIDENCE_CLASS_BY_STUDY_KEY[p.studyTypeKey] : null;
+  if (keyed) return keyed;
+  if (typeof p.studyType === "string" && p.studyType) {
+    // The stored label is the classifier's own label text
+    // ("Systematic review / meta-analysis", "Case report /
+    // case series", ...): feeding it back through the
+    // classifier recovers its key.
+    try {
+      const byLabel = classifyStudyType(p.studyType, "");
+      if (byLabel && EVIDENCE_CLASS_BY_STUDY_KEY[byLabel.key]) return EVIDENCE_CLASS_BY_STUDY_KEY[byLabel.key];
+    } catch { /* fall through to the text scan */ }
+  }
+  try {
+    const classified = classifyStudyType(p.title || "", usableAbstract(p) || p.abstract || "");
+    if (classified && EVIDENCE_CLASS_BY_STUDY_KEY[classified.key]) {
+      return EVIDENCE_CLASS_BY_STUDY_KEY[classified.key];
+    }
+  } catch { /* the text scan below is the fallback, never a failure */ }
+  const pubTypes = Array.isArray(p.publicationTypes)
+    ? p.publicationTypes.join(" ")
+    : String(p.publicationType || p._rawType || "");
+  const hay = (String(p.title || "") + " " + pubTypes + " " + String(p.type || "")).toLowerCase();
+  if (/\b(systematic review|meta[-\s]?analysis|meta[-\s]?analyses|umbrella review|cochrane)\b/.test(hay)) {
+    return EVIDENCE_CLASS_BY_STUDY_KEY.SYSTEMATIC_REVIEW;
+  }
+  if (/\b(randomi[sz]ed|controlled trial|clinical trial)\b/.test(hay)) {
+    return EVIDENCE_CLASS_BY_STUDY_KEY.RCT;
+  }
+  if (/\b(cohort|case[-\s]control|cross[-\s]sectional|observational|prospective stud|retrospective stud)\b/.test(hay)) {
+    return EVIDENCE_CLASS_BY_STUDY_KEY.COHORT;
+  }
+  if (/\b(case report|case series|narrative review|scoping review|editorial|commentary)\b/.test(hay) ||
+      /^\s*(a\s+)?review\s*[:.]/.test(hay) ||
+      /\bwe (report|present) a case\b/.test(String(p.abstract || "").toLowerCase()) ||
+      /\bsingle patient\b/.test(String(p.abstract || "").toLowerCase())) {
+    return EVIDENCE_CLASS_BY_STUDY_KEY.CASE_REPORT;
+  }
+  return EVIDENCE_CLASS_UNCLASSIFIED;
+}
+
+/* bestEvidenceClass(papers): the strongest class in a cited
+ * set, or null for an empty set. The confidence rule reads
+ * the BEST class, not the average: one systematic review in
+ * the set is real top class evidence for the claims it
+ * backs, while a set whose best is a case report has nothing
+ * stronger anywhere in it. */
+export function bestEvidenceClass(papers) {
+  const list = Array.isArray(papers) ? papers : [];
+  let best = null;
+  for (const p of list) {
+    if (!p) continue;
+    const cls = evidenceClassOfPaper(p);
+    if (!best || cls.rank > best.rank) best = cls;
+    if (best && best.rank >= 4) break;
+  }
+  return best;
+}
+
 // 0-100 confidence score built from observable evidence signals . source
 // count, mean relevance, disagreement verdict, citation quality
 // (peer-reviewed vs preprint), recency, and abstract coverage . plus a
@@ -15843,6 +16030,25 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   // sources are mandatory, one good source defeats the purpose).
   if (n === 1) {
     applyCap(45, "the answer rests on a single source");
+  }
+  // Evidence class cap (2026-10-21, answer integrity lane,
+  // audit H3): the label is tied to the cited evidence CLASS
+  // by the one ladder above (evidenceClassOfPaper /
+  // bestEvidenceClass). When the strongest paper in the cited
+  // set is bottom class — a case report, a case series, a
+  // narrative review — the level is thin whatever the count,
+  // the relevance, or the recency say: three case level papers
+  // are still case level evidence, and the Oct 20 honey probe
+  // shipped Strong on exactly that set. The cap is a band cap
+  // like the others, so calibration keeps it binding and the
+  // shipped line regenerates from the capped level with this
+  // reason named.
+  const bestClass = bestEvidenceClass(papers);
+  if (bestClass) {
+    factors.push("strongest cited evidence class: " + bestClass.label + " (class rank " + bestClass.rank + " of 4)");
+    if (bestClass.rank <= 1) {
+      applyCap(45, "the strongest cited source is " + bestClass.label + ", the weakest evidence class");
+    }
   }
   // factCheckChecked false is an ASSERTION by the caller that the
   // check ran (or definitively did not) and checked nothing; null
@@ -17758,6 +17964,92 @@ export function labelUncitedSources(sources, answer) {
       uncitedReason: "Not cited in the answer . listed for further reading.",
     };
   });
+}
+
+/* ── Shipped source split (2026-10-21, answer integrity lane,
+ * audit M2) ──────────────────────────────────────────────────
+ * The shipped `sources` used to be the full labeled list:
+ * cited papers and uncited gathered papers in one array, the
+ * uncited ones flagged but still counted by every reader who
+ * reads the array's length — the Oct 20 batch listed 14
+ * sources on an answer that cited 3, including a 1974 pony
+ * sleep paper the answer never touched. The shipped contract
+ * is now: `sources` is the cited set only, and every uncited
+ * entry ships separately as `furtherReading`. Citation
+ * numbers are positional, so the split renumbers: cited
+ * entries keep their relative order and become 1..k, the
+ * answer's citation markers are rewritten through the same
+ * index map, and index bearing companions (the fact check's
+ * bracketed source references, the literature conflicts'
+ * idxA and idxB) are remapped by the helpers below. Markers
+ * in an appended bibliography tail are not citations (the
+ * answerBodyBeforeBibliography boundary every cited flag
+ * derivation shares) and are left exactly as written. The
+ * search record and the coverage disclosure keep the full
+ * labeled list: they already count cited and further reading
+ * separately, and the record is the audit trail of what was
+ * gathered, not the answer's bibliography. */
+export function remapCitationMarkers(text, indexMap) {
+  const map = indexMap instanceof Map ? indexMap : new Map();
+  if (map.size === 0) return String(text || "");
+  return String(text || "").replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (whole, group) => {
+    const parts = group.split(",").map((s) => s.trim());
+    if (!parts.every((part) => map.has(parseInt(part, 10)))) return whole;
+    return "[" + parts.map((part) => map.get(parseInt(part, 10))).join(", ") + "]";
+  });
+}
+
+export function splitShippedSources(labeledSources, answer) {
+  const list = Array.isArray(labeledSources) ? labeledSources : [];
+  const sources = [];
+  const furtherReading = [];
+  const indexMap = new Map();
+  list.forEach((s, i) => {
+    if (s && !s.uncited) {
+      indexMap.set(i + 1, sources.length + 1);
+      sources.push(s);
+    } else if (s) {
+      furtherReading.push(s);
+    }
+  });
+  if (furtherReading.length === 0) {
+    return { sources, furtherReading, answer: String(answer || ""), indexMap };
+  }
+  const body = answerBodyBeforeBibliography(answer);
+  const tail = String(answer || "").slice(body.length);
+  return {
+    sources,
+    furtherReading,
+    answer: remapCitationMarkers(body, indexMap) + tail,
+    indexMap,
+  };
+}
+
+/* remapFactCheckIndices(factCheck, indexMap): the shipped
+ * fact check's claims carry their source references as
+ * bracketed numbers inside the claim and note strings (the
+ * deep check's note is built as quote + " [N]" + reason).
+ * Those numbers are positions in the pre split list; this
+ * rewrites them through the split's index map so the panel
+ * points at the same papers in the shipped list. Claims
+ * whose numbers the map does not know are left as written. */
+export function remapFactCheckIndices(factCheck, indexMap) {
+  if (!factCheck || typeof factCheck !== "object" || !(indexMap instanceof Map) || indexMap.size === 0) {
+    return factCheck;
+  }
+  const remap = (value) => (typeof value === "string" ? remapCitationMarkers(value, indexMap) : value);
+  const out = { ...factCheck };
+  if (typeof out.summary === "string") out.summary = remap(out.summary);
+  if (Array.isArray(out.claims)) {
+    out.claims = out.claims.map((c) => {
+      if (!c || typeof c !== "object") return c;
+      const next = { ...c };
+      if (typeof next.claim === "string") next.claim = remap(next.claim);
+      if (typeof next.note === "string") next.note = remap(next.note);
+      return next;
+    });
+  }
+  return out;
 }
 
 // ── Further reading tail ────────────────────────────────────────
@@ -24039,17 +24331,23 @@ async function runSearchPipeline(pctx) {
             factCheck: earlyTrustSignals ? earlyTrustSignals.factCheck : undefined,
             synthesisMode: earlyTrustSignals ? earlyTrustSignals.synthesisMode : undefined,
           });
+          // Shipped source split (2026-10-21, audit M2): the
+          // cached serve ships the same contract as a fresh
+          // one — cited sources only in `sources`, uncited
+          // entries as `furtherReading`, markers remapped.
+          const earlySplit = splitShippedSources(earlyTrust.labeledSources, earlyTrust.answer);
           return new Response(
             JSON.stringify({
-              answer: italicizeScientificTerms(deDash(earlyTrust.answer), query),
-              sources: earlyTrust.labeledSources,
+              answer: italicizeScientificTerms(deDash(earlySplit.answer), query),
+              sources: earlySplit.sources,
+              furtherReading: earlySplit.furtherReading,
               videos,
               // Parity with the fresh path (wave eight round two):
               // the stored run's fact check and disagreement
               // verdict ship beside the recomputed artifacts. A
               // pre envelope payload stored neither, and both are
               // honestly null — never recomputed into existence.
-              factCheck: earlyTrustSignals ? earlyTrustSignals.factCheck : null,
+              factCheck: earlyTrustSignals ? remapFactCheckIndices(earlyTrustSignals.factCheck, earlySplit.indexMap) : null,
               disagreementVerdict: earlyTrustSignals ? earlyTrustSignals.disagreementVerdict : null,
               related: [],
               source: "Cached (verified)",
@@ -26638,16 +26936,20 @@ async function runSearchPipeline(pctx) {
         factCheck: laterTrustSignals ? laterTrustSignals.factCheck : undefined,
         synthesisMode: laterTrustSignals ? laterTrustSignals.synthesisMode : undefined,
       });
+      // Shipped source split (2026-10-21, audit M2): same
+      // contract as the fresh path — see the early serve.
+      const laterSplit = splitShippedSources(laterTrust.labeledSources, laterTrust.answer);
       return new Response(
         JSON.stringify({
-          answer: italicizeScientificTerms(deDash(laterTrust.answer), query),
-          sources: laterTrust.labeledSources,
+          answer: italicizeScientificTerms(deDash(laterSplit.answer), query),
+          sources: laterSplit.sources,
+          furtherReading: laterSplit.furtherReading,
           relevanceGatedOut,
           videos,
           // Parity with the fresh path (wave eight round two): the
           // stored run's fact check and verdict, or honest nulls
           // for a pre envelope payload.
-          factCheck: laterTrustSignals ? laterTrustSignals.factCheck : null,
+          factCheck: laterTrustSignals ? remapFactCheckIndices(laterTrustSignals.factCheck, laterSplit.indexMap) : null,
           disagreementVerdict: laterTrustSignals ? laterTrustSignals.disagreementVerdict : null,
           related: [],
           source: "Cached (verified)",
@@ -28093,9 +28395,21 @@ async function runSearchPipeline(pctx) {
     // the rescue with one working leg. gpt-oss-20b is a current
     // production model with its own bucket.
     if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {
+      // INDEPENDENT RESCUE ROSTER (2026-10-21, answer integrity
+      // lane, audit M3): this block used to nest entirely
+      // inside the Groq provider's presence, so a request
+      // whose Groq leg was unconfigured (or the family that
+      // had just failed every wave) got NO rescue at all —
+      // the Workers AI and OpenRouter legs in the roster
+      // below existed only as guests of the Groq leg. The
+      // roster is now built from whichever families are
+      // actually available, each family's legs included only
+      // when that family is: a genuinely independent leg is
+      // attempted before the request degrades to no answer,
+      // whichever family failed or parked.
       const groqProvider = activeProviders.find((p) => p.id === "groq");
-      if (groqProvider) {
-        const rescueCall = callCompat(groqProvider);
+      const rescueCall = groqProvider ? callCompat(groqProvider) : null;
+      if (rescueCall || cfBound || token) {
         const rescueMsgs = compactMessages || messages;
         // Subrequest budget: the rescue may spend to zero (the post
         // synthesis stages it would starve are already lost when it
@@ -28109,9 +28423,9 @@ async function runSearchPipeline(pctx) {
         // fired set at what remains, so the worst case spend is
         // unchanged.
         const rescueDescriptors = [
-          { label: "groq:openai/gpt-oss-120b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, 12000) },
+          ...(rescueCall ? [{ label: "groq:openai/gpt-oss-120b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, 12000) }] : []),
           ...(cfBound ? [{ label: CF_WAVE1[0], bucket: "workers-ai", fetchCost: 1, wave: 5, fire: () => callCF(CF_WAVE1[0], rescueMsgs, maxTokens, cfLegTimeoutMs(CF_WAVE1[0], 12000)) }] : []),
-          { label: "groq:openai/gpt-oss-20b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-20b", rescueMsgs, maxTokens, 12000) },
+          ...(rescueCall ? [{ label: "groq:openai/gpt-oss-20b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-20b", rescueMsgs, maxTokens, 12000) }] : []),
           ...(token ? [{ label: OR_FREE_MODELS[3], bucket: "openrouter", fetchCost: 1, wave: 5, fire: () => callOR(OR_FREE_MODELS[3], rescueMsgs, maxTokens, 12000) }] : []),
         ];
         const rescuePlan = planWaveLegs(rescueDescriptors, ledger.remaining());
@@ -29124,6 +29438,11 @@ async function runSearchPipeline(pctx) {
     // invocation allowance is spent it does not fire at all; the
     // zero network heuristic below still runs, and the stage record
     // names the budget as the reason (factCheckBudgetSkipped below).
+    // LIGHT TIER BOOKKEEPING (2026-10-21, answer integrity
+    // lane): set when the terms fallback inside the deep block
+    // below has already run for this answer, so the light tier
+    // block after it does not run the same check twice.
+    let factCheckTermsTried = false;
     if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK && msLeft() > FACT_CHECK_RESERVE_MS && ledger.remaining() <= 0) {
       factCheckBudgetSkipped = true;
       factCheckTrace.push({ tier: "stage", outcome: "budget", detail: "the subrequest ledger was spent before the stage could fire" });
@@ -29204,6 +29523,7 @@ async function runSearchPipeline(pctx) {
         // before this round's change, just now the fallback path instead of
         // the only path.
         const fc = verifyAnswerAgainstSources(answer, evidencePapers);
+        factCheckTermsTried = true;
         // Only surface the panel when there was actually something to check .
         // a purely mechanistic answer that never names a specific drug/gene/
         // pathway isn't a failure to verify, it's just nothing to verify, and
@@ -29235,6 +29555,48 @@ async function runSearchPipeline(pctx) {
           factCheckResult = { overall, summary: fc.note, claims, mode: "terms" };
         }
       }
+    }
+
+    // LIGHT TIER OUTSIDE THE BUDGET GATE (2026-10-21, answer
+    // integrity lane, audit M1): the comments above the deep
+    // gate have always said the zero network heuristic still
+    // runs when the budget is gone — but the heuristic lived
+    // INSIDE the deep block, behind the same time and ledger
+    // gates as the deep tiers, so on exactly the runs those
+    // comments describe (budget spent, reserve gone) no check
+    // of any kind ever ran: 0 of 4 AI answers in the Oct 20
+    // batch carried one. The terms check costs no fetch, no
+    // ledger unit, and no measurable time, so it now runs
+    // whenever the deep stage did not produce a result and
+    // has not already run as the deep block's own fallback.
+    // When it finds checkable terms it produces the same
+    // terms panel the deep block's fallback produces, and
+    // the stage counts as attempted: a real, if light, check
+    // landed. When it finds nothing to check, the answer
+    // ships with the plain did not run statement added at
+    // the confidence step below, not with silence.
+    if (settings.factCheck && useEvidence && evidencePapers.length > 0 && aiOK &&
+        !factCheckResult && !factCheckTermsTried) {
+      try {
+        const fcLight = verifyAnswerAgainstSources(answer, evidencePapers);
+        if (fcLight.checked) {
+          const overallLight = fcLight.unsupported.length === 0
+            ? "supported"
+            : (fcLight.supported.length > 0 || fcLight.thin.length > 0)
+            ? "partly"
+            : "unsupported";
+          const claimsLight = [
+            ...fcLight.supported.map((term) => ({ claim: term, status: "supported", note: "" })),
+            ...fcLight.thin.map((term) => ({ claim: term, status: "thin", note: "The answer spells this one out, and that longer phrase is in a source. The short form itself is not." })),
+            ...fcLight.unsupported.map((term) => ({ claim: term, status: "unsupported", note: "Not in the title or abstract of anything the answer cites. Worth opening a source to check where it came from." })),
+          ];
+          factCheckResult = { overall: overallLight, summary: fcLight.note, claims: claimsLight, mode: "terms" };
+          factCheckAttempted = true;
+          factCheckTrace.push({ tier: "terms", outcome: "ok", detail: "the zero network terms check ran as the light tier after the deep stage could not fire or landed nothing" });
+        } else {
+          factCheckTrace.push({ tier: "terms", outcome: "nothing-to-verify", detail: "the light tier ran and the answer names no checkable drug, gene, or pathway terms" });
+        }
+      } catch { /* the light tier must never break the answer */ }
     }
 
     // SSE stage 5/6: answer drafted . now checking every claim against its
@@ -30074,12 +30436,13 @@ async function runSearchPipeline(pctx) {
           // established unchecked cap.
           aiAnswer: !!aiOK,
           tier: answerTier,
-          factCheckChecked: !!(
-            factCheckResult &&
-            Array.isArray(factCheckResult.claims) &&
-            factCheckResult.claims.length > 0 &&
-            factCheckResult.checked !== false
-          ),
+          // Did a check actually run (2026-10-21, answer
+          // integrity lane): the one helper every consumer
+          // asks (factCheckActuallyChecked). The old inline
+          // test counted the mechanical flags panel as a
+          // check, which is how a budget skipped stage shipped
+          // beside an uncapped confidence level.
+          factCheckChecked: factCheckActuallyChecked(factCheckResult),
           // Support is the fact check's own count of claims it marked
           // supported, never the citation count (see factCheckSupport).
           support: factCheckSupport(factCheckResult),
@@ -30161,6 +30524,32 @@ async function runSearchPipeline(pctx) {
       try {
         answer = bindBakedConfidenceLine(answer, confidence.level, confidence.line);
       } catch { /* the binding must never break the answer */ }
+    }
+    // FACT CHECK DID NOT RUN, STATED IN THE ANSWER (2026-10-21,
+    // answer integrity lane, audit M1): when this request asked
+    // for the fact check and no real check landed on the final
+    // shipped AI answer (the deep stage was budget or time
+    // gated, every tier timed out, and the light tier found
+    // nothing it could check), the answer body itself says so
+    // in plain words. A stage record the reader never sees
+    // does not count as telling them, and the confidence
+    // line's cap clause alone did not reach every shipped
+    // shape (the flags panel once read as a check and uncapped
+    // it entirely). The sentence carries no citation marker,
+    // so no cited set needs re deriving; it is inserted at
+    // the body boundary so an appended bibliography tail
+    // stays last. Extractive shipments state their wording
+    // trace in the body already and are out of scope here.
+    if (aiOK && settings.factCheck && useEvidence && evidencePapers.length > 0 &&
+        !factCheckActuallyChecked(factCheckResult)) {
+      try {
+        if (!String(answer || "").includes(FACT_CHECK_DID_NOT_RUN_STATEMENT)) {
+          const bodyPart = answerBodyBeforeBibliography(answer);
+          const tailPart = String(answer || "").slice(bodyPart.length);
+          answer = bodyPart.replace(/\s+$/, "") + "\n\n" + FACT_CHECK_DID_NOT_RUN_STATEMENT +
+            (tailPart ? "\n\n" + tailPart.replace(/^\s+/, "") : "");
+        }
+      } catch { /* the statement must never break the answer */ }
     }
     const coverageNote = buildCoverageNote(publicSourcesQueried());
 
@@ -30420,12 +30809,34 @@ async function runSearchPipeline(pctx) {
     // stage, so a budget incident is provable from one response.
     if (gResult && gResult._diag) gResult._diag.subrequests = ledger.snapshot();
 
+    /* SHIPPED SOURCE SPLIT (2026-10-21, answer integrity lane,
+     * audit M2; see splitShippedSources): the response's
+     * `sources` is the cited set only, renumbered, with the
+     * answer's markers, the fact check's source references,
+     * and the literature conflicts' indices remapped through
+     * the same map; every uncited entry ships as
+     * `furtherReading`. The record and coverage above keep
+     * the full labeled list they were built from. */
+    const shippedSplit = splitShippedSources(labeledSources, answer);
+    const shippedFactCheck = remapFactCheckIndices(factCheckResult, shippedSplit.indexMap);
+    const shippedConflicts = (literatureConflicts || []).map((c) => {
+      if (!c || typeof c !== "object") return c;
+      const next = { ...c };
+      if (shippedSplit.indexMap.has(c.idxA)) next.idxA = shippedSplit.indexMap.get(c.idxA);
+      if (shippedSplit.indexMap.has(c.idxB)) next.idxB = shippedSplit.indexMap.get(c.idxB);
+      return next;
+    });
+
     return new Response(
       JSON.stringify({
-        answer,
+        answer: shippedSplit.answer,
         // NEXT-GEN: bibliography entries the answer never cites are labeled
         // as further reading rather than silently implying support.
-        sources: labeledSources,
+        sources: shippedSplit.sources,
+        /* Uncited gathered papers, shipped separately from the
+           cited set (2026-10-21, audit M2): further reading,
+           never counted as the answer's sources. */
+        furtherReading: shippedSplit.furtherReading,
         /* Papers the relevance gate withheld from citations/counts (see
            RELEVANCE_FLOOR). The UI can state this honestly instead of
            silently dropping them. */
@@ -30437,8 +30848,8 @@ async function runSearchPipeline(pctx) {
         evidenceFilterApplied,
         evidenceFilteredOut,
         videos,
-        factCheck: factCheckResult,
-        literature_conflicts: literatureConflicts.length > 0 ? literatureConflicts : null,
+        factCheck: shippedFactCheck,
+        literature_conflicts: shippedConflicts.length > 0 ? shippedConflicts : null,
         // NEXT-GEN answer instruments . computed, shipped on every evidence
         // path so the UI renders one consistent product on both AI and
         // deterministic answers.

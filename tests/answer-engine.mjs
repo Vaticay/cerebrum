@@ -520,7 +520,12 @@ test("withheld count is reported in the answer envelope", () => {
   // laterTrust.labeledSources), so the anchor moves to the
   // envelope itself. The contract — the withheld count ships in
   // the response — is unchanged.
-  const envIdx = searchSrc.indexOf("sources: laterTrust.labeledSources,");
+  // PIN UPDATED (2026-10-21, answer integrity lane): the late
+  // serve now ships the shipped source split (laterSplit), so
+  // the anchor moves to the split's own sources field. The
+  // contract — the withheld count ships in the response — is
+  // unchanged.
+  const envIdx = searchSrc.indexOf("sources: laterSplit.sources,");
   assert.ok(envIdx > 0 && searchSrc.indexOf("relevanceGatedOut", envIdx) > 0,
     "relevanceGatedOut not in the response envelope");
 });
