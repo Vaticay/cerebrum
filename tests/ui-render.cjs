@@ -27,7 +27,7 @@ const tuDecls = tuAst.program.body
   .filter(n=>n && ((n.type==='FunctionDeclaration' && (n.id.name==='renderCleanTitle' || n.id.name==='highlightKeywords')) || (n.type==='VariableDeclaration' && n.declarations.some(d=>d.id.name==='TITLE_SAFE_TAG_RE'))));
 assert.equal(functions.length + dsFunctions.length + fcFunctions.length + tuDecls.length,25);
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n')+'\n'+tuDecls.map(n=>tuSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
-const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none',xl:()=>'none'} /* 2026-10-18: Dialog calls SHADOW.xl (design audit C5) */,STATUS:{bad:'#b44'},TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c,
+const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none',xl:()=>'none'} /* 2026-10-18: Dialog calls SHADOW.xl (design audit C5) */,STATUS:{bad:'#b44',warn:'#B08B4F',good:'#7A9E7E'} /* 2026-10-20, readability residue wave: warn and good keys added beside bad because extracted components now read STATUS.warn and STATUS.good through withAlpha */,TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c,
 /* 2026-10-14, design overhaul wave 1: UIButton and UICard now close over
    the COLOR foundation tokens, so the sandbox carries the real values. */
 COLOR:{ink:'#E8E6E3',ink2:'#A8A49E',faint:'#6B6762',accent:'#C4A35A',accentInk:'#121110',surface1:'#1C1B19',surface2:'#242320',field:'#161513',line:'#2E2C29',lineSubtle:'#252422',support:'#7A9E7E',caution:'#B08B4F'}});
@@ -43,6 +43,10 @@ Object.assign(context,{
   cbDialogStack:[],cbDialogLockScroll:()=>{},cbDialogUnlockScroll:()=>{},cbMotionOff:()=>true,
   Z:{sheet:260,sheetScrim:258,modalTop:400},
   accentInk:(P,a)=>a,
+  /* 2026-10-20, readability residue wave: DocEvidenceTrail label tones
+     now route through the house status helpers (Worker B, item 2a and
+     2d), so the sandbox provides them as fixed tones like accentInk. */
+  statusBad:(P)=>'#b44',statusWarn:(P)=>'#B08B4F',statusGood:(P)=>'#7A9E7E',
   doiHref:(s)=>s&&s.doi?('https://doi.org/'+s.doi):null,
   safeHref:(u)=>u,
   avatarSkin:()=>({background:'#334',color:'#eef'}),

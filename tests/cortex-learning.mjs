@@ -78,6 +78,10 @@ const WANTED = [
      cortexCourseProblem, validateCurriculum, and quizCard now call. */
   "QUIZ_SIMILARITY_MAX", "SIMILARITY_STOPWORDS", "similarityTokenList", "similarityBigramSet",
   "cardTextSimilarity", "textContainsPassage", "passagesRepeat", "cardInternalRepeat", "lessonRepeatProblem",
+  /* Option quality helpers (2026-10-20, the smartness overhaul):
+     the quantifier only option screen that validateCurriculum,
+     cortexCourseProblem, and quizCard now call. */
+  "QUANTIFIER_OPTION_WORDS", "QUANTIFIER_SINGLE_WORDS", "quantifierOnlyOption", "cardOptionQualityProblem",
   "NUMBER_RE", "numbersIn", "hasAttributionShape", "claimSeq",
   "FLIP_WORDS", "flipDirection", "scaleNumberIn", "mutatedVariants", "nearestClaims",
   "RESTATE_WORDS", "firstWordsOf", "swapRestateWords", "stripReportFrame",
@@ -177,6 +181,7 @@ const {
   CORTEX_EXPORT_FORMAT, CORTEX_EXPORT_VERSION, buildCortexExport, parseCortexImport,
   applyCortexImport, restateClaim, quizCard, clozeCard, extractClaims, firstWordsOf, normKey,
   hasAttributionShape, createCourseFromResults, looksLikeFragment,
+  quantifierOnlyOption, cardOptionQualityProblem,
   QUIZ_SIMILARITY_MAX, cardTextSimilarity, textContainsPassage, passagesRepeat, cardInternalRepeat, lessonRepeatProblem,
   hashStr, seededShuffle, shuffledOptionsForCard,
   INTERACTIVE_KINDS, CORTEX_TAGLINE, RANK_LADDER, rankForXp, topicMasteryLevel,
@@ -2726,7 +2731,15 @@ await test("new kind checks are taught before they are asked", () => {
     for (const lesson of flattenPathLessons(p)) {
       for (const card of lesson.cards) {
         if (card.kind === "visualq" || card.kind === "predict") {
-          assert.ok(cov(card.options[card.correct], seen) >= 0.5,
+          // 2026-10-20, Nova smartness overhaul (owner order): a
+          // check's own question is read before the learner answers,
+          // so the question's words count as available language.
+          // Before this, the very first card of a path faced an
+          // empty seen set and could only pass with an option
+          // carrying no content words at all, which is how the
+          // path's opener ended up a quantifier filler. The stem
+          // counts; nothing else about the standard moves.
+          assert.ok(cov(card.options[card.correct], seen + " " + String(card.question || "").toLowerCase()) >= 0.5,
             `${p.title}: ${card.kind} answer is not taught before it is asked: ${card.question.slice(0, 40)}`);
         }
         if (card.kind === "build") {
@@ -5469,6 +5482,280 @@ await test("the Start daily practice button carries no opacity wash in any state
     "the not ready Start button does not take the line background that preserves text contrast");
   assert.ok(buttonBlock.includes("color: bundleReady ? (at || \"#101408\") : P.ink"),
     "the Start button does not keep accent text when ready and ink text when not ready");
+});
+
+/* ── Smartness substance gates (2026-10-20, owner order) ──────────
+   The October 2026 audit measured what the older difficulty gate
+   could not see: it certified stem shapes while the cards under
+   those stems asked for counting and recall. This group certifies
+   substance as far as code can measure it, with the classifier the
+   overhaul census used, run here over the same data:
+   - no counting questions (a stem in the How many form) anywhere
+     in paths or topic courses. The three quantity facts that are
+     themselves mechanisms (billions of microbes in a teaspoon,
+     four million Suns, seven percent more vapor per degree)
+     survive as claims inside scenario and causal cards, never as
+     count questions, so the exception list is empty; a future
+     card that truly needs the form enters here with a dated
+     reason, or it does not enter.
+   - no quantifier filler options, through the same production
+     check the validators and the generator run.
+   - context: every option card is tied to a scenario, an
+     observation, its picture, or the mechanism its path taught,
+     except the named reviewed stems below, asserted exactly.
+     Seven are the suite pinned fair application stems, whose
+     cases live in their options; eight are scenario or
+     observation stems the marker classifier cannot see, each
+     judged by hand during the overhaul.
+   - demand: every lesson at least half thinking cards by the
+     classifier, and aggregate floors under the measured after
+     numbers (paths 58.8 percent option thinking, 71.3 all cards;
+     topics 77.8 and 86.3), so a slow slide back fails here.
+   - openers: a lesson's first check is never a counting card and
+     never floats free of the reviewed list.
+   - keys: a tripwire, not a proof. It flags a card when a
+     distractor shares at least three more content words with the
+     card's own explanation than the marked answer does, while
+     the marked answer shares at most one. The overhaul's real
+     key proof was a hand audit of all 510 option cards against
+     their explanations and teaching (eleven wrong keys found and
+     fixed, including the Insect Gut checkpoint). The tripwire's
+     two live flags are both hand verified correct keys whose
+     distractors state the opposite mechanism in shared words,
+     which word overlap cannot see; the flagged set is asserted
+     exactly, so a new flag stops the suite until a human audits
+     that card. What no gate here can check: whether a scenario
+     is interesting, or whether a why is well written. */
+group("Smartness substance: context, demand, filler, and key tripwire");
+
+const SM_STOP = new Set(("the a an and or of to in on at for with by from as is are was were be been it its this that these those " +
+  "what which who whom whose when where why how do does did can could will would should may might not no yes if then than so such " +
+  "into about over under more most other others some any each every per via one two three four five six seven eight nine ten").split(" "));
+const smContentWords = (text) => {
+  const out = new Set();
+  for (const w of String(text || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/)) {
+    if (w.length >= 5 && !SM_STOP.has(w)) out.add(w);
+  }
+  return out;
+};
+const SM_NARRATIVE = /\b(measured|found|showed|shows|grew|grow|treated|treats|kept|keeps|placed|places|compared|compares|recorded|records|observed|observes|tested|tests|raised|lowers|lowered|increases|increased|decreases|dropped|rose|fell|watch|stir|pour|squeeze|shove|shake|stand|sit|drink|eat|breathe|doubled|halved|spent|sat|left|gave|took|added|removed|switched|moved|built|fed|drank|ran|set up|noticed|reported|counted|weighed|timed)\b/i;
+function smScenarioScore(stem) {
+  const q = String(stem || "").trim();
+  let s = 0;
+  if (/^(Suppose|Imagine)\b/.test(q)) s += 2;
+  if (/^You\b/.test(q) && q.length > 55) s += 2;
+  if (/^(A|An|Two|Three|Four)\s+[a-z]+\s/.test(q) && q.length > 80) s += 2;
+  if (/^(A|An|Two|Three|Four)\s/.test(q) && q.length > 55) s += 1;
+  if (/\b\d/.test(q)) s += 1;
+  if (SM_NARRATIVE.test(q)) s += 1;
+  if (/^(Look at the (diagram|picture)|Use the diagram)/.test(q)) s += 1;
+  if (/\b(records|measurements|results|observations|the study|researchers|scientists|a study|a trial|an experiment)\b/i.test(q)) s += 1;
+  if (/^In (a|the|an)\s/.test(q) && q.length > 70) s += 1;
+  if (/\b(when|after|before|while|once)\b[^.]{10,}/i.test(q) && q.length > 90) s += 1;
+  return s;
+}
+const SM_REASON = /\b(what happens|what would happen|predict|why|explains?|best explains?|points? to|shows? that|concludes?|conclusion|interpret|evidence|supports?|follows?|result|happens (to|when)|difference between|compared|contrast|instead|rather than|because)\b/i;
+const smIsCounting = (stem) => /^How many\b/i.test(String(stem || "").trim()) || /\bhow many (kinds|types|sorts|ways|parts|steps|layers|groups|things)\b/i.test(String(stem || ""));
+function smClassifyOption(card, teachWords) {
+  const stem = String(card.question || card.prompt || "");
+  const sc = smScenarioScore(stem);
+  let context;
+  if (sc >= 2) context = "scenario";
+  else if (card.kind === "visualq") context = "mechanism";
+  else {
+    const stemWords = smContentWords(stem);
+    let shared = 0;
+    for (const w of stemWords) if (teachWords.has(w)) shared++;
+    const bareDef = /^(What is|What are|What do you call|Which of these is|Which is) /.test(stem) && stem.length < 90;
+    context = shared >= 3 && !bareDef ? "mechanism" : "free";
+  }
+  let demand;
+  if (smIsCounting(stem)) demand = "counting";
+  else if ((context === "scenario" && (SM_REASON.test(stem) || card.kind === "predict" || card.kind === "visualq")) ||
+           (SM_REASON.test(stem) && context !== "free") ||
+           /^(Compared|Use the diagram)/.test(stem)) demand = "thinking";
+  else demand = "recall";
+  return { context, demand };
+}
+function smClassifyOther(card) {
+  const stem = String(card.statement || card.prompt || card.question || "");
+  if (card.kind === "spoterror") return { demand: "thinking" };
+  if (card.kind === "truefalse") {
+    return { demand: smScenarioScore(stem) >= 2 || (SM_REASON.test(stem) && /\b(because|so|therefore)\b/i.test(stem)) ? "thinking" : (smIsCounting(stem) ? "counting" : "recall") };
+  }
+  if (card.kind === "match") {
+    const pairs = card.pairs || [];
+    const scen = pairs.filter((p) => String(p.left || "").length >= 45).length;
+    return { demand: pairs.length && scen * 2 >= pairs.length ? "thinking" : "recall" };
+  }
+  if (card.kind === "order" || card.kind === "build") {
+    return { demand: smScenarioScore(stem) >= 2 ? "thinking" : "recall" };
+  }
+  return { demand: "recall" };
+}
+const SM_OPTION_KINDS = ["quiz", "visualq", "predict"];
+const SM_INTERACTIVE = ["quiz", "visualq", "predict", "truefalse", "match", "order", "build", "spoterror", "cloze"];
+function smRows(paths) {
+  const rows = [];
+  for (const p of paths) {
+    for (const lesson of flattenPathLessons(p)) {
+      // The census ruler reads a card against the teaching of its
+      // own lesson only; the port keeps the same scope so the
+      // numbers here and in the overhaul census stay one measure.
+      const teachWords = new Set();
+      let openerTaken = false;
+      lesson.cards.forEach((card, ci) => {
+        if (card.kind === "note") {
+          for (const w of smContentWords(card.text || "")) teachWords.add(w);
+          return;
+        }
+        if (!SM_INTERACTIVE.includes(card.kind)) return;
+        const opener = !openerTaken;
+        openerTaken = true;
+        if (SM_OPTION_KINDS.includes(card.kind)) {
+          rows.push({ pathId: p.id, lessonId: lesson.id, card, stem: String(card.question || card.prompt || ""), opener, ...smClassifyOption(card, teachWords) });
+        } else {
+          rows.push({ pathId: p.id, lessonId: lesson.id, card, stem: String(card.statement || card.prompt || card.question || ""), opener, context: null, ...smClassifyOther(card) });
+        }
+      });
+    }
+  }
+  return rows;
+}
+const smPathRows = smRows(LEARNING_PATHS);
+const smTopicRows = smRows(TOPIC_COURSES);
+
+await test("no counting questions and no quantifier filler options in paths or topics", () => {
+  for (const [label, rows] of [["paths", smPathRows], ["topics", smTopicRows]]) {
+    const counting = rows.filter((r) => r.demand === "counting");
+    assert.equal(counting.length, 0, `${label}: counting cards remain: ${counting.map((r) => r.stem.slice(0, 50)).join(" | ")}`);
+    for (const r of rows) {
+      if (!SM_OPTION_KINDS.includes(r.card.kind)) continue;
+      assert.equal(cardOptionQualityProblem(r.card), null,
+        `${label}: ${r.lessonId} carries a quantifier filler option: ${r.stem.slice(0, 50)}`);
+    }
+  }
+});
+
+const SM_FREE_REVIEWED = [
+  "Which of these questions can science test dir", // fair application pin: the cases live in the options
+  "A claim is testable when...", // fair application pin
+  "Which of these is a hypothesis?", // fair application pin
+  "Which is the strongest evidence that a new m", // fair application pin
+  "A result that many teams have repeated is...", // fair application pin
+  "If the Sun's gravity suddenly vanished, Eart", // fair application pin
+  "What powers a star's light?", // fair application pin
+  "The smell from a hot drink drifts from a kit", // observation stem the markers miss
+  "Butter sits in a warm pan on a stove and slo", // scenario stem the markers miss
+  "After a hard run, a runner sits down with sw", // scenario stem the markers miss
+  "At midday you stand in a garden and see a cr", // scenario stem the markers miss
+  "Ripples cross a pond from a splash, squeezes", // observation stem the markers miss
+  "Compared with a healthy adult who eats freel", // comparison stem the markers miss
+  "Skin cells from an older donor are grown in ", // observation stem the markers miss
+  "A baker, a brewer, and a yogurt maker compar", // scenario stem the markers miss
+];
+await test("option cards are tied to context, apart from the named reviewed stems", () => {
+  const free = [...smPathRows, ...smTopicRows]
+    .filter((r) => SM_OPTION_KINDS.includes(r.card.kind) && r.context === "free")
+    .map((r) => SM_FREE_REVIEWED.find((e) => r.stem.startsWith(e)) || `UNREVIEWED: ${r.stem.slice(0, 50)}`);
+  assert.deepEqual([...free].sort(), [...SM_FREE_REVIEWED].sort(),
+    `free floating option cards differ from the reviewed set.\nfree: ${free.join(" | ")}`);
+});
+
+await test("every lesson clears the demand floor, and the aggregates hold", () => {
+  for (const [label, rows, optFloor, allFloor] of [["paths", smPathRows, 55, 68], ["topics", smTopicRows, 74, 83]]) {
+    const byLesson = new Map();
+    for (const r of rows) {
+      const k = `${r.pathId}/${r.lessonId}`;
+      if (!byLesson.has(k)) byLesson.set(k, []);
+      byLesson.get(k).push(r);
+    }
+    for (const [k, cs] of byLesson) {
+      const t = cs.filter((c) => c.demand === "thinking").length;
+      assert.ok(t * 2 >= cs.length, `${label}: lesson ${k} is under half thinking (${t} of ${cs.length})`);
+    }
+    const opt = rows.filter((r) => SM_OPTION_KINDS.includes(r.card.kind));
+    const optT = opt.filter((r) => r.demand === "thinking").length;
+    assert.ok((optT / opt.length) * 100 >= optFloor, `${label}: option thinking slid to ${(optT / opt.length * 100).toFixed(1)} percent`);
+    const allT = rows.filter((r) => r.demand === "thinking").length;
+    assert.ok((allT / rows.length) * 100 >= allFloor, `${label}: overall thinking slid to ${(allT / rows.length * 100).toFixed(1)} percent`);
+    const tied = opt.filter((r) => r.context !== "free").length;
+    assert.ok((tied / opt.length) * 100 >= 93, `${label}: context tied share slid to ${(tied / opt.length * 100).toFixed(1)} percent`);
+  }
+});
+
+await test("no lesson opens on a counting or free floating check", () => {
+  for (const r of [...smPathRows, ...smTopicRows]) {
+    if (!r.opener) continue;
+    assert.notEqual(r.demand, "counting", `a lesson opens on a counting card: ${r.stem.slice(0, 50)}`);
+    if (SM_OPTION_KINDS.includes(r.card.kind)) {
+      assert.ok(r.context !== "free" || SM_FREE_REVIEWED.some((e) => r.stem.startsWith(e)),
+        `a lesson opens on a free floating card: ${r.stem.slice(0, 50)}`);
+    }
+  }
+});
+
+await test("the key tripwire flags only the two hand verified cards", () => {
+  // Rule B, calibrated during the overhaul: on the pre overhaul
+  // data it flagged one card, a false positive; the genuine wrong
+  // keys the hand audit found mostly share too many words with
+  // their whys for word overlap to see. Both live flags were read
+  // by hand against their teaching on 2026-10-20 and are correct:
+  // the coat card's key says matching signals are mostly ignored,
+  // and its flagged distractor states the opposite mechanism in
+  // shared words; the pea card's key says the crop gets from the
+  // air what it cannot get alone, and its flagged distractor
+  // reverses the sugar flow the why describes.
+  const SM_KEY_REVIEWED = [
+    "A woman puts on a new coat in the morning an",
+    "A grower plants peas in poor soil with almos",
+  ];
+  const flagged = [];
+  for (const p of [...LEARNING_PATHS, ...TOPIC_COURSES]) {
+    for (const lesson of flattenPathLessons(p)) {
+      for (const card of lesson.cards) {
+        if (!SM_OPTION_KINDS.includes(card.kind) || !card.options || !card.why) continue;
+        const whyWords = smContentWords(card.why);
+        const ov = (t) => { let n = 0; for (const w of smContentWords(t)) if (whyWords.has(w)) n++; return n; };
+        const keyOv = ov(card.options[card.correct]);
+        const maxDistractor = Math.max(...card.options.filter((_, i) => i !== card.correct).map(ov));
+        if (keyOv <= 1 && maxDistractor - keyOv >= 3) flagged.push(String(card.question || "").slice(0, 44));
+      }
+    }
+  }
+  assert.deepEqual([...flagged].sort(), [...SM_KEY_REVIEWED].sort(),
+    `key tripwire flags differ from the hand verified set; audit the new flag by hand before touching this list.\nflagged: ${flagged.join(" | ")}`);
+});
+
+await test("the option quality gate names the photographed card's options as filler", () => {
+  for (const opt of ["More than one", "Two and no more, ever", "Only one", "None of them at all"]) {
+    assert.equal(quantifierOnlyOption(opt), true, `a photographed filler option passes: ${opt}`);
+  }
+  for (const opt of ["They damage the gut community it depends on", "Cell on cell on cell, alive and feeding, a whole body of them"]) {
+    assert.equal(quantifierOnlyOption(opt), false, `a real claim reads as filler: ${opt}`);
+  }
+  const photoCard = { kind: "predict", question: "How many kinds of traffic pass through your gut?",
+    options: ["Two and no more, ever", "More than one", "Only one", "None of them at all"], correct: 1, why: "x" };
+  assert.ok(cardOptionQualityProblem(photoCard), "the photographed card itself passes the quality gate");
+});
+
+await test("a built course opens its first lesson on a thinking form, not a bare restatement", () => {
+  const md = `## Summary
+
+Adults who sleep through the whole night remember the previous day more clearly than adults whose sleep is broken into short pieces. [1]
+Adults who slept under six hours showed a 23% higher rate of infection over the following winter, compared with adults who slept eight hours or more. [1]
+Steady deep sleep also steadies mood the next day, so people who sleep deeply tend to stay calmer under pressure at work. [2]
+Broken sleep in the second half of the night leaves people slower to learn a new skill the next morning, even when total hours in bed match. [2]
+People who nap briefly in the early afternoon often focus better afterward than people who push through the whole day without rest. [1]
+Regular sleep at steady hours helps the body keep its daily rhythm aligned, so waking and hunger arrive at predictable times. [2]
+`;
+  const course = createCourseFromResults("sleep and memory", LEAK_SOURCES, md);
+  assert.ok(course, "the fixture course did not build");
+  assert.equal(typeof course.droppedChecks, "number", "dropped checks are not counted on the course record");
+  const checks = course.lessons[0].cards.filter((c) => c.kind !== "note");
+  assert.ok(checks.length >= 2, "the fixture lesson built too few checks to judge its opener");
+  assert.equal(checks[0].kind, "cloze",
+    "the first check is a bare restatement quiz even though a value prediction was available in the same lesson");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

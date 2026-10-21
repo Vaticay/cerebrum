@@ -661,6 +661,28 @@ await test("the stage carries the plain order and no corpus number", () => {
   assert.ok(stage.includes("SCHOLARLY_SOURCES.length"), "the proof line does not read the source count");
 });
 
+await test("the stage column carries a solid backing in light palettes and the proof line sets at the label role", () => {
+  /* 2026-10-20, readability residue wave: in the Light palette the
+     stage text tones are dark and sat directly over the graded calm
+     film, computing to 0.98 to 3.50 to 1 against the film patches,
+     under the 4.5 to 1 floor. The stage column now spreads a solid
+     opaque P.bg backing in light palettes only (dark palettes spread
+     nothing, so their rendering is unchanged), which puts every
+     stage tone at 5.16 to 1 or better. The proof line under the
+     sentence also rose from the caption role (12) to the label
+     role (13) in the same wave. */
+  const stage = appSrc.slice(
+    appSrc.indexOf("The home stage: the empty search home"),
+    appSrc.indexOf("<div style={{ ...S.workspace,")
+  );
+  assert.ok(stage.length > 1000, "stage block not found");
+  assert.ok(stage.includes("...(P.dark ? {} : {"), "stage backing is not gated to light palettes");
+  assert.ok(stage.includes("background: P.bg"), "stage column carries no solid P.bg backing in light palettes");
+  const proof = stage.slice(stage.indexOf("setProvenanceOpen(true)"), stage.indexOf("scholarly databases"));
+  assert.ok(proof.includes("fontSize: FONT_SIZES.label"), "stage proof line does not set at the label role");
+  assert.ok(!proof.includes("fontSize: FONT_SIZES.caption"), "stage proof line still sets at the caption role");
+});
+
 await test("the stage composer rotates real specimen questions", () => {
   assert.ok(appSrc.includes("STAGE_PLACEHOLDER_QUESTIONS"), "placeholder pool missing");
   assert.ok(appSrc.includes("specimenPlaceholders"), "composer never receives the pool");
