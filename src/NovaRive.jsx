@@ -84,8 +84,8 @@ RuntimeLoader.setWasmFallbackUrl(riveWasmFallbackUrl);
    Her stage on the learning home passes framing "full" at a
    large size. */
 export const NOVA_RIVE_STATE_MACHINE = "Nova_Controller";
-export const NOVA_RIVE_SRC = "/nova/nova.riv";
-export const NOVA_RIVE_ASSET = "/nova/nova.riv";
+export const NOVA_RIVE_SRC = "/nova/nova.riv?v=3";
+export const NOVA_RIVE_ASSET = "/nova/nova.riv?v=3";
 export const NOVA_RIVE_INPUTS = {
   numbers: ["quizState", "appState", "mouseX", "mouseY"],
   booleans: ["isTalking", "reducedMotion"],

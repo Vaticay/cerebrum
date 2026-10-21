@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2240" height="240" viewBox="0 0 2240 240"><rect width="2240" height="240" fill="#FDF3D7"/>
+<g stroke="#2A1A12" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+  <!-- flask left -->
+  <path d="M760 52 h44 M782 52 v52 l-34 62 a14 14 0 0 0 12 21 h44 a14 14 0 0 0 12 -21 l-34 -62" fill="#8BA888"/>
+  <path d="M756 148 h92" stroke-width="6"/>
+  <circle cx="782" cy="160" r="6" fill="#FDF3D7" stroke="none"/>
+  <circle cx="800" cy="138" r="4.5" fill="#FDF3D7" stroke="none"/>
+  <!-- magnifier centre -->
+  <circle cx="1150" cy="102" r="52" fill="#EFE0BE"/>
+  <circle cx="1150" cy="102" r="52" fill="none"/>
+  <path d="M1188 140 l52 52" stroke-width="15"/>
+  <circle cx="1132" cy="94" r="7" fill="#B4552D" stroke="none"/>
+  <circle cx="1164" cy="112" r="5" fill="#4E8A84" stroke="none"/>
+  <circle cx="1152" cy="76" r="4" fill="#8A6FA8" stroke="none"/>
+  <!-- question mark -->
+  <path d="M1012 74 a20 20 0 1 1 20 20 q-10 4 -10 16" fill="none" stroke="#B4552D" stroke-width="8"/>
+  <circle cx="1022" cy="128" r="5.5" fill="#B4552D" stroke="none"/>
+  <!-- evidence bars right -->
+  <path d="M1330 196 h170" stroke-width="7"/>
+  <rect x="1352" y="140" width="26" height="56" fill="#5B7A99"/>
+  <rect x="1396" y="112" width="26" height="84" fill="#4E8A84"/>
+  <rect x="1440" y="82" width="26" height="114" fill="#C97B63"/>
+  <path d="M1344 128 l52 -24 l48 -18 l44 -22" fill="none" stroke="#A98A4C" stroke-width="6"/>
+  <path d="M1478 58 l12 6 l-10 8" fill="none" stroke="#A98A4C" stroke-width="6"/>
+</g></svg>

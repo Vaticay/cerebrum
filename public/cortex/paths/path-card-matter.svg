@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2240" height="240" viewBox="0 0 2240 240"><rect width="2240" height="240" fill="#FDF3D7"/>
+<g stroke="#2A1A12" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+  <!-- states left: three cubes -->
+  <g>
+    <rect x="600" y="130" width="52" height="52" fill="#5B7A99"/>
+    <rect x="664" y="130" width="52" height="52" fill="#5B7A99" opacity="0.75"/>
+    <rect x="632" y="76" width="52" height="52" fill="#5B7A99" opacity="0.5"/>
+  </g>
+  <!-- atom centre -->
+  <g fill="none" stroke-width="6">
+    <ellipse cx="1120" cy="122" rx="150" ry="52" stroke="#4E8A84"/>
+    <ellipse cx="1120" cy="122" rx="150" ry="52" stroke="#8A6FA8" transform="rotate(60 1120 122)"/>
+    <ellipse cx="1120" cy="122" rx="150" ry="52" stroke="#A98A4C" transform="rotate(120 1120 122)"/>
+  </g>
+  <circle cx="1120" cy="122" r="26" fill="#C97B63"/>
+  <circle cx="1252" cy="86" r="10" fill="#4E8A84"/>
+  <circle cx="1006" cy="176" r="10" fill="#8A6FA8"/>
+  <circle cx="1120" cy="66" r="10" fill="#C4A35A"/>
+  <!-- flame right -->
+  <path d="M1560 190 q-44 -34 -30 -78 q6 -18 22 -34 q2 16 12 22 q-2 -26 14 -44 q34 40 30 76 q-4 40 -48 58" fill="#B4552D"/>
+  <path d="M1566 182 q-18 -16 -10 -38 q4 -10 14 -18 q14 16 12 32 q-2 16 -16 24" fill="#C4A35A"/>
+  <!-- molecule right top -->
+  <circle cx="1700" cy="66" r="14" fill="#5B7A99"/>
+  <circle cx="1752" cy="92" r="10" fill="#C97B63"/>
+  <circle cx="1664" cy="98" r="9" fill="#4E8A84"/>
+  <path d="M1688 76 l-14 14 M1712 72 l28 12" stroke-width="6"/>
+</g></svg>

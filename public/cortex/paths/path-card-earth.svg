@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2240" height="240" viewBox="0 0 2240 240"><rect width="2240" height="240" fill="#FDF3D7"/>
+<g stroke="#2A1A12" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+  <!-- mountain left -->
+  <path d="M300 198 l110 -104 l62 56 l48 -40 l96 88 z" fill="#8BA888"/>
+  <path d="M382 122 l28 -28 l26 26 l-14 10 h-26 z" fill="#FDF3D7"/>
+  <!-- sun right -->
+  <circle cx="1830" cy="66" r="30" fill="#C4A35A"/>
+  <g stroke="#A98A4C" stroke-width="7">
+    <path d="M1830 18 v14 M1830 100 v14 M1782 66 h14 M1864 66 h14 M1796 32 l10 10 M1854 90 l10 10 M1864 32 l-10 10 M1806 90 l-10 10"/>
+  </g>
+  <!-- cloud centre -->
+  <path d="M880 108 a44 44 0 0 1 40 -42 a56 56 0 0 1 104 -14 a48 48 0 0 1 62 24 a40 40 0 0 1 22 32 z" fill="#5B7A99"/>
+  <path d="M1060 108 a44 44 0 0 1 40 -42 a56 56 0 0 1 104 -14 a48 48 0 0 1 62 24 a40 40 0 0 1 22 32 z" fill="#5B7A99" transform="translate(150 6) scale(0.82)"/>
+  <!-- rain -->
+  <g stroke="#5B7A99" stroke-width="6">
+    <path d="M940 138 l-10 22 M1010 142 l-10 22 M1080 138 l-10 22 M1150 142 l-10 22 M1220 138 l-10 22"/>
+  </g>
+  <!-- cycle arrows -->
+  <path d="M700 170 q60 -70 150 -84" fill="none" stroke="#4E8A84" stroke-width="6"/>
+  <path d="M838 78 l16 8 l-12 12" fill="none" stroke="#4E8A84" stroke-width="6"/>
+  <path d="M1560 96 q70 30 84 84" fill="none" stroke="#4E8A84" stroke-width="6"/>
+  <path d="M1652 166 l-2 16 l-14 -8" fill="none" stroke="#4E8A84" stroke-width="6"/>
+  <!-- sea -->
+  <path d="M120 206 q40 -14 80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0" fill="none" stroke="#5B7A99" stroke-width="6"/>
+</g></svg>

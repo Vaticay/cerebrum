@@ -1644,8 +1644,7 @@ const CSS = `
 .lv-band { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: stretch; }
 .lv-status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .lv-cols { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; align-items: start; }
-.lv-nodes { display: flex; align-items: flex-start; overflow-x: auto; padding: 6px 2px 10px; scrollbar-width: none; }
-.lv-nodes::-webkit-scrollbar { display: none; }
+.lv-nodes { display: flex; flex-wrap: wrap; row-gap: 10px; align-items: flex-start; padding: 6px 2px 10px; }
 /* Her stage wordmark (2026-10-15): the wordmark at hero size
    on the stage panel, a step down on small screens. */
 .lv-stage-word { font-size: 44px; }
@@ -3477,6 +3476,7 @@ export const LEARNING_PATHS = [
     title: "How Science Works",
     blurb: "How we know what we know: questions, tests, and evidence.",
     category: "Mind and Brain",
+    img: "/cortex/paths/path-card-science.webp",
     units: [
       {
         id: "sci-asking", title: "Asking Good Questions", subtitle: "The start of every discovery",
@@ -3699,6 +3699,7 @@ export const LEARNING_PATHS = [
     title: "The Human Body",
     blurb: "The pump, the plumbing, and the wiring that run you.",
     category: "Body and Health",
+    img: "/cortex/paths/path-card-body.webp",
     units: [
       {
         id: "body-cells",
@@ -5392,6 +5393,7 @@ export const LEARNING_PATHS = [
     title: "Space and the Solar System",
     blurb: "Our star, its planets, and the pull that holds them.",
     category: "Space and Physics",
+    img: "/cortex/paths/path-card-space.webp",
     units: [
       {
         id: "space-neighborhood", title: "Our Neighborhood", subtitle: "The Sun and its eight planets",
@@ -5618,6 +5620,7 @@ export const LEARNING_PATHS = [
     title: "Earth and Weather",
     blurb: "Water on the move, and the air above it all.",
     category: "Earth and Climate",
+    img: "/cortex/paths/path-card-earth.webp",
     units: [
       {
         id: "earth-water", title: "Water on the Move", subtitle: "The loop that never ends",
@@ -5844,6 +5847,7 @@ export const LEARNING_PATHS = [
     title: "Matter and Energy",
     blurb: "Atoms, reactions, heat, motion, and light: what everything is made of, and everything it does.",
     category: "Matter and Energy",
+    img: "/cortex/paths/path-card-matter.webp",
     units: [
 {
         id: "mx-atoms",
@@ -14364,10 +14368,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <div className="lv-band-primary" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <button className="lv-btn" onClick={startBundle} disabled={!bundleReady}
               style={{
-                background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, width: "100%",
+                background: bundleReady ? accent : P.line, color: bundleReady ? (at || "#101408") : P.ink, border: "none", borderRadius: RADIUS.lg, width: "100%",
                 minHeight: 52, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 500,
                 cursor: bundleReady ? "pointer" : "default", fontFamily: "var(--cb-font)",
-                opacity: bundleReady ? 1 : 0.5,
               }}>
               Start daily practice{reviewDueCount > 0 ? " · " + reviewDueCount + " due" : ""}
             </button>
@@ -14616,7 +14619,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           return (
             <button key={path.id} onClick={() => setScreen({ name: "bpath", pathId: path.id })}
               style={{ display: "block", width: "100%", textAlign: "left", background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 0, overflow: "hidden", cursor: "pointer", fontFamily: "var(--cb-font)", color: P.ink, marginBottom: 18 }}>
-              <Cover title={path.title} height={120} radius={0} cat={cat} />
+              <Cover title={path.title} height={120} radius={0} cat={cat} img={path.img} />
               <span style={{ display: "block", padding: "16px 20px 18px" }}>
                 <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
                   <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, lineHeight: 1.3 }}>{path.title}</span>

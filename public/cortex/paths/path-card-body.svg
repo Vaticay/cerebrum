@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2240" height="240" viewBox="0 0 2240 240"><rect width="2240" height="240" fill="#FDF3D7"/>
+<g stroke="#2A1A12" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+  <!-- pulse line across -->
+  <path d="M120 128 h560 l22 -34 l26 62 l20 -28 h180" fill="none" stroke="#B4552D" stroke-width="7"/>
+  <path d="M1292 128 h180 l20 -28 l26 62 l22 -34 h580" fill="none" stroke="#B4552D" stroke-width="7"/>
+  <!-- lungs -->
+  <path d="M894 62 q-52 6 -58 62 q-4 44 10 74 q40 10 62 -14 q10 -60 -14 -122" fill="#5B7A99"/>
+  <path d="M1326 62 q52 6 58 62 q4 44 -10 74 q-40 10 -62 -14 q-10 -60 14 -122" fill="#5B7A99"/>
+  <path d="M1110 44 v72" stroke-width="9"/>
+  <path d="M1110 84 q-40 4 -66 30 M1110 84 q40 4 66 30" fill="none" stroke-width="7"/>
+  <!-- heart centre -->
+  <path d="M1110 96 q-14 -34 -52 -34 q-40 0 -40 38 q0 42 92 96 q92 -54 92 -96 q0 -38 -40 -38 q-38 0 -52 34" fill="#C97B63"/>
+  <path d="M1110 84 v-20 q0 -12 14 -12" fill="none" stroke-width="7"/>
+</g></svg>

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2240" height="240" viewBox="0 0 2240 240"><rect width="2240" height="240" fill="#FDF3D7"/>
+<g stroke="#2A1A12" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+  <ellipse cx="1120" cy="122" rx="760" ry="76" fill="none" stroke="#A98A4C" stroke-width="5"/>
+  <ellipse cx="1120" cy="122" rx="480" ry="48" fill="none" stroke="#5B7A99" stroke-width="5"/>
+  <!-- sun centre -->
+  <g stroke="#A98A4C" stroke-width="8">
+    <path d="M1120 22 v22 M1120 200 v22 M1020 122 h22 M1198 122 h22 M1050 52 l16 16 M1174 176 l16 16 M1190 52 l-16 16 M1066 176 l-16 16"/>
+  </g>
+  <circle cx="1120" cy="122" r="52" fill="#C4A35A"/>
+  <!-- planets on the orbits -->
+  <circle cx="640" cy="100" r="17" fill="#C97B63"/>
+  <circle cx="1600" cy="144" r="13" fill="#4E8A84"/>
+  <circle cx="880" cy="166" r="10" fill="#8A6FA8"/>
+  <!-- ringed planet right -->
+  <circle cx="1470" cy="86" r="30" fill="#5B7A99"/>
+  <ellipse cx="1470" cy="86" rx="58" ry="14" fill="none" stroke="#2A1A12" stroke-width="6" transform="rotate(-14 1470 86)"/>
+  <!-- small stars -->
+  <g fill="#2A1A12" stroke="none">
+    <circle cx="420" cy="52" r="4"/><circle cx="1820" cy="60" r="4"/><circle cx="1690" cy="196" r="4"/>
+    <circle cx="520" cy="188" r="4"/><circle cx="1330" cy="34" r="3.4"/><circle cx="760" cy="40" r="3.4"/>
+  </g>
+</g></svg>

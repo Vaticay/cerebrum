@@ -23,6 +23,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import vm from "node:vm";
 import { parse } from "@babel/parser";
 import { transformSync } from "esbuild";
+import { ACCENTS } from "../src/palettes.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -4681,7 +4682,8 @@ await test("the state machine contract is the one the editor build is authored a
   for (const ev of ["EmitIdleQuip", "EmitQuizQuip", "EmitSearchQuip"]) {
     assert.ok(NOVA_RIVE_EVENTS.includes(ev), ev + " missing from the event contract");
   }
-  assert.equal(NOVA_RIVE_SRC, "/nova/nova.riv");
+  // Pin updated 2026-10-20 citing the owner photos from 2026-10-20 and his order: the asset URL is versioned so a stale cached rig can never survive a rebuild again.
+  assert.equal(NOVA_RIVE_SRC, "/nova/nova.riv?v=3");
 });
 
 /* Pin updated 2026-10-15: the asset landed at public/nova/nova.riv,
@@ -4695,7 +4697,10 @@ await test("the state machine contract is the one the editor build is authored a
    ordered the old model gone, so the wrapper renders the
    canvas directly and the fallback surface is deleted. */
 await test("the asset has landed: the one switch points at the shipped .riv", () => {
-  assert.equal(NOVA_RIVE_ASSET, "/nova/nova.riv", "the asset switch must carry the shipped asset path");
+  // Pin updated 2026-10-20 citing the owner photos from 2026-10-20 and his order: the asset constant carries the version query, and NovaCanvas renders no img fallback or poster.
+  assert.equal(NOVA_RIVE_ASSET, "/nova/nova.riv?v=3", "the asset switch must carry the shipped versioned asset path");
+  assert.ok(NOVA_RIVE_ASSET.includes("?v=3"), "the asset constant carries no version query");
+  assert.ok(!riveSrc.includes("<img"), "NovaRive renders an img; the Nova home figure must come from the Rive canvas only");
   assert.ok(riveSrc.includes("return <NovaCanvas {...props} />;"), "the wrapper must render the canvas directly");
   assert.ok(!riveSrc.includes("NovaFallback"), "the retired fallback surface is back");
   assert.ok(!riveSrc.includes("<NovaAvatar"), "the canvas file still renders the retired avatar");
@@ -5391,6 +5396,79 @@ ${CLAIM_RESIDENT.text} [1]
   const reask = review.cards.find((c) => claimKey(c.claimId) === claimKey(clozeTaught.claimId));
   assert.ok(reask, "a numbered claim is missing from the review lesson");
   assert.notEqual(reask.kind, "cloze", "the review re asked a claim in the same cloze form it was taught");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Photo fixes: daily practice nodes and the Start button (2026-10-20)");
+
+/* Added 2026-10-20 citing the owner photos from 2026-10-20 and his
+   order. The daily practice nodes row clipped its last circles at
+   the right edge, and the Start daily practice button rendered
+   washed out with its not ready state set by an opacity wash. The
+   pins below hold the row wrapping fix, the contrast preserving
+   not ready treatment, and a computed contrast check for every
+   accent. The contrast check runs the real accentText and
+   relLuminance helpers, extracted from src/designSystem.jsx the
+   same way the Rive contract above is extracted. */
+const designSrc = readFileSync(join(root, "src/designSystem.jsx"), "utf8");
+const designAst = parse(designSrc, { sourceType: "module", plugins: ["jsx"] });
+function designDeclFor(name) {
+  for (const node of designAst.program.body) {
+    const decl = node.type === "ExportNamedDeclaration" ? node.declaration : node;
+    if (!decl) continue;
+    const isFn = decl.type === "FunctionDeclaration" && decl.id && decl.id.name === name;
+    const isVar = decl.type === "VariableDeclaration" && decl.declarations.some((d) => d.id.name === name);
+    if (isFn || isVar) return { start: node.start, end: node.end };
+  }
+  return null;
+}
+const DESIGN_WANTED = ["accentText", "relLuminance"];
+const designChunks = [];
+for (const name of DESIGN_WANTED) {
+  const decl = designDeclFor(name);
+  assert.ok(decl, `${name} must be declared in src/designSystem.jsx`);
+  designChunks.push(designSrc.slice(decl.start, decl.end).replace(/^export\s+/, ""));
+}
+const designJs = transformSync(designChunks.join("\n") + `\n;globalThis.__design = { ${DESIGN_WANTED.join(", ")} };`, { loader: "jsx" }).code;
+const designContext = vm.createContext({});
+vm.runInContext(designJs, designContext);
+const { accentText, relLuminance } = designContext.__design;
+function contrastRatio(hexA, hexB) {
+  const la = relLuminance(hexA);
+  const lb = relLuminance(hexB);
+  const hi = Math.max(la, lb);
+  const lo = Math.min(la, lb);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+await test("the daily practice nodes row wraps instead of clipping", () => {
+  const rule = learnSrc.match(/\.lv-nodes \{([^}]*)\}/);
+  assert.ok(rule, "the lv nodes rule is missing from LearnView");
+  assert.ok(rule[1].includes("flex-wrap: wrap"), "the nodes row does not wrap, so its last circles can clip again");
+  assert.ok(rule[1].includes("row-gap:"), "the wrapped nodes row carries no row gap");
+  assert.ok(!rule[1].includes("overflow-x"), "the nodes row still clips through overflow x");
+});
+
+await test("every accent clears the contrast bar with its own accent text", () => {
+  const entries = Object.entries(ACCENTS);
+  assert.ok(entries.length >= 3, `only ${entries.length} accents found in src/palettes.js`);
+  for (const [name, accent] of entries) {
+    const ratio = contrastRatio(accentText(accent), accent);
+    assert.ok(ratio >= 4.5, `${name} accent ${accent} with text ${accentText(accent)} computes to ${ratio.toFixed(2)} to 1, under 4.5 to 1`);
+  }
+});
+
+await test("the Start daily practice button carries no opacity wash in any state", () => {
+  const startAt = learnSrc.indexOf("onClick={startBundle}");
+  assert.ok(startAt >= 0, "the Start daily practice button is missing");
+  const buttonBlock = learnSrc.slice(learnSrc.lastIndexOf("<button", startAt), learnSrc.indexOf("</button>", startAt));
+  assert.ok(buttonBlock.includes("Start daily practice") || learnSrc.slice(startAt, startAt + 900).includes("Start daily practice"),
+    "the sliced block is not the Start daily practice button");
+  assert.ok(!buttonBlock.includes("opacity"), "the Start button still carries an opacity value, which washes its text and fill together");
+  assert.ok(buttonBlock.includes("background: bundleReady ? accent : P.line"),
+    "the not ready Start button does not take the line background that preserves text contrast");
+  assert.ok(buttonBlock.includes("color: bundleReady ? (at || \"#101408\") : P.ink"),
+    "the Start button does not keep accent text when ready and ink text when not ready");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

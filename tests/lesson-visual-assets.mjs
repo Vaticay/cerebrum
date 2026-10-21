@@ -131,6 +131,69 @@ for (const p of referenced) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-console.log(`\nlesson visual assets: checked ${referenced.length} referenced paths`);
+group("Path card pictures: every learning path declares a real picture");
+
+/* Added 2026-10-20 citing the owner photos from 2026-10-20 and his
+   order to give paths actual pics. The journey cards on the Paths
+   page rendered the Cover fallback, abstract CategoryArt geometry,
+   because each LEARNING_PATHS entry carried no img and the journey
+   card Cover call passed none. Every path entry must now declare
+   an img under /cortex/paths/, the journey card must pass it, and
+   each file must exist under public/ with real WEBP magic bytes.
+   Flat diagram friezes compress far smaller than lesson photos, so
+   this gate uses its own floor: the smallest shipped card is
+   6,440 bytes, and the floor sits well under that while still
+   catching a stub or an error page saved under an image name. */
+const PATH_CARD_MIN_BYTES = 1024;
+const pathsStart = learnSrc.indexOf("export const LEARNING_PATHS");
+const pathsEnd = learnSrc.indexOf("export const TOPIC_COURSES", pathsStart);
+const pathsBlock = pathsStart >= 0 && pathsEnd > pathsStart ? learnSrc.slice(pathsStart, pathsEnd) : "";
+const pathEntryIds = [...pathsBlock.matchAll(/\n  \{\n    id: "([^"]+)",/g)].map((m) => m[1]);
+const pathCardImgs = [...new Set(
+  [...pathsBlock.matchAll(/img:\s*["'](\/cortex\/paths\/[^"']+)["']/g)].map((m) => m[1]),
+)].sort();
+
+console.log(`  checking ${pathCardImgs.length} path card pictures for ${pathEntryIds.length} learning paths`);
+
+await test("every learning path declares a path card picture", () => {
+  assert.ok(pathEntryIds.length >= 5, `scan found only ${pathEntryIds.length} learning path entries`);
+  assert.equal(pathCardImgs.length, pathEntryIds.length,
+    `found ${pathCardImgs.length} path card img fields for ${pathEntryIds.length} learning paths`);
+  for (const p of pathCardImgs) {
+    assert.ok(p.startsWith("/cortex/paths/"), `path card img sits outside /cortex/paths/: ${p}`);
+    assert.ok(p.endsWith(".webp"), `path card img is not a WEBP file: ${p}`);
+  }
+  const entryChunks = pathsBlock.split(/\n  \{\n    id: "/).slice(1);
+  assert.equal(entryChunks.length, pathEntryIds.length, "path entry scan split does not match the entry count");
+  entryChunks.forEach((chunk, i) => {
+    assert.ok(/img:\s*["']\/cortex\/paths\/[^"']+["']/.test(chunk),
+      `learning path ${pathEntryIds[i]} declares no img under /cortex/paths/`);
+  });
+});
+
+await test("the journey card Cover call passes the path picture", () => {
+  assert.ok(
+    learnSrc.includes("<Cover title={path.title} height={120} radius={0} cat={cat} img={path.img} />"),
+    "the journey card Cover call does not pass img={path.img}, so path cards fall back to CategoryArt geometry",
+  );
+});
+
+for (const p of pathCardImgs) {
+  await test(`path card picture is present as a real image: ${p}`, () => {
+    const pubPath = join(root, "public", p);
+    assert.ok(existsSync(pubPath), `no file at public${p} for the path card picture declared in src/LearnView.jsx`);
+    const buf = assertRealImage(pubPath, `public${p}`);
+    assert.ok(buf.length >= PATH_CARD_MIN_BYTES,
+      `public${p} is only ${buf.length} bytes, under the floor for finished path card art`);
+    if (distExists) {
+      const distPath = join(root, "dist", p);
+      assert.ok(existsSync(distPath), `no file at dist${p} though dist/ exists and public${p} is referenced`);
+      assertRealImage(distPath, `dist${p}`);
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+console.log(`\nlesson visual assets: checked ${referenced.length} referenced paths and ${pathCardImgs.length} path card pictures`);
 console.log(`${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
