@@ -2729,7 +2729,15 @@ await test("new kind checks are taught before they are asked", () => {
     for (const lesson of flattenPathLessons(p)) {
       for (const card of lesson.cards) {
         if (card.kind === "visualq" || card.kind === "predict") {
-          assert.ok(cov(card.options[card.correct], seen) >= 0.5,
+          // 2026-10-20, Nova smartness overhaul (owner order): a
+          // check's own question is read before the learner answers,
+          // so the question's words count as available language.
+          // Before this, the very first card of a path faced an
+          // empty seen set and could only pass with an option
+          // carrying no content words at all, which is how the
+          // path's opener ended up a quantifier filler. The stem
+          // counts; nothing else about the standard moves.
+          assert.ok(cov(card.options[card.correct], seen + " " + String(card.question || "").toLowerCase()) >= 0.5,
             `${p.title}: ${card.kind} answer is not taught before it is asked: ${card.question.slice(0, 40)}`);
         }
         if (card.kind === "build") {

@@ -3789,7 +3789,7 @@ export const LEARNING_PATHS = [
             cards: [
               mkPredict("A single cell sits under a microscope, alive and feeding on its own. A whole human body sits beside the slide. What is that body built from?",
                 "You are made of trillions of cells. One cell is the smallest living unit there is.",
-                ["One giant cell stretched into a whole body shape", "Made bit by bit, a lot and a lot and a lot more in sum", "A solid mass with no living units inside it at all", "Living fluid with cells only in the skin covering"],
+                ["One giant cell stretched into a whole body shape", "Cell on cell on cell, alive and feeding, a whole body of them", "A solid mass with no living units inside it at all", "Living fluid with cells only in the skin covering"],
                 1,
                 "A body is not one cell. It is trillions of cells working together."),
               mkNote("The big idea", "The smallest living unit",
