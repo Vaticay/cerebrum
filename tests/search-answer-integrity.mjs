@@ -1,0 +1,367 @@
+/**
+ * Answer integrity lane (2026-10-21). Pins the four defects the
+ * Oct 20 audit batch measured on live AI answers (audit M1, M2,
+ * M3 and H3):
+ *
+ *   1. Fact check ran on 0 of 4 AI answers: the reserve was
+ *      consumed before the stage (2 budget skips), and the deep
+ *      tiers' own caps let one slow tier burn the whole stage
+ *      (2 "nothing to verify" after timeouts). The zero network
+ *      light tier also sat behind the same budget gate as the
+ *      deep stage, so it never ran either, and the shipped
+ *      confidence gate counted a mechanical flags panel as a
+ *      check that ran.
+ *   2. Confidence labels ignored evidence class: Strong
+ *      shipped on one narrative review plus two case reports.
+ *   3. The shipped source list inflated the cited set: 14
+ *      listed, 3 cited, uncited filler included.
+ *   4. Synthesis resilience was one family deep in the rescue
+ *      paths: the rescue wave existed only inside the Groq
+ *      provider's presence, and the delayed rescue could put
+ *      two legs of one family in both seats.
+ *
+ * Run with: node tests/search-answer-integrity.mjs
+ */
+
+import { strict as assert } from "node:assert";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
+const clientSrc = readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8");
+const search = await import(join(root, "functions/api/search.js"));
+
+const {
+  buildConfidenceLine, calibrateConfidenceScore,
+  evidenceClassOfPaper, bestEvidenceClass,
+  factCheckActuallyChecked, factCheckSupport,
+  FACT_CHECK_RESERVE_MS, FACT_CHECK_TIER_CAP_MS, FACT_CHECK_DID_NOT_RUN_STATEMENT,
+  synthesisDeadlineFor, deepFactCheck, createSubrequestLedger,
+  planDelayedRescue, resetLegHealth, recordLegOutcome,
+  splitShippedSources, remapCitationMarkers, remapFactCheckIndices,
+  labelUncitedSources,
+} = search;
+
+let passed = 0;
+const failures = [];
+async function test(name, fn) {
+  try {
+    await fn();
+    passed++;
+    console.log(`  ✓ ${name}`);
+  } catch (e) {
+    failures.push({ name, error: e });
+    console.log(`  ✗ ${name}\n      ${e.message}`);
+  }
+}
+function group(name) { console.log(`\n${name}`); }
+
+function jsonRes(obj, status = 200) {
+  return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
+}
+function chatRes(content) {
+  return jsonRes({ choices: [{ message: { content } }] });
+}
+
+// ═══════════════════════════════════════════════════════════
+group("Defect 2 — confidence is tied to the cited evidence class");
+
+// Papers with every surface signal maxed: relevance, recency,
+// abstracts, journal type, settled verdict, a landed check.
+// Only the evidence class varies between the sets below.
+const THIS_YEAR = new Date().getFullYear();
+function strongPaper(extra) {
+  return {
+    title: "Honey and wound healing outcomes in a controlled setting",
+    abstract: "A study of honey applied to wounds, measuring healing time across treatment and control groups with full follow up and reported effect sizes.",
+    relevance: 92,
+    type: "journal",
+    year: THIS_YEAR,
+    semanticScore: 82,
+    ...extra,
+  };
+}
+const STRONG_CTX = { factCheckChecked: true, support: { supported: 3, checked: 3 } };
+
+await test("the class ladder reads the study type data papers already carry", () => {
+  assert.equal(evidenceClassOfPaper({ studyTypeKey: "SYSTEMATIC_REVIEW" }).rank, 4);
+  assert.equal(evidenceClassOfPaper({ studyTypeKey: "RCT" }).rank, 3);
+  assert.equal(evidenceClassOfPaper({ studyTypeKey: "COHORT" }).rank, 2);
+  assert.equal(evidenceClassOfPaper({ studyTypeKey: "CASE_REPORT" }).rank, 1);
+  assert.equal(evidenceClassOfPaper({ studyTypeKey: "NARRATIVE_REVIEW" }).rank, 1);
+  // No key: the classifier over title and abstract decides.
+  assert.equal(evidenceClassOfPaper({
+    title: "Honey for acute and chronic wounds",
+    abstract: "This systematic review and meta-analysis pooled randomized trials of honey dressings.",
+  }).rank, 4, "a systematic review must not be read as the narrative review it is not");
+  assert.equal(evidenceClassOfPaper({
+    title: "A case report of honey dressing on a split skin graft",
+    abstract: "We present a single patient whose graft was dressed with honey.",
+  }).rank, 1);
+  // An ordinary primary paper with no EBM markers is mid ladder,
+  // never bottom: bench and field work is not case level evidence.
+  assert.equal(evidenceClassOfPaper({
+    title: "Larvae reared on used cooking oil: growth and gut microbes",
+    abstract: "Larvae were fed diets containing used cooking oil and growth was measured over fourteen days.",
+  }).rank, 2);
+  assert.equal(bestEvidenceClass([]), null);
+  assert.equal(bestEvidenceClass([{ studyTypeKey: "CASE_REPORT" }, { studyTypeKey: "RCT" }]).rank, 3,
+    "the best class in the set is the rule, not the average");
+});
+
+await test("Strong is impossible when the cited set's best class is case level, regardless of count", () => {
+  const bottomSet = [
+    strongPaper({ studyTypeKey: "NARRATIVE_REVIEW" }),
+    strongPaper({ studyTypeKey: "CASE_REPORT" }),
+    strongPaper({ studyTypeKey: "CASE_REPORT" }),
+  ];
+  const conf = buildConfidenceLine(bottomSet, { status: "settled" }, STRONG_CTX);
+  assert.equal(conf.level, "thin", "three case level papers shipped above thin: " + conf.line);
+  assert.ok(conf.score <= 45, "the class cap did not bind the score: " + conf.score);
+  assert.ok(conf.line.startsWith("Low confidence"), "the line does not read as the level: " + conf.line);
+  assert.ok(conf.line.includes("weakest evidence class"), "the line does not name the class reason: " + conf.line);
+  // Count cannot rescue it: eight bottom class papers, same rule.
+  const eight = Array.from({ length: 8 }, () => strongPaper({ studyTypeKey: "CASE_REPORT" }));
+  const conf8 = buildConfidenceLine(eight, { status: "settled" }, STRONG_CTX);
+  assert.equal(conf8.level, "thin", "eight case level papers shipped above thin");
+  // Calibration keeps the cap binding, so the object and the
+  // shipped line cannot drift apart downstream.
+  const calibrated = calibrateConfidenceScore(conf, { strippedCitations: 0, totalCitations: 3, integrityFlags: 0 });
+  assert.equal(calibrated.level, "thin", "calibration lifted the class cap");
+  assert.ok(calibrated.line.startsWith("Low confidence"), "the calibrated line disagrees with its level");
+});
+
+await test("the same signals with a top class paper in the set are not class capped", () => {
+  const mixedSet = [
+    strongPaper({ studyTypeKey: "SYSTEMATIC_REVIEW" }),
+    strongPaper({ studyTypeKey: "CASE_REPORT" }),
+    strongPaper({ studyTypeKey: "CASE_REPORT" }),
+    strongPaper({}),
+    strongPaper({}),
+  ];
+  const conf = buildConfidenceLine(mixedSet, { status: "settled" }, STRONG_CTX);
+  assert.equal(conf.level, "strong", "a systematic review in the set was class capped: " + conf.line);
+  assert.ok(conf.line.startsWith("Strong confidence"), "the line does not read as the level: " + conf.line);
+  const primarySet = Array.from({ length: 5 }, () => strongPaper({}));
+  const confPrimary = buildConfidenceLine(primarySet, { status: "settled" }, STRONG_CTX);
+  assert.equal(confPrimary.level, "strong", "ordinary primary papers were class capped: " + confPrimary.line);
+});
+
+// ═══════════════════════════════════════════════════════════
+group("Defect 1 — fact check budget path and the did not run statement");
+
+await test("the reserve is 8,000 ms and synthesis still holds it back up front", () => {
+  assert.equal(FACT_CHECK_RESERVE_MS, 8000);
+  const now = 1000000;
+  const deadline = now + 19000;
+  assert.equal(synthesisDeadlineFor(now, deadline, true), deadline - 2500 - FACT_CHECK_RESERVE_MS);
+  assert.equal(synthesisDeadlineFor(now, deadline, false), deadline - 2500);
+});
+
+await test("a slow first deep tier cannot burn the whole stage: the light tiers still fire inside the budget", async () => {
+  const VERDICT = JSON.stringify({ claims: [
+    { claim: "Air molecules scatter blue light", source_index: 1, quote: "Air molecules scatter short wavelength blue light", status: "supported", justification: "The source states the claim directly." },
+    { claim: "The sky appears blue", source_index: 1, quote: "the sky appears blue", status: "supported", justification: "The source states the claim directly." },
+  ] });
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    calls.push(u);
+    if (u.includes("generativelanguage.googleapis.com")) {
+      // The Gemini tier hangs until its own timer aborts it:
+      // the fleet saturation shape from the audit batch.
+      return new Promise((_, reject) => {
+        const signal = opts && opts.signal;
+        if (signal) {
+          signal.addEventListener("abort", () => {
+            const err = new Error("The operation was aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        }
+      });
+    }
+    if (u.includes("openrouter.ai")) return chatRes(VERDICT);
+    return jsonRes({});
+  };
+  try {
+    const ledger = createSubrequestLedger();
+    const trace = [];
+    const t0 = Date.now();
+    const claims = await deepFactCheck(
+      "Air molecules scatter blue light [1]. The sky appears blue [1].",
+      [{ title: "Rayleigh scattering and the colour of the sky", abstract: "Air molecules scatter short wavelength blue light far more strongly than longer wavelengths, and the sky appears blue." }],
+      { GEMINI_KEY: "lane-b-gemini", OPENROUTER_KEY: "lane-b-or" },
+      ledger, trace, Date.now() + FACT_CHECK_RESERVE_MS
+    );
+    const elapsed = Date.now() - t0;
+    assert.ok(claims && claims.length === 2, "no tier landed after the first tier hung: " + JSON.stringify(trace));
+    assert.ok(trace.some((t) => t.tier === "gemini" && t.outcome === "timeout"), "the hung tier is not traced as a timeout: " + JSON.stringify(trace));
+    assert.ok(trace.some((t) => t.tier === "openrouter" && t.outcome === "ok"), "the last tier never fired inside the budget: " + JSON.stringify(trace));
+    assert.ok(elapsed < FACT_CHECK_RESERVE_MS, "the stage outlived its own budget: " + elapsed + " ms");
+    assert.ok(FACT_CHECK_TIER_CAP_MS * 3 <= FACT_CHECK_RESERVE_MS,
+      "three tier slices no longer fit inside the stage budget");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+await test("factCheckActuallyChecked: a flags only panel is not a check that ran", () => {
+  const flagsOnly = {
+    overall: "partly", mode: "claims",
+    summary: "Checked cited claims against their papers: 2 claims share almost no vocabulary with the paper cited.",
+    claims: [
+      { claim: "Some flagged sentence", status: "unsupported", kind: "alignment", note: "flag" },
+      { claim: "Another flagged sentence", status: "unsupported", kind: "stripped", note: "flag" },
+    ],
+  };
+  assert.equal(factCheckSupport(flagsOnly), null, "the flags panel produced a support count");
+  assert.equal(factCheckActuallyChecked(flagsOnly), false,
+    "the flags panel counted as a check that ran (the probe 9 hole)");
+  const deepResult = {
+    overall: "supported", mode: "claims",
+    claims: [{ claim: "A checked claim", status: "supported", note: "quote" }],
+  };
+  assert.equal(factCheckActuallyChecked(deepResult), true);
+  const traceResult = {
+    overall: "traced", mode: "extractive", checked: true,
+    claims: [{ claim: "A traced claim", status: "traced" }],
+  };
+  assert.equal(factCheckActuallyChecked(traceResult), true,
+    "the extractive wording trace stopped counting as a check that ran");
+  assert.equal(factCheckActuallyChecked(null), false);
+  assert.equal(factCheckActuallyChecked({ claims: [] }), false);
+});
+
+await test("the handler wires the light tier outside the deep gate and states plainly when no check ran", () => {
+  assert.ok(src.includes("factCheckTermsTried"), "the terms tried bookkeeping is missing");
+  const deepGateIdx = src.indexOf("const deepClaims = await deepFactCheck(");
+  const lightIdx = src.indexOf("LIGHT TIER OUTSIDE THE BUDGET GATE");
+  assert.ok(deepGateIdx > 0 && lightIdx > deepGateIdx, "the light tier does not stand after the deep stage");
+  assert.ok(src.includes("factCheckChecked: factCheckActuallyChecked(factCheckResult)"),
+    "the confidence gate does not ask the one helper");
+  const stmtIdx = src.indexOf("FACT_CHECK_DID_NOT_RUN_STATEMENT", src.indexOf("export const FACT_CHECK_DID_NOT_RUN_STATEMENT") + 10);
+  assert.ok(stmtIdx > 0, "the did not run statement is never used in the handler");
+  assert.ok(!/[—–-]/.test(FACT_CHECK_DID_NOT_RUN_STATEMENT),
+    "the statement carries a dash character: " + FACT_CHECK_DID_NOT_RUN_STATEMENT);
+  assert.ok(FACT_CHECK_DID_NOT_RUN_STATEMENT.includes("fact check did not run"),
+    "the statement does not say plainly that the fact check did not run");
+});
+
+// ═══════════════════════════════════════════════════════════
+group("Defect 3 — shipped sources are the cited set only");
+
+await test("splitShippedSources: sources equals the cited set, uncited ship as further reading, markers remap", () => {
+  const labeled = labelUncitedSources([
+    { title: "Cited first", url: "https://doi.org/10.1/a" },
+    { title: "Uncited pony paper from 1974", url: "https://doi.org/10.1/b", year: 1974 },
+    { title: "Cited second", url: "https://doi.org/10.1/c" },
+    { title: "Uncited tail paper", url: "https://doi.org/10.1/d" },
+  ], "The finding holds [1] and replicates [3].");
+  assert.equal(labeled.filter((s) => !s.uncited).length, 2, "fixture: the labeled cited set is not 2");
+  const split = splitShippedSources(labeled, "The finding holds [1] and replicates [3].");
+  assert.deepEqual(split.sources.map((s) => s.title), ["Cited first", "Cited second"],
+    "the shipped sources are not exactly the cited set");
+  assert.deepEqual(split.furtherReading.map((s) => s.title),
+    ["Uncited pony paper from 1974", "Uncited tail paper"],
+    "the uncited papers did not ship as further reading");
+  assert.equal(split.answer, "The finding holds [1] and replicates [2].",
+    "citation markers were not remapped to the shipped list: " + split.answer);
+  // Every marker in the shipped answer resolves inside the
+  // shipped sources: the client contract.
+  for (const m of split.answer.matchAll(/\[(\d+)\]/g)) {
+    const n = parseInt(m[1], 10);
+    assert.ok(n >= 1 && n <= split.sources.length, "marker [" + n + "] resolves outside the shipped sources");
+  }
+});
+
+await test("splitShippedSources: multi citation brackets remap, and a fully cited list is untouched", () => {
+  const labeled = labelUncitedSources([
+    { title: "A" }, { title: "B" }, { title: "C" },
+  ], "Together [1] [2] [3] they show it.");
+  const withGap = splitShippedSources(
+    [{ title: "A" }, { title: "B", uncited: true }, { title: "C" }],
+    "Together [1, 3] they show it."
+  );
+  assert.equal(withGap.answer, "Together [1, 2] they show it.", "a multi marker bracket did not remap: " + withGap.answer);
+  assert.equal(withGap.sources.length, 2);
+  assert.equal(withGap.furtherReading.length, 1);
+  const full = splitShippedSources(labeled, "Together [1] [2] [3] they show it.");
+  assert.equal(full.answer, "Together [1] [2] [3] they show it.", "a fully cited answer was rewritten");
+  assert.equal(full.sources.length, 3);
+  assert.equal(full.furtherReading.length, 0);
+  assert.equal(remapCitationMarkers("see [9] and [2]", new Map([[2, 1]])), "see [9] and [1]",
+    "an unmapped marker was rewritten or a mapped one was not");
+});
+
+await test("remapFactCheckIndices rewrites the panel's source references through the same map", () => {
+  const fc = {
+    overall: "partly", mode: "claims", summary: "Checked 1 claim against the cited sources: 0 supported.",
+    claims: [{ claim: "A claim resting on [3]", status: "thin", note: "\"a quote\" [3] . the reason" }],
+  };
+  const out = remapFactCheckIndices(fc, new Map([[1, 1], [3, 2]]));
+  assert.equal(out.claims[0].claim, "A claim resting on [2]");
+  assert.equal(out.claims[0].note, "\"a quote\" [2] . the reason");
+  assert.equal(fc.claims[0].claim, "A claim resting on [3]", "the original object was mutated");
+});
+
+await test("the handler and the client both ship the split contract", () => {
+  assert.ok(src.includes("sources: shippedSplit.sources"), "the fresh response does not ship the cited set as sources");
+  assert.ok(src.includes("furtherReading: shippedSplit.furtherReading"), "the fresh response does not ship furtherReading");
+  assert.ok(src.includes("furtherReading: earlySplit.furtherReading"), "the early cache serve does not ship furtherReading");
+  assert.ok(src.includes("furtherReading: laterSplit.furtherReading"), "the late cache serve does not ship furtherReading");
+  assert.ok(clientSrc.includes("data.furtherReading"), "the client never reads the furtherReading field");
+  assert.ok(clientSrc.includes("sources: responseSources"), "the turn does not present cited first, further reading after");
+});
+
+// ═══════════════════════════════════════════════════════════
+group("Defect 4 — an independent leg is attempted before the request degrades");
+
+const T0 = 1_700_000_000_000;
+const GROQ_429 = "groq:openai/gpt-oss-120b: HTTP 429 . {\"error\":{\"message\":\"Rate limit reached for model in organization\"}}";
+
+await test("planDelayedRescue: the second seat goes to a different provider family when one is eligible", () => {
+  resetLegHealth();
+  const attempts = [{ wave: 1, model: "groq:openai/gpt-oss-120b", ok: false, error: GROQ_429 }];
+  const plan = planDelayedRescue(attempts, {
+    rosterLabels: ["groq:openai/gpt-oss-120b", "groq:openai/gpt-oss-20b", "gemini:gemini-3.8-flash"],
+    preferredLabel: "groq:openai/gpt-oss-120b",
+    nowMs: T0,
+    requestDeadlineMs: T0 + 120000,
+  });
+  assert.equal(plan.action, "wait");
+  assert.deepEqual(plan.chosen, ["groq:openai/gpt-oss-120b", "gemini:gemini-3.8-flash"],
+    "the delayed rescue seats are not independent: " + JSON.stringify(plan.chosen));
+});
+
+await test("planDelayedRescue: with no independent leg eligible, the best tracked same family leg keeps the seat", () => {
+  resetLegHealth();
+  recordLegOutcome("groq:qwen/qwen3.8-27b", true, null, T0);
+  recordLegOutcome("groq:qwen/qwen3.8-27b", true, null, T0);
+  const attempts = [{ wave: 1, model: "groq:openai/gpt-oss-120b", ok: false, error: GROQ_429 }];
+  const plan = planDelayedRescue(attempts, {
+    rosterLabels: ["groq:openai/gpt-oss-120b", "groq:openai/gpt-oss-20b", "groq:qwen/qwen3.8-27b"],
+    preferredLabel: "groq:openai/gpt-oss-120b",
+    nowMs: T0,
+    requestDeadlineMs: T0 + 120000,
+  });
+  assert.equal(plan.action, "wait");
+  assert.deepEqual(plan.chosen, ["groq:openai/gpt-oss-120b", "groq:qwen/qwen3.8-27b"],
+    "the all one family fallback changed: " + JSON.stringify(plan.chosen));
+});
+
+await test("the rescue wave roster is no longer nested inside the Groq provider's presence", () => {
+  assert.ok(!src.includes("if (groqProvider) {"), "the rescue wave is still gated on the Groq provider alone");
+  assert.ok(src.includes("const rescueCall = groqProvider ? callCompat(groqProvider) : null;"),
+    "the rescue call is not built conditionally per family");
+  assert.ok(src.includes("...(rescueCall ? [{ label: \"groq:openai/gpt-oss-120b\""),
+    "the Groq rescue legs are not conditional on their own family");
+  assert.ok(src.includes("if (rescueCall || cfBound || token) {"),
+    "the rescue does not fire on whichever family is available");
+});
+
+console.log(`\n${passed} passed, ${failures.length} failed`);
+if (failures.length) process.exit(1);

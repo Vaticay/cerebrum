@@ -256,7 +256,11 @@ await test("the early life papers lead; the germ free papers do not outcite them
     "Most cohorts are small, and feeding is hard to separate from everything else that changes in the first year.";
   const data = await runScenario("what happens to a baby's gut germs in the first year");
   assert.equal(data.synthesisMode, "ai", "the scenario must ship the AI answer, got: " + data.synthesisMode);
-  const titles = (data.sources || []).map((s) => s.title);
+  // Shipped source split (2026-10-21, answer integrity lane):
+  // the presented list is cited `sources` first, then
+  // `furtherReading`; positions below read the presented list,
+  // which is the order the single list used to carry.
+  const titles = [...(data.sources || []), ...(data.furtherReading || [])].map((s) => s.title);
   const earlyIdx = titles.findIndex((t) => t.includes("early life") || t.includes("first year"));
   const germIdx = titles.findIndex((t) => t.startsWith("Germ free"));
   assert.ok(earlyIdx >= 0 && germIdx >= 0, "both paper families must ship: " + JSON.stringify(titles));
@@ -550,8 +554,9 @@ await test("a yogurt shaped pool: the trials below the floor are re admitted and
     "Patients surveyed while taking antibiotics reported less stomach upset when they ate yogurt every day [4]. " +
     "Lactobacillus rhamnosus GG given during antibiotic therapy reduced diarrhoea in a double blind trial [5].";
   const data = await runScenario(YOGURT_Q);
-  const titles = (data.sources || []).map((s) => s.title);
-  const trial = (data.sources || []).find((s) => s.title.startsWith("Lactobacillus rhamnosus"));
+  const presented = [...(data.sources || []), ...(data.furtherReading || [])];
+  const titles = presented.map((s) => s.title);
+  const trial = presented.find((s) => s.title.startsWith("Lactobacillus rhamnosus"));
   assert.ok(trial, "the below floor trial never reached the shipped sources: " + JSON.stringify(titles));
   assert.ok(!trial.uncited, "the re admitted trial shipped uncited: " + JSON.stringify(data.sources.map((s) => [s.title, s.uncited])));
   assert.ok(titles.some((t) => t.startsWith("Fermented milk")),
@@ -584,7 +589,7 @@ await test("the same pool with a healthy above floor set is unchanged by the rel
     "Trial evidence on Lactobacillus in yogurt found less antibiotic associated diarrhoea and stomach discomfort [2]. " +
     "Fermented milk carrying Lactobacillus also helped after antibiotics [3].";
   const data = await runScenario(YOGURT_Q);
-  const titles = (data.sources || []).map((s) => s.title);
+  const titles = [...(data.sources || []), ...(data.furtherReading || [])].map((s) => s.title);
   assert.ok(titles.length >= 6, "the healthy pool shipped a thin shelf: " + JSON.stringify(titles));
   for (const f of FILLER_TITLES) {
     assert.ok(!titles.includes(f), "a filler was admitted into a healthy pool: " + f);

@@ -660,7 +660,10 @@ await test("the parent's exact wording fires the lane and presents at least six 
     (data._record && data._record.funnel && data._record.funnel.foundationalLane);
   assert.ok(lane && lane.shape === "mechanism",
     "the lane did not fire as a mechanism lane for the plain PCR wording: " + JSON.stringify(lane || null));
-  const sources = data.sources || [];
+  // Shipped source split (2026-10-21, answer integrity lane):
+  // presented is cited `sources` plus `furtherReading` — the
+  // two fields together carry what the single list carried.
+  const sources = [...(data.sources || []), ...(data.furtherReading || [])];
   assert.ok(sources.length >= 6,
     `only ${sources.length} sources presented for the PCR question — the thin pool is back`);
   const citedCount = ((data._record && data._record.sources) || []).filter((s) => s.cited).length;
@@ -719,7 +722,16 @@ await test("the leaves question is outside both old shapes, yet the single sourc
   assert.ok(ms.citedAfter >= 2, "the retry did not lift the answer to two sources: " + JSON.stringify(ms));
   assert.equal(ms.singleSource, false, "the record still labels the shipped answer single source");
   assert.equal(ms.reason, "recovered", "the record's reason is not recovered: " + ms.reason);
-  assert.ok((data.answer || "").includes("[1]") && (data.answer || "").includes("[3]"),
+  // Shipped source split (2026-10-21, answer integrity lane):
+  // the record claims two cited papers (its positions 1 and 3
+  // in the full presented list); the shipped answer cites the
+  // same two papers, renumbered 1 and 2 in the cited only
+  // shipped list. The papers must match, in order.
+  const recordCitedTitles = ((data._record && data._record.sources) || [])
+    .filter((s) => s.cited).map((s) => s.title);
+  assert.deepEqual((data.sources || []).map((s) => s.title), recordCitedTitles,
+    "the shipped cited list is not the record's cited papers in order");
+  assert.ok((data.answer || "").includes("[1]") && (data.answer || "").includes("[2]"),
     "the shipped answer does not cite the two sources the record claims");
   assert.ok(data._ledger && data._ledger.used <= data._ledger.limit &&
     data._ledger.used + data._ledger.remaining === data._ledger.limit,

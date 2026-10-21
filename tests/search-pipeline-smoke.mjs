@@ -204,8 +204,14 @@ try {
     assert.equal(data.source, "Cached (verified)");
     assert.equal(data.answer, storedAnswer, "the answer text itself is served unchanged");
     // Cited set recovered from the stored answer's markers.
-    assert.equal(data.sources.length, 3);
-    assert.equal(data.sources[2].uncited, true, "the never cited stored source is flagged on serve");
+    // Shipped source split (2026-10-21, answer integrity lane):
+    // `sources` is the cited set only; the never cited stored
+    // source ships as further reading, flagged uncited. The
+    // record below keeps the full stored list.
+    assert.equal(data.sources.length, 2);
+    assert.equal((data.furtherReading || []).length, 1, "the uncited stored source does not ship as further reading");
+    assert.equal(data.furtherReading[0].uncited, true, "the never cited stored source is flagged on serve");
+    assert.equal(data.furtherReading[0].title, "Winter ecology of northern amphibians");
     // The honest partial funnel: cited is real, retrieval counts null.
     assert.equal(data._funnel.cited, 2);
     assert.equal(data._funnel.gathered, null);

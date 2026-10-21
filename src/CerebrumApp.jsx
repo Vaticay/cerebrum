@@ -23118,7 +23118,17 @@ function App() {
       // wording everywhere, never to AI . the header, the answer tag,
       // and the record panel must not disagree about how the answer
       // was produced (2026-10-14).
-      const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "extractive", impact: data.impact || null, answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", /* ANSWER TIER (2026-10-08): the backend names which fallback tier produced this answer so VerdictReadout can render "Background only" / "Limited sources" instead of the vague "Unverified". */ answerTier: data.answerTier || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: data.sources || [], relevanceGatedOut: data.relevanceGatedOut || 0, /* Bug 4 fix (2026-10-08): the evidence tier filter is real now — carry the backend's filter accounting onto the turn so the zero-results copy can state the exact count withheld. */ evidenceFilterApplied: data.evidenceFilterApplied || null, evidenceFilteredOut: data.evidenceFilteredOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
+      /* Shipped source split (2026-10-21, answer integrity lane): the
+         backend now ships `sources` as the cited set only, renumbered
+         to match the answer's markers, with uncited gathered papers in
+         `furtherReading`. The turn's presented list is cited first and
+         further reading after, which is the order every positional
+         consumer (citation lookup, bibliography numbering) already
+         assumes: cited entries keep the numbers the answer cites, and
+         the further reading entries ride behind them with their
+         uncited flags, so the bibliography fold works as before. */
+      const responseSources = [...(data.sources || []), ...(Array.isArray(data.furtherReading) ? data.furtherReading : [])];
+      const nt = { id: turnId, fresh: true, ts: Date.now(), answerId: data.answerId || "", synthesisMode: data.synthesisMode || "extractive", impact: data.impact || null, answerSeconds: parseFloat(elapsedS()), responseKind: data.responseKind || "research", /* ANSWER TIER (2026-10-08): the backend names which fallback tier produced this answer so VerdictReadout can render "Background only" / "Limited sources" instead of the vague "Unverified". */ answerTier: data.answerTier || "research", aiQuota: data.aiQuota || null, sourcesQueried: Array.isArray(data.sourcesQueried) ? data.sourcesQueried : null, q: question || "What does this image show?", hasImage: !!imageToSend, answer: data.answer || "", sources: responseSources, furtherReading: Array.isArray(data.furtherReading) ? data.furtherReading : [], relevanceGatedOut: data.relevanceGatedOut || 0, /* Bug 4 fix (2026-10-08): the evidence tier filter is real now — carry the backend's filter accounting onto the turn so the zero-results copy can state the exact count withheld. */ evidenceFilterApplied: data.evidenceFilterApplied || null, evidenceFilteredOut: data.evidenceFilteredOut || 0, videos: data.videos || [], /* The /api/videos fetch races synthesis: until it settles the Videos tab shows an honest "reading" state rather than a false empty verdict. Absent (older cached turns) means settled. */ videosSettled: false, source: data.source || "", factCheck: data.factCheck || null, literatureConflicts: data.literature_conflicts || null, evidenceStructure: data.evidenceStructure || null, stress: data.stress || null, related: data.related || [], suggestions: data.suggestions || [],
         /* Answer instruments (QueryAutopsy, AnswerArc, OpenQuestions) read
            these. All three degrade honestly when absent — older cached
            answers simply omit the instruments rather than inventing data. */
@@ -23154,7 +23164,7 @@ function App() {
       // without" accumulate as two entries.
       const seenKeys = new Set();
       for (const s of allSources) for (const k of sourceKeys(s)) seenKeys.add(k);
-      const nextSources = [...allSources, ...(data.sources || []).filter(source => {
+      const nextSources = [...allSources, ...responseSources.filter(source => {
         const keys = sourceKeys(source); if (keys.some((k) => seenKeys.has(k))) return false; keys.forEach((k) => seenKeys.add(k)); return true;
       })];
       setTurns(nextTurns);

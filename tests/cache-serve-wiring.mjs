@@ -344,11 +344,25 @@ await test("the write stores the envelope and the early serve ships the stored c
   const stored = [...rows.values()][0];
   const payload = unpackAnswerCachePayload(stored.sources);
   assert.ok(payload.trust, "the stored payload carries no trust block: " + stored.sources.slice(0, 120));
-  assert.equal(payload.sources.length, fresh.sources.length,
-    "the envelope's source list is not the served list");
+  // Shipped source split (2026-10-21, answer integrity lane):
+  // the envelope keeps the FULL presented list in the stored
+  // answer's own numbering (the cached serve below pairs the
+  // stored text against it), while the fresh response ships
+  // the cited set as `sources` and the rest as
+  // `furtherReading`. Together they are the envelope's list.
+  assert.equal(payload.sources.length, fresh.sources.length + (fresh.furtherReading || []).length,
+    "the envelope's source list is not the full presented list (cited plus further reading)");
   assert.equal(payload.trust.synthesisMode, "ai");
-  assert.deepEqual(payload.trust.factCheck, fresh.factCheck,
+  // The stored fact check is the same check in the stored
+  // numbering; the shipped one is its remapped copy (source
+  // references rewritten to the cited only list). Overall,
+  // claim count, and per claim statuses must agree exactly.
+  assert.equal(payload.trust.factCheck.overall, fresh.factCheck.overall,
     "the stored fact check is not the fresh response's fact check");
+  assert.deepEqual(
+    (payload.trust.factCheck.claims || []).map((c) => c.status),
+    (fresh.factCheck.claims || []).map((c) => c.status),
+    "the stored fact check's claim verdicts differ from the shipped ones");
   assert.deepEqual(payload.trust.disagreementVerdict, fresh.disagreementVerdict,
     "the stored verdict is not the fresh response's verdict");
 
