@@ -199,6 +199,14 @@ await test("(d2) the Oct 20 audit's plain phrasings land on the same intent (202
   const phrasings = [
     "what test tells you how active manganese peroxidase is in a sample",
     "how do lab people actually check if the fungi enzyme that breaks down wood is working",
+    // Before batch probe 12 (second pass): the method word sits
+    // three words into the question, so adjacency based patterns
+    // missed it, the question classified as a definition, and
+    // the foundational method lane never fired.
+    "what is the standard lab assay for manganese peroxidase activity",
+    // Before batch probe 13: the quantity word is "strong",
+    // carried after the test verb rather than before "is".
+    "how do you test how strong the wood eating enzyme from white rot fungus is",
   ];
   for (const q of phrasings) {
     assert.equal(detectMeasurementIntent(q), true, `no intent for: ${q}`);
@@ -207,7 +215,9 @@ await test("(d2) the Oct 20 audit's plain phrasings land on the same intent (202
   // Controls the new patterns must not swallow: a bare how does
   // it work mechanism ask and a how question with no check verb
   // and no working or active outcome word.
-  for (const q of ["how does a steam engine work", "how do bees make honey"]) {
+  for (const q of ["how does a steam engine work", "how do bees make honey",
+                   "what is the standard of care for diabetic foot ulcers",
+                   "what is the best treatment for acne"]) {
     assert.equal(detectMeasurementIntent(q), false, `false intent for: ${q}`);
   }
 });

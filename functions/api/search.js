@@ -6381,8 +6381,27 @@ export function detectMeasurementIntent(query) {
   // "how does X work" carries none of the outcome words and
   // stays a mechanism question, untouched.
   if (/^(?:what|which)\s+(?:test|tests|assay|assays)\b/.test(lc)) return true;
-  if (/\bhow\b[^?]*\b(?:check|test|tell|know)\b[^?]*\b(?:working|active|activity|effective|effectiveness)\b/.test(lc)) return true;
+  if (/\bhow\b[^?]*\b(?:check|test|tell|know)\b[^?]*\b(?:working|active|activity|effective|effectiveness|strong|strength)\b/.test(lc)) return true;
   if (/\bhow\s+(?:active|effective|potent|strong)\s+is\b/.test(lc)) return true;
+  // The standard assay ask (2026-10-21, search fix wave, Lane A,
+  // second pass on the completed before batch): probe 12, "what
+  // is the standard lab assay for manganese peroxidase
+  // activity", still returned intent null after the patterns
+  // above. The method word is present but not adjacent to the
+  // opening: "is the standard lab assay" puts three words
+  // between "what" and "assay", so both the original method
+  // opening (assay must follow "is the" directly) and the plain
+  // test opening (test must follow "what" directly) miss it.
+  // The question classified as a definition, the foundational
+  // method lane never fired, one rung ran, and the pool filled
+  // with nanozyme biosensing papers that match assay plus
+  // manganese as loose words. The shape here is a what or which
+  // opening whose question names an assay, method, test, or
+  // protocol anywhere in it: that naming IS the method ask,
+  // wherever in the sentence it sits. A what question naming
+  // none of those words ("what is manganese peroxidase") is
+  // untouched, exactly as before.
+  if (/^(?:what|which)\b[^?]*\b(?:assay|assays|method|methods|test|tests|protocol|protocols|procedure|procedures)\b/.test(lc)) return true;
   return false;
 }
 
