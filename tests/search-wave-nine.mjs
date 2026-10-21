@@ -364,8 +364,13 @@ await test("a recent mechanism review is not barred, and a delivery paper with t
     "a delivery paper engaging two mechanism words is still application only");
 });
 
-await test("the foundational lane cost is 5", () => {
-  assert.equal(SUBREQUEST_FOUNDATIONAL_LANE_COST, 5,
+// PIN UPDATED (2026-10-21, search diagnosis): the cost rises
+// from 5 to 6 because the method shape's lane gains a new sixth
+// call, a Crossref leg carrying the determination vocabulary to
+// the one index that holds the dedicated method papers. No
+// existing leg changed price; a new leg was added and priced.
+await test("the foundational lane cost is 6", () => {
+  assert.equal(SUBREQUEST_FOUNDATIONAL_LANE_COST, 6,
     `SUBREQUEST_FOUNDATIONAL_LANE_COST is ${SUBREQUEST_FOUNDATIONAL_LANE_COST}`);
 });
 

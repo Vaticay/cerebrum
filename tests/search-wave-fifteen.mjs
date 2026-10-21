@@ -298,8 +298,16 @@ await test("the founding form legs, the near miss wiring, and the record section
     "recordFunnelOf does not read diag.foundationalNearMisses");
   assert.ok(funnelSrc.includes("foundingQuery"),
     "recordFunnelOf does not carry the founding query");
-  assert.ok(src.includes("SUBREQUEST_FOUNDATIONAL_LANE_COST = 5"),
+  assert.ok(src.includes("SUBREQUEST_FOUNDATIONAL_LANE_COST = 6"),
     "the lane's gate price changed; the founding legs were funded inside it, not by raising it");
+  // PIN UPDATED (2026-10-21, search diagnosis): the price rises
+  // from 5 to 6 because the method shape's lane gains a genuinely
+  // new sixth call — a Crossref leg carrying the lane's
+  // determination vocabulary to the one index that holds the
+  // dedicated method papers (absent from Europe PMC and PubMed,
+  // ranked first by Crossref for that phrasing). This is not the
+  // wave fifteen re-funding the pin guards against: no existing
+  // leg changed price; a new leg was added and priced.
   // PIN UPDATED (2026-10-14, wave sixteen): v51, the serve
   // side honesty wave. The v50 entry stays as history below.
   // PIN UPDATED (2026-10-15, wave seventeen): v52, the

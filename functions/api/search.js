@@ -881,7 +881,15 @@ export const SUBREQUEST_RELAXED_NET_COST = 7;
 // nine, and Europe PMC's internal multiplication on an empty
 // formulation remains bounded by the retrieval phase's
 // absolute ceiling like every other round's overrun.
-export const SUBREQUEST_FOUNDATIONAL_LANE_COST = 5;
+// 2026-10-21 (search diagnosis): the method shape's lane gains a
+// sixth single call, a Crossref leg with the lane's determination
+// vocabulary — the dedicated method papers are absent from Europe
+// PMC and PubMed and ranked first by Crossref for that phrasing
+// (see the lane block in gatherPapersBody). The price rises to 6,
+// the method variant's true composition; the mechanism and health
+// variants still fire five and are priced at the lane's maximum,
+// as Europe PMC's internal multiplication already was.
+export const SUBREQUEST_FOUNDATIONAL_LANE_COST = 6;
 export const SUBREQUEST_RESERVE_REASON = "subrequest budget reserved for synthesis";
 export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
 // The retrieval phase's HARD allowance (2026-10-14). The reserve
@@ -6798,6 +6806,31 @@ export function foundationalFormQuery(rawQuery, dynLookup) {
     }
     return form;
   } catch { return null; }
+}
+
+// The question's named subject phrase for the method leg
+// (2026-10-21, search diagnosis): the longest multi word concept
+// group member the question's own text contains. The concept
+// groups already carry the subjects the literature phrases as
+// phrases ("manganese peroxidase" rides the wood breakdown group
+// precisely because it is the enzyme the asker's phrase
+// describes), and the phrase scan is the same one
+// questionConceptGroups runs — longest wins so a full subject
+// phrase beats a shorter incidental member. Null when the
+// question names no grouped subject phrase; the leg then falls
+// back to the lane's core term query, exactly as before.
+export function methodSubjectPhrase(rawQuery) {
+  const lc = String(rawQuery || "").toLowerCase();
+  if (!lc) return null;
+  let best = null;
+  for (const group of CONCEPT_GROUPS) {
+    for (const member of group) {
+      if (member.indexOf(" ") !== -1 && lc.includes(member)) {
+        if (!best || member.length > best.length) best = member;
+      }
+    }
+  }
+  return best;
 }
 
 // The closed set of reasons a lane returned paper fails the
@@ -14147,6 +14180,42 @@ export function isGateFunctionWord(word) {
     || GATE_FUNCTION_WORDS.has(w);
 }
 
+// Quantity and duration phrases (2026-10-21, search diagnosis):
+// a model group keyed on a phrase like "two weeks" or "six hours"
+// is a CONSTRAINT of the question, not a concept in it — the same
+// category error as a group keyed on "while" in wave eight's
+// exclusion above. Papers express durations in incomparable forms
+// (14 consecutive days, 2 wk, a fortnight), so no canonical
+// vocabulary exists for a paper to engage, and counting the phrase
+// as a concept made the two group standard unsatisfiable on the
+// diagnosis's sleep questions: the resolved set was {sleep, two
+// weeks}, every chronic restriction paper touched only sleep, and
+// the topic filter killed the whole class. The key test is narrow
+// on purpose: at least two tokens, at least one time unit token,
+// and every token a digit, a number word, an article, "of", or a
+// time unit. A concept keyed phrase that merely mentions time
+// ("sleep duration", "circadian rhythm disruption") is untouched,
+// and retrieval keeps using these groups exactly as before — they
+// simply never gate.
+const GATE_TIME_UNIT_TOKENS = new Set([
+  "second", "seconds", "minute", "minutes", "hour", "hours",
+  "day", "days", "night", "nights", "week", "weeks", "fortnight",
+  "fortnights", "month", "months", "year", "years",
+]);
+const GATE_QUANTITY_FILLER_TOKENS = new Set([
+  "one", "two", "three", "four", "five", "six", "seven", "eight",
+  "nine", "ten", "eleven", "twelve", "dozen", "couple", "few",
+  "several", "a", "an", "the", "of", "per", "every",
+]);
+export function isQuantityPhraseKey(key) {
+  const toks = String(key || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (toks.length < 2) return false;
+  if (!toks.some((t) => GATE_TIME_UNIT_TOKENS.has(t))) return false;
+  return toks.every((t) => /^\d+$/.test(t)
+    || GATE_TIME_UNIT_TOKENS.has(t)
+    || GATE_QUANTITY_FILLER_TOKENS.has(t));
+}
+
 export function gateDynLookup(query, dynLookup) {
   if (!dynLookup) return null;
   return questionConceptGroups(query, null).length >= 2 ? null : dynLookup;
@@ -14169,6 +14238,12 @@ export function gateConceptGroups(query, dynLookup) {
     const banned = new Set();
     for (const [key, set] of effective) {
       if (isGateFunctionWord(key)) banned.add(set);
+      // 2026-10-21 (search diagnosis): quantity and duration
+      // keyed groups never gate either (see isQuantityPhraseKey)
+      // — a duration is a constraint of the question, not one of
+      // its concepts, and no paper can engage it in a canonical
+      // vocabulary.
+      if (isQuantityPhraseKey(key)) banned.add(set);
     }
     if (banned.size > 0) groups = groups.filter((g) => !banned.has(g));
   }
@@ -14451,6 +14526,24 @@ export function subjectConceptGroup(query, groups, dynLookup) {
       }
     }
     const head = spanTokens.find((t) => t !== "the" && t !== "a" && t !== "an");
+    // Diagnosis amendment (2026-10-21, search diagnosis): a
+    // gerund headed span whose head is itself a member of one of
+    // the resolved groups names its concept directly — "does
+    // sleeping only six hours a night for two weeks make you
+    // worse at thinking" has the sleep group as its subject, by
+    // the question's own words. The /ing$/ guard below exists for
+    // clauses whose head names no concept at all; where the head
+    // IS a group member, the subject is the group the span's words
+    // resolve to, earliest first. The length bound counts content
+    // tokens (articles excluded): the diagnosis's span is nine
+    // raw tokens, eight of content, and a bound that counts "a"
+    // would exclude exactly the phrasing it exists for. Spans
+    // whose head names no group member are judged exactly as
+    // before.
+    const spanContentTokens = spanTokens.filter((t) => t !== "the" && t !== "a" && t !== "an");
+    if (head && spanContentTokens.length <= 8 && groups.some((g) => g.has(head))) {
+      return earliestGroupInText(spanTokens.join(" "), groups);
+    }
     const bareEntity = spanTokens.length >= 1 && spanTokens.length <= 8
       && spanTokens[0] !== "not" && spanTokens[0] !== "never" && spanTokens[0] !== "no"
       && !(head && /ing$/.test(head));
@@ -15052,8 +15145,26 @@ export function paperClearsCitationGate(paper, standard) {
       const backed = judged.filter((c) => c && (c.subject || (c.group && c.group.size > 0)));
       const useSet = backed.length > 0 ? backed : judged;
       const hits = centralConceptHits(paper, useSet);
-      if (useSet.length === 1) verdict = hits.total >= 1 && hits.inAbstract >= 1;
-      else verdict = hits.total >= 2 && hits.inAbstract >= 1;
+      // Diagnosis amendment (2026-10-21, search diagnosis): the
+      // abstract engagement requirement below cannot be judged
+      // for a paper that HAS no abstract — and the index that
+      // holds the dedicated method literature (Crossref) serves
+      // exactly those records abstract less, so the requirement
+      // silently banned the whole class at any relevance (proven
+      // by replication: the 2001 manganese peroxidase
+      // determination paper at relevance 100 fails on
+      // inAbstract 0, and the identical record with an abstract
+      // passes). The gate already holds that the title is the
+      // paper's own claim about its topic, judged as a whole
+      // (the title exception above); for an abstract less paper
+      // the title is the only claim there is, so engagement in
+      // the title satisfies the depth requirement in the
+      // abstract's place. Papers WITH abstracts are judged
+      // exactly as before.
+      const hasAbstract = String(usableAbstract(paper) || "").trim().length > 0;
+      const depthEngaged = hits.inAbstract >= 1 || (!hasAbstract && hits.inTitle >= 1);
+      if (useSet.length === 1) verdict = hits.total >= 1 && depthEngaged;
+      else verdict = hits.total >= 2 && depthEngaged;
     }
     // TAIL DISCIPLINE (2026-10-14, wave nine): on a mechanism
     // question, a paper whose only engagement is application
@@ -20137,6 +20248,7 @@ const GATHER_PAPERS_BUDGET_MS = 20000;
  * so the handler's repeated gathers (minimum results guarantee,
  * deep search) share one allowance. Callers outside the pipeline
  * pass no ledger and are unaffected. */
+
 async function gatherPapers(rawQuery, opts) {
   const phaseLedger = (opts && opts.ledger) || null;
   if (phaseLedger) phaseLedger.beginRetrievalPhase();
@@ -21504,6 +21616,37 @@ async function gatherPapersBody(rawQuery, opts) {
           openAlex(laneQuery, 12, openAlexKey, ledger, { sort: "cited_by_count:desc" }),
           semanticScholar(laneQuery, 10, s2Key, ledger, { sort: "citationCount:desc" }),
         ];
+        if (methodShape) {
+          // 2026-10-21 (search diagnosis): the method leg. The
+          // dedicated method literature for the lane's founding
+          // case — the manganese peroxidase determination papers —
+          // is not indexed in Europe PMC or PubMed at all (title
+          // and DOI lookups return zero), and Semantic Scholar
+          // and OpenAlex relevance order bury it under production
+          // papers. Crossref holds it and ranks it first, but
+          // only for a subject first determination phrasing:
+          // probed directly on 2026-10-21, "manganese peroxidase
+          // determination assay activity measurement" returned
+          // "Improvements in the determination of manganese
+          // peroxidase activity" first and the 1994 MBTH/DMBA
+          // assay paper second, while the lane's own core term
+          // query (specificity ranked: assay, activity,
+          // peroxidase — the subject's discriminating word never
+          // reaches its top three) returns generic peroxidase
+          // papers from every index. So the leg's query is the
+          // question's named subject phrase — the longest multi
+          // word concept group member the question itself
+          // contains, "manganese peroxidase" for the founding
+          // case — plus the determination vocabulary, falling
+          // back to the lane query when the question names no
+          // grouped subject phrase. One single call leg, method
+          // shape only, tagged like every lane paper.
+          const subjectPhrase = methodSubjectPhrase(rawQuery);
+          const methodQuery = subjectPhrase
+            ? subjectPhrase + " determination assay activity measurement"
+            : laneQuery;
+          laneCalls.push(crossref(methodQuery, 12, ledger));
+        }
         if (foundingForm) {
           laneCalls.push(
             europePMC(foundingForm, 12, ledger, { sort: "CITED desc" }),
@@ -22173,7 +22316,23 @@ async function gatherPapersBody(rawQuery, opts) {
          keeps it too: there is nothing else it could have
          engaged. What survives the withdrawal is the quality
          score, which is the paper's own and was never the
-         problem. */
+         problem.
+         Diagnosis amendment (2026-10-21, search diagnosis): the
+         withdrawal's body test needs a body. Crossref serves the
+         dedicated method literature (the manganese peroxidase
+         determination papers the method lane exists to find)
+         with NO abstract at all, and for those records
+         abstractGateHits is 0 by construction — the rule read
+         "no abstract deposited" as "the body engages nothing"
+         and zeroed exact title matches (proven by injection:
+         the 2001 determination paper and the 1994 MBTH assay
+         paper both scored exactly 0 with the full title phrase
+         matched). A paper with no abstract cannot be judged by
+         its abstract; the withdrawal now applies only when an
+         abstract exists to judge. Abstract less papers remain
+         the product's own admitted class (2026-10-11), and the
+         floor, the gates, and synthesis still judge them on
+         everything else they carry. */
       if ((phraseBonus + phraseTitleBonus) > 0) {
         const phraseTermSet = new Set([...phraseBonusTerms, ...phraseTitleTerms]);
         if (phraseTermSet.size > 0 && gateTerms.length > phraseTermSet.size) {
@@ -22181,7 +22340,7 @@ async function gatherPapersBody(rawQuery, opts) {
           if (otherCoreHits === 0) {
             const abstractHay = abstract.toLowerCase();
             const abstractGateHits = gateTerms.filter((t) => matcherFor(t).test(abstractHay)).length;
-            if (abstractGateHits <= 1) {
+            if (abstractGateHits <= 1 && abstract.length > 0) {
               const titleComponent = gateTerms.length ? (coreTitleHits / gateTerms.length) * 20 : 0;
               const cappedCoverage = gateTerms.length ? abstractGateHits / gateTerms.length : coreCoverage;
               match -= (phraseBonus + phraseTitleBonus) + titleComponent
