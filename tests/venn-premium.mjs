@@ -73,7 +73,14 @@ await test("neon middle purple is gone; the contesting color is muted clay", () 
   // at the token and at the feed, not at a second literal.
   assert.ok(/STANCE_TOKENS\s*=\s*\{[^}]*contest: "#B0472B"/.test(src), "muted clay contesting token missing");
   assert.ok(/contrasting: STANCE_TOKENS\.contest/.test(src), "STANCE_COLORS is not fed from the contest token");
-  assert.ok(/numColor: STANCE_COLORS\.contrasting/.test(ledger), "contesting group not on the clay numeral");
+  // Pin updated 2026-10-20 (readability residue wave): the contesting
+  // numeral is TEXT, and the canonical clay computes to 1.91 to 3.58 to 1
+  // on the dark palettes' surfaces, so the ledger now routes it through
+  // stanceInk(P, ...), which keeps the clay where it already passes
+  // (Light, 4.87 to 1) and lightens it per palette where it does not.
+  // The clay token and the STANCE_COLORS feed above are unchanged: dots
+  // and swatches still carry the canonical hue.
+  assert.ok(/numColor: stanceInk\(P, STANCE_COLORS\.contrasting\)/.test(ledger), "contesting group not on the clay numeral");
 });
 
 await test("lobes replaced by grouped stance rows under plain headings", () => {
