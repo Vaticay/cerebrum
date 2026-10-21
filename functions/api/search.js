@@ -1813,7 +1813,13 @@ export function paperRelevance(p) {
   return typeof r === "number" && Number.isFinite(r) ? r : -1;
 }
 export function applyRelevanceGate(list) {
-  return (list || []).filter((p) => paperRelevance(p) >= RELEVANCE_FLOOR);
+  // A paper tagged _subjectRescued (set only at the handler's
+  // citable set construction, for a paper paperIsCitable's
+  // subject engaging rescue admitted below the floor) survives
+  // this floor-only recheck: the recheck exists to keep below
+  // floor papers merged in later out of the evidence set, and
+  // the rescue was a judged admission, not a merge accident.
+  return (list || []).filter((p) => paperRelevance(p) >= RELEVANCE_FLOOR || (p && p._subjectRescued));
 }
 
 
@@ -3455,12 +3461,58 @@ const CONCEPT_GROUPS = [
   // builder, the gate's concept groups, the scorer, the
   // deterministic fallback) reads the concept groups.
   ["puff", "swelling", "edema", "swollen"],
+  // 2026-10-21 (search fix wave, Lane A): the restriction members
+  // ride the TAIL of the sleep group. The Oct 20 audit's sleep
+  // probes ("six hours every night for two weeks", "short nights
+  // with barely any sleep") retrieved zero on point papers in both
+  // phrasings while the canonical literature (Van Dongen 2003 and
+  // replications) is written in exactly this vocabulary: chronic
+  // sleep restriction, sleep loss, short sleep. Without these
+  // members no rung, gate, or scorer could bridge the asker's
+  // words to the papers' words deterministically; the bridge was
+  // another model expansion coin flip of the kind wave seventeen
+  // removed for puff and waste oil.
   ["sleep", "sleeping", "slept", "insomnia", "sleep deprivation",
-   "sleep duration", "sleep quality"],
+   "sleep duration", "sleep quality", "sleep restriction",
+   "sleep restricted", "chronic sleep restriction", "sleep loss",
+   "short sleep", "sleep deprived"],
   ["cold", "common cold", "rhinovirus", "upper respiratory infection",
    "upper respiratory tract infection", "respiratory infection"],
   ["waste oil", "waste cooking oil", "used cooking oil", "cooking oil",
    "used oil"],
+  // 2026-10-21 (search fix wave, Lane A): honey and wound groups.
+  // The honey probes had NO group at all: every central concept
+  // resolved bare, and "honey" separately sits in ORGANISM_WORDS
+  // (for honey bees), so honey as a treatment was judged by an
+  // organism gate it cannot pass and by bare words alone. These
+  // two groups give the gate and the structured query the same
+  // bridge the other everyday topics have: the substance and the
+  // wound it is put on, as separate concepts, so a citable paper
+  // must still engage both.
+  ["honey", "manuka honey", "medical grade honey", "honey dressing",
+   "honey dressings"],
+  ["wound", "wounds", "wound healing", "wound repair", "ulcer",
+   "ulcers", "burn", "burns", "laceration", "lacerations"],
+  // 2026-10-21 (search fix wave, Lane A): the wood breakdown
+  // bridge. A plain phrasing describes the enzyme instead of
+  // naming it ("the fungi enzyme that breaks down wood"), and no
+  // table connected that phrase to the lignin vocabulary the
+  // papers use, so expansion had nothing deterministic to stand
+  // on and the draw filled with unrelated methacrylate papers.
+  // The group's asker side members are the PHRASE and its
+  // nominal forms, never the bare word "wood": a bare member
+  // would resolve this group for every wood question (the wood
+  // frog control in the query expansion suite resolves no
+  // groups, and its standard is central terms alone). The
+  // phrase scan in questionConceptGroups finds the multi word
+  // members in the question's own text. The rest are the
+  // literature's words for the same breakdown, manganese
+  // peroxidase included, since it is the enzyme that phrase
+  // describes in the fungal literature.
+  ["breaks down wood", "breaking down wood", "wood breakdown",
+   "wood decay", "lignin", "lignocellulose", "ligninolytic",
+   "lignin degradation", "white rot", "white rot fungi",
+   "manganese peroxidase", "lignin peroxidase"],
   // 2026-10-13 (wave two): "germ"/"germs" appended at the tail. Plain
   // everyday wording for microbes had no group at all, so a question
   // asking about "the germs in a baby's belly" collapsed to the literal
@@ -3517,7 +3569,18 @@ const CONCEPT_GROUPS = [
    "bacteriophage", "bacteriophages", "phage", "phages"],
   ["protein", "proteins", "proteomic", "peptide", "peptides", "polypeptide"],
   ["climate", "warming", "temperature", "thermal", "heat"],
-  ["neuron", "neurons", "neural", "neuronal", "brain", "cortical", "cerebral"],
+  // 2026-10-21 (search fix wave, Lane A): the cognitive members
+  // ride the tail. A plain sleep question asks what happens to
+  // your BRAIN; the restriction literature answers in cognitive
+  // vocabulary (neurobehavioral functions, attention, working
+  // memory) and may never use the word brain at all, so the
+  // canonical papers engaged only one of the question's two
+  // backed concepts and failed the two concept standard no
+  // matter their score. The members are the brain literature's
+  // own outcome words, appended at the tail like the other
+  // everyday bridges.
+  ["neuron", "neurons", "neural", "neuronal", "brain", "cortical", "cerebral",
+   "cognitive", "cognition", "neurobehavioral", "attention", "working memory"],
   // Ecology / environment
   ["ecology", "ecological", "ecosystem", "ecosystems", "community", "communities",
    "biodiversity", "species richness", "assemblage"],
@@ -6301,6 +6364,44 @@ export function detectMeasurementIntent(query) {
   if (/\bhow\s+to\s+(?:measure|assay|determine|quantify|estimate|detect|assess)\b/.test(lc)) return true;
   if (/^(?:what|which)\s+(?:is\s+the\s+|are\s+the\s+)?(?:method|methods|technique|techniques|assay|assays|protocol|protocols|procedure|procedures)\b/.test(lc)) return true;
   if (/\b(?:measurement|quantification|determination)\s+of\b/.test(lc)) return true;
+  // Plain phrasings (2026-10-21, search fix wave, Lane A): the
+  // Oct 20 audit's two manganese peroxidase phrasings both
+  // returned intent null, so the method lane never fired, the
+  // cited shelf was never method ordered, and the answer cited
+  // production papers only. Neither phrasing carries a listed
+  // measurement verb: one asks "what test tells you how active
+  // X is" (the word "test" is the asker's name for the assay,
+  // and "active" is the quantity), the other asks "how do lab
+  // people actually check if the enzyme is working" (the verb
+  // is "check", the quantity is whether it is working). The
+  // patterns below are that shape and only that shape: a what
+  // or which TEST opening, a how question whose check, test,
+  // tell, or know verb is paired with a working or active
+  // outcome word, or a direct "how active is X" ask. A bare
+  // "how does X work" carries none of the outcome words and
+  // stays a mechanism question, untouched.
+  if (/^(?:what|which)\s+(?:test|tests|assay|assays)\b/.test(lc)) return true;
+  if (/\bhow\b[^?]*\b(?:check|test|tell|know)\b[^?]*\b(?:working|active|activity|effective|effectiveness|strong|strength)\b/.test(lc)) return true;
+  if (/\bhow\s+(?:active|effective|potent|strong)\s+is\b/.test(lc)) return true;
+  // The standard assay ask (2026-10-21, search fix wave, Lane A,
+  // second pass on the completed before batch): probe 12, "what
+  // is the standard lab assay for manganese peroxidase
+  // activity", still returned intent null after the patterns
+  // above. The method word is present but not adjacent to the
+  // opening: "is the standard lab assay" puts three words
+  // between "what" and "assay", so both the original method
+  // opening (assay must follow "is the" directly) and the plain
+  // test opening (test must follow "what" directly) miss it.
+  // The question classified as a definition, the foundational
+  // method lane never fired, one rung ran, and the pool filled
+  // with nanozyme biosensing papers that match assay plus
+  // manganese as loose words. The shape here is a what or which
+  // opening whose question names an assay, method, test, or
+  // protocol anywhere in it: that naming IS the method ask,
+  // wherever in the sentence it sits. A what question naming
+  // none of those words ("what is manganese peroxidase") is
+  // untouched, exactly as before.
+  if (/^(?:what|which)\b[^?]*\b(?:assay|assays|method|methods|test|tests|protocol|protocols|procedure|procedures)\b/.test(lc)) return true;
   return false;
 }
 
@@ -15087,18 +15188,80 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
 // not deleted: they remain on the shelf and reach the reader
 // through the further reading tail, which is where the cascade
 // now lives.
-export function paperIsCitable(paper, idx, gateCtx) {
+/* SUBJECT ENGAGING NEAR FLOOR RESCUE (2026-10-21, search fix
+ * wave, Lane A). The Oct 21 before batch's smoking gun: the on
+ * point waste oil paper ("Waste oil substrates reshape the
+ * black soldier fly larval gut microbiome and biomass
+ * composition during bioconversion") was excluded with the
+ * single reason "relevance 45 below the floor of 50" while the
+ * gate audit simultaneously recorded standard true and legacy
+ * true for it: the citation gate's own topicality standard
+ * judged it ON the question, and only the numeric score, five
+ * points under the floor, killed it. Several pipeline caps
+ * rest at exactly 45, and plain worded queries systematically
+ * score subject papers a few points lower than the papers' own
+ * vocabulary would (the asker's words dilute the coverage the
+ * score is built from), so a hard floor at 50 with no appeal
+ * converts near misses on the subject into false no evidence
+ * states. The rescue is the appeal, and it is narrow by
+ * construction:
+ *   . the score must sit in the near miss band, 40 to 49 (the
+ *     caps' resting value 45 is inside it; a paper at 20 or 13,
+ *     the relaxation placeholders and weak matches the batch
+ *     also measured, is not);
+ *   . the question must yield a gate standard at all, and the
+ *     paper must clear it (paperClearsCitationGate), the same
+ *     topicality verdict an above floor paper needs;
+ *   . the engagement must be subject engaging in the gate's
+ *     own accounting: at least two judged concepts engaged
+ *     with at least one engagement in the abstract body, so a
+ *     title only collision cannot use it;
+ *   . a paper a cap already judged unverifiable or role
+ *     inverted (the flags the caps stamp) is never rescued:
+ *     those caps are verdicts about the paper, not about the
+ *     query's wording.
+ * Papers the rescue admits are tagged _subjectRescued where
+ * the handler builds the citable set, so the floor only
+ * rechecks downstream can tell a judged admission from a
+ * below floor paper merged in later. */
+export const RELEVANCE_RESCUE_BAND_FLOOR = 40;
+export function subjectEngagingRescue(paper, gateCtx) {
   const p = paper || {};
-  if (paperRelevance(p) < RELEVANCE_FLOOR) return false;
+  const rel = paperRelevance(p);
+  if (rel < RELEVANCE_RESCUE_BAND_FLOOR || rel >= RELEVANCE_FLOOR) return false;
+  if (p.unverifiableAbstract || p.roleInverted) return false;
   const ctx = gateCtx || {};
   const groups = ctx.groups || [];
   const centralTerms = ctx.centralTerms || [];
   const centralConcepts = Array.isArray(ctx.centralConcepts) ? ctx.centralConcepts : [];
+  if (groups.length === 0 && centralTerms.length === 0 && centralConcepts.length === 0) return false;
+  const std = { groups, centralTerms, subjectGroup: ctx.subjectGroup || null, centralConcepts, mechanismShape: !!ctx.mechanismShape };
+  try {
+    if (!paperClearsCitationGate(p, std)) return false;
+    const hits = centralConceptHits(p, gateJudgedConcepts(std));
+    return hits.total >= 2 && hits.inAbstract >= 1;
+  } catch { return false; }
+}
+
+export function paperIsCitable(paper, idx, gateCtx) {
+  const p = paper || {};
+  const ctx = gateCtx || {};
+  const groups = ctx.groups || [];
+  const centralTerms = ctx.centralTerms || [];
+  const centralConcepts = Array.isArray(ctx.centralConcepts) ? ctx.centralConcepts : [];
+  if (paperRelevance(p) < RELEVANCE_FLOOR) {
+    // Below the floor the only road in is the subject engaging
+    // rescue (see subjectEngagingRescue above): a near miss
+    // score on a paper the gate standard itself judges on
+    // topic. Everything else below the floor stays out,
+    // exactly as before.
+    if (!subjectEngagingRescue(p, ctx)) return false;
+  }
   // No resolvable standard (no groups, no central terms, no
   // central concepts): the gate has nothing to judge with,
   // exactly its own early return, and the relevance floor alone
   // binds.
-  if (groups.length === 0 && centralTerms.length === 0 && centralConcepts.length === 0) return true;
+  if (groups.length === 0 && centralTerms.length === 0 && centralConcepts.length === 0) return paperRelevance(p) >= RELEVANCE_FLOOR;
   if (idx && ctx.existenceIdx && idx === ctx.existenceIdx) return true;
   if (Array.isArray(ctx.anchorNeedles) && ctx.anchorNeedles.length > 0) {
     const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
@@ -21991,6 +22154,52 @@ async function gatherPapersBody(rawQuery, opts) {
   // 2. Use concept-group matching (finds papers using synonym vocabulary)
   // 3. Keep anything with a real abstract and any topic word (broadest)
   let finalScored = scored;
+  // SCORER SCORE CARRY (2026-10-21, search fix wave, Lane A):
+  // the relaxation tiers below re admit papers the quality
+  // floor's FILTER dropped (the organism gate, the core hit
+  // requirement). The filter is a membership judgment; the
+  // tiers exist to relax exactly that judgment when it empties
+  // the shelf. But the tiers historically re-scored every re
+  // admitted paper from scratch with placeholder arithmetic
+  // (coverage times 40 plus an organism bonus in tier 1, a
+  // flat 20 in tier 2), discarding the relevance score the
+  // scorer above had already computed for the same paper and
+  // stored in scoredAllCapture. The Oct 21 before batch
+  // measured the cost: on the honey probes every on point
+  // paper that cleared the citation standard sat at exactly
+  // relevance 20 or 24, the tiers' placeholder scores, below
+  // RELEVANCE_FLOOR, so the gate killed papers the scorer had
+  // judged on their merits and the run shipped no results over
+  // a literature that plainly exists. The tiers now keep their
+  // admission criteria exactly as they were, but a re admitted
+  // paper the scorer already judged carries the SCORER's
+  // score (and its judged fields), the same discipline the
+  // shelf floor relaxation below already follows with
+  // scoredAllCapture. Only a paper with no captured score (it
+  // never reached the scorer) keeps the tier's placeholder
+  // score. Citation is still governed downstream by
+  // RELEVANCE_FLOOR and the citation gate, exactly as for any
+  // other shelf paper: carrying the real score makes a re
+  // admitted paper JUDGEABLE, not cited.
+  const capturedByKey = new Map();
+  for (const c of scoredAllCapture) {
+    if (!c) continue;
+    const k = paperDedupeKey(c);
+    if (k && !capturedByKey.has(k)) capturedByKey.set(k, c);
+  }
+  const withScorerScore = (crude, src) => {
+    const cap = capturedByKey.get(paperDedupeKey(src || {}));
+    if (cap && typeof cap.score === "number" && Number.isFinite(cap.score)) {
+      // The tier's own admission fields (its content hit count,
+      // its organism call) stay the tier's: the filters below
+      // judge admission by them, exactly as before. Only the
+      // SCORE is the scorer's.
+      return { ...cap, score: cap.score, relevance: null, nlGroupHits: crude.nlGroupHits || 0, emergencyRelaxed: true,
+        contentHits: crude.contentHits, contentCoverage: crude.contentCoverage, organismPresent: crude.organismPresent,
+        _tierScore: crude._tierScore };
+    }
+    return { ...crude, emergencyRelaxed: true };
+  };
   if (scored.length < 3 && merged.length > 0) {
     // Tier 1: drop organism, keep content gate
     const relaxed1 = merged
@@ -22025,7 +22234,7 @@ async function gatherPapersBody(rawQuery, opts) {
         // term frequency in precisely the draws the net exists
         // for.
         const nlGroupHits = p._nlNet ? paperConceptGroupHits(p, nlShelfGroups) : 0;
-        return { ...p, score: coreCoverage * 40 + orgBonus, contentHits: coreHits, contentCoverage: coreCoverage, organismPresent: orgPresent, relevance: null, nlGroupHits };
+        return withScorerScore({ ...p, score: coreCoverage * 40 + orgBonus, contentHits: coreHits, contentCoverage: coreCoverage, organismPresent: orgPresent, relevance: null, nlGroupHits }, p);
       })
       .filter((p) => p.contentHits > 0)
       .sort((a, b) => b.score - a.score)
@@ -22043,9 +22252,13 @@ async function gatherPapersBody(rawQuery, opts) {
           const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
           const anyHit = [...contentTerms, ...gateTerms, ...[...neutralWords]].some((t) => hay.indexOf(t) !== -1);
           const nlGroupHits = p._nlNet ? paperConceptGroupHits(p, nlShelfGroups) : 0;
-          return { ...p, score: anyHit ? 20 : 5, contentHits: anyHit ? 1 : 0, contentCoverage: anyHit ? 0.3 : 0, organismPresent: false, relevance: null, nlGroupHits };
+          return withScorerScore({ ...p, score: anyHit ? 20 : 5, _tierScore: anyHit ? 20 : 5, contentHits: anyHit ? 1 : 0, contentCoverage: anyHit ? 0.3 : 0, organismPresent: false, relevance: null, nlGroupHits }, p);
         })
-        .filter((p) => p.score > 5)
+        // Admission is judged on the tier's own score (the
+        // anyHit test above), never on a carried scorer score:
+        // a paper with no matching word stays out of this tier
+        // however well the scorer rated it for other fields.
+        .filter((p) => (typeof p._tierScore === "number" ? p._tierScore : p.score) > 5)
         .sort((a, b) => {
           // Prefer papers with more citations and abstracts
           const ca = (a.citations || 0), cb = (b.citations || 0);
@@ -22543,6 +22756,46 @@ async function gatherPapersBody(rawQuery, opts) {
             if (SUBSTRATE_ROLE_WORDS.some(w => context.includes(w))) {
               hasSubstrateRole = true;
               break;
+            }
+          }
+          // Material anchor repair (2026-10-21, search fix wave,
+          // Lane A): the phrase test above can only credit a
+          // substrate role when the paper contains the query's
+          // key phrase VERBATIM. For plain worded questions the
+          // key phrases are glued word triples no paper contains
+          // ("oil restaurants turn" on the restaurant waste oil
+          // question), so the test silently never fired, and any
+          // paper whose text also carried a product word
+          // ("production", "yield") was capped to 45, including
+          // the on point paper whose own title reads "Waste oil
+          // substrates reshape...". The role being judged is the
+          // MATERIAL's role, so the same proximity test now also
+          // runs anchored on the material words themselves (the
+          // oil, waste, fat, grease, feed, substrate words inside
+          // the key phrases): a substrate role word within the
+          // same ~100 character window of a material occurrence
+          // credits the substrate role. The product side of the
+          // test is unchanged: a paper whose material appears
+          // only beside product vocabulary, with no substrate
+          // role word near any material occurrence, is still
+          // capped exactly as before.
+          if (!hasSubstrateRole) {
+            const materialAnchors = new Set();
+            for (const phrase of _qa.keyPhrases) {
+              for (const w of String(phrase).toLowerCase().split(/[^a-z0-9]+/)) {
+                if (/^(oil|waste|fat|grease|feed|substrate|substrates)$/.test(w)) materialAnchors.add(w);
+              }
+            }
+            for (const anchor of materialAnchors) {
+              let idx = hay.indexOf(anchor);
+              let guard = 0;
+              while (idx !== -1 && guard < 8) {
+                const context = hay.substring(Math.max(0, idx - 100), Math.min(hay.length, idx + anchor.length + 100));
+                if (SUBSTRATE_ROLE_WORDS.some(w => context.includes(w))) { hasSubstrateRole = true; break; }
+                idx = hay.indexOf(anchor, idx + anchor.length);
+                guard++;
+              }
+              if (hasSubstrateRole) break;
             }
           }
           // If no substrate role found, check if it's purely a product role
@@ -25289,6 +25542,17 @@ async function runSearchPipeline(pctx) {
       try {
         const gateCtx = conceptGateContext(papers, query, _dynForValidation);
         citablePapers = papers.filter((p, i) => paperIsCitable(p, i + 1, gateCtx));
+        // Subject engaging rescue tagging (2026-10-21, search
+        // fix wave, Lane A): a citable paper whose relevance
+        // sits below RELEVANCE_FLOOR got in through
+        // paperIsCitable's rescue, a judged admission. Tag it
+        // so the floor only rechecks downstream (the final
+        // dedupe gate, the contradiction merge) keep it, the
+        // same role the gate audit's _gateAuditAdmitted tag
+        // plays at the choke point below.
+        for (const p of citablePapers) {
+          if (p && paperRelevance(p) < RELEVANCE_FLOOR) { try { p._subjectRescued = true; } catch { /* tagging is best effort */ } }
+        }
         serveGateNoEvidence = citablePapers.length === 0;
       } catch {
         // The binding must never zero a run on its own

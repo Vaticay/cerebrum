@@ -34,7 +34,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { onRequest, createSubrequestLedger, recordLegOutcome, resetLegHealth } = await import(join(root, "functions/api/search.js"));
+const { onRequest, createSubrequestLedger, recordLegOutcome, resetLegHealth,
+  paperIsCitable, subjectEngagingRescue, conceptGateContext, applyRelevanceGate } = await import(join(root, "functions/api/search.js"));
 const { getBreaker, resetBreakers } = await import(join(root, "functions/lib/llmCircuit.js"));
 
 let passed = 0;
@@ -883,6 +884,93 @@ await test("an open synthesis breaker over an empty shelf ships the honest no ev
   assert.ok(synth, "the synthesis stage record is missing");
   assert.ok((synth.failedLegs || []).some((l) => /circuit open/i.test(l.error || "")),
     "the synthesis record does not name the breaker refusals: " + JSON.stringify(synth));
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("subject engaging near floor rescue (2026-10-21, search fix wave, Lane A)");
+
+await test("a subject engaging paper scored just under the old floor becomes citable", () => {
+  // The Oct 21 before batch's smoking gun, reproduced at the
+  // binding: the waste oil paper cleared the citation standard
+  // (gateAudit standard true, legacy true) and died on the
+  // single reason "relevance 45 below the floor of 50".
+  const q = "if baby black soldier flies eat used cooking oil from restaurants do they turn out healthy";
+  const paper = {
+    title: "Waste oil substrates reshape the black soldier fly larval gut microbiome and biomass composition during bioconversion",
+    abstract: "Black soldier fly larvae (BSFL) are generalist decomposers with promise for converting agricultural and food-processing by-products into value-added bioproducts, but BSFL performance on lipid-rich waste oil streams and the role of the gut microbiome in this process remain unclear. Here, we evaluated BSFL bioconversion of a standard chicken feed diet supplemented with three chemically distinct waste oils: acidulated vegetable oil (AVO), pork grease (PG), and used cooking oil (UCO). Larval performance, bioconversion rate, gut microbiome composition, total protein and fat content, and fatty-acid profiles were measured across bioconversion. Larval age was a major driver of gut microbiome structure, but waste oil supplementation further reshaped community membership and structure, with the strongest diet-associated effects occurring during early-to-intermediate bioconversion.",
+    relevance: 45,
+  };
+  const ctx = conceptGateContext([paper], q, null);
+  assert.equal(subjectEngagingRescue(paper, ctx), true, "the rescue does not see the subject engaging near miss");
+  assert.equal(paperIsCitable(paper, 1, ctx), true, "the near miss paper is still not citable");
+  // The band is a near miss band, not a second floor at zero:
+  // the relaxation placeholder scores the batch also measured
+  // (20, 24) and anything under 40 stay out.
+  assert.equal(paperIsCitable({ ...paper, relevance: 39 }, 1, ctx), false, "a paper at 39 became citable");
+  assert.equal(paperIsCitable({ ...paper, relevance: 20 }, 1, ctx), false, "a paper at 20 became citable");
+  // A cap verdict about the paper itself (role inverted,
+  // unverifiable) is never rescued.
+  assert.equal(paperIsCitable({ ...paper, roleInverted: true }, 1, ctx), false, "a role inverted paper was rescued");
+  assert.equal(paperIsCitable({ ...paper, unverifiableAbstract: true }, 1, ctx), false, "an unverifiable paper was rescued");
+  // Junk at the same score does not ride in: it clears neither
+  // the standard nor the engagement count.
+  const junk = {
+    title: "Soil desiccation cracks in ophthalmology patients",
+    abstract: "A study of soil desiccation cracks observed in a clinic garden and eye surface dryness in patients attending an ophthalmology service in a dry season.",
+    relevance: 45,
+  };
+  assert.equal(paperIsCitable(junk, 1, ctx), false, "a junk paper at 45 became citable");
+});
+
+await test("the rescue covers the audit's other topics at the same near miss score", () => {
+  const honeyQ = "does putting honey on a cut help it heal faster or is that just an old wives tale";
+  const honeyPaper = {
+    title: "Honey: An immunomodulator in wound healing",
+    abstract: "Honey has been used in wound care for centuries. This review examines the immunomodulatory properties of honey in wound healing, its antibacterial activity, and clinical evidence for burns, ulcers and other wounds. Honey dressings modulate inflammation and support tissue repair in wound healing.",
+    relevance: 45,
+  };
+  assert.equal(paperIsCitable(honeyPaper, 1, conceptGateContext([honeyPaper], honeyQ, null)), true,
+    "the honey review at 45 is not citable");
+  const sleepQ = "what happens to your brain if you only sleep six hours every night for two weeks straight";
+  const sleepPaper = {
+    title: "The cumulative cost of additional wakefulness: dose-response effects on neurobehavioral functions and sleep physiology from chronic sleep restriction and total sleep deprivation",
+    abstract: "Chronic sleep restriction to six hours per night for fourteen days produced cumulative deficits in neurobehavioral functions, lapses of attention and working memory equivalent to total sleep deprivation, while subjective sleepiness ratings plateaued.",
+    relevance: 45,
+  };
+  assert.equal(paperIsCitable(sleepPaper, 1, conceptGateContext([sleepPaper], sleepQ, null)), true,
+    "the sleep restriction paper at 45 is not citable");
+});
+
+await test("a rescued paper survives the floor only recheck on its tag, and only on its tag", () => {
+  const tagged = { title: "x", relevance: 45, _subjectRescued: true };
+  const untagged = { title: "y", relevance: 45 };
+  const kept = applyRelevanceGate([tagged, untagged]);
+  assert.deepEqual(kept, [tagged], "the tag discipline is wrong: " + JSON.stringify(kept));
+});
+
+await test("relaxation re admission carries the scorer's score, not the flat tier score (honey shape)", async () => {
+  // The Oct 21 before batch's honey shape at the handler: the
+  // on point papers fail the shelf filter (honey sits in
+  // ORGANISM_WORDS, so the organism gate judges them), re enter
+  // only through the emergency relaxation, and at the tiers'
+  // old flat scores (20) could never be cited. With the
+  // scorer's own scores carried, the same pool cites them.
+  scenPapersFn = null;
+  scenPapers = [
+    epmc(71, "Honey: An immunomodulator in wound healing",
+      "Honey has been used in wound care and healing for centuries and is increasingly used as a wound dressing in clinical practice. This review examines the immunomodulatory properties of honey in wound healing, its antibacterial activity against wound pathogens, and the clinical evidence for burns, ulcers and surgical wounds. Honey modulates inflammation, stimulates cytokine production and supports tissue repair, and honey dressings have shown faster healing in partial thickness burns and infected wounds compared with conventional dressings in several clinical studies.", 180),
+    epmc(72, "From Bees to Bandages: Exploring Honey Nanoparticles for Effective Wound Management",
+      "Honey nanoparticles are explored as a wound management platform. Honey carries antibacterial and anti inflammatory activity, and loading honey into nanoparticle dressings improves wound closure in animal wound models. This review covers honey composition, nanoparticle formulation, antibacterial assays and wound healing outcomes, and discusses clinical translation for chronic wounds and burns.", 12),
+  ];
+  scenAnswer =
+    "Honey can help wounds heal: a review of honey as an immunomodulator in wound healing found antibacterial activity and support for tissue repair [1]. " +
+    "Honey nanoparticle dressings also improved wound closure in wound models [2].";
+  const data = await runScenario("does putting honey on a cut help it heal faster or is that just an old wives tale");
+  const cited = (data.sources || []).filter((s) => !s.uncited);
+  assert.ok(cited.length >= 1, "no honey paper cited over the stubbed pool: " + JSON.stringify((data.sources || []).map((s) => [s.title, s.relevance, s.uncited])));
+  for (const s of cited) {
+    assert.ok(s.relevance >= 50, "a cited honey paper carries a tier placeholder score instead of the scorer's: " + JSON.stringify([s.title, s.relevance]));
+  }
 });
 
 
