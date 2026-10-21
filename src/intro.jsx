@@ -115,9 +115,34 @@ const FILM_CLIPS_PORTRAIT = [
      Removed the same day: literal, bright, recognizable footage.
    Rule for anyone editing this list: pull a frame and look at it
    before the clip ships. A comment is not verification. */
+/* Photo fix 2026-10-20 (owner photo of the door on a MacBook in
+   Safari): the swirling clouds clip (20231) put large bright soft
+   patches at placard height behind the sentence and the lockup.
+   Measured, not guessed: five frames pulled across each clip on
+   2026-10-20 (ffmpeg plus a PIL luminance pass, Rec.709 luma on a
+   0 to 255 scale). 20231 opens as a bright daytime cloud scene and
+   only darkens late: first frame mean 159.5, p95 234.8, placard
+   band (middle 30 to 70 percent) mean 165.1, band p95 238.8; across
+   five frames mean 80.0, p95 mean 127.2. Even under the new door
+   grade below its band p95 still lands at 24.7, the brightest large
+   region left on the door, so it is swapped out under the task
+   rule, not merely graded harder. Its replacement is the darkest
+   frame checked calm clip, 10011 (stars): five frames, mean 1.4,
+   p95 mean 4.9, max p95 5.4, band mean 1.3, band p95 mean 4.5, and
+   the frames were looked at: a near black star field, no large
+   soft patches, nothing literal. The other calm candidates were
+   measured and rejected the same day: 15711 (night clouds label,
+   actually a literal dusk cityscape, mean 45.5, p95 142.7), 3147
+   (moon clouds, a pink dusk scene, mean 35.7, early frame mean
+   73.7), and 35007 (moon behind clouds, a blown bright moon disc,
+   mean 77.0, p95 mean 184.8, band p95 mean 220.5). 30563 stays:
+   mean 21.4, p95 mean 78.6, band p95 mean 102.5, and under the new
+   grade its mean lands at 10.4 and its band p95 at 15.7. 10011 now
+   appears in both the intro and calm reels; the lists are separate
+   picks, so the calm reel is unchanged. */
 const FILM_CLIPS_INTRO = [
-  "https://assets.mixkit.co/videos/30563/30563-720.mp4", // Flying through dark matter in space. Frame checked 2026-10-12.
-  "https://assets.mixkit.co/videos/20231/20231-720.mp4", // Swirling dark clouds. Frame checked 2026-10-12.
+  "https://assets.mixkit.co/videos/30563/30563-720.mp4", // Flying through dark matter in space. Frame checked 2026-10-12, measured again 2026-10-20.
+  "https://assets.mixkit.co/videos/10011/10011-720.mp4", // Stars rotating slowly in the night sky. Frame checked and measured 2026-10-20: darkest calm clip, swapped in for 20231 above.
 ];
 
 /* Calm reel (2026-10-08, refreshed): quieter clips for the main search page.
@@ -887,11 +912,14 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
 
    This is that restoration, and it is deliberately NOT the old film
    door's furniture returning with the film. What returns is the
-   foundation only: the ambient science reel under the one calm
-   grade every film in the app is graded with (brightness 0.30,
-   saturate 0.60, blur 12px; the 2026-10-08 ruling in shipped
-   values: atmospheric not literal, very dark, heavily blurred,
-   nothing recognizable competing with the content). The DotField
+   foundation only: the ambient science reel under a calm grade
+   (brightness 0.30, saturate 0.60, blur 12px at restoration; the
+   door grade was darkened later the same day, 2026-10-20, on the
+   owner's photo: see the wrapper comment in Intro below for the
+   shipped door values and the measurements behind them. The
+   2026-10-08 ruling stands: atmospheric not literal, very dark,
+   heavily blurred, nothing recognizable competing with the
+   content). The DotField
    and the blurred haze fields leave the door: where the field and
    the film would fight, the film wins. The fanned glass cards, the
    gradients, the glow shadows, the sheen, and the tracked caps
@@ -1044,11 +1072,23 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       fontFamily: "var(--cb-font)", background: "#05070a", color: ink,
     }}>
       {/* The film (restored 2026-10-20): the ambient science reel is
-          the door's foundation again, under the one calm grade every
-          film in the app carries. The grade is the 2026-10-08 ruling
-          in values: brightness 0.30 (very dark), saturate 0.60,
-          blur 12px (heavily blurred, so no clip reads as footage),
-          over clips that hold 11 seconds each (very slow).
+          the door's foundation again. The grade is the 2026-10-08
+          ruling in values, darkened the same day (2026-10-20) on the
+          owner's photo of this door, which showed large bright soft
+          cloud patches at placard height behind the sentence and the
+          lockup competing with the text. Door local grade only (the
+          app home film keeps its own settings): brightness 0.22
+          (very dark, down from 0.30), saturate 0.60, blur 12px
+          (heavily blurred, so no clip reads as footage), over clips
+          that hold 11 seconds each (very slow), and intensity 0.30
+          below (down from 0.50), so the solid dim layer (#0b0d10,
+          luminance 12.8) covers at opacity 0.70. Graded luminance is
+          therefore 0.066 times frame luminance plus 8.95, against
+          0.15 times plus 6.40 before. Measured 2026-10-20 on five
+          pulled frames per clip (see FILM_CLIPS_INTRO): the kept
+          dark matter clip lands at mean 10.4, p95 14.1; the swapped
+          in stars clip at mean 9.0, p95 9.3; the removed clouds clip
+          would still have landed at band p95 24.7, so it went.
           filmBlocked inside the reel stands it down to its graded
           poster still under reduced motion, Save-Data, or animation
           off, so the door never opens onto black and never moves for
@@ -1056,12 +1096,12 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           no grain: where they would fight the film, the film wins. */}
       <div aria-hidden="true" style={{
         position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-        filter: "brightness(0.30) saturate(0.60) blur(12px)",
+        filter: "brightness(0.22) saturate(0.60) blur(12px)",
       }}>
         <CinematicFilm
           reel="intro"
           animationMode={animationMode}
-          intensity={0.5}
+          intensity={0.3}
           onAutoplayBlocked={() => {}}
           onPlaybackChange={() => {}}
         />

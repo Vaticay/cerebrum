@@ -70,7 +70,12 @@ await test("workspace CinematicFilm mount exists, darker than before", () => {
   assert.strictEqual(mounts.length, 3, `expected intro+calm+workspace mounts, found ${mounts.length}`);
   const introFn = introSrc.slice(introSrc.indexOf("function Intro({"), introSrc.indexOf("function CerebrumFieldCanvas"));
   assert.ok(introFn.includes("<CinematicFilm"), "the restored intro lost the film reel");
-  assert.ok(introFn.includes('filter: "brightness(0.30) saturate(0.60) blur(12px)"'), "the door's film is not under the unified grade");
+  /* Pin updated 2026-10-20 (owner photo of the door: bright clouds
+     at placard height): the door grade darkened door locally to
+     brightness 0.22 with intensity 0.30, so the door no longer
+     carries the unified grade asserted for the shell below. The
+     shell surfaces keep the unified grade; only the door moved. */
+  assert.ok(introFn.includes('filter: "brightness(0.22) saturate(0.60) blur(12px)"'), "the door's film is not under its darker door grade");
   assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
   /* Pin updated 2026-10-19 (S7 shell lane, audit H6): the workspace reel
      no longer grades brighter than the search home. Both wrappers carry
