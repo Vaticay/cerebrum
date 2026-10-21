@@ -80,7 +80,7 @@ const WANTED = [
   /* Option quality helpers (2026-10-20, the smartness overhaul):
      the quantifier only option screen that validateCurriculum,
      cortexCourseProblem, and quizCard now call. */
-  "QUANTIFIER_OPTION_WORDS", "quantifierOnlyOption", "cardOptionQualityProblem",
+  "QUANTIFIER_OPTION_WORDS", "QUANTIFIER_SINGLE_WORDS", "quantifierOnlyOption", "cardOptionQualityProblem",
   "NUMBER_RE", "numbersIn", "hasAttributionShape", "claimSeq",
   "FLIP_WORDS", "flipDirection", "scaleNumberIn", "mutatedVariants", "nearestClaims",
   "RESTATE_WORDS", "firstWordsOf", "swapRestateWords", "stripReportFrame",

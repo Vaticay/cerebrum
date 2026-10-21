@@ -776,9 +776,18 @@ const QUANTIFIER_OPTION_WORDS = new Set([
   "were", "has", "have", "had", "do", "does", "did", "not", "nothing", "something",
   "anything", "everything", "and", "or", "but", "so", "very", "much", "too",
 ]);
+const QUANTIFIER_SINGLE_WORDS = new Set([
+  "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+  "eleven", "twelve", "twenty", "thirty", "forty", "fifty", "hundred", "thousand",
+  "none", "all", "both", "any", "every", "each", "few", "several", "many", "only", "most", "least",
+]);
 export function quantifierOnlyOption(text) {
   const words = String(text || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
   if (!words.length || words.length > 6) return false;
+  // A one word option is filler only when the word itself counts or
+  // quantities; a lone letter or article is a placeholder in shape
+  // fixtures, not a claim (2026-10-20, smartness overhaul).
+  if (words.length === 1) return QUANTIFIER_SINGLE_WORDS.has(words[0]) || /^\d+$/.test(words[0]);
   return words.every((w) => QUANTIFIER_OPTION_WORDS.has(w) || /^\d+$/.test(w));
 }
 export function cardOptionQualityProblem(card) {
