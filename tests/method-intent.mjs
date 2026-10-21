@@ -191,6 +191,27 @@ await test("(d) alternate measurement phrasings land on the same intent", () => 
   }
 });
 
+await test("(d2) the Oct 20 audit's plain phrasings land on the same intent (2026-10-21, Lane A)", () => {
+  // Both audit phrasings returned intent null live: neither
+  // carries a listed measurement verb. One names the assay
+  // "test" and the quantity "active"; the other pairs "check"
+  // with "working" and never names the enzyme at all.
+  const phrasings = [
+    "what test tells you how active manganese peroxidase is in a sample",
+    "how do lab people actually check if the fungi enzyme that breaks down wood is working",
+  ];
+  for (const q of phrasings) {
+    assert.equal(detectMeasurementIntent(q), true, `no intent for: ${q}`);
+    assert.equal(analyzeQuery(q).intent, "measurement", `analysis intent missing for: ${q}`);
+  }
+  // Controls the new patterns must not swallow: a bare how does
+  // it work mechanism ask and a how question with no check verb
+  // and no working or active outcome word.
+  for (const q of ["how does a steam engine work", "how do bees make honey"]) {
+    assert.equal(detectMeasurementIntent(q), false, `false intent for: ${q}`);
+  }
+});
+
 await test("(b) control questions carry no measurement intent", () => {
   const controls = [
     "Does manganese peroxidase activity affect lignin degradation?",
