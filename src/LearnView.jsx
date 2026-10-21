@@ -301,6 +301,12 @@ function cortexCourseProblem(course) {
       if (internalRepeat) {
         return "That file's courses section holds a question card where " + internalRepeat + ". Nothing was imported.";
       }
+      /* Option quality (2026-10-20): a quantifier only option is
+         the photographed defect in file form and is rejected. */
+      const optionQuality = cardOptionQualityProblem(card);
+      if (optionQuality) {
+        return "That file's courses section holds a question card where " + optionQuality + ". Nothing was imported.";
+      }
     }
     /* Across the lesson (2026-10-18): one passage may serve as a
        correct answer or a why at most once in a lesson. */
@@ -750,6 +756,40 @@ export function cardInternalRepeat(card) {
   return null;
 }
 
+/* Option quality (2026-10-20, the smartness overhaul): an option
+   whose every word is a quantifier or a count word claims nothing
+   about anything. "More than one" sitting beside "Two and no more,
+   ever" was the owner's photographed card: overlapping, contentless
+   options a learner can answer without knowing anything. Options
+   must be real claims, so a quantifier only option is banned in
+   authored data, in imported courses, and in generated cards.
+   Bare values are exempt by kind, not by shape: a cloze card's
+   options are the values its statement predicts, and true or false
+   options are the words True and False. */
+const QUANTIFIER_OPTION_WORDS = new Set([
+  "only", "more", "than", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+  "eleven", "twelve", "twenty", "thirty", "forty", "fifty", "hundred", "thousand",
+  "none", "them", "all", "both", "ever", "no", "at", "most", "least", "just", "exactly",
+  "same", "amount", "it", "depends", "of", "the", "a", "an", "any", "every", "each",
+  "other", "others", "few", "several", "many", "zero", "once", "twice", "single",
+  "double", "half", "whole", "part", "parts", "rest", "there", "are", "is", "was",
+  "were", "has", "have", "had", "do", "does", "did", "not", "nothing", "something",
+  "anything", "everything", "and", "or", "but", "so", "very", "much", "too",
+]);
+export function quantifierOnlyOption(text) {
+  const words = String(text || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 6) return false;
+  return words.every((w) => QUANTIFIER_OPTION_WORDS.has(w) || /^\d+$/.test(w));
+}
+export function cardOptionQualityProblem(card) {
+  if (!card || !Array.isArray(card.options)) return null;
+  if (card.kind !== "quiz" && card.kind !== "visualq" && card.kind !== "predict") return null;
+  for (const opt of card.options) {
+    if (quantifierOnlyOption(opt)) return "one of its options is a quantifier with no claim in it";
+  }
+  return null;
+}
+
 /* Across one lesson (2026-10-18): the same passage must not serve
    as a correct answer or a why in two cards. Tracked passages are
    the correct option of statement and cloze cards, the corrected
@@ -1178,6 +1218,9 @@ function quizCard(claim, allClaims, sources, opts = {}) {
     const r = restateClaim(cand);
     const k = normKey(r);
     if (!r || seenOpt.has(k)) continue;
+    /* Option quality (2026-10-20): a candidate that restates to a
+       quantifier with no claim in it is filler, never an option. */
+    if (quantifierOnlyOption(r)) continue;
     if (!withinOptionBand(r.length, answer.length)) continue;
     /* Distinctness (2026-10-18): a candidate that repeats the
        answer's passage, or a distractor already chosen, near word
@@ -1205,8 +1248,12 @@ function quizCard(claim, allClaims, sources, opts = {}) {
      as the why passage near word for word, which is what happened
      to the microbiome passage in the owner's photo, the card is
      dropped and counted by the caller instead of shipped as a
-     question whose answer and explanation are one passage twice. */
+     question whose answer and explanation are one passage twice.
+     The 2026-10-20 option quality rule rides the same gate: a
+     shipped option that is a quantifier with no claim in it drops
+     the card the same way. */
   if (cardInternalRepeat(card)) return null;
+  if (cardOptionQualityProblem(card)) return null;
   return card;
 }
 function clozeCard(claim, allClaims, sources) {
@@ -1352,6 +1399,20 @@ function RichText({ text }) {
    for the rest. The review lesson re asks each picked idea in
    a different form from the one that taught it first, falling
    back to any form that builds when the different form cannot.
+   The smartness standard (2026-10-20) as it applies to
+   generation: every option must be a real claim, enforced by
+   the quantifier only screen in quizCard and the option quality
+   gate its callers share with the authored validators; every
+   check is anchored to the lesson's own reading passage, which
+   is printed immediately before the checks, so the context a
+   check needs is on the card or in the passage right before
+   it; and a teaching lesson opens on a thinking form whenever
+   one builds. The honest limit, stated rather than dressed
+   up: deterministic generation cannot author a novel scenario
+   around a retrieved statement, so search built courses do not
+   invent situations. They teach the statements themselves and
+   check them in the three forms, dropping whatever no form
+   can carry honestly.
    Returns null when the search did not produce enough statements
    to teach from honestly. The conflicts argument is still accepted
    for caller compatibility; the old claim battle lesson quoted two
@@ -1445,14 +1506,30 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     return kept;
   };
   /* A teaching lesson: one reading passage that states the ideas
-     in plain words, then one check per idea, in the same order. */
-  const teachLesson = (id, title, subtitle, kicker, heading, chunk) => ({
-    id, title, subtitle,
-    cards: dropLessonRepeats([
-      { kind: "note", kicker, title: heading, text: chunk.map((c) => c.text).join(" ") },
-      ...chunk.map(checkFor).filter(Boolean),
-    ]),
-  });
+     in plain words, then one check per idea, in the same order.
+     Opener rule (2026-10-20): a lesson never opens its checks on
+     the plain restatement form when a thinking form built for
+     one of its statements. The earliest value prediction or term
+     in context check moves to the front; the reading passage
+     still teaches the statements in their own order, and only
+     the order of the checks changes. */
+  const teachLesson = (id, title, subtitle, kicker, heading, chunk) => {
+    const checks = chunk.map(checkFor).filter(Boolean);
+    if (checks.length > 1 && checks[0].kind === "quiz" && !checks[0].vocab) {
+      const idx = checks.findIndex((c, i) => i > 0 && (c.kind === "cloze" || c.vocab));
+      if (idx > 0) {
+        const [lead] = checks.splice(idx, 1);
+        checks.unshift(lead);
+      }
+    }
+    return {
+      id, title, subtitle,
+      cards: dropLessonRepeats([
+        { kind: "note", kicker, title: heading, text: chunk.map((c) => c.text).join(" ") },
+        ...checks,
+      ]),
+    };
+  };
 
   const first = claims.slice(0, 3);
   const second = claims.slice(3, 6);
@@ -10742,6 +10819,10 @@ export function validateCurriculum(paths = LEARNING_PATHS) {
        must not be the why passage near word for word. */
     const internalRepeat = cardInternalRepeat(card);
     if (internalRepeat) problems.push(where + ": " + card.kind + " " + internalRepeat);
+    /* Option quality (2026-10-20): options must be real claims,
+       never quantifier only filler. */
+    const optionQuality = cardOptionQualityProblem(card);
+    if (optionQuality) problems.push(where + ": " + card.kind + " " + optionQuality);
   };
   for (const path of paths || []) {
     if (!path.id || !path.title) problems.push("a path is missing its id or title");
