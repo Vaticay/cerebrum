@@ -354,6 +354,60 @@ const MAX_TURNS_JSON_LEN = 500000;
 // path skips oversized charts rather than failing the whole sync).
 const MAX_CHART_JSON_LEN = 250000;
 
+// Investigation template checklist (templatePlan). The client shape is
+// { templateId, templateTitle, topic, questions, doneQuestions } — see
+// startTemplateInvestigation and saveInvestigation in src/CerebrumApp.jsx.
+// Built in templates carry 4 questions; the caps below leave wide headroom
+// for longer topics while keeping one plan a small, bounded part of the
+// turns_json blob it rides in (that blob as a whole is still capped by
+// MAX_TURNS_JSON_LEN on the write path).
+const MAX_TEMPLATE_PLAN_QUESTIONS = 50;
+const MAX_TEMPLATE_PLAN_QUESTION_LEN = 2000;
+const MAX_TEMPLATE_PLAN_JSON_LEN = 50000;
+
+// Validate and normalize a templatePlan in either sync direction.
+// Anything that is not a plan with a non empty list of question strings
+// becomes null (no checklist), never a half shape the client would have
+// to guess at. Question strings are never sliced: a checklist question
+// only matches a turn when it is verbatim, so truncating one would
+// corrupt the checklist instead of bounding it — an over long question
+// or an over large plan drops the whole plan instead. Display only
+// fields (templateId, templateTitle, topic) are sliced like the other
+// title and topic fields in this file. doneQuestions is rebuilt as the
+// deduped subset of questions, the same invariant the client maintains
+// in saveInvestigation, so a stored plan can never claim a question
+// outside its own list was asked.
+function cleanTemplatePlan(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (!Array.isArray(raw.questions) || raw.questions.length === 0) return null;
+  if (raw.questions.length > MAX_TEMPLATE_PLAN_QUESTIONS) return null;
+  const questions = [];
+  for (const q of raw.questions) {
+    if (typeof q !== "string" || q.length === 0 || q.length > MAX_TEMPLATE_PLAN_QUESTION_LEN) return null;
+    questions.push(q);
+  }
+  const questionSet = new Set(questions);
+  const doneQuestions = [];
+  if (Array.isArray(raw.doneQuestions)) {
+    for (const q of raw.doneQuestions) {
+      if (typeof q === "string" && questionSet.has(q) && !doneQuestions.includes(q)) doneQuestions.push(q);
+    }
+  }
+  const plan = {
+    templateId: typeof raw.templateId === "string" ? raw.templateId.slice(0, 80) : null,
+    templateTitle: typeof raw.templateTitle === "string" ? raw.templateTitle.slice(0, 200) : "",
+    topic: typeof raw.topic === "string" ? raw.topic.slice(0, 500) : "",
+    questions,
+    doneQuestions,
+  };
+  try {
+    if (JSON.stringify(plan).length > MAX_TEMPLATE_PLAN_JSON_LEN) return null;
+  } catch { return null; }
+  return plan;
+}
+// Exported for unit tests (tests/template-plan-sync.mjs).
+export { cleanTemplatePlan };
+
 // Commit 74 — the founder's account.
 //
 // Driven entirely by the FOUNDER_EMAIL environment variable, never by a
@@ -1504,19 +1558,19 @@ export async function onRequest(context) {
           "SELECT id, title, turns_json, created_at, updated_at FROM user_history WHERE user_id = ? ORDER BY updated_at DESC LIMIT 200"
         ).bind(user.id).all();
         const items = (rows.results || []).map((r) => {
-          // turns_json actually holds { turns, allSources } — see the
+          // turns_json actually holds { turns, allSources, templatePlan } — see the
           // "history"/"replace-all" write path below. Named for the
           // original column purpose; kept as-is rather than adding a
           // migration for a rename that doesn't change behavior.
-          let blob = { turns: [], allSources: [] };
+          let blob = { turns: [], allSources: [], templatePlan: null };
           try { blob = JSON.parse(r.turns_json); } catch (cbErr) { console.error("[Cerebrum] data.js if: blob = JSON.parse(r.turns_json); }:", cbErr); }
-          return { id: r.id, title: r.title, turns: blob.turns || [], allSources: blob.allSources || [], createdAt: r.created_at, updatedAt: r.updated_at };
+          return { id: r.id, title: r.title, turns: blob.turns || [], allSources: blob.allSources || [], templatePlan: cleanTemplatePlan(blob.templatePlan), createdAt: r.created_at, updatedAt: r.updated_at };
         });
         return okRes({ items }, 200, cors);
       }
       // Investigation search. Searches the user's own investigation history
       // by title and turn content. The turns_json blob holds { turns,
-      // allSources }, so a LIKE on the blob covers questions, answers, and
+      // allSources, templatePlan }, so a LIKE on the blob covers questions, answers, and
       // paper titles in one pass. Scoped to the requesting user — nobody
       // else's investigations are ever visible. `q` needs 2+ characters.
       if (resource === "history" && action === "search") {
@@ -1856,7 +1910,11 @@ export async function onRequest(context) {
       const now = Date.now();
       const stmts = [env.DB.prepare("DELETE FROM user_history WHERE user_id = ?").bind(user.id)];
       for (const item of items) {
-        const turnsJson = JSON.stringify({ turns: item?.turns || [], allSources: item?.allSources || [] });
+        // templatePlan rides in the same blob, validated by
+        // cleanTemplatePlan: a malformed or oversized plan syncs as
+        // null rather than stripping the whole investigation, and the
+        // blob size check below still bounds the total, plan included.
+        const turnsJson = JSON.stringify({ turns: item?.turns || [], allSources: item?.allSources || [], templatePlan: cleanTemplatePlan(item?.templatePlan) });
         if (turnsJson.length > MAX_TURNS_JSON_LEN) {
           return errRes("An investigation is too large to sync. Existing account history has been preserved.", 413, "too_large", cors);
         }
