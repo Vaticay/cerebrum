@@ -71,6 +71,18 @@
  * marked. The door rule, the proof line, and the returning and
  * reduced behavior stand as pinned before.
  *
+ * 2026-10-20 (owner photo, later the same day): the restored door's
+ * clouds were too bright at placard height. Measured on pulled
+ * frames, the swirling clouds clip (20231) opens at mean luminance
+ * 159.5 with p95 234.8, so it left the intro reel for the darkest
+ * frame checked calm clip (10011, stars, mean 1.4), and the door
+ * grade darkened door locally: wrapper brightness 0.30 to 0.22 and
+ * intensity 0.50 to 0.30. The grade, the intensity, and the exact
+ * reel list are pinned at their sites below so the calm grade
+ * cannot silently drift brighter again. The film itself, the 11
+ * second holds, the placard, the lockup, the rotation, and the
+ * single way in are unchanged.
+ *
  * Run with: node tests/intro-title-card.mjs
  */
 
@@ -234,7 +246,15 @@ await test("the door mounts the film under the one calm grade; the field and the
   // the old glow atmosphere fields stay banned.
   assert.ok(introFn.includes("<CinematicFilm"), "the door lost the film reel");
   assert.ok(introFn.includes('reel="intro"'), "the door does not play the intro reel");
-  assert.ok(introFn.includes('filter: "brightness(0.30) saturate(0.60) blur(12px)"'), "the door's film is not under the one calm grade");
+  /* Pin updated 2026-10-20 (owner photo of the door: bright clouds
+     at placard height). The door grade is door local now and darker
+     than the app's unified grade: brightness 0.22, and the door's
+     intensity is 0.30, so the dim layer covers at 0.70. The other
+     surfaces keep brightness 0.30; only the door moved. */
+  assert.ok(introFn.includes('filter: "brightness(0.22) saturate(0.60) blur(12px)"'), "the door's film is not under its calm grade");
+  assert.ok(!introFn.includes('filter: "brightness(0.30) saturate(0.60) blur(12px)"'), "the door's film drifted back to the brighter grade");
+  assert.ok(introFn.includes("intensity={0.3}"), "the door's film intensity is not 0.30");
+  assert.ok(!introFn.includes("intensity={0.5}"), "the door's film intensity drifted back to 0.50");
   assert.ok(introFn.includes('background: "#05070a"'), "the door ground is not the film door's near black");
   assert.ok(!introFn.includes("<DotField"), "the dot field is back on the door, fighting the film");
   assert.ok(!introFn.includes("cb-intro-haze"), "the haze fields are back on the door");
@@ -324,9 +344,23 @@ await test("the film guard stands: the intro reel is the frame checked pair", ()
   // frame checked clips at build time. The door's reel is the pair
   // verified by pulled frames on 2026-10-12; the banned clips (52298
   // burning book, 5774 bright VR lab) never return as URLs.
+  // Pin updated 2026-10-20 (owner photo of the door): the second
+  // clip changed. 20231 (swirling clouds) measured bright over large
+  // regions on five pulled frames (first frame mean luminance 159.5,
+  // p95 234.8, placard band p95 238.8) and is out of the intro reel.
+  // Its replacement is 10011 (stars), the darkest frame checked
+  // calm clip, measured the same day: mean 1.4, p95 mean 4.9 across
+  // five frames, frames looked at. The exact list is pinned below
+  // so the reel cannot silently drift brighter again.
   const reel = src.slice(src.indexOf("const FILM_CLIPS_INTRO"), src.indexOf("const FILM_CLIPS_CALM"));
   assert.ok(reel.includes("videos/30563/30563-720.mp4"), "dark matter clip missing from the intro reel");
-  assert.ok(reel.includes("videos/20231/20231-720.mp4"), "dark clouds clip missing from the intro reel");
+  assert.ok(reel.includes("videos/10011/10011-720.mp4"), "stars clip missing from the intro reel");
+  assert.ok(!reel.includes("videos/20231"), "the bright clouds clip is back in the intro reel");
+  const urls = [...reel.matchAll(/https:\/\/assets\.mixkit\.co\/videos\/\d+\/[\d-]+\.mp4/g)].map((m) => m[0]);
+  assert.deepEqual(urls, [
+    "https://assets.mixkit.co/videos/30563/30563-720.mp4",
+    "https://assets.mixkit.co/videos/10011/10011-720.mp4",
+  ], "the intro reel is not the exact frame checked pair");
   assert.ok(!src.includes("videos/52298"), "the burning book clip is back");
   assert.ok(!src.includes("videos/5774"), "the bright VR lab clip is back");
 });
@@ -480,8 +514,12 @@ await test("the calm is the film under the grade, not a field of dots", () => {
   /* New pin 2026-10-20 (same verdict), replacing the 2026-10-19
      calm air pin: the door's atmosphere is the graded reel alone.
      The haze keyframes stay defined in the shell stylesheet for
-     other surfaces; the door mounts neither layer. */
-  assert.ok(introFn.includes('filter: "brightness(0.30) saturate(0.60) blur(12px)"'), "the door's calm grade is missing");
+     other surfaces; the door mounts neither layer. Pin updated
+     later on 2026-10-20 (owner photo: bright clouds at placard
+     height): the door grade darkened to brightness 0.22 with
+     intensity 0.30, door local only. */
+  assert.ok(introFn.includes('filter: "brightness(0.22) saturate(0.60) blur(12px)"'), "the door's calm grade is missing");
+  assert.ok(introFn.includes("intensity={0.3}"), "the door's dim layer intensity is missing");
   assert.ok(!introFn.includes('className="cb-intro-haze"'), "the haze layer is back on the door");
   assert.ok(!introFn.includes("<DotField"), "the dot field is back on the door");
 });
