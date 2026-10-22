@@ -604,8 +604,8 @@ await test("CACHE_SCHEMA_VERSION is v43 with the wave nine entry in its chain", 
   // citation depth wave: real concepts judging, the subject
   // serve rebuild, the static vocabulary bridges, and the
   // citable aware readmission).
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v53";'),
-    "the cache schema version was not bumped to v53");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v54";'),
+    "the cache schema version was not bumped to v54");
   assert.ok(/v44 \(2026-10-14, wave ten\)/.test(src),
     "the v44 chain entry is missing its dated reason");
   assert.ok(/v43 \(2026-10-14, wave nine\)/.test(src),

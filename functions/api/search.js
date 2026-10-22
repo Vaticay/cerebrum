@@ -2570,7 +2570,17 @@ export function isNonLiterature(p) {
 // the post scoring merges carry an explicit unscored flag and
 // face the citation standard in full, so cited sets change
 // for questions those merges feed.
-const CACHE_SCHEMA_VERSION = "v53";
+// v54 (2026-10-22, logic audit repair wave 2): expansion
+// coverage is a computed per concept state, so partial model
+// expansions gain deterministic fallback groups and digit
+// bearing alternates survive validation, changing what
+// retrieval gathers for the same words; the fanout is priced
+// and funded in priority order with refused sources recorded
+// not searched; every ladder continuation reads the on topic
+// citable count instead of raw arrivals; and draft repair
+// (bold formatting, citation retry on the request budget)
+// changes which drafted answers ship for cached questions.
+const CACHE_SCHEMA_VERSION = "v54";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
