@@ -30,12 +30,15 @@ export const OFFLINE_WAITS = "New searches, sync, and calls wait until the conne
 export const OFFLINE_SEARCH_HEADLINE = "You are offline, so this search cannot start.";
 export const OFFLINE_SEARCH_BODY = "Nothing was sent and nothing was queued. Your question is back in the box, ready to run when the connection returns.";
 
-export function OfflineNotice({ P, online }) {
+export function OfflineNotice({ P, online, isMobile = false }) {
   if (online || !P) return null;
   return (
     <div role="status" data-cb-offline-notice="true"
       style={{
-        position: "fixed", top: 0, left: 0, right: 0, zIndex: Z.banner,
+        /* 2026-10-22 (simplify audit SH10, Oct 20 M4): on mobile the
+           notice sits under the 56px header bar instead of covering
+           it for the whole outage. Desktop keeps the top edge. */
+        position: "fixed", top: isMobile ? 56 : 0, left: 0, right: 0, zIndex: Z.banner,
         background: P.surface, borderBottom: `1px solid ${P.line2 || P.line}`,
         padding: "12px 16px", display: "flex", gap: 12,
         alignItems: "flex-start", justifyContent: "center",

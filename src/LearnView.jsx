@@ -13415,7 +13415,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           <>
             <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "26px 0 10px", lineHeight: 1.3 }}>When should Nova remind you?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-              Pick a time. Nova will have your streak and your open quest waiting when you come back. You can change it later in settings.
+              Pick a time. Nova will have your streak waiting when you come back. You can change it later in settings.
             </p>
             <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
               {[{ label: "No reminder", value: null }, { label: "Morning 8 AM", value: 8 }, { label: "Midday 1 PM", value: 13 }, { label: "Evening 7 PM", value: 19 }].map((opt) => (
@@ -13479,6 +13479,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
      used to stack below it lives behind this one navigation. The
      tab is view state only; no learner data hangs off it. */
   const [homeTab, setHomeTab] = useState("today"); // today | paths | library | create
+  const [pathsView, setPathsView] = useState("paths"); // paths | catalog
   const [topic, setTopic] = useState("");
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState("");
@@ -14242,7 +14243,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ marginBottom: 30 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>REMINDERS</div>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-            Pick an hour. When you come back at that hour, Nova has your streak and your open quest waiting at the top of the home page.
+            Pick an hour. When you come back at that hour, Nova has your streak waiting at the top of the home page.
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {[{ label: "None", value: null }, { label: "7 AM", value: 7 }, { label: "9 AM", value: 9 }, { label: "1 PM", value: 13 }, { label: "6 PM", value: 18 }, { label: "9 PM", value: 21 }].map((opt) => {
@@ -14291,6 +14292,77 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           </div>
           {progressMsg && (
             <p aria-live="polite" style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "12px 0 0" }}>{progressMsg}</p>
+          )}
+        </div>
+
+        <div style={{ marginTop: 30 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>SPARKS AND LEAGUES</div>
+          <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 14px" }}>
+            You hold {profile ? profile.sparks || 0 : 0} Sparks.
+          </p>
+          {(() => {
+            const freezesNow = profile ? profile.freezes || 0 : 0;
+            const balance = profile ? profile.sparks || 0 : 0;
+            const atCap = freezesNow >= SPARKS_RATES.freezeCap;
+            const short = balance < SPARKS_RATES.freezeCost;
+            return (
+              <div style={{ marginBottom: 14 }}>
+                <button className="lv-btn" disabled={atCap || short}
+                  onClick={() => {
+                    if (!profile) return;
+                    const bought = buyStreakFreeze(profile);
+                    if (bought) { saveProfile(bought); setProfile(bought); setSparksMsg("Freeze bought. It covers one missed day."); }
+                  }}
+                  style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: atCap || short ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: atCap || short ? 0.5 : 1, width: "100%" }}>
+                  Buy a streak freeze · 50 Sparks
+                </button>
+                {(atCap || short) && (
+                  <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>
+                    {atCap ? "You already hold the most freezes you can carry." : "You need 50 Sparks for a freeze."}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+          {repairOffer && (
+            <div style={{ border: "1px solid " + accent, borderRadius: RADIUS.xl, padding: "14px 16px", marginBottom: 14 }}>
+              <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 10px" }}>
+                You missed a day. A streak of {repairOffer.lostStreak} {repairOffer.lostStreak === 1 ? "day" : "days"} ended. The offer lasts today only, and repairing it puts the missed day back.
+              </p>
+              <button className="lv-btn" disabled={(profile ? profile.sparks || 0 : 0) < repairOffer.cost}
+                onClick={() => {
+                  if (!profile) return;
+                  const repaired = applyStreakRepair(profile);
+                  if (repaired) { saveProfile(repaired); setProfile(repaired); setSparksMsg("Streak repaired."); }
+                }}
+                style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: (profile ? profile.sparks || 0 : 0) < repairOffer.cost ? 0.5 : 1, width: "100%" }}>
+                Repair the missed day · 100 Sparks
+              </button>
+              {(profile ? profile.sparks || 0 : 0) < repairOffer.cost && (
+                <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>You need 100 Sparks to repair the missed day.</p>
+              )}
+            </div>
+          )}
+          {sparksMsg && <p aria-live="polite" style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "0 0 10px" }}>{sparksMsg}</p>}
+          {/* 2026-10-22: the never buy line and the full leagues
+              closed state copy came with the section when it moved
+              from the unreachable Shop and Leagues blocks; the first
+              move shortened both and the cortex pins caught it. */}
+          <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
+            {"Sparks never buy " + SPARKS_NEVER_BUYS.join(", ") + "."}
+          </p>
+          <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 6px" }}>
+            Leagues start when enough learners are active in the same week. Until then there is nobody to rank you against, so the board stays shut. When it opens, you are put in a group of 30 and ranked on points from first time lessons and review accuracy, with a daily cap. Replays earn nothing. Joining is your choice.
+          </p>
+          <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
+            League points come from lessons and reviews. Meanwhile, your paths and daily practice are where those happen.
+          </p>
+          <button className="lv-btn" aria-pressed={!!(profile && profile.leaguesOptIn)} onClick={() => updateProfile({ leaguesOptIn: !(profile && profile.leaguesOptIn) })}
+            style={{ background: profile && profile.leaguesOptIn ? accent : "transparent", color: profile && profile.leaguesOptIn ? (at || "#101408") : P.ink, border: "1px solid " + (profile && profile.leaguesOptIn ? accent : P.line), borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}>
+            {profile && profile.leaguesOptIn ? "You are in" : "Join when leagues open"}
+          </button>
+          {profile && profile.leaguesOptIn && (
+            <p style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "10px 0 0" }}>You are in for opening day. Your place is saved.</p>
           )}
         </div>
       </div>
@@ -14407,18 +14479,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             {!tourOpen && <NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" />}
           </span>
           <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-            <h2 className="lv-stage-word" style={{ fontFamily: WORDMARK, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h2>
+            <h1 className="lv-stage-word" style={{ fontFamily: WORDMARK, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h1>
             <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "10px 0 0" }}>{CORTEX_TAGLINE}</p>
-            <div style={{ marginTop: 24 }}>
-              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TODAY'S PATH</div>
-              <div style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, lineHeight: 1.3 }}>{bandTitle}</div>
-              <span style={{ display: "block", height: 4, background: P.line, overflow: "hidden", marginTop: 10, maxWidth: 340 }}>
-                <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, width: (totalPathLessons > 0 ? Math.round((totalPathDone / totalPathLessons) * 100) : 0) + "%" }} />
-              </span>
-              <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>
-                {totalPathDone} of {totalPathLessons} path lessons done. Today's session is on this stage, just below.
-              </p>
-            </div>
           </div>
         </div>
         <div style={{ borderTop: "1px solid " + P.line, marginTop: 22, paddingTop: 18 }}>
@@ -14433,14 +14495,18 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div className="lv-band">
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>DAILY PRACTICE</div>
-            <div className="lv-nodes" role="list" aria-label={"Lessons on " + bandTitle}>
+            <button onClick={bandGo} aria-label={"Open " + bandTitle}
+              style={{ background: "none", border: "none", padding: 0, margin: "0 0 10px", cursor: "pointer", fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, lineHeight: 1.3, textAlign: "left", display: "block" }}>
+              {bandTitle}
+            </button>
+            <div className="lv-nodes" role="list" aria-label="Progress on this path">
               {bandNodes.map((n, i) => (
                 <span key={n.id} role="listitem" style={{ display: "inline-flex", alignItems: "flex-start", flexShrink: 0 }}>
                   {i > 0 && <span aria-hidden="true" style={{ display: "block", width: 16, height: 2, background: P.line, marginTop: 21 }} />}
-                  <button onClick={bandGo} title={n.title} aria-label={n.title + (n.state === "done" ? ", done" : n.state === "fading" ? ", fading, review due" : n.state === "current" ? ", next stop" : ", locked")}
+                  <span aria-hidden="true"
                     className={n.state === "current" ? "lv-pulse" : ""}
                     style={{
-                      width: 44, height: 44, borderRadius: "50%", flexShrink: 0, cursor: "pointer", padding: 0,
+                      width: 44, height: 44, borderRadius: "50%", flexShrink: 0, padding: 0, boxSizing: "border-box",
                       background: n.state === "done" ? accent : "transparent",
                       border: (n.state === "fading" ? "2px dashed " : "2px solid ") + (n.state === "done" || n.state === "current" || n.state === "fading" ? accent : P.line),
                       color: n.state === "done" ? (at || "#101408") : accent,
@@ -14451,10 +14517,16 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                     {n.state === "done" || n.state === "fading" ? (
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 L10 17 L19 7.5" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
                     ) : i + 1}
-                  </button>
+                  </span>
                 </span>
               ))}
             </div>
+            <span style={{ display: "block", height: 4, background: P.line, overflow: "hidden", marginTop: 10, maxWidth: 340 }}>
+              <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, width: (totalPathLessons > 0 ? Math.round((totalPathDone / totalPathLessons) * 100) : 0) + "%" }} />
+            </span>
+            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>
+              {totalPathDone} of {totalPathLessons} path lessons done.
+            </p>
             <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "4px 0 0" }}>
               {due.length > 0
                 ? due.length + " question" + (due.length === 1 ? " is" : "s are") + " due for the warmup."
@@ -14469,11 +14541,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 minHeight: 52, padding: "13px 20px", fontSize: FONT_SIZES.body, fontWeight: 500,
                 cursor: bundleReady ? "pointer" : "default", fontFamily: "var(--cb-font)",
               }}>
-              Start daily practice{reviewDueCount > 0 ? " · " + reviewDueCount + " due" : ""}
+              Start daily practice
             </button>
-            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: 0 }}>
-              One session, in a fixed order: a short review warmup, one new lesson, then the payoff. {totalPathDone} of {totalPathLessons} path lessons done so far.
-            </p>
           </div>
         </div>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 16, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.label, color: P.ink2 }}>
@@ -14509,9 +14578,6 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <p className="lv-sub" style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "14px 0 0", maxWidth: 620 }}>
         Each lesson teaches one part of a subject, then quizzes you on it. Paths, the catalog, and a question of your own all start from the tabs above. Finished lessons come back for review later, before they fade.
       </p>
-      <NovaTip id="today" bare state="greeting" style={{ marginTop: 18 }}>
-        Start with today's practice. The rest of the lab can wait; it has waited through worse.
-      </NovaTip>
       {novaMemoryLine && (
         <NovaTip id="memory" bare state="explaining" armed={!!novaMemoryLine} repeatAfterMs={3 * 24 * 3600 * 1000} style={{ marginTop: 18 }}>
           {novaMemoryLine}
@@ -14529,12 +14595,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       {/* The body is the review bench alone (2026-10-18,
           design audit M45). Today ends here: the practice band
           folded into her stage above, and the quests and the
-          status cards left the home with it. */}
+          status cards left the home with it. The bench renders
+          only when something is due; the due rows are its actions. */}
+      {reviewDueCount > 0 && (
       <div style={{ marginBottom: 8 }}>
         <div style={{ minWidth: 0 }}>
-          {/* the review bench: review as a place, with its due
-              count on the door. Due items are cream rows; each row
-              starts the bench, and so does the button under them. */}
           <div style={{ marginBottom: 26 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
               <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink }}>REVIEW BENCH</span>
@@ -14545,16 +14610,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             </div>
             <h2 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Due for review</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-              {reviewDueCount > 0
-                ? reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". One tap plays exactly what is due."
-                : "Nothing is due. Finished lessons land here when they start to fade. Scheduled questions arrive when their time comes."}
+              {reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". One tap plays exactly what is due."}
             </p>
-            {reviewDueCount === 0 && (
-              <NovaTip id="bench" bare state="fading" style={{ margin: "2px 0 14px" }}>
-                Nothing on the bench. Reviews land here as lessons fade. The next lesson is up top.
-              </NovaTip>
-            )}
-            {reviewDueCount > 0 && (
+            {(
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
                 {due.length > 0 && (
                   <button onClick={startReview}
@@ -14578,137 +14636,39 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 ))}
               </div>
             )}
-            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
-              Review is what keeps lessons from fading for good. It pays the usual rates. Finish a fading lesson's review and it goes back to full strength on the map.
-            </p>
-            <button className="lv-btn" onClick={startReview} disabled={reviewDueCount === 0}
-              style={{
-                background: "transparent", color: ink, border: "1px solid " + accent, borderRadius: RADIUS.lg,
-                padding: "12px 22px", fontSize: FONT_SIZES.body, fontWeight: 500,
-                cursor: reviewDueCount > 0 ? "pointer" : "default", fontFamily: "var(--cb-font)",
-                opacity: reviewDueCount > 0 ? 1 : 0.5,
-              }}>
-              Start review{reviewDueCount > 0 ? " (" + reviewDueCount + " due)" : ""}
-            </button>
           </div>
 
         </div>
 
       </div>
+      )}
 
         </>
       )}
 
-      {homeTab === "shop" && (
-        <div style={{ maxWidth: 720, marginTop: 24 }}>
-          <NovaTip id="shop" bare state="pleased" style={{ marginBottom: 16 }}>
-            The whole shop is streak freezes. You earn the Sparks by finishing things.
-          </NovaTip>
-          {/* sparks: streak protection only, earned by the loop.
-              Its own screen now (home restructure wave): the shop
-              used to sit in Today's rail, where it competed with
-              the day itself. */}
-          <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, marginBottom: 16, background: P.raised }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>SPARKS</div>
-            <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
-              You hold {profile ? profile.sparks || 0 : 0} Sparks.
-            </p>
-            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
-              You earn Sparks by finishing sessions and quests, passing checkpoints, getting a perfect lesson, and going up in rank. Sparks pay for streak protection. Nothing else.
-            </p>
-            {(() => {
-              const freezesNow = profile ? profile.freezes || 0 : 0;
-              const balance = profile ? profile.sparks || 0 : 0;
-              const atCap = freezesNow >= SPARKS_RATES.freezeCap;
-              const short = balance < SPARKS_RATES.freezeCost;
-              return (
-                <div style={{ marginBottom: 14 }}>
-                  <button className="lv-btn" disabled={atCap || short}
-                    onClick={() => {
-                      if (!profile) return;
-                      const bought = buyStreakFreeze(profile);
-                      if (bought) { saveProfile(bought); setProfile(bought); setSparksMsg("Freeze bought. It covers one missed day."); }
-                    }}
-                    style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: atCap || short ? "default" : "pointer", fontFamily: "var(--cb-font)", opacity: atCap || short ? 0.5 : 1, width: "100%" }}>
-                    Buy a streak freeze · 50 Sparks
-                  </button>
-                  {(atCap || short) && (
-                    <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>
-                      {atCap ? "You already hold the most freezes you can carry." : "You need 50 Sparks for a freeze."}
-                    </p>
-                  )}
-                </div>
-              );
-            })()}
-            {repairOffer && (
-              <div style={{ border: "1px solid " + accent, borderRadius: RADIUS.xl, padding: "14px 16px", marginBottom: 14 }}>
-                <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 10px" }}>
-                  You missed a day. A streak of {repairOffer.lostStreak} {repairOffer.lostStreak === 1 ? "day" : "days"} ended. The offer lasts today only, and repairing it puts the missed day back.
-                </p>
-                <button className="lv-btn" disabled={(profile ? profile.sparks || 0 : 0) < repairOffer.cost}
-                  onClick={() => {
-                    if (!profile) return;
-                    const repaired = applyStreakRepair(profile);
-                    if (repaired) { saveProfile(repaired); setProfile(repaired); setSparksMsg("Streak repaired."); }
-                  }}
-                  style={{ background: accent, color: at || "#101408", border: "none", borderRadius: RADIUS.lg, padding: "12px 20px", fontSize: FONT_SIZES.body, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", opacity: (profile ? profile.sparks || 0 : 0) < repairOffer.cost ? 0.5 : 1, width: "100%" }}>
-                  Repair the missed day · 100 Sparks
-                </button>
-                {(profile ? profile.sparks || 0 : 0) < repairOffer.cost && (
-                  <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>You need 100 Sparks to repair the missed day.</p>
-                )}
-              </div>
-            )}
-            {sparksMsg && <p aria-live="polite" style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "0 0 10px" }}>{sparksMsg}</p>}
-            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: 0 }}>
-              {"Sparks never buy " + SPARKS_NEVER_BUYS.join(", ") + "."}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {homeTab === "leagues" && (
-        <div style={{ maxWidth: 720, marginTop: 24 }}>
-          <NovaTip id="leagues" bare state="explaining" style={{ marginBottom: 16 }}>
-            Points from new lessons and reviews decide the ranks. Joining costs nothing. So does ignoring it.
-          </NovaTip>
-          {/* leagues: not open yet, joining is a saved choice only.
-              Its own screen now (home restructure wave), beside
-              the shop it used to share a rail with. */}
-          <div style={{ border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 20, background: P.raised }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEAGUES</div>
-            <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 6px" }}>
-              Leagues start when enough learners are active in the same week. Until then there is nobody to rank you against, so the board stays shut. When it opens, you are put in a group of 30 and ranked on points from first time lessons and review accuracy, with a daily cap. Replays earn nothing. Joining is your choice.
-            </p>
-            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
-              League points come from lessons and reviews. Meanwhile, your paths and daily practice are where those happen.
-            </p>
-            <button className="lv-btn" aria-pressed={!!(profile && profile.leaguesOptIn)} onClick={() => updateProfile({ leaguesOptIn: !(profile && profile.leaguesOptIn) })}
-              style={{ background: profile && profile.leaguesOptIn ? accent : "transparent", color: profile && profile.leaguesOptIn ? (at || "#101408") : P.ink, border: "1px solid " + (profile && profile.leaguesOptIn ? accent : P.line), borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44 }}>
-              {profile && profile.leaguesOptIn ? "You are in" : "Join when leagues open"}
-            </button>
-            {profile && profile.leaguesOptIn && (
-              <p style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, margin: "10px 0 0" }}>You are in for opening day. Your place is saved.</p>
-            )}
-          </div>
-        </div>
-      )}
-
       {homeTab === "paths" && (
         <>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 24, marginBottom: 20 }} role="group" aria-label="Paths views">
+        <button aria-pressed={pathsView === "paths"} onClick={() => setPathsView("paths")}
+          style={{ borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44, background: pathsView === "paths" ? accent : "transparent", color: pathsView === "paths" ? (at || "#101408") : P.ink, border: "1px solid " + (pathsView === "paths" ? accent : P.line) }}>
+          Paths
+        </button>
+        <button aria-pressed={pathsView === "catalog"} onClick={() => setPathsView("catalog")}
+          style={{ borderRadius: RADIUS.pill, padding: "10px 18px", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 44, background: pathsView === "catalog" ? accent : "transparent", color: pathsView === "catalog" ? (at || "#101408") : P.ink, border: "1px solid " + (pathsView === "catalog" ? accent : P.line) }}>
+          Catalog
+        </button>
+      </div>
       {/* The journey index (2026-10-18, design audit M46): one
           card per path with its cover, title, progress and stop
           count. The map itself lives in the path detail view
           only, so the two surfaces stop redrawing each other. */}
+      {pathsView === "paths" && (
       <div data-tour-anchor="paths" style={{ marginBottom: 30 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEARNING PATHS</div>
         <h2 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Your journey</h2>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
           Whole subjects, in order. Every lesson teaches first, then checks what stuck. None of it needs a search to start. Open a path to see its map and pick up where you stopped.
         </p>
-        <NovaTip id="paths" bare state="explaining" style={{ margin: "0 0 18px" }}>
-          Whole subjects, in order. Pick one and it keeps your place.
-        </NovaTip>
         {LEARNING_PATHS.map((path) => {
           const pp = pathProgress(path, builtinProgress);
           const pace = pathPaceFor(path);
@@ -14729,14 +14689,17 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, borderRadius: RADIUS.pill, width: pp.pct + "%" }} />
                 </span>
                 <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
-                  {pp.total + " stops · About " + pace.minutes + " min in all"}
+                  {"About " + pace.minutes + " min in all"}
                 </span>
               </span>
             </button>
           );
         })}
       </div>
+      )}
 
+      {pathsView === "catalog" && (
+        <>
       {/* courses from searches: heading for everything below */}
       <div style={{ marginBottom: 4 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TOPIC COURSES</div>
@@ -14823,6 +14786,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <p style={{ color: "#FF8A8A", fontSize: FONT_SIZES.body, margin: "14px 0 0" }}>{buildError}</p>
         )}
       </div>
+        </>
+      )}
         </>
       )}
 

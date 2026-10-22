@@ -93,7 +93,7 @@ import {FONT_SIZES, STATUS, PRO, COLOR, LAYOUT, accentText, relLuminance, withAl
 import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography, extractQueryTerms, highlightKeywords } from "./textUtils.js";
 
 /* Flowchart/diagram components (extracted 2026-10-07, monolith split). */
-import {FlowchartStudio, MermaidStudio, Dialog, cbMotionOff, ChromeHeader, ModalChrome } from "./flowcharts.jsx";
+import {DiagramStudio, Dialog, cbMotionOff, ChromeHeader, ModalChrome } from "./flowcharts.jsx";
 import { InboxView, ReportConductModal } from "./inbox.jsx";
 import { SettingsView } from "./settings.jsx";
 import LearnView from "./LearnView.jsx";
@@ -119,8 +119,8 @@ import {
   FILM_CREDITS, FILM_MODIFICATIONS, FilmCreditsDialog, FILM_SCENES,
   FILM_POSTER_CLIP, DOC_FILM_SRC, FILM_OPT_IN_KEY, filmForcedOn,
   setFilmForcedOn, filmBlocked, filmPoster, __filmVp9OK, __filmIosH264,
-  filmBestFile, IntroModal, HowItWorksDialog, SourcesDialog,
-  SPECIMENS, Intro, CerebrumFieldCanvas, CinematicFilm, Mark, MarkBreathe,
+  filmBestFile, SourcesDialog,
+  Intro, CerebrumFieldCanvas, CinematicFilm, Mark, MarkBreathe,
   plateHead,
 } from "./intro.jsx";
 
@@ -1745,26 +1745,9 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
 
    `explain` stays the default and is exactly what the box did before, so
    nobody who ignores all of this loses anything. */
-/* The line above the search bar.
-
-   One is chosen per page load, so the screen is not identical every time
-   you open it without anything actually changing. They are all plain
-   questions a colleague would ask — no exclamation marks, no "Let's dive
-   in", nothing that reads as an assistant performing enthusiasm. The point
-   is to hand you the floor, not to have a personality. */
-const COMPOSER_PROMPTS = [
-  "What's on your mind?",
-  "What are you trying to find out?",
-  "What are we looking into?",
-  "Where do you want to start?",
-  "What's the question?",
-  "What are you working on?",
-  "What do you want to know?",
-  "What are you curious about?",
-  "What are you chasing today?",
-  "What should we look up?",
-];
-
+/* 2026-10-22 (simplify audit SH8): COMPOSER_PROMPTS and the
+   never read composerPrompt state are deleted. The modes below
+   are the composer whole vocabulary. */
 const ASK_MODES = [
   {
     key: "explain",
@@ -2038,39 +2021,9 @@ function detectPaperIdent(text) {
   return null;
 }
 
-/* ── SearchNameplate: a quiet masthead ─────────────────────────────────────────
-   Was an engraved instrument plate — ringed mark, tracked-out caps, a mode
-   window, a spec line. Four bands of chrome before the question. Now it is
-   one small mark, the name in plain case, and a subhead in numbers. The
-   intro door carries the slogan; this doesn't repeat it. */
-function SearchNameplate({ P, accent, askMode, focused, compact, onProofClick = null }) {
-  return (
-    <div
-      className={"cb-mast" + (compact ? " cb-mast--compact" : "")}
-      style={{ "--cb-acc": accent, "--cb-ink": P.ink, "--cb-ink2": P.ink2 }}
-    >
-      <div className="cb-mast-mark" aria-hidden="true">
-        <Mark size={compact ? 22 : 28} accent={accent} glow={false} />
-      </div>
-      <div className="cb-mast-name">Cerebrum</div>
-      {/* The intro door carries the slogan; the masthead doesn't repeat it. */}
-      {/* The concrete subhead: one promise above the fold, in numbers.
-         States what the product does, not how it feels. */}
-      {!compact && (
-        onProofClick ? (
-          <button type="button" className="cb-mast-sub" onClick={onProofClick}
-            style={{ margin: "10px 0 0", padding: 0, background: "none", border: "none", cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>
-            Answers from {SCHOLARLY_SOURCES.length} scholarly databases, every claim linked.
-          </button>
-        ) : (
-          <p className="cb-mast-sub" style={{ margin: "10px 0 0", fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>
-            Answers from {SCHOLARLY_SOURCES.length} scholarly databases, every claim linked.
-          </p>
-        )
-      )}
-    </div>
-  );
-}
+/* 2026-10-22 (simplify audit SH8): SearchNameplate deleted.
+   It rendered a second masthead with a second proof line and no
+   JSX ever mounted it; the stage masthead carries both jobs. */
 
 /* ── SignalComposer: the question field ─────────────────────────────────────────
    Was a console: a bordered instrument box holding a segmented mode strip,
@@ -3012,45 +2965,9 @@ function DiveInline({ P, accent, label = "Working" }) {
   );
 }
 
-/* ── AskModePicker: mode words ──────────────────────────────────────────────────
-   Was a segmented control — five segments in a strip, the active one an
-   inverted-ink block, with a "you'll get" readout beneath. Now five plain
-   words in a row. The active mode is inked and underlined in the accent;
-   the rest sit faint. Each word keeps its blurb as a hover title.
-   aria-pressed is preserved. */
-function AskModePicker({ mode, setMode, P, accent, isMobile }) {
-  return (
-    <div
-      role="group"
-      aria-label="What do you want to do?"
-      className="cb-modes"
-      style={{
-        "--cb-acc": accent,
-        "--cb-ink": P.ink,
-        "--cb-ink2": P.ink2,
-        "--cb-faint": P.faint,
-      }}
-    >
-      {ASK_MODES.map((m, i) => {
-        const on = mode === m.key;
-        return (
-          <button
-            key={m.key}
-            type="button"
-            onClick={() => setMode(m.key)}
-            title={m.blurb}
-            aria-pressed={on}
-            className={"cb-mode" + (on ? " is-on" : "")}
-          >
-            <span className="cb-mode-idx" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span>
-            <span className="cb-mode-label">{m.label}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
+/* 2026-10-22 (simplify audit SH8): AskModePicker deleted. The
+   mode is set by the question shapeshifter in SignalComposer and
+   reset under the composer; no JSX mounted the picker. */
 
 /* Commit 98 — rewritten, and this was hiding a much larger bug than a
    cosmetic one.
@@ -9859,7 +9776,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
            both live here now, nothing lost. Paper composes the formal
            academic reformat (buildAcademicPaperBlocks) first, then prints —
            a real reformat of what's on screen, not a second AI call. */
-        id: "flowchart", label: "Flowchart", icon: "flowchart", hint: "diagram",
+        id: "flowchart", label: "Diagram", icon: "flowchart", hint: "diagram",
         onClick: () => onShowFlowchart(t),
       }, {
         /* 2026-10-19 (S2, tail 14): no fixed composing delay. Setting
@@ -20546,11 +20463,17 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
   /* Flat nav: no section labels, no groups. The sidebar is a toolbelt,
      not a dashboard. Items are ordered by use: search first, then the
      instruments, then the working surfaces. */
+  /* 2026-10-22 (simplify audit SH1): one search row in the rail.
+     New search and Search both landed here and differed only by a
+     session reset, so the two rows are merged into the single New
+     search row at the top, which is where the owner's 2026-10-13
+     sidebar ruling puts it. The new case runs the reset and lands
+     on the search view; every other route to the search view
+     (logo, palette, mobile Home) is unchanged. */
   const NAV_ITEMS = [
     ["new", "New search", "plus"],
-    ["search", "Search", "search"],
     ["document", "Document Reader", "bookOpen"],
-    ["studio", "Diagram Studio · Code diagram", "flowchart"],
+    ["studio", "Diagram Studio", "flowchart"],
     ["trending", "Trending", "chart"],
     ["investigations", "Investigations", "history"],
     ["library", "Library", "bookmark"],
@@ -22632,7 +22555,6 @@ function App() {
   const [mobilePanel, setMobilePanel] = useState(false);
   /* Chosen once per mount, not per render — a line that reshuffled every
      time React re-rendered would flicker while you type. */
-  const [composerPrompt] = useState(() => COMPOSER_PROMPTS[Math.floor(Math.random() * COMPOSER_PROMPTS.length)]);
   const [settingsInitialTab, setSettingsInitialTab] = useState("answers");
   /* 2026-10-16 (audit finding 3): the PaperDrawer component no longer
      exists anywhere in the tree, so its state is gone too. Source cards
@@ -23713,7 +23635,7 @@ function App() {
     if (!user || !syncReady) return;
     clearTimeout(flowchartsSyncTimer.current);
     flowchartsSyncTimer.current = setTimeout(() => {
-      apiDataPost("flowcharts", { action: "replace-all", items: flowcharts }).catch(() => toast("Evidence maps could not sync to your account. Your browser copy is still available; check your connection before closing.", { tone: "error" }));
+      apiDataPost("flowcharts", { action: "replace-all", items: flowcharts }).catch(() => toast("Diagrams could not sync to your account. Your browser copy is still available; check your connection before closing.", { tone: "error" }));
     }, 900);
     return () => clearTimeout(flowchartsSyncTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -23935,6 +23857,35 @@ function App() {
   const handleSidebarNavigateRef = useRef(handleSidebarNavigate);
   useEffect(() => { handleSidebarNavigateRef.current = handleSidebarNavigate; });
   const stableSidebarNavigate = useCallback((key) => handleSidebarNavigateRef.current(key), []);
+
+  /* Diagram Studio save (2026-10-22, simplify audit D4 and R21): one
+     save path for the page studio and the answer dialog. New diagrams
+     are metered: free accounts get 1 every 5 days, Lite 10, Pro
+     unlimited, and saving a new one requires a signed in account.
+     Re saving an existing diagram never counts. The server is the
+     authority; this routes people to the right door first. Returns
+     the saved diagram id on success and false when the save did not
+     happen, so the studio only says Saved when a save truly landed.
+     Sources ride along on the record so a reopened diagram keeps the
+     papers its evidence steps cite (audit D6). */
+  const saveDiagramRecord = async ({ id, title, nodes, edges, sources }) => {
+    const existingId = id || (flowchartOpen && flowchartOpen.chartId) || null;
+    if (!existingId) {
+      if (!user) { setAuthInitialTab("signin"); setAuthOpen(true); return false; }
+      if (!user.isPro) {
+        let allow = null;
+        try { allow = await apiProPost("flowchart-allow", {}); } catch { allow = null; }
+        if (!allow || !allow.allowed) { openPro(proStatus?.tier === "lite" ? "annual" : "lite-monthly"); return false; }
+        refreshPro();
+      }
+    }
+    const recId = existingId || fcId("chart");
+    const rec = { id: recId, title, nodes, edges, updatedAt: Date.now() };
+    if (Array.isArray(sources) && sources.length) rec.sources = sources;
+    setFlowcharts((prev) => [rec, ...prev.filter((c) => c.id !== recId)]);
+    if (flowchartOpen) setFlowchartOpen((prev) => (prev ? { ...prev, chartId: recId, title } : prev));
+    return recId;
+  };
   const handleSidebarCloseMobile = useCallback(() => setSidebarMobileOpen(false), []);
   const handleToggleMute = useCallback(() => setMuted((m) => !m), []);
   const handleLogoClick = useCallback(() => { sfx(); setEntered(false); setView("search"); }, [sfx]);
@@ -23948,9 +23899,8 @@ function App() {
 
   const commands = [
     { label: "New search", hint: kbdLabel("J"), run: () => newSession() },
-    { label: "New evidence map", run: () => { setCmdOpen(false); setFlowchartOpen({ title: "Untitled evidence map", chartId: null }); } },
+    { label: "New diagram", run: () => { setCmdOpen(false); setView("studio"); } },
     { label: "Open your library", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setView("library"); } },
-    { label: "Open Diagram Studio · Code diagram", run: () => { setCmdOpen(false); setView("studio"); } },
     { label: "Open your investigations", run: () => { setCmdOpen(false); setView("investigations"); } },
     // Collections' header button is desktop-only (there's no room for it in
     // the mobile header), but this palette is available on every viewport —
@@ -24172,7 +24122,9 @@ function App() {
     : FIRST_RUN_QUESTIONS.slice(0, 3);
   /* The footer strip's traced claim turns over daily: deterministic
      within a day, so it never flickers between renders. */
-  const stageSpecimen = SPECIMENS[Math.floor(Date.now() / 86400000) % SPECIMENS.length];
+  /* stageSpecimen left with the stage footer specimen on
+     2026-10-22 (simplify audit SH7); SPECIMENS still feeds the
+     intro door through intro.jsx. */
   const relColor = (r) => r >= 65 ? statusGood(P) : r >= 45 ? statusWarn(P) : P.faint;
   const relLabel = (r) => r >= 65 ? "strong" : r >= 45 ? "partial" : "weak";
   // Used to color-code Preprint/Reference/Dataset badges differently from
@@ -24302,13 +24254,19 @@ function App() {
       {/* Nova's sidebar discovery pop: for anyone who has never
           opened the Nova tab, she slides out from behind the
           sidebar now and then and invites them in (src/NovaSidebarPop.jsx). */}
-      <NovaSidebarPop searchRunning={busy} inCall={!!activeHuddle || !!incomingCall} novaOpen={view === "learn"} railCollapsed={railCollapsed} isMobile={isMobile} onOpenNova={() => handleSidebarNavigateRef.current("learn")} />
+      {/* 2026-10-22 (simplify audit SH11): the pop mounts only once
+          this visitor has a completed search behind them (a turn on
+          screen or a history to come back to), so a first session is
+          consent, entry, and one search with no pop in it. */}
+      {(turns.length > 0 || (history && history.length > 0)) && (
+        <NovaSidebarPop searchRunning={busy} inCall={!!activeHuddle || !!incomingCall} novaOpen={view === "learn"} railCollapsed={railCollapsed} isMobile={isMobile} onOpenNova={() => handleSidebarNavigateRef.current("learn")} />
+      )}
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
       <a href="#cb-search" className="cb-skip-link cb-skip-link--second" onClick={(e) => { e.preventDefault(); inputRef.current?.focus({ preventScroll: false }); }}>Skip to search</a>
       {/* Shell offline state (2026-10-20, design audit M6): renders
           only while the connection monitor reports offline and
           clears itself when the connection returns. */}
-      <OfflineNotice P={P} online={online} />
+      <OfflineNotice P={P} online={online} isMobile={isMobile} />
       {/* Screen-reader search announcer: announces "Searching..." when a
           query starts and "Answer ready, N sources" when it completes.
           Visually hidden, never affects layout. */}
@@ -24443,7 +24401,10 @@ function App() {
           backgroundImage: `url("${filmPoster(enterClip)}")`,
         }} />
       )}
-      <div style={S.grain} />
+      {/* 2026-10-22 (simplify audit SH9): the fixed S.grain layer is
+          gone. The search view keeps its atmosphere grain and other
+          views keep the cb grain layer near the end of the tree; no
+          screen stacks a third copy of the same texture. */}
       {filmCreditsOpen && <FilmCreditsDialog accent={accent} onClose={() => setFilmCreditsOpen(false)} />}
 
       {updateReady && <VersionBanner P={P} accent={accent} isMobile={isMobile} onRefresh={() => window.location.reload()} onDismiss={() => setUpdateReady(false)} />}
@@ -24502,7 +24463,7 @@ function App() {
           clear the 64px nav plus inset. */}
       {isMobile && <style>{`body{padding-bottom:calc(72px + env(safe-area-inset-bottom)) !important;}`}</style>}
       {isMobile && (() => {
-        const VIEW_TITLES = { search: "Search", document: "Document Reader", studio: "Diagram Studio · Code diagram", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile", learn: "Nova" };
+        const VIEW_TITLES = { search: "Search", document: "Document Reader", studio: "Diagram Studio", trending: "Trending", investigations: "Investigations", library: "Library", collections: "Collections", usage: "Usage", inbox: "Inbox", people: "Find People", settings: "Settings", profile: "Profile", learn: "Nova" };
         let headerTitle = VIEW_TITLES[view] || "Cerebrum";
         if (view === "search" && turns.length > 0 && (history || []).length > 0) {
           const recent = [...history].sort((a, b) => (b.lastOpened || b.ts || 0) - (a.lastOpened || a.ts || 0))[0];
@@ -24544,21 +24505,11 @@ function App() {
               <div style={{ flex: 1, minWidth: 0, padding: "0 6px" }}>
                 <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{headerTitle}</div>
               </div>
-              <button onClick={() => { sfx(); stableSidebarNavigate("inbox"); }}
-                aria-label={unreadCount ? `Inbox, ${unreadCount} unread` : "Inbox"} title="Inbox"
-                style={{ width: 44, height: 44, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", color: P.ink2, cursor: "pointer", position: "relative", flexShrink: 0 }}>
-                <Icon name="mail" size={18} />
-                {unreadCount > 0 && <span style={{ position: "absolute", top: 9, right: 9, width: 10, height: 10, borderRadius: "50%", background: "#e5484d", border: `2px solid ${P.bg}` }} aria-hidden="true" />}
-              </button>
-              <button onClick={() => { sfx(); stableSidebarNavigate("profile"); }}
-                aria-label={user ? "Account" : "Sign in"} title={user ? "Account" : "Sign in"}
-                style={{ width: 44, height: 44, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", flexShrink: 0 }}>
-                {user ? (
-                  <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", ...avatarSkin(user.email || user.id || "cerebrum") }}>{(user.email || "?")[0].toUpperCase()}</span>
-                ) : (
-                  <Icon name="user" size={18} style={{ color: P.ink2 }} />
-                )}
-              </button>
+              {/* 2026-10-22 (simplify audit SH3): Inbox and Account
+                  left the mobile header. The bottom nav carries both,
+                  with the unread badge, so the header is menu and
+                  title only and nothing on this screen is offered
+                  three times. */}
             </div>
             <nav aria-label="Primary" style={{
               position: "fixed", bottom: 0, left: 0, right: 0, zIndex: Z.headerBar,
@@ -24724,24 +24675,27 @@ function App() {
 
                 {/* One plain line about what this is, then the
                     composer. A tool people use, not a manifesto. */}
+                {/* 2026-10-22 (simplify audit SH4): the sentence and
+                    the proof line are one block now, one statement
+                    with one link in it, instead of two stacked blocks
+                    saying the same thing. The proof control keeps the
+                    label role (13) it rose to in the 2026-10-20
+                    readability wave; it opens the sources dialog. */}
                 <p style={{
                   margin: "20px 0 0", fontSize: FONT_SIZES.body, lineHeight: 1.55,
                   color: P.ink2, maxWidth: "62ch",
                 }}>
                   Ask a question and get an answer from the research papers, with the sources attached.
+                  <br />
+                  <button type="button" onClick={() => setProvenanceOpen(true)}
+                    style={{
+                      margin: "6px 0 0", padding: 0, background: "none", border: "none", cursor: "pointer",
+                      textAlign: "left", fontSize: FONT_SIZES.label, lineHeight: 1.6, color: P.faint,
+                      fontFamily: "var(--cb-font)",
+                    }}>
+                    Answers from {SCHOLARLY_SOURCES.length} scholarly databases, every claim linked.
+                  </button>
                 </p>
-                <button type="button" onClick={() => setProvenanceOpen(true)}
-                  style={{
-                    margin: "8px 0 0", padding: 0, background: "none", border: "none", cursor: "pointer",
-                    /* 2026-10-20, readability residue wave: the stage
-                       proof line rises from the caption role (12) to
-                       the label role (13); it is a working control
-                       that opens the sources dialog, not metadata. */
-                    textAlign: "left", fontSize: FONT_SIZES.label, lineHeight: 1.6, color: P.faint,
-                    fontFamily: "var(--cb-font)",
-                  }}>
-                  Answers from {SCHOLARLY_SOURCES.length} scholarly databases, every claim linked.
-                </button>
 
                   {/* The composer as an instrument. */}
                   <div style={{ marginTop: isMobile ? 22 : 26 }}>
@@ -24833,42 +24787,12 @@ function App() {
                     </div>
                   )}
 
-                  {/* Trending, one quiet row (2026-10-19, S7 shell lane,
-                      audit tail 11): the home names the Trending view
-                      once, under Try asking, in the same ruled list
-                      language, and sends you there. It carries no feed
-                      of its own. */}
-                  {!input.trim() && (
-                    <div style={{ marginTop: 26 }}>
-                      <button type="button" className="cb-stage-inq"
-                        onClick={() => setView("trending")}
-                        style={{
-                          display: "flex", alignItems: "baseline", gap: 14,
-                          width: "100%", textAlign: "left", background: "none",
-                          border: "none", borderTop: `1px solid ${P.line}`,
-                          padding: "13px 0", cursor: "pointer",
-                        }}>
-                        <span style={{ fontFamily: "var(--cb-font)", flex: 1, fontSize: 13, lineHeight: 1.55, color: P.ink2 }}>
-                          Trending in research, updated through the day
-                        </span>
-                        <span aria-hidden="true" style={{ color: accent, fontSize: 14 }}>&#8594;</span>
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Signed out visitors get one plain line with an
-                      action (2026-10-19, audit tail 11); until now the
-                      stage they saw was identical to a signed in one. */}
-                  {!user && (
-                    <div style={{ marginTop: 26, borderTop: `1px solid ${P.line}`, paddingTop: 14, display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" }}>
-                      <span style={{ fontFamily: "var(--cb-font)", fontSize: 13, lineHeight: 1.55, color: P.ink2, flex: 1, minWidth: 220 }}>
-                        You are browsing signed out. Sign in to save investigations and pick them up on another device.
-                      </span>
-                      <button type="button" onClick={() => { setAuthInitialTab("login"); setAuthOpen(true); }} className="cb-stage-textbtn" style={{ color: accent, fontWeight: 500, fontSize: 13 }}>
-                        Sign in
-                      </button>
-                    </div>
-                  )}
+                  {/* 2026-10-22 (simplify audit SH3 and SH4): the
+                      stage Trending row and the stage Sign in row are
+                      gone. Trending lives in the sidebar alone, and
+                      sign in lives in the sidebar and the mobile
+                      bottom nav. The stage offers one thing: the
+                      question. */}
 
                   {/* Your work, at the stage's own width and left
                       edge. The deck component is unchanged; only its
@@ -24877,6 +24801,12 @@ function App() {
                   {/* The bare count line that used to sit here is cut
                       (2026-10-19, audit M12): it repeated the deck's own
                       counts with no label and no action. */}
+                  {/* 2026-10-22 (simplify audit SH6): the deck and
+                      its 36px spacer mount only when the deck has
+                      something to say. A true first visit (signed out,
+                      no last question, nothing saved) skips the whole
+                      block instead of rendering a blank band. */}
+                  {(user || stageLastQ || (saved && saved.length > 0)) && (
                   <div style={{ marginTop: 36 }}>
                     <HomeDeck
                       suppressContinue
@@ -24890,26 +24820,13 @@ function App() {
                       onOpenSaved={() => setView("library")}
                     />
                   </div>
-
-                  {/* The footer strip: one claim, its paper, and
-                      the way through to it. It needs no label; the
-                      quote and the paper say what it is. */}
-                  <div style={{ marginTop: 44, borderTop: `1px solid ${P.line}`, paddingTop: 14 }}>
-                    <p style={{
-                      /* The door's claim treatment (2026-10-19, S7 shell lane,
-                         audit tail 9): upright serif at the section size,
-                         weight 400, 1.55. No italics, no second size. */
-                      margin: "0", fontFamily: "var(--cb-serif)",
-                      fontStyle: "normal", fontSize: FONT_SIZES.section, fontWeight: 400, lineHeight: 1.55, color: P.ink2,
-                    }}>&ldquo;{stageSpecimen.claim}&rdquo;</p>
-                    <p style={{ margin: "16px 0 0", paddingTop: 12, borderTop: `1px solid ${P.line}`, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, lineHeight: 1.6, color: P.faint }}>
-                      {stageSpecimen.paper}{" "}
-                      <a href={stageSpecimen.doi} target="_blank" rel="noopener noreferrer"
-                        style={{ color: accent, textDecoration: "none", fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: FONT_SIZES.caption }}>
-                        Open the paper &#8599;
-                      </a>
-                    </p>
-                  </div>
+                  )}
+                  {/* 2026-10-22 (simplify audit SH4 and SH7): the
+                      stage footer specimen is deleted. It set an
+                      unrelated claim at the largest type on the
+                      stage, under the users own work, and repeated
+                      the proof line in a second form. Specimens live
+                      on the intro door, where they belong. */}
               </div>
               {provenanceOpen && <SourcesDialog P={P} accent={accent} onClose={() => setProvenanceOpen(false)} />}
             </Reveal>
@@ -25079,7 +24996,19 @@ function App() {
           comment for why it stopped being an overlay. */}
       {view === "studio" && (
         <Reveal style={S.pageView} deps={[view]}>
-          <MermaidStudio P={P} accent={accent} at={at} isMobile={isMobile} />
+          {/* 2026-10-22 (simplify audit R21): one Diagram Studio.
+              The code editor that used to mount here is gone; the
+              page studio and the answer dialog are the same tool
+              with the same steps model and the same save path. */}
+          <DiagramStudio
+            P={P} accent={accent} at={at} isMobile={isMobile}
+            latestAnswer={(turns.length && turns[turns.length - 1].answer)
+              ? { title: turns[turns.length - 1].q || "Your last answer", answerText: turns[turns.length - 1].answer, sources: turns[turns.length - 1].sources || [] }
+              : null}
+            savedPapers={saved}
+            diagrams={flowcharts}
+            onSave={saveDiagramRecord}
+          />
         </Reveal>
       )}
       {view === "document" && (
@@ -25137,7 +25066,7 @@ function App() {
             <div style={{ display: "flex", flexWrap: "wrap", border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, marginBottom: 30, overflow: "hidden" }} aria-label="Library categories">
               {[
                 { key: "papers", label: "Saved papers", count: saved.length, go: () => scrollToLibSection("lib-papers") },
-                { key: "maps", label: "Evidence maps", count: flowcharts.length, go: () => scrollToLibSection("lib-maps") },
+                { key: "maps", label: "Diagrams", count: flowcharts.length, go: () => scrollToLibSection("lib-maps") },
                 { key: "exports", label: "Exports", count: exportLog.length, go: () => scrollToLibSection("lib-exports") },
               ].map((c, i) => (
                 <button key={c.key} onClick={c.go}
@@ -25325,35 +25254,35 @@ function App() {
               Nova, and one top level heading. */}
           <div id="lib-maps" style={{ scrollMarginTop: 80, marginTop: 44 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-              <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Evidence maps</h2>
+              <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Diagrams</h2>
               {flowcharts.length > 0 && (
                 <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.ink2, background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, padding: "4px 11px", borderRadius: RADIUS.pill, fontVariantNumeric: "tabular-nums" }}>{flowcharts.length}</span>
               )}
               <div style={{ marginLeft: isMobile ? 0 : "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" variant="primary" onClick={() => { sfx(); setFlowchartOpen({ title: "Untitled evidence map", chartId: null }); }}>New evidence map</UIButton>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" variant="primary" onClick={() => { sfx(); setView("studio"); }}>New diagram</UIButton>
               </div>
             </div>
-            <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>Evidence maps you've built: processes, decisions and claim diagrams. They sync to your account when you're signed in, and stay in this browser when you're not.</p>
+            <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>Diagrams you've built from answers, papers, and your own steps. They sync to your account when you're signed in, and stay in this browser when you're not.</p>
             {flowcharts.length === 0 ? (
               <WorkspaceEmpty P={P} accent={accent} icon="flowchart"
-                title="No evidence maps yet"
-                body="Map a mechanism, a method, or a decision the literature describes. You can draft one straight from any answer, or start blank."
-                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => { sfx(); setFlowchartOpen({ title: "Untitled evidence map", chartId: null }); }}>Open evidence map studio</UIButton>} />
+                title="No diagrams yet"
+                body="Diagram a mechanism, a method, or a decision the literature describes. You can draft one straight from any answer, or write the steps yourself."
+                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => { sfx(); setView("studio"); }}>Open Diagram Studio</UIButton>} />
             ) : (
-              <div role="list" aria-label="Saved evidence maps" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflow: "hidden", background: P.surface }}>
+              <div role="list" aria-label="Saved diagrams" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflow: "hidden", background: P.surface }}>
                 {flowcharts.map((fc, i) => (
                   <div key={fc.id} role="listitem" style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
-                    <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }} aria-label={`Open ${fc.title || "untitled evidence map"}`}
+                    <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }} aria-label={`Open ${fc.title || "untitled diagram"}`}
                       style={{ width: 64, height: 48, flexShrink: 0, padding: 0, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, background: "none", cursor: "pointer", overflow: "hidden" }}>
                       <FcThumb chart={fc} accent={accent} />
                     </button>
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }}
                         style={{ display: "block", width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>
-                        {fc.title || "Untitled evidence map"}
+                        {fc.title || "Untitled diagram"}
                       </button>
                       <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)" }}>
-                        {(fc.nodes || []).length} node{(fc.nodes || []).length === 1 ? "" : "s"} · {(fc.edges || []).length} arrow{(fc.edges || []).length === 1 ? "" : "s"}
+                        {(fc.nodes || []).filter((n) => n.type !== "start" && n.type !== "end").length} step{(fc.nodes || []).filter((n) => n.type !== "start" && n.type !== "end").length === 1 ? "" : "s"} · {(fc.edges || []).length} arrow{(fc.edges || []).length === 1 ? "" : "s"}
                         {fc.updatedAt ? ` · ${new Date(fc.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}
                       </span>
                     </span>
@@ -26000,33 +25929,19 @@ function App() {
       )}
       {evidenceTableSources && <EvidenceTableModal P={P} accent={accent} at={at} sources={evidenceTableSources} close={() => setEvidenceTableSources(null)} />}
       {flowchartOpen && (
-        <FlowchartStudio
+        /* 2026-10-22 (simplify audit R21): the answer dialog is the
+           same Diagram Studio as the page, in dialog dress. Saving
+           runs through saveDiagramRecord above, which returns false
+           when no save happened, so the studio never flashes Saved
+           over a sign in or plan wall (audit D4). */
+        <DiagramStudio
+          dialog
           P={P} accent={accent} at={at} isMobile={isMobile}
           initial={flowchartOpen.chartId ? flowcharts.find((c) => c.id === flowchartOpen.chartId) : flowchartOpen}
           docTitle={flowchartOpen.title}
           answerText={flowchartOpen.answerText}
           sources={flowchartOpen.sources}
-          onSave={async ({ title, nodes, edges }) => {
-            // New charts are metered: free accounts get 1 per month, Pro is
-            // unlimited, and saving requires a signed-in account. Re-saving
-            // an existing chart never counts. The server is the authority —
-            // this just routes people to the right door first.
-            if (!flowchartOpen.chartId) {
-              if (!user) { setAuthInitialTab("signin"); setAuthOpen(true); return; }
-              if (!user.isPro) {
-                let allow = null;
-                try { allow = await apiProPost("flowchart-allow", {}); } catch { allow = null; }
-                /* 2026-10-08: preselect the right tier — a free user hitting
-                   the flowchart cap wants Lite, a Lite user wants Pro. */
-                if (!allow || !allow.allowed) { openPro(proStatus?.tier === "lite" ? "annual" : "lite-monthly"); return; }
-                refreshPro();
-              }
-            }
-            const id = flowchartOpen.chartId || fcId("chart");
-            const rec = { id, title, nodes, edges, updatedAt: Date.now() };
-            setFlowcharts((prev) => [rec, ...prev.filter((c) => c.id !== id)]);
-            setFlowchartOpen((prev) => (prev ? { ...prev, chartId: id, title } : prev));
-          }}
+          onSave={saveDiagramRecord}
           onClose={() => setFlowchartOpen(null)}
         />
       )}
@@ -26285,7 +26200,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 button:not(.cb-cite):not(.cb-anchor),
 [role="button"],
 [role="tab"],
-.cb-mode, .cb-pill, .cb-starter-item {
+.cb-pill, .cb-starter-item {
   /* 2026-10-16 layout fix (finding 20): the important flag is what makes
      this a floor. Without it, later class rules with smaller sizes
      outranked it and the 44px minimum failed in practice. */
@@ -27043,25 +26958,8 @@ summary::-webkit-details-marker { display: none; }
 .cb-stage-inq:hover .cb-stage-inq-q,
 .cb-stage-inq:focus-visible .cb-stage-inq-q { color: var(--cb-ink); }
 
-/* ── The mode words: plain text, not segments ── */
-.cb-modes {
-  display: flex; flex-wrap: wrap; gap: 0 16px;
-  padding: 8px 6px 0;
-}
-.cb-mode {
-  background: none; border: 1px solid transparent; cursor: pointer;
-  min-height: 44px; padding: 8px 14px; border-radius: 2px;
-  font-family: var(--cb-font); font-size: 14px; font-weight: 500;
-  color: var(--cb-faint);
-  transition: color 280ms ease, background 280ms ease, border-color 280ms ease;
-}
-.cb-mode:hover { color: var(--cb-ink2); background: color-mix(in srgb, var(--cb-acc) 6%, transparent); }
-.cb-mode.is-on {
-  color: var(--cb-ink); font-weight: 500;
-  background: color-mix(in srgb, var(--cb-acc) 12%, transparent);
-  border-color: color-mix(in srgb, var(--cb-acc) 30%, transparent);
-}
-
+/* 2026-10-22 (simplify audit SH8): the cb-modes and cb-mode
+   rules left with the dead AskModePicker. */
 /* ── Question shapeshifter: the mode suggestion badge ──
    Tiny and quiet. One tap goes back to the mode the user had. */
 .cb-shape {
@@ -27186,7 +27084,6 @@ summary::-webkit-details-marker { display: none; }
 
 /* Shared keyboard focus: the field's border covers the input; everything
    else gets a plain 2px outline. */
-.cb-mode:focus-visible,
 .cb-ask-tool:focus-visible,
 .cb-ask-go:focus-visible,
 .cb-starter-item:focus-visible,
@@ -27276,38 +27173,8 @@ summary::-webkit-details-marker { display: none; }
 .cb-bench .cb-ask-go { border-radius: 2px; }
 .cb-bench .cb-ask-tool { border-radius: 2px; }
 
-/* Mode selector strip: one segmented instrument control, five detents.
-   Mono index + label per segment; the active detent carries an accent
-   underline tick. */
-.cb-bench .cb-modes {
-  display: grid; grid-template-columns: repeat(5, 1fr);
-  gap: 0; padding: 0; margin: 14px 0 0;
-  border: 1px solid var(--cb-line2); border-radius: 2px;
-  overflow: hidden;
-}
-.cb-bench .cb-mode {
-  border: 0; border-left: 1px solid var(--cb-line); border-radius: 0;
-  min-height: 56px; padding: 8px 4px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 4px; line-height: 1.3; text-align: center;
-  font-family: var(--cb-font); font-size: 11px; letter-spacing: 0.03em;
-  color: var(--cb-faint); background: transparent;
-}
-.cb-bench .cb-mode:first-child { border-left: 0; }
-.cb-bench .cb-mode-idx { font-size: 10px; opacity: 0.7; }
-.cb-bench .cb-mode-label { font-weight: 500; }
-.cb-bench .cb-mode:hover {
-  color: var(--cb-ink);
-  background: color-mix(in srgb, var(--cb-ink) 4%, transparent);
-}
-.cb-bench .cb-mode.is-on {
-  color: var(--cb-ink);
-  background: color-mix(in srgb, var(--cb-acc) 13%, transparent);
-  box-shadow: none;
-}
-.cb-bench .cb-mode.is-on .cb-mode-idx { color: var(--cb-acc); opacity: 1; }
-.cb-bench .cb-mode.is-on .cb-mode-label { font-weight: 500; }
-
+/* 2026-10-22 (simplify audit SH8): the bench mode strip rules
+   left with the dead picker; the bench itself is unmounted. */
 /* Shapeshifter + paper chip: Inter Tight, sharp. */
 .cb-bench .cb-shape {
   border-radius: 2px;
@@ -27358,8 +27225,6 @@ summary::-webkit-details-marker { display: none; }
 @media (max-width: 560px) {
   .cb-bench-head { padding: 12px 14px 10px; }
   .cb-bench-body { padding: 14px 14px 12px; }
-  .cb-bench .cb-mode { font-size: 10px; min-height: 60px; padding: 8px 2px; }
-  .cb-bench .cb-mode-idx { font-size: 9px; }
   .cb-bench-tray { grid-template-columns: 1fr; }
   .cb-bench-status { font-size: 10px; padding: 6px 10px; }
   .cb-bench-foot { padding: 10px 14px 12px; font-size: 10px; }
@@ -27406,7 +27271,6 @@ summary::-webkit-details-marker { display: none; }
   .cb-mast-line { font-size: 13px; }
   .cb-ask-input { font-size: 16px; }
   .cb-ask-input { min-height: 56px; padding: 13px 4px 13px 16px; }
-  .cb-modes { gap: 2px 14px; padding-top: 10px; }
   .cb-ask-recent {
     max-height: min(44vh, 320px);
     overflow-y: auto;
@@ -27418,7 +27282,7 @@ summary::-webkit-details-marker { display: none; }
   .cb-ask, .cb-mast, .cb-ask-recent,
   .cb-starter { animation: none; }
   .cb-ask-spin { animation: none; }
-  .cb-mode, .cb-ask-tool, .cb-ask-go,
+  .cb-ask-tool, .cb-ask-go,
   .cb-starter-q { transition: none; }
 }
 

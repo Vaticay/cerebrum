@@ -13,7 +13,7 @@ const ast = parse(source,{sourceType:'module',plugins:['jsx']});
 const dsAst = parse(dsSource,{sourceType:'module',plugins:['jsx']});
 const fcAst = parse(fcSource,{sourceType:'module',plugins:['jsx']});
 const tuAst = parse(tuSource,{sourceType:'module',plugins:['jsx']});
-const names = ['AskModePicker','ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks','MediaFigure','TrendThumb',/* 2026-10-19 (S2, audit C3): CitationPeek renders its title through the shared inline renderer now, so the harness extracts the real chain */'renderTitleInline','renderInlineNodes','inlineTokens','speciesRuns','renderCleanTitle'];
+const names = [/* 2026-10-22 (simplify audit SH8): AskModePicker left the list because the component is deleted; the mode is set by the composer shapeshifter now, so there is no picker left to render */'ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks','MediaFigure','TrendThumb',/* 2026-10-19 (S2, audit C3): CitationPeek renders its title through the shared inline renderer now, so the harness extracts the real chain */'renderTitleInline','renderInlineNodes','inlineTokens','speciesRuns','renderCleanTitle'];
 const dsNames = ['UIButton','UICard'];
 const functions = ast.program.body.filter(n=>n.type==='FunctionDeclaration' && names.includes(n.id.name));
 const dsFunctions = dsAst.program.body
@@ -25,7 +25,7 @@ const fcFunctions = fcAst.program.body
 const tuDecls = tuAst.program.body
   .map(n=>n.type==='ExportNamedDeclaration' ? n.declaration : n)
   .filter(n=>n && ((n.type==='FunctionDeclaration' && (n.id.name==='renderCleanTitle' || n.id.name==='highlightKeywords')) || (n.type==='VariableDeclaration' && n.declarations.some(d=>d.id.name==='TITLE_SAFE_TAG_RE'))));
-assert.equal(functions.length + dsFunctions.length + fcFunctions.length + tuDecls.length,25);
+assert.equal(functions.length + dsFunctions.length + fcFunctions.length + tuDecls.length,24); // 2026-10-22: was 25 before AskModePicker was deleted (simplify audit SH8)
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n')+'\n'+tuDecls.map(n=>tuSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
 const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none',xl:()=>'none'} /* 2026-10-18: Dialog calls SHADOW.xl (design audit C5) */,STATUS:{bad:'#b44',warn:'#B08B4F',good:'#7A9E7E'} /* 2026-10-20, readability residue wave: warn and good keys added beside bad because extracted components now read STATUS.warn and STATUS.good through withAlpha */,TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c,
 /* 2026-10-14, design overhaul wave 1: UIButton and UICard now close over
@@ -82,8 +82,6 @@ const P0={dark:true,ink:'#eee',ink2:'#bbb',line:'#444',line2:'#555'};
 console.log('Markers render as inline text with tooltips.');
 for(const dark of [true,false])for(const isMobile of [true,false]){
  const P={dark,ink:'#eee',ink2:'#bbb',line:'#444',line2:'#555'};
- const modes=renderToStaticMarkup(React.createElement(context.AskModePicker,{mode:'explain',setMode:()=>{},P,accent:'#A3B899',isMobile}));
- assert.match(modes,/aria-pressed="true"/); assert.match(modes,/Compare/);
  for(const variant of ['primary','secondary','ghost','destructive']){
   const button=renderToStaticMarkup(React.createElement(context.UIButton,{P,accent:'#A3B899',at:'#111',variant},'Continue'));
   /* 2026-10-14, design overhaul wave 1: the glass action treatment is
@@ -98,7 +96,7 @@ for(const dark of [true,false])for(const isMobile of [true,false]){
  }
  assert.match(renderToStaticMarkup(React.createElement(context.UICard,{P},'Evidence')),/Evidence/);
 }
-console.log('Actual search-mode, shared-button and card components render in dark/light and mobile/desktop variants.');
+console.log('Actual shared-button and card components render in dark/light and mobile/desktop variants.');
 
 /* ── Mobile dialog semantics, render level ─────────────────────────────
    What this is: the REAL CitationPeek (mobile branch), the REAL Dialog

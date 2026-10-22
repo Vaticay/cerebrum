@@ -482,7 +482,7 @@ function filmBestFile(el, mp4) {
 }
 
 function IntroModal({ label, title, onClose, accent, P = null, children, width = 620 }) {
-  /* A text panel (How it works, Sources): it follows the active
+  /* A text panel (Sources): it follows the active
      palette like every other dialog, surface, ink, and line from P
      when the caller passes it, and the Dialog default's own variable
      treatment when it does not. The hard coded near black it carried
@@ -509,39 +509,6 @@ function IntroModal({ label, title, onClose, accent, P = null, children, width =
   );
 }
 
-function HowItWorksDialog({ onClose, accent, P = null }) {
-  const steps = [
-    { n: "1", h: "Ask in plain language",
-      b: "Ask the way you would ask a colleague. There is no query syntax to learn." },
-    { n: "2", h: "Cerebrum searches the literature",
-      b: "The question is run against " + SCHOLARLY_SOURCES.length + " scholarly sources: Europe PMC, PubMed, OpenAlex, Crossref, arXiv and the rest. The results are deduplicated across them." },
-    { n: "3", h: "Every claim carries its source",
-      b: "The answer is written from those papers, and each statement is numbered to the paper it came from. Open a citation to see the passage it rests on." },
-  ];
-  return (
-    <IntroModal label="how Cerebrum works" title="How Cerebrum works" onClose={onClose} accent={accent} P={P}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {steps.map((st) => (
-          <div key={st.n} style={{
-            display: "grid", gridTemplateColumns: "26px 1fr", gap: 14,
-            padding: "16px 0", borderTop: `1px solid ${P ? P.line : "rgba(255,255,255,0.07)"}`,
-          }}>
-            <span style={{
-              fontFamily: "var(--cb-font)", fontSize: 12, color: withAlpha(accent, 0.9),
-              paddingTop: 2, fontVariantNumeric: "tabular-nums",
-            }}>{st.n}</span>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.4, marginBottom: 5 }}>{st.h}</div>
-              <div style={{ fontSize: FONT_SIZES.body, color: P ? P.ink2 : "rgba(242,244,242,0.68)", lineHeight: 1.55 }}>{st.b}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-    </IntroModal>
-  );
-}
-
 function SourcesDialog({ onClose, accent, P = null }) {
   const GROUPS = [
     ["biomedical", "Biomedical"],
@@ -551,13 +518,13 @@ function SourcesDialog({ onClose, accent, P = null }) {
     ["aggregator", "Aggregators"],
     ["repository", "Repositories"],
   ];
-  const PEER = { yes: "Peer-reviewed", mostly: "Mostly peer-reviewed", mixed: "Mixed", no: "Not peer-reviewed" };
+  const PEER = { yes: "Peer reviewed", mostly: "Mostly peer reviewed", mixed: "Mixed", no: "Not peer reviewed" };
   return (
     <IntroModal label="research sources" title="Research sources" onClose={onClose} accent={accent} P={P}>
       <p style={{ margin: "0 0 16px", fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P ? P.ink2 : "rgba(242,244,242,0.68)" }}>
         Cerebrum queries these {SCHOLARLY_SOURCES.length} sources and merges the results, removing the
         same paper when it appears in more than one. Preprints are included and are labelled as
-        preprints. They have not been peer-reviewed.
+        preprints. They have not been through peer review.
       </p>
       {GROUPS.map(([key, heading]) => {
         const rows = SCHOLARLY_SOURCES.filter((x) => x.category === key);
@@ -933,15 +900,15 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
    - ONE specimen at a time on a solid matte placard, rotating on
      the same timer with the same pauses (hold, dialog, off
      screen, reduced motion). Not a set, not a ledger: one claim,
-     its traced line, its paper one tap away.
+     its paper one tap away.
    - The honest proof line under the placard, opening the sources
      dialog, its count from the real SCHOLARLY_SOURCES list.
-   - The single way in, "Start researching", with "How it works"
-     under it. No composer on the door, ever.
+   - The single way in, "Start researching". No composer on the
+     door, ever.
    - Nova, quiet: her figure once and one short line in her dry
      voice. No section, no box, no wordmark; the ledger door's
      NovaDoorSection is gone with the ledger.
-   - The footer: one quiet line of links and the year.
+   - The footer: the year on one quiet line.
 
    Standing behavior, unchanged: the door is dark because the film
    door is the brand door, the same for everyone (the intro accent
@@ -954,9 +921,7 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
 function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   const isMobile = useIsMobile();
   const reduced = useReducedMotion();
-  const [howOpen, setHowOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
-  const [navOpen, setNavOpen] = useState(false);
   /* Stepping through: the whole chamber descends 6vh and fades (CSS,
      420ms) — the Dive motif in reverse, sinking into the workspace.
      The no-motion path is untouched: animation off or reduced motion
@@ -1011,14 +976,14 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   }, []);
   useEffect(() => {
     if (reduced || animationMode === "off") return undefined;
-    if (specimenHeld || howOpen || sourcesOpen) return undefined;
+    if (specimenHeld || sourcesOpen) return undefined;
     if (!specimenVisible) return undefined;
     const t = setInterval(
       () => setSpecimenIdx((i) => (i + 1) % specimenCount),
       isMobile ? 12000 : 9000
     );
     return () => clearInterval(t);
-  }, [reduced, animationMode, specimenHeld, howOpen, sourcesOpen, specimenVisible, specimenCount, isMobile]);
+  }, [reduced, animationMode, specimenHeld, sourcesOpen, specimenVisible, specimenCount, isMobile]);
   const spec = SPECIMENS[specimenIdx % specimenCount];
 
   /* ── The door rule ──
@@ -1129,25 +1094,8 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             {!isMobile && ["About", "Privacy", "Terms", "Contact"].map((item) => (
               <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={navLink}>{item}</a>
             ))}
-            {isMobile && (
-              <button type="button" onClick={() => setNavOpen((v) => !v)}
-                aria-expanded={navOpen} aria-controls="cb-intro-navmenu"
-                style={{ ...navLink, background: "none", border: "1px solid " + hairline, borderRadius: RADIUS.md, cursor: "pointer" }}>
-                More
-              </button>
-            )}
           </div>
         </div>
-        {isMobile && navOpen && (
-          <div id="cb-intro-navmenu" style={{
-            maxWidth: LAYOUT.stage, margin: "0 auto", padding: "0 24px 14px",
-            display: "flex", gap: 4, flexWrap: "wrap",
-          }}>
-            {["About", "Privacy", "Terms", "Contact"].map((item) => (
-              <a key={item} href={"/" + item.toLowerCase()} style={{ ...navLink, border: "1px solid " + hairline, borderRadius: RADIUS.md }}>{item}</a>
-            ))}
-          </div>
-        )}
       </header>
 
       {/* ── The room: one centred column over the film, with room to
@@ -1195,19 +1143,11 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             fontSize: FONT_SIZES.body, fontWeight: 500, fontFamily: "var(--cb-font)",
             transition: "background-color 150ms ease-out",
           }}>Start researching</button>
-          <div style={{ marginTop: 18, textAlign: "center" }}>
-            <button type="button" onClick={() => setHowOpen(true)} style={{
-              background: "none", border: "none", cursor: "pointer",
-              fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, letterSpacing: "normal",
-              color: ink2, textDecoration: "underline", textUnderlineOffset: 5,
-              textTransform: "none", padding: "10px 8px",
-            }}>How it works</button>
-          </div>
         </div>
 
         {/* The specimen: one verified claim at a time on a solid
-            matte placard. The claim in the reading serif, the traced
-            line, and the citation with the paper one tap away. The
+            matte placard. The claim in the reading serif, and the
+            citation with the paper one tap away. The
             change is a plain fade (cb-specimen-in), a page turning,
             never a scene change. Hover and focus hold the rotation. */}
         <div
@@ -1231,26 +1171,12 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           >
             <p style={{
               fontFamily: "var(--cb-serif)",
-              fontSize: isMobile ? 19 : 20,
-              fontWeight: 400, lineHeight: 1.5,
+              fontSize: FONT_SIZES.section,
+              fontWeight: 400, lineHeight: 1.55,
               color: ink, margin: 0, textAlign: "left",
             }}>
               &ldquo;{spec.claim}&rdquo;
             </p>
-            <div style={{
-              marginTop: 12, display: "flex", alignItems: "center", gap: 8,
-            }}>
-              <span aria-hidden="true" style={{
-                width: 7, height: 7, flex: "0 0 auto",
-                background: introAccent,
-              }} />
-              <span style={{
-                fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500,
-                color: ink2,
-              }}>
-                Traced to a direct finding
-              </span>
-            </div>
             <p style={{
               margin: "12px 0 0", paddingTop: 12,
               borderTop: "1px solid " + hairline,
@@ -1310,7 +1236,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             fontFamily: "var(--cb-serif)", fontSize: isMobile ? 15 : 16, fontWeight: 400,
             lineHeight: 1.5, color: ink2,
           }}>
-            Good specimens, these. Every claim here opens into the paper behind it.
+            Good specimens, these. The lab is open when you are ready.
           </p>
         </div>
       </main>
@@ -1328,18 +1254,11 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           color: faint,
         }}>
           <span style={{ flex: 1 }} />
-          {["About", "Privacy", "Terms", "Contact"].map((item) => (
-            <a key={item} href={"/" + item.toLowerCase()} style={{
-              color: faint, textDecoration: "none", padding: "10px 0",
-              textTransform: "none",
-            }}>{item}</a>
-          ))}
           <span>© {new Date().getFullYear()} Cerebrum</span>
         </div>
       </footer>
 
       {sourcesOpen && <SourcesDialog P={P} accent={introAccent} onClose={() => setSourcesOpen(false)} />}
-      {howOpen && <HowItWorksDialog P={P} accent={introAccent} onClose={() => setHowOpen(false)} />}
 
     </div>
   );
@@ -2157,7 +2076,6 @@ export {
   __filmIosH264,
   filmBestFile,
   IntroModal,
-  HowItWorksDialog,
   SourcesDialog,
   SPECIMENS,
   Intro,

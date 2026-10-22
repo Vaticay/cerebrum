@@ -88,8 +88,13 @@ await test("generated field is the fallback when film is blocked", () => {
   assert.match(appSrc, /<CerebrumFieldCanvas/, "CerebrumFieldCanvas mount missing");
 });
 await test("grain overlay is restored", () => {
-  assert.match(appSrc, /grain: \{ position: "fixed"/, "S.grain style missing");
-  assert.match(appSrc, /<div style=\{S\.grain\} \/>/, "grain div missing from the shell");
+  /* Pin updated 2026-10-22 (simplify audit SH9): the fixed S.grain
+     layer is deleted on purpose; the search home stacked three
+     grain layers. One layer per view survives: the atmosphere grain
+     on search and the cb grain layer on the other views. */
+  assert.ok(!appSrc.includes("<div style={S.grain} />"), "the third grain layer came back");
+  assert.match(appSrc, /cb-atmo-grain/, "atmosphere grain missing from the search view");
+  assert.match(appSrc, /className="cb-grain"/, "cb grain layer missing from the shell");
 });
 
 group("Intro-to-workspace handoff");
@@ -149,8 +154,10 @@ group("Slogan");
 await test("slogan is byte-identical", () => {
   // 2026-10-05: the specimen door rethink removed the marketing slogan.
   // The promise now lives in the specimen verdict and the paper links.
+  // Pin updated 2026-10-22 (simplify audit I3): the verdict wording
+  // is the proof line's, the placard's duplicate inner row is gone.
   assert.ok(
-    introSrc.includes("Traced to a direct finding"),
+    introSrc.includes("Traced to a real paper"),
     "specimen verdict missing"
   );
 });
@@ -327,9 +334,14 @@ group("Home stage: sidebar restored, one column, one navigation");
     assert.strictEqual(mainNavs.length, 1, `expected exactly one Main nav (the sidebar's), found ${mainNavs.length}`);
   });
   await test("New search tops the sidebar, wired to the reset", () => {
+    /* Pin updated 2026-10-22 (simplify audit SH1): the two sidebar
+       search rows are merged into one. New search tops the sidebar
+       (the owner's 2026-10-13 ruling) and the standalone Search row
+       is gone, so the rail carries exactly one search entry. */
     const newItem = appSrc.indexOf('["new", "New search", "plus"]');
     const searchItem = appSrc.indexOf('["search", "Search", "search"]');
-    assert.ok(newItem !== -1 && searchItem !== -1 && newItem < searchItem, "New search is not the sidebar's first item");
+    assert.ok(newItem !== -1, "New search is not the sidebar's first item");
+    assert.ok(searchItem === -1, "the duplicate standalone Search row came back");
     assert.ok(appSrc.includes('case "new": newSession();'), "the new case is not wired to the session reset");
   });
   await test("the stage still renders exactly one Continue row", () => {
@@ -662,11 +674,15 @@ await test("the intro's text panels follow the palette and its film credits stay
   assert.match(credits, /background: "#0f1115"/, "the film credits panel lost its deliberate dark treatment");
   const modalAt = introSrc.indexOf("function IntroModal");
   assert.ok(modalAt > 0, "IntroModal missing");
-  const modal = introSrc.slice(modalAt, introSrc.indexOf("function HowItWorksDialog", modalAt));
+  /* Pin updated 2026-10-22 (simplify audit I2): HowItWorksDialog is
+     deleted from the door on purpose, so IntroModal is now sliced up
+     to SourcesDialog and the How it works mount assertion is gone.
+     Start researching is the door's only call to action. */
+  const modal = introSrc.slice(modalAt, introSrc.indexOf("function SourcesDialog", modalAt));
   assert.match(modal, /background: P \? P\.surface : "var\(--cb-surface, #767676\)"/, "IntroModal does not take the palette surface");
   assert.ok(!modal.includes('background: "#0f1115"'), "IntroModal still hard codes the near black panel");
   assert.match(introSrc, /<SourcesDialog P=\{P\} accent=\{introAccent\}/, "the intro's Sources dialog does not receive the palette");
-  assert.match(introSrc, /<HowItWorksDialog P=\{P\} accent=\{introAccent\}/, "the intro's How it works dialog does not receive the palette");
+  assert.ok(!introSrc.includes("HowItWorksDialog"), "the deleted How it works dialog came back to the door");
   assert.match(appSrc, /<SourcesDialog P=\{P\} accent=\{accent\}/, "the app's Sources dialog does not receive the palette");
 });
 await test("the New Search FAB icon takes accentText(accent), a colour, not a function", () => {

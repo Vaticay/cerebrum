@@ -218,7 +218,9 @@ await test("App mounts the monitor hook, the ref mirror, and the notice", () => 
   assert.match(appSrc, /import \{ OfflineNotice, OFFLINE_SEARCH_HEADLINE, OFFLINE_SEARCH_BODY \} from "\.\/offlineNotice\.jsx";/);
   assert.match(appSrc, /const online = useOnlineStatus\(\);/);
   assert.match(appSrc, /useEffect\(\(\) => \{ onlineRef\.current = online; \}, \[online\]\);/);
-  assert.match(appSrc, /<OfflineNotice P=\{P\} online=\{online\} \/>/);
+  /* Pin updated 2026-10-22 (simplify audit SH10): the mount now
+     passes isMobile so the notice can sit under the mobile header. */
+  assert.match(appSrc, /<OfflineNotice P=\{P\} online=\{online\} isMobile=\{isMobile\} \/>/);
 });
 
 await test("a search attempted offline lands in the named failure funnel before any fetch", () => {

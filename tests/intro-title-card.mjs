@@ -149,7 +149,12 @@ await test("old headline and slogan are gone", () => {
 });
 
 await test("verdict line marks each claim as traced", () => {
-  assert.ok(src.includes("Traced to a direct finding"), "verdict line missing");
+  /* Pin updated 2026-10-22 (simplify audit I3): the placard's inner
+     traced row is deleted on purpose; proof was said twice on one
+     screen. The proof line under the placard is now the sole traced
+     statement, and the pin guards both halves of that. */
+  assert.ok(src.includes("Traced to a real paper"), "proof line missing");
+  assert.ok(!src.includes("Traced to a direct finding"), "the duplicate inner traced row came back");
 });
 
 await test("the single way in reads \"Start researching\"", () => {
@@ -185,7 +190,10 @@ await test("one placard renders at a time", () => {
 });
 
 await test("rotation pauses for a hold, a dialog, or reduced motion", () => {
-  assert.ok(introFn.includes("if (specimenHeld || howOpen || sourcesOpen) return undefined;"), "hold and dialog pauses missing");
+  /* Pin updated 2026-10-22 (simplify audit I2): the How it works
+     dialog is deleted from the door, so its pause term left the
+     guard with it. Hold and the sources dialog still pause. */
+  assert.ok(introFn.includes("if (specimenHeld || sourcesOpen) return undefined;"), "hold and dialog pauses missing");
   assert.ok(introFn.includes("if (reduced || animationMode === \"off\") return undefined;"), "reduced motion does not stop the rotation");
   assert.ok(introFn.includes("onMouseEnter={() => setSpecimenHeld(true)}"), "hover hold missing");
 });
@@ -630,8 +638,7 @@ await test("the stage carries the plain order and no corpus number", () => {
      the letterspaced labels, the numbered examples) read as AI
      generated to him and is gone. The stage now opens with a plain
      Cerebrum masthead, one plain line, and the composer; the labels
-     are "Continue" and "Try asking" in normal case; the footer
-     claim strip survives without its label. The column is 1160,
+     are "Continue" and "Try asking" in normal case. The column is 1160,
      not the narrower measure the plate pass set. */
   const stage = appSrc.slice(
     appSrc.indexOf("The home stage: the empty search home"),
@@ -652,7 +659,12 @@ await test("the stage carries the plain order and no corpus number", () => {
   assert.ok(stage.includes(">Try asking<"), "example questions missing their plain label");
   assert.ok(!stage.includes("Specimen inquiries"), "the specimen label survives");
   assert.ok(!stage.includes("0{i + 1}"), "the examples are still numbered");
-  assert.ok(stage.includes("stageSpecimen.claim"), "footer claim strip missing");
+  /* Pin updated 2026-10-22 (simplify audit SH7): the footer claim
+     strip is deleted on purpose. It set an unrelated specimen claim
+     at the largest type on the stage, under the users own work, and
+     repeated the proof line in a second form. Specimens live on the
+     intro door. The pin now guards the absence. */
+  assert.ok(!stage.includes("stageSpecimen"), "the stage footer specimen came back");
   assert.ok(!stage.includes("Traced claim"), "the plate footer label survives");
   /* 2026-10-18 (design audit H10): the scholarly proof line is mounted
      on the stage on purpose now, wired to the sources dialog. This

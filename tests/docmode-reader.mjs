@@ -621,7 +621,11 @@ await test("sidebar carries a labeled New search action row", async () => {
   assert.ok(navAt > 0, "Investigations nav item missing");
   const navBlock = src.slice(src.indexOf("const NAV_ITEMS"), src.indexOf("const NAV_ITEMS") + 900);
   assert.ok(navBlock.includes('["new", "New search", "plus"]'), "flat nav must carry the New search row");
-  for (const item of ['["search", "Search"', '["document", "Document Reader"', '["library", "Library"', '["learn", "Nova"']) {
+  /* Pin updated 2026-10-22 (simplify audit SH1): the standalone
+     Search row is merged away on purpose; it duplicated New search
+     and differed only by the reset, which the New search row runs. */
+  assert.ok(!navBlock.includes('["search", "Search"'), "the duplicate standalone Search row came back");
+  for (const item of ['["document", "Document Reader"', '["library", "Library"', '["learn", "Nova"']) {
     assert.ok(navBlock.includes(item), `flat nav missing ${item}`);
   }
   // All nav rows get 44px targets via S.sidebarItem (no per-row override needed).

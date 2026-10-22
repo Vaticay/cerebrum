@@ -1,10 +1,12 @@
 /**
- * flowcharts.jsx — Flowchart Studio, Mermaid Studio, and Dialog primitive.
+ * flowcharts.jsx
  *
- * Extracted from CerebrumApp.jsx (monolith split, 2026-10-07).
- * FlowchartStudio: SVG-based evidence map editor with pan/zoom, history.
- * MermaidStudio: mermaid.live-grade diagram editor with live preview.
- * Dialog: focus-trapped modal primitive used by both (and app-wide).
+ * 2026 10 22: Diagram Studio rebuilt as one studio. The two old
+ * editors are gone and one DiagramStudio works from an ordered
+ * list of steps instead. Labels taken from source text only ever
+ * delete words from that text through the fcLabel helpers, never
+ * invent new ones. This file also keeps the Dialog primitive and
+ * the shared diagram helpers other files import.
  */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
@@ -15,9 +17,6 @@ import { cbDialogLockScroll, cbDialogUnlockScroll } from "./scrollLock.js";
 import { fcExtractSteps, fcCompressStep } from "./fcLabel.js";
 import { safeHref } from "./textUtils.js";
 
-// 2026-10-08: logExport was called but never defined (crashed export buttons).
-// No-op until export analytics exists.
-function logExport() {}
 
 export function cbMotionOff() {
   // Cached ~1s: this runs in hot paths (pointer handlers, count-up hooks)
@@ -50,7 +49,7 @@ export function Dialog({
   panelStyle = {}, scrimStyle = {},
   dismissable = true, initialFocus = null, panelClassName = "cb-modal",
   // Optional Escape override: called instead of onClose when the dialog is
-  // topmost (e.g. FlowchartStudio dismisses its export menu first).
+  // topmost (e.g. DiagramStudio dismisses its export menu first).
   onEscape = null,
 }) {
   const panelRef = useRef(null);
@@ -59,7 +58,7 @@ export function Dialog({
   const [entered, setEntered] = useState(false);
   const animate = !cbMotionOff();
   /* The key handler is registered once on mount (capture phase), but the
-     callbacks it invokes must stay fresh — e.g. FlowchartStudio's onEscape
+     callbacks it invokes must stay fresh — e.g. DiagramStudio's onEscape
      closes over the export menu's open state, and CollectionsModal's over
      the rename input. Refs keep the latest closure without re-registering. */
   const onEscapeRef = useRef(onEscape);
@@ -200,6 +199,7 @@ export function Dialog({
     document.body
   );
 }
+
 
 
 /* ══════════════════════════════════════════════════════════════════
@@ -520,33 +520,6 @@ function FcThumb({ chart, accent }) {
   );
 }
 
-/* Small palette button showing the node shape. */
-function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
-  const t = FC_NODE_TYPES[type];
-  const isAccent = type === "start" || type === "end";
-  const shape = (() => {
-    if (type === "decision") return <polygon points="20,2 38,12 20,22 2,12" fill={isAccent ? accent : withAlpha(accent, 0.16)} stroke={accent} strokeWidth={1.4} />;
-    if (type === "io") return <polygon points="8,3 34,3 30,21 4,21" fill={withAlpha(accent, 0.12)} stroke={P.faint} strokeWidth={1.4} />;
-    if (type === "evidence") return (<g><rect x="3" y="3" width="34" height="18" rx="4" fill={withAlpha(accent, 0.10)} stroke={accent} strokeWidth={1.4} /><rect x="3" y="3" width="4" height="18" rx="2" fill={accent} /></g>);
-    return <rect x="3" y="4" width="34" height="16" rx={isAccent ? 8 : 4} fill={isAccent ? accent : withAlpha(accent, 0.10)} stroke={isAccent ? accent : P.faint} strokeWidth={1.4} />;
-  })();
-  return (
-    <button type="button" onClick={onClick} title={`Add ${t.name}: click to drop it on the canvas`}
-      aria-label={`Add ${t.name} node`}
-      style={{
-        display: "flex", flexDirection: isMobile ? "row" : "column", alignItems: "center", gap: isMobile ? 7 : 5,
-        padding: isMobile ? "8px 12px 8px 8px" : "10px 4px", borderRadius: RADIUS.lg, cursor: "pointer",
-        background: selected ? withAlpha(accent, 0.12) : "transparent",
-        border: `1px solid ${selected ? accent : "transparent"}`,
-        transition: "background-color 150ms ease, border-color 150ms ease, transform 150ms ease", flexShrink: 0,
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.10); e.currentTarget.style.borderColor = withAlpha(accent, 0.35); e.currentTarget.style.transform = "translateY(-1px)"; }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = selected ? withAlpha(accent, 0.12) : "transparent"; e.currentTarget.style.borderColor = selected ? accent : "transparent"; e.currentTarget.style.transform = "none"; }}>
-      <svg width="40" height="24" viewBox="0 0 40 24" aria-hidden="true">{shape}</svg>
-      <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.2, textAlign: "center", fontWeight: 500 }}>{t.name}</span>
-    </button>
-  );
-}
 
 /* In-canvas node shape (JSX). Flat (H19, 2026-10-18): one solid fill,
    one hairline stroke, corners on the radius token. No gradient sheen,
@@ -582,229 +555,277 @@ function FcNodeShape({ n, P, accent, selected, pending }) {
   );
 }
 
-/* One toolbar grammar for both Diagram Studio editors (M37,
-   2026-10-19). The two editors do two different jobs and say so in
-   one naming scheme: the family name is Diagram Studio, the job name
-   is Code diagram (build a diagram from code) or Evidence map (map
-   evidence from an answer), and the job line under the name says the
-   job in plain words. Both toolbars are this component, and every
-   toolbar action in both is StudioToolbarBtn: radius RADIUS.sm,
-   weight 500, size FONT_SIZES.label, padding 0 14px at a 44px
-   height, and one 150ms transition. No editor keeps its own button
-   treatment, class, or duration. */
-export function StudioToolbarBtn({ P, accent, at, label, onClick, primary = false, disabled = false, title, icon, pressed }) {
-  return (
-    <UIButton P={P} variant="ghost" type="button" onClick={onClick} disabled={disabled}
-      title={title || label} aria-label={label} aria-pressed={pressed}
-      style={{
-        minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm,
-        fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
-        background: primary ? accent : "transparent",
-        color: primary ? at : disabled ? P.faint : P.ink,
-        border: `1px solid ${primary ? accent : P.line2}`,
-        boxShadow: "none", opacity: disabled ? 0.5 : 1,
-        display: "inline-flex", alignItems: "center", gap: 7, whiteSpace: "nowrap",
-        cursor: disabled ? "not-allowed" : "pointer",
-        transition: "background-color 150ms ease, border-color 150ms ease, color 150ms ease",
-      }}
-      onMouseEnter={(e) => { if (!disabled && !primary) e.currentTarget.style.background = withAlpha(accent, 0.12); }}
-      onMouseLeave={(e) => { if (!disabled && !primary) e.currentTarget.style.background = "transparent"; }}>
-      {icon && <Icon name={icon} size={14} />}
-      {label}
-    </UIButton>
-  );
+
+/* ══════════════════════════════════════════════════════════════════
+   Diagram Studio
+
+   One studio, one model: an ordered list of steps shown as a chain
+   of boxes with arrows. Steps carry a label, a kind, the full source
+   text as detail, and a source index when the step came from a
+   paper. Labels taken from an answer or a paper go through the
+   fcLabel helpers, which only delete words from the source text
+   and never invent new ones.
+   ══════════════════════════════════════════════════════════════════ */
+
+function dsCoerceType(t) {
+  return t === "decision" || t === "evidence" ? t : "process";
 }
 
-export function StudioToolbar({ P, accent, job, detail, icon, leading, children }) {
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
-      borderBottom: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap", background: P.bg,
-    }}>
-      {leading}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-        <span style={{
-          width: 34, height: 34, borderRadius: RADIUS.sm, display: "inline-flex", alignItems: "center", justifyContent: "center",
-          background: withAlpha(accent, 0.14), border: `1px solid ${withAlpha(accent, 0.4)}`, boxShadow: "none", flexShrink: 0,
-        }}>
-          {icon}
-        </span>
-        <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.25, minWidth: 0 }}>
-          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)" }}>Diagram Studio</span>
-          <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>{job}</span>
-          <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 400, color: P.faint, fontFamily: "var(--cb-font)" }}>{detail}</span>
-        </div>
-      </div>
-      {children}
-    </div>
-  );
+function dsStepFromNode(n) {
+  return {
+    id: n.id || fcId("s"),
+    label: n.label || "",
+    type: dsCoerceType(n.type),
+    detail: n.detail || "",
+    sourceIdx: typeof n.sourceIdx === "number" ? n.sourceIdx : undefined,
+  };
 }
 
-export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, answerText, sources, onSave, onClose }) {
-  /* Escape closes the studio. If the export menu is open, Escape dismisses
-     it first — wired through Dialog's onEscape override so the primitive's
-     topmost-only routing still owns the key. */
-  const [exportOpen, setExportOpen] = useState(false);
-
-  const [nodes, setNodes] = useState(() => (initial?.nodes || []).map((n) => ({ ...n })));
-  const [edges, setEdges] = useState(() => (initial?.edges || []).map((e) => ({ ...e })));
-  const [title, setTitle] = useState(docTitle || initial?.title || "Untitled evidence map");
-  const [tool, setTool] = useState("select");
-  const [selection, setSelection] = useState(null);
-  const [pendingFrom, setPendingFrom] = useState(null);
-  const [viewport, setViewport] = useState({ x: 40, y: 40, zoom: 1 });
-  const [draftNotice, setDraftNotice] = useState(!!initial?.isDraft);
-  const [savedFlash, setSavedFlash] = useState(false);
-  const [, setHistTick] = useState(0);
-  const svgRef = useRef(null);
-  const dragRef = useRef(null);
-  const panRef = useRef(null);
-  const histRef = useRef({ stack: [], idx: -1 });
-  const stateRef = useRef();
-  stateRef.current = { nodes, edges };
-
-  /* History */
-  const snapshot = () => ({ nodes: stateRef.current.nodes.map((n) => ({ ...n })), edges: stateRef.current.edges.map((e) => ({ ...e })) });
-  const pushHistory = useCallback(() => {
-    const h = histRef.current;
-    const stack = [...h.stack.slice(0, h.idx + 1), snapshot()].slice(-60);
-    histRef.current = { stack, idx: stack.length - 1 };
-    setHistTick((t) => t + 1);
-  }, []);
-  useEffect(() => { pushHistory(); /* seed with initial state */ }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const applySnap = (s) => {
-    setNodes((s?.nodes || []).map((n) => ({ ...n })));
-    setEdges((s?.edges || []).map((e) => ({ ...e })));
-    setSelection(null);
-    setPendingFrom(null);
-  };
-  const undo = () => {
-    const h = histRef.current;
-    if (h.idx <= 0) return;
-    histRef.current = { ...h, idx: h.idx - 1 };
-    applySnap(h.stack[h.idx - 1]);
-    setHistTick((t) => t + 1);
-  };
-  const redo = () => {
-    const h = histRef.current;
-    if (h.idx >= h.stack.length - 1) return;
-    histRef.current = { ...h, idx: h.idx + 1 };
-    applySnap(h.stack[h.idx + 1]);
-    setHistTick((t) => t + 1);
-  };
-  const canUndo = histRef.current.idx > 0;
-  const canRedo = histRef.current.idx < histRef.current.stack.length - 1;
-
-  /* Coordinate transform */
-  const toWorld = (clientX, clientY) => {
-    const r = svgRef.current.getBoundingClientRect();
-    return { x: (clientX - r.left - viewport.x) / viewport.zoom, y: (clientY - r.top - viewport.y) / viewport.zoom };
-  };
-
-  /* Wheel zoom (non-passive so we can preventDefault) */
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const onWheel = (e) => {
-      e.preventDefault();
-      const r = svg.getBoundingClientRect();
-      const mx = e.clientX - r.left, my = e.clientY - r.top;
-      setViewport((v) => {
-        const z2 = Math.min(2.5, Math.max(0.3, v.zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
-        const wx = (mx - v.x) / v.zoom, wy = (my - v.y) / v.zoom;
-        return { zoom: z2, x: mx - wx * z2, y: my - wy * z2 };
-      });
-    };
-    svg.addEventListener("wheel", onWheel, { passive: false });
-    return () => svg.removeEventListener("wheel", onWheel);
-  }, []);
-
-  /* Mutations (each commits to history) */
-  const addNode = (type) => {
-    const r = svgRef.current.getBoundingClientRect();
-    const wx = (r.width / 2 - viewport.x) / viewport.zoom;
-    const wy = (r.height / 2 - viewport.y) / viewport.zoom;
-    const t = FC_NODE_TYPES[type];
-    const n = fcNewNode(type, wx - t.w / 2 + (Math.random() * 40 - 20), wy - t.h / 2 + (Math.random() * 40 - 20));
-    setNodes((prev) => [...prev, n]);
-    setSelection({ kind: "node", id: n.id });
-    setTimeout(pushHistory, 0);
-  };
-  const updateNode = (id, patch, commit = true) => {
-    setNodes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch } : n)));
-    if (commit) setTimeout(pushHistory, 0);
-  };
-  const deleteSelection = useCallback(() => {
-    if (!selection) return;
-    if (selection.kind === "node") {
-      setNodes((prev) => prev.filter((n) => n.id !== selection.id));
-      setEdges((prev) => prev.filter((e) => e.from !== selection.id && e.to !== selection.id));
-    } else {
-      setEdges((prev) => prev.filter((e) => e.id !== selection.id));
+/* Order chart nodes along their edges from a root, a node with no
+   incoming edge. Anything the walk cannot reach falls back to
+   sorting by y then x. Start and end nodes are skipped. */
+function dsStepsFromChart(chart) {
+  if (!chart || !Array.isArray(chart.nodes)) return [];
+  const all = chart.nodes.filter((n) => n && n.id);
+  const edges = Array.isArray(chart.edges) ? chart.edges : [];
+  const byId = new Map(all.map((n) => [n.id, n]));
+  const incoming = new Set();
+  const outMap = new Map();
+  for (const e of edges) {
+    if (!e || !byId.has(e.from) || !byId.has(e.to)) continue;
+    incoming.add(e.to);
+    if (!outMap.has(e.from)) outMap.set(e.from, []);
+    outMap.get(e.from).push(e.to);
+  }
+  const byPos = (a, b) => (a.y || 0) - (b.y || 0) || (a.x || 0) - (b.x || 0);
+  const roots = all.filter((n) => !incoming.has(n.id)).sort(byPos);
+  const ordered = [];
+  const visited = new Set();
+  const visit = (startId) => {
+    const stack = [startId];
+    while (stack.length) {
+      const id = stack.shift();
+      if (!id || visited.has(id)) continue;
+      visited.add(id);
+      const node = byId.get(id);
+      if (!node) continue;
+      ordered.push(node);
+      const outs = outMap.get(id) || [];
+      for (const outId of outs) if (!visited.has(outId)) stack.push(outId);
     }
-    setSelection(null);
-    setPendingFrom(null);
-    setTimeout(pushHistory, 0);
-  }, [selection, pushHistory]);
+  };
+  for (const root of roots) visit(root.id);
+  const rest = all.filter((n) => !visited.has(n.id)).sort(byPos);
+  for (const n of rest) ordered.push(n);
+  return ordered
+    .filter((n) => n.type !== "start" && n.type !== "end")
+    .map(dsStepFromNode);
+}
 
-  /* Delete key (not while typing) */
-  useEffect(() => {
-    const onKey = (e) => {
-      const tag = (document.activeElement?.tagName || "").toLowerCase();
-      if (tag === "input" || tag === "textarea") return;
-      if ((e.key === "Delete" || e.key === "Backspace") && selection) { e.preventDefault(); deleteSelection(); }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
-      if ((e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+function dsStepsFromDraft(draft) {
+  if (!draft || !Array.isArray(draft.nodes)) return [];
+  return dsStepsFromChart(draft);
+}
+
+/* Turn steps into the node and edge chain the canvas and the
+   exports share. Node ids and edge ids are built from the step
+   ids and the position in the chain, so they stay steady while
+   the steps stay the same. */
+function dsBuild(steps, direction) {
+  const nodes = steps.map((step, i) => {
+    const x = direction === "across" ? 40 + i * 300 : 420;
+    const y = direction === "across" ? 140 : 40 + i * 196;
+    const extra = {};
+    if (step.detail) extra.detail = step.detail;
+    if (typeof step.sourceIdx === "number") extra.sourceIdx = step.sourceIdx;
+    const node = fcNewNode(dsCoerceType(step.type), x, y, step.label || "", extra);
+    node.id = "dsn-" + step.id;
+    return node;
   });
+  const edges = [];
+  for (let i = 0; i + 1 < nodes.length; i += 1) {
+    const edge = fcNewEdge(nodes[i].id, nodes[i + 1].id, "");
+    edge.id = "dse-" + i;
+    edges.push(edge);
+  }
+  return { nodes, edges };
+}
 
-  const doAutoLayout = () => {
-    setNodes((prev) => fcAutoLayout(prev, stateRef.current.edges));
-    setViewport({ x: 40, y: 40, zoom: 1 });
-    setTimeout(pushHistory, 0);
+function dsPaperText(paper) {
+  if (!paper) return "";
+  return paper.abstract || paper.summary || paper.snippet || "";
+}
+
+export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial = null, docTitle = "", answerText = "", sources = [], latestAnswer = null, savedPapers = [], diagrams = [], onSave = null, onClose = null }) {
+  const bootRef = useRef(null);
+  if (bootRef.current === null) {
+    const propSources = Array.isArray(sources) ? sources : [];
+    let bootSteps = [];
+    let bootTitle = "";
+    let bootId = null;
+    let bootSources = propSources;
+    let bootMode = "write";
+    let bootUsedAnswer = false;
+    if (initial && Array.isArray(initial.nodes)) {
+      bootSteps = dsStepsFromChart(initial);
+      bootTitle = initial.title || docTitle || "";
+      bootId = initial.id || null;
+      bootMode = "saved";
+      if (!propSources.length && Array.isArray(initial.sources)) bootSources = initial.sources;
+    } else if (answerText) {
+      bootSteps = dsStepsFromDraft(fcDraftFromAnswer(answerText, propSources));
+      bootTitle = docTitle || "";
+      bootMode = "answer";
+      bootUsedAnswer = true;
+    }
+    bootRef.current = { steps: bootSteps, title: bootTitle, id: bootId, sources: bootSources, mode: bootMode, usedAnswer: bootUsedAnswer };
+  }
+  const boot = bootRef.current;
+
+  const [steps, setSteps] = useState(boot.steps);
+  const [title, setTitle] = useState(boot.title);
+  const [currentId, setCurrentId] = useState(boot.id);
+  const [activeSources, setActiveSources] = useState(boot.sources);
+  const [mode, setMode] = useState(boot.mode);
+  const [direction, setDirection] = useState("down");
+  const [selectedId, setSelectedId] = useState(boot.steps.length ? boot.steps[0].id : null);
+  const [writeText, setWriteText] = useState(boot.steps.map((s) => s.label).join("\n"));
+  const [paperPick, setPaperPick] = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [saveState, setSaveState] = useState("idle");
+
+  const built = dsBuild(steps, direction);
+  const nodes = built.nodes;
+  const edges = built.edges;
+  const bounds = fcBounds(nodes, 48);
+  const selectedStep = steps.find((s) => s.id === selectedId) || null;
+  const selectedSource = selectedStep && typeof selectedStep.sourceIdx === "number" && Array.isArray(activeSources)
+    ? activeSources[selectedStep.sourceIdx] || null
+    : null;
+  const eligiblePapers = (Array.isArray(savedPapers) ? savedPapers : []).filter((paper) => dsPaperText(paper));
+
+  const applySteps = (next) => {
+    setSteps(next);
+    setWriteText(next.map((s) => s.label).join("\n"));
+    setSaveState("idle");
   };
-  const doDraft = () => {
-    const d = fcDraftFromAnswer(answerText, sources);
-    if (!d) return;
-    setNodes(d.nodes);
-    setEdges(d.edges);
-    setViewport({ x: 40, y: 30, zoom: 1 });
-    setDraftNotice(true);
-    setSelection(null);
-    setTimeout(pushHistory, 0);
-  };
-  const doSave = () => {
-    onSave({ title: title.trim() || "Untitled evidence map", nodes, edges });
-    setSavedFlash(true);
-    setTimeout(() => setSavedFlash(false), 1800);
-  };
-  const doExportSVG = () => {
-    download(fcSlug(title) + ".svg", fcSvgString(nodes, edges, title, fcPaletteColors(P, accent, at)));
+
+  const loadSteps = (next, nextTitle, nextSources, nextId, nextMode) => {
+    applySteps(next);
+    if (typeof nextTitle === "string") setTitle(nextTitle);
+    if (Array.isArray(nextSources)) setActiveSources(nextSources);
+    setCurrentId(nextId || null);
+    setSelectedId(next.length ? next[0].id : null);
+    if (nextMode) setMode(nextMode);
     setExportOpen(false);
   };
+
+  const loadLatest = () => {
+    if (!latestAnswer) return;
+    const latestSources = Array.isArray(latestAnswer.sources) ? latestAnswer.sources : [];
+    const next = dsStepsFromDraft(fcDraftFromAnswer(latestAnswer.answerText || "", latestSources));
+    loadSteps(next, latestAnswer.title || "", latestSources, null, "answer");
+  };
+
+  const loadPaper = (paper) => {
+    const text = dsPaperText(paper);
+    const next = fcExtractSteps(text, 7).map((st) => ({
+      id: fcId("s"),
+      label: fcCompressStep(st.text),
+      type: "process",
+      detail: st.text,
+      sourceIdx: 0,
+    }));
+    loadSteps(next, paper.title || "", [paper], null, "paper");
+  };
+
+  const loadDiagram = (chart) => {
+    const next = dsStepsFromChart(chart);
+    loadSteps(next, chart.title || "", Array.isArray(chart.sources) ? chart.sources : activeSources, chart.id || null, "saved");
+  };
+
+  const onWriteChange = (e) => {
+    const raw = e.target.value;
+    setWriteText(raw);
+    const lines = raw.split("\n").filter((line) => line.trim().length > 0);
+    const next = lines.map((line, i) => {
+      if (steps[i]) return { ...steps[i], label: line };
+      return { id: fcId("s"), label: line, type: "process", detail: "", sourceIdx: undefined };
+    });
+    setSteps(next);
+    setSaveState("idle");
+    if (selectedId && !next.some((s) => s.id === selectedId)) setSelectedId(next.length ? next[0].id : null);
+  };
+
+  const updateStep = (id, patch) => {
+    const next = steps.map((s) => (s.id === id ? { ...s, ...patch } : s));
+    applySteps(next);
+  };
+
+  const deleteStep = (id) => {
+    const next = steps.filter((s) => s.id !== id);
+    applySteps(next);
+    if (selectedId === id) setSelectedId(next.length ? next[0].id : null);
+  };
+
+  const addStep = () => {
+    const step = { id: fcId("s"), label: "", type: "process", detail: "", sourceIdx: undefined };
+    const next = [...steps, step];
+    applySteps(next);
+    setSelectedId(step.id);
+  };
+
+  const doSave = async () => {
+    const fresh = dsBuild(steps, direction);
+    setSaveState("saving");
+    try {
+      let result;
+      if (onSave) {
+        result = await onSave({ id: currentId, title: title.trim() || "Diagram", nodes: fresh.nodes, edges: fresh.edges, sources: activeSources });
+      }
+      if (result === false) {
+        setSaveState("blocked");
+        return;
+      }
+      /* The app save handler returns the saved diagram id as a
+         string; an object with an id is adopted the same way, so a
+         second save updates the same record instead of metering a
+         new diagram. */
+      if (typeof result === "string" && result) setCurrentId(result);
+      else if (result && typeof result === "object" && result.id) setCurrentId(result.id);
+      setSaveState("saved");
+    } catch (dsErr) {
+      setSaveState("blocked");
+    }
+  };
+
+  const exportColors = () => fcPaletteColors(P, accent, at);
+
+  const doExportSVG = () => {
+    const fresh = dsBuild(steps, direction);
+    download(fcSlug(title) + ".svg", fcSvgString(fresh.nodes, fresh.edges, title, exportColors()));
+    setExportOpen(false);
+  };
+
   const doExportPNG = () => {
-    const b = fcBounds(nodes);
-    const svg = fcSvgString(nodes, edges, title, fcPaletteColors(P, accent, at));
+    const fresh = dsBuild(steps, direction);
+    const svg = fcSvgString(fresh.nodes, fresh.edges, title, exportColors());
+    const b = fcBounds(fresh.nodes);
     const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
     const img = new Image();
-    // 2026-09-14: Surface export failures. The old code closed the menu
-    // synchronously before async work finished, and swallowed all errors —
-    // a failed export looked exactly like success.
-    img.onerror = () => { URL.revokeObjectURL(url); setExportOpen(false); toast("Couldn't render the diagram image. Try again.", { tone: "error" }); };
+    img.onerror = () => { URL.revokeObjectURL(url); setExportOpen(false); toast("Export failed. Try again.", { tone: "error" }); };
     img.onload = () => {
       try {
         const scale = 2;
-        const c = document.createElement("canvas");
-        c.width = Math.max(1, Math.ceil(b.w * scale));
-        c.height = Math.max(1, Math.ceil(b.h * scale));
-        const ctx = c.getContext("2d");
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.ceil(b.w * scale));
+        canvas.height = Math.max(1, Math.ceil(b.h * scale));
+        const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("canvas unavailable");
         ctx.fillStyle = P.bg;
-        ctx.fillRect(0, 0, c.width, c.height);
-        ctx.drawImage(img, 0, 0, c.width, c.height);
-        c.toBlob((blob) => {
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
           URL.revokeObjectURL(url);
           setExportOpen(false);
           if (blob) {
@@ -814,1513 +835,306 @@ export function FlowchartStudio({ P, accent, at, isMobile, initial, docTitle, an
             a.click();
             setTimeout(() => URL.revokeObjectURL(a.href), 4000);
           } else {
-            toast("Couldn't encode the PNG. Try again.", { tone: "error" });
+            toast("Export failed. Try again.", { tone: "error" });
           }
         });
-      } catch (e) { URL.revokeObjectURL(url); setExportOpen(false); toast(e?.message || "Couldn't export the PNG. Try again.", { tone: "error" }); }
+      } catch (dsErr) {
+        URL.revokeObjectURL(url);
+        setExportOpen(false);
+        toast("Export failed. Try again.", { tone: "error" });
+      }
     };
     img.src = url;
   };
-  const doExportMD = () => {
-    download(fcSlug(title) + ".md", fcToMarkdown(nodes, edges, title));
+
+  const doExportText = () => {
+    const fresh = dsBuild(steps, direction);
+    download(fcSlug(title) + ".md", fcToMarkdown(fresh.nodes, fresh.edges, title));
     setExportOpen(false);
   };
 
-  /* Canvas background interactions */
-  const pinchRef = useRef(null);
-  const onCanvasPointerDown = (e) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    /* Two-finger pinch zoom on touch. */
-    if (e.pointerType !== "mouse") {
-      const pins = pinchRef.current?.pts || {};
-      pins[e.pointerId] = { x: e.clientX, y: e.clientY };
-      const ids = Object.keys(pins);
-      if (ids.length === 2) {
-        const [a, b] = ids.map((id) => pins[id]);
-        pinchRef.current = { pts: pins, dist: Math.hypot(a.x - b.x, a.y - b.y), zoom: viewport.zoom, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
-        panRef.current = null;
-        e.currentTarget.setPointerCapture?.(e.pointerId);
-        return;
-      }
-      pinchRef.current = { pts: pins };
-    }
-    setSelection(null);
-    setPendingFrom(null);
-    setExportOpen(false);
-    panRef.current = { sx: e.clientX, sy: e.clientY, ox: viewport.x, oy: viewport.y, moved: false };
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+  const btnStyle = {
+    minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, cursor: "pointer",
+    background: "transparent", color: P.ink, border: `1px solid ${P.line2}`,
+    fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
+    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, whiteSpace: "nowrap",
   };
-  const onCanvasPointerMove = (e) => {
-    /* Pinch zoom */
-    const pinch = pinchRef.current;
-    if (pinch?.pts?.[e.pointerId]) {
-      pinch.pts[e.pointerId] = { x: e.clientX, y: e.clientY };
-      const ids = Object.keys(pinch.pts);
-      if (ids.length === 2 && pinch.dist) {
-        const [a, b] = ids.map((id) => pinch.pts[id]);
-        const dist = Math.hypot(a.x - b.x, a.y - b.y);
-        if (dist > 0) {
-          const svg = svgRef.current;
-          const r = svg.getBoundingClientRect();
-          const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
-          setViewport((v) => {
-            const z2 = Math.min(2.5, Math.max(0.3, pinch.zoom * (dist / pinch.dist)));
-            const wx = (mx - v.x) / v.zoom, wy = (my - v.y) / v.zoom;
-            return { zoom: z2, x: mx - wx * z2, y: my - wy * z2 };
-          });
-        }
-        return;
-      }
-    }
-    const p = panRef.current;
-    if (!p) return;
-    const dx = e.clientX - p.sx, dy = e.clientY - p.sy;
-    if (Math.abs(dx) + Math.abs(dy) > 3) p.moved = true;
-    setViewport((v) => ({ ...v, x: p.ox + dx, y: p.oy + dy }));
-  };
-  const onCanvasPointerUp = (e) => {
-    panRef.current = null;
-    if (pinchRef.current?.pts) {
-      delete pinchRef.current.pts[e.pointerId];
-      if (Object.keys(pinchRef.current.pts).length < 2) pinchRef.current = null;
-    }
-  };
-  const onCanvasPointerCancel = (e) => onCanvasPointerUp(e);
-
-  const onNodePointerDown = (e, n) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    e.stopPropagation();
-    if (tool === "connect") {
-      if (!pendingFrom) { setPendingFrom(n.id); setSelection({ kind: "node", id: n.id }); }
-      else if (pendingFrom !== n.id) {
-        const from = fcNodeById(stateRef.current.nodes, pendingFrom);
-        const label = from?.type === "decision" ? "yes" : "";
-        setEdges((prev) => [...prev, fcNewEdge(pendingFrom, n.id, label)]);
-        setPendingFrom(null);
-        setTool("select");
-        setTimeout(pushHistory, 0);
-      } else { setPendingFrom(null); }
-      return;
-    }
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    const w = toWorld(e.clientX, e.clientY);
-    dragRef.current = { id: n.id, sx: w.x, sy: w.y, ox: n.x, oy: n.y, moved: false };
-    setSelection({ kind: "node", id: n.id });
-  };
-  const onNodePointerMove = (e, n) => {
-    const d = dragRef.current;
-    if (!d || d.id !== n.id) return;
-    const w = toWorld(e.clientX, e.clientY);
-    const nx = d.ox + (w.x - d.sx), ny = d.oy + (w.y - d.sy);
-    if (Math.abs(nx - d.ox) + Math.abs(ny - d.oy) > 2) d.moved = true;
-    setNodes((prev) => prev.map((m) => (m.id === n.id ? { ...m, x: Math.round(nx), y: Math.round(ny) } : m)));
-  };
-  const lastTapRef = useRef({ id: null, t: 0 });
-  const onNodePointerUp = (e, n) => {
-    const d = dragRef.current;
-    if (d && d.id === n.id) {
-      dragRef.current = null;
-      if (d.moved) pushHistory();
-    }
-    /* Double-tap to edit on touch (no double-click event on mobile). */
-    if (e.pointerType !== "mouse" && !d?.moved) {
-      const now = Date.now();
-      const lt = lastTapRef.current;
-      if (lt.id === n.id && now - lt.t < 350) {
-        lastTapRef.current = { id: null, t: 0 };
-        setSelection({ kind: "node", id: n.id });
-        setTimeout(() => document.getElementById("fc-label-edit")?.focus(), 50);
-      } else {
-        lastTapRef.current = { id: n.id, t: now };
-      }
-    }
+  const tabStyle = (active) => ({
+    ...btnStyle,
+    background: active ? withAlpha(accent, 0.14) : "transparent",
+    border: `1px solid ${active ? accent : P.line2}`,
+    color: P.ink,
+  });
+  const fieldStyle = {
+    boxSizing: "border-box", background: P.bg, border: `1px solid ${P.line}`,
+    borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px",
+    fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)",
   };
 
-  const selNode = selection?.kind === "node" ? fcNodeById(nodes, selection.id) : null;
-  const selEdge = selection?.kind === "edge" ? edges.find((e) => e.id === selection.id) : null;
-  const selSource = selNode && selNode.type === "evidence" && typeof selNode.sourceIdx === "number" ? sources?.[selNode.sourceIdx] : null;
+  const selectedDoi = selectedSource ? (selectedSource.doi || "") : "";
+  const selectedHref = selectedSource
+    ? safeHref(selectedSource.url || (selectedDoi ? (String(selectedDoi).startsWith("http") ? selectedDoi : "https://doi.org/" + selectedDoi) : ""))
+    : "#";
 
-  const hint = tool === "connect"
-    ? (pendingFrom ? "Now click the target node. The arrow lands there. Esc cancels." : "Click the node the arrow starts from.")
-    : "Drag nodes to move · scroll to zoom · drag the canvas to pan · double-click a node to edit it.";
-
-  /* Toolbar actions are the shared StudioToolbarBtn (M37,
-     2026-10-19), the same treatment the code diagram editor uses. */
-  const studioBtn = (label, onClick, opts = {}) => (
-    <StudioToolbarBtn P={P} accent={accent} at={at} label={label} onClick={onClick}
-      primary={opts.primary} disabled={opts.disabled} title={opts.title} icon={opts.icon} />
-  );
-  const studioIconBtn = (icon, onClick, opts = {}) => (
-    <UIButton P={P} variant="ghost" type="button" onClick={onClick} disabled={opts.disabled} title={opts.title || icon} aria-label={opts.title || icon}
-      style={{
-        width: 44, height: 44, borderRadius: RADIUS.lg, cursor: opts.disabled ? "default" : "pointer",
-        background: "transparent", color: opts.disabled ? P.faint : P.ink2,
-        border: "1px solid transparent", opacity: opts.disabled ? 0.4 : 1,
-        display: "inline-flex", alignItems: "center", justifyContent: "center",
-        transition: "background-color 150ms ease, color 150ms ease, opacity 150ms ease",
-      }}
-      onMouseEnter={(e) => { if (!opts.disabled) { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.color = accent; } }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.ink2; }}>
-      <Icon name={icon} size={15} />
-    </UIButton>
-  );
-
-  return (
-    <Dialog label="Diagram Studio evidence map" onClose={onClose} zIndex={300} width={1240}
-      onEscape={() => { if (exportOpen) setExportOpen(false); else onClose(); }}
-      panelStyle={{
-        background: P.bg,
-        borderRadius: RADIUS.lg, height: isMobile ? "96dvh" : "88dvh",
-        display: "flex", flexDirection: "column", overflow: "hidden",
-        border: `1px solid ${withAlpha(accent, 0.18)}`, boxShadow: SHADOW.xl(P), outline: "none",
-      }}
-    >
-        {/* ── Studio command bar: the shared StudioToolbar (M37) ── */}
-        <StudioToolbar P={P} accent={accent} job="Evidence map" detail="Map evidence from an answer"
-          icon={<Icon name="flowchart" size={17} style={{ color: accent }} />}>
-          <div style={{ width: 1, height: 26, background: P.line, flexShrink: 0 }} />
-          {/* title */}
-          <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Evidence map title" placeholder="Untitled evidence map"
-            title="Rename this evidence map"
-            style={{
-              flex: "1 1 140px", minWidth: 0, background: "transparent",
-              border: "none", borderBottom: `1px dashed transparent`, outline: "none",
-              color: P.ink, fontSize: 16, fontWeight: 500, fontFamily: "var(--cb-font)",
-              padding: "4px 2px", transition: "border-color 150ms ease",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderBottomColor = withAlpha(accent, 0.45); }}
-            onMouseLeave={(e) => { if (document.activeElement !== e.currentTarget) e.currentTarget.style.borderBottomColor = "transparent"; }}
-            onFocus={(e) => { e.currentTarget.style.borderBottomColor = accent; e.currentTarget.style.borderBottomStyle = "solid"; }}
-            onBlur={(e) => { e.currentTarget.style.borderBottomColor = "transparent"; e.currentTarget.style.borderBottomStyle = "dashed"; }}
+  const content = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, fontFamily: "var(--cb-font)", color: P.ink }}>
+      {/* Header block */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {!dialog && (
+          <div style={{ fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, lineHeight: 1.3 }}>Diagram Studio</div>
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <input
+            value={title}
+            onChange={(e) => { setTitle(e.target.value); setSaveState("idle"); }}
+            placeholder="Diagram title"
+            aria-label="Diagram title"
+            style={{ ...fieldStyle, flex: "1 1 180px", minWidth: 0, background: P.surface }}
           />
-          {savedFlash && <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="check" size={13} /> Saved</span>}
-          {/* tool switcher */}
-          {!isMobile && (
-            <div role="toolbar" aria-label="Canvas tools" style={{
-              display: "flex", alignItems: "center", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.045)",
-              border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: 3, gap: 2,
-            }}>
-              {[["select", "Select", "cursor"], ["connect", "Connect", "link"]].map(([key, label, icon]) => {
-                const on = tool === key;
+          <div role="group" aria-label="Direction" style={{ display: "inline-flex", border: `1px solid ${P.line2}`, borderRadius: RADIUS.sm, padding: 3, gap: 2 }}>
+            <button type="button" aria-pressed={direction === "down"}
+              onClick={() => { setDirection("down"); setSaveState("idle"); }}
+              style={{ minHeight: 38, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "down" ? accent : "transparent", color: direction === "down" ? at : P.ink }}>
+              Down
+            </button>
+            <button type="button" aria-pressed={direction === "across"}
+              onClick={() => { setDirection("across"); setSaveState("idle"); }}
+              style={{ minHeight: 38, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "across" ? accent : "transparent", color: direction === "across" ? at : P.ink }}>
+              Across
+            </button>
+          </div>
+          <div style={{ position: "relative" }}>
+            <button type="button" onClick={() => setExportOpen((v) => !v)} aria-expanded={exportOpen} style={btnStyle}>
+              Export
+            </button>
+            {exportOpen && (
+              <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 6, padding: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, minWidth: 160 }}>
+                <button type="button" onClick={doExportSVG} style={btnStyle}>SVG</button>
+                <button type="button" onClick={doExportPNG} style={btnStyle}>PNG</button>
+                <button type="button" onClick={doExportText} style={btnStyle}>Text outline</button>
+              </div>
+            )}
+          </div>
+          <button type="button" onClick={doSave} disabled={saveState === "saving"}
+            style={{ ...btnStyle, background: accent, color: at, border: `1px solid ${accent}`, opacity: saveState === "saving" ? 0.6 : 1 }}>
+            Save
+          </button>
+          {dialog && onClose && (
+            <button type="button" onClick={onClose} style={btnStyle}>Close</button>
+          )}
+        </div>
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.4 }}>
+          Free accounts can save 1 diagram every 5 days.
+        </div>
+        {saveState === "saving" && (
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>Saving</div>
+        )}
+        {saveState === "saved" && (
+          <div style={{ fontSize: FONT_SIZES.body, color: accent, fontWeight: 500 }}>Saved</div>
+        )}
+        {saveState === "blocked" && (
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>
+            Save did not go through. Check that you are signed in and that your plan still has room.
+          </div>
+        )}
+      </div>
+
+      {/* Source choices */}
+      {!dialog && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" aria-pressed={mode === "write"} onClick={() => { setMode("write"); setWriteText(steps.map((s) => s.label).join("\n")); }} style={tabStyle(mode === "write")}>
+              Write it
+            </button>
+            <button type="button" aria-pressed={mode === "answer"} disabled={!latestAnswer}
+              onClick={loadLatest}
+              style={{ ...tabStyle(mode === "answer"), opacity: latestAnswer ? 1 : 0.5, cursor: latestAnswer ? "pointer" : "not-allowed" }}>
+              From your last answer
+            </button>
+            <button type="button" aria-pressed={mode === "paper"} onClick={() => setMode("paper")} style={tabStyle(mode === "paper")}>
+              From a saved paper
+            </button>
+            <button type="button" aria-pressed={mode === "saved"} onClick={() => setMode("saved")} style={tabStyle(mode === "saved")}>
+              Saved diagrams
+            </button>
+          </div>
+          {mode === "paper" && (
+            <select
+              aria-label="Saved paper"
+              value={paperPick}
+              onChange={(e) => {
+                setPaperPick(e.target.value);
+                const paper = eligiblePapers[Number(e.target.value)];
+                if (paper) loadPaper(paper);
+              }}
+              style={{ ...fieldStyle, width: "100%", background: P.surface }}
+            >
+              <option value="">Choose a paper</option>
+              {eligiblePapers.map((paper, i) => (
+                <option key={paper.id || paper.title || i} value={i}>{paper.title || "Untitled"}</option>
+              ))}
+            </select>
+          )}
+          {mode === "saved" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {diagrams.length === 0 && (
+                <div style={{ fontSize: FONT_SIZES.body, color: P.faint }}>No saved diagrams yet.</div>
+              )}
+              {diagrams.map((chart, i) => {
+                const count = dsStepsFromChart(chart).length;
                 return (
-                  <UIButton P={P} variant="ghost" key={key} type="button" aria-pressed={on} title={key === "connect" ? "Connect: click a source node, then a target" : "Select and drag nodes"}
-                    onClick={() => { setTool(key); setPendingFrom(null); }}
-                    style={{ minHeight: 44,
-                      display: "inline-flex", alignItems: "center", gap: 7, padding: "0 14px", borderRadius: RADIUS.sm,
-                      border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
-                      background: on ? accent : "transparent", color: on ? at : P.ink2,
-                      boxShadow: "none",
-                      transition: "background-color 150ms ease, border-color 150ms ease, color 150ms ease",
-                    }}>
-                    <Icon name={icon} size={13} />
-                    {label}
-                  </UIButton>
+                  <button key={chart.id || chart.title || i} type="button" onClick={() => loadDiagram(chart)}
+                    style={{ ...btnStyle, justifyContent: "flex-start" }}>
+                    {`${chart.title || "Diagram"} · ${count} step${count === 1 ? "" : "s"}`}
+                  </button>
                 );
               })}
             </div>
           )}
-          <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", marginLeft: "auto" }}>
-            {studioIconBtn("undo", undo, { disabled: !canUndo, title: "Undo (Ctrl+Z)" })}
-            {studioIconBtn("redo", redo, { disabled: !canRedo, title: "Redo (Ctrl+Y)" })}
-            <div style={{ width: 1, height: 22, background: P.line, margin: "0 6px", flexShrink: 0 }} />
-            {studioBtn("Arrange", doAutoLayout, { icon: "wand", title: "Auto-arrange the chart top-down", disabled: nodes.length < 2 })}
-            {answerText && studioBtn("Draft", doDraft, { icon: "edit", title: "Turn this answer's steps into a starting chart (marked as draft)" })}
-            <div style={{ position: "relative" }}>
-              {studioBtn("Export", () => setExportOpen((v) => !v), { icon: "download", title: "Export as SVG, PNG, or Markdown" })}
-              {exportOpen && (
-                <div style={{
-                  position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: Z.sticky, minWidth: 220,
-                  background: P.bg, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 6,
-                  boxShadow: "none",
-                }}>
-                  {[["SVG", "Vector, any size", doExportSVG], ["PNG", "Image at 2\u00d7 resolution", doExportPNG], ["Markdown", "Text outline", doExportMD]].map(([fmt, desc, fn]) => (
-                    <button key={fmt} type="button" onClick={() => { setExportOpen(false); fn(); }}
-                      style={{ minHeight: 44, display: "flex", alignItems: "baseline", gap: 10, width: "100%", textAlign: "left", padding: "9px 11px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: "pointer", fontFamily: "var(--cb-font)" }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                      <span style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, width: 74, flexShrink: 0 }}>{fmt}</span>
-                      <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2 }}>{desc}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            {studioBtn("Save", doSave, { primary: true, icon: "check" })}
-            <div style={{ width: 1, height: 22, background: P.line, margin: "0 6px", flexShrink: 0 }} />
-            <UIButton P={P} variant="ghost" type="button" onClick={onClose} aria-label="Close studio" title="Close (Esc)"
-              /* 44px hit area; the 32px hover circle is the inner span. */
-              style={{
-                width: 44, height: 44, border: "none", cursor: "pointer", padding: 0,
-                background: "transparent", color: P.faint, display: "inline-flex", alignItems: "center", justifyContent: "center",
-              }}>
-              <span
-                style={{
-                  width: 32, height: 32, borderRadius: "50%", display: "inline-flex",
-                  alignItems: "center", justifyContent: "center",
-                  transition: "background-color 150ms ease, color 150ms ease",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.14)"; e.currentTarget.style.color = "#e5484d"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.faint; }}>
-                <Icon name="close" size={16} />
-              </span>
-            </UIButton>
-          </div>
-        </StudioToolbar>
-
-        {draftNotice && (
-          <div style={{
-            padding: "8px 16px", background: withAlpha(accent, 0.08), borderBottom: `1px solid ${P.line}`,
-            fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
-          }}>
-            <Icon name="edit" size={13} />
-            <span><strong>Draft.</strong> These steps were lifted from the answer. Review every node before you trust the chart.</span>
-            <button type="button" onClick={() => setDraftNotice(false)} style={{ marginLeft: "auto", background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption }}>Dismiss</button>
-          </div>
-        )}
-
-        {/* ── Body ── */}
-        <div style={{ display: "flex", flex: 1, minHeight: 0, flexDirection: isMobile ? "column" : "row" }}>
-          {/* Palette — node rail */}
-          <div style={{
-            flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${P.line}`,
-            borderBottom: isMobile ? `1px solid ${P.line}` : "none",
-            background: P.surface,
-            padding: isMobile ? "8px 10px" : "12px 10px", display: "flex", flexDirection: isMobile ? "row" : "column", gap: 3,
-            overflowX: isMobile ? "auto" : "visible", overflowY: isMobile ? "visible" : "auto", alignItems: isMobile ? "center" : "stretch",
-          }}>
-            {!isMobile && <div className="cb-kicker" style={{ padding: "2px 6px 12px" }}>Nodes</div>}
-            {isMobile && (
-              <div style={{ display: "flex", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: 2, gap: 2, flexShrink: 0, marginRight: 4 }}>
-                {[["select", "cursor"], ["connect", "link"]].map(([key, icon]) => (
-                  <UIButton P={P} variant="ghost" key={key} type="button" aria-pressed={tool === key} title={key === "connect" ? "Connect nodes" : "Select nodes"}
-                    onClick={() => { setTool(key); setPendingFrom(null); }}
-                    style={{ minWidth: 44, minHeight: 44,
-                      width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer",
-                      background: tool === key ? accent : "transparent", color: tool === key ? at : P.ink2,
-                      display: "inline-flex", alignItems: "center", justifyContent: "center",
-                    }}>
-                    <Icon name={icon} size={14} />
-                  </UIButton>
-                ))}
-              </div>
-            )}
-            {FC_ORDER.map((t) => <FcPaletteBtn key={t} type={t} P={P} accent={accent} isMobile={isMobile} onClick={() => addNode(t)} />)}
-            {!isMobile && (
-              <div style={{ marginTop: "auto", padding: "12px 6px 2px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
-                <span style={{ color: P.ink2, fontWeight: 500 }}>Tip</span>: double-click a node to rename it.
-              </div>
-            )}
-          </div>
-
-          {/* Canvas */}
-          <div style={{ flex: 1, position: "relative", minHeight: 0, minWidth: 0, background: P.bg, overflow: "hidden" }}>
-            <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block", cursor: tool === "connect" ? "crosshair" : "grab", touchAction: "none" }}
-              onPointerDown={onCanvasPointerDown} onPointerMove={onCanvasPointerMove} onPointerUp={onCanvasPointerUp} onPointerCancel={onCanvasPointerCancel}>
-              <defs>
-                <pattern id="fcGrid" width="28" height="28" patternUnits="userSpaceOnUse">
-                  <circle cx="1.2" cy="1.2" r="1.1" fill={P.line2} />
-                </pattern>
-                <pattern id="fcGridMajor" width="140" height="140" patternUnits="userSpaceOnUse">
-                  <path d="M 140 0 L 0 0 0 140" fill="none" stroke={P.line} strokeWidth="1" />
-                </pattern>
-                {/* Arrowheads carry the accent now, not faint grey: the eye
-                    follows the flow instead of hunting for it. */}
-                <marker id="fcArrowHead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
-                  <path d="M 0 1 L 9 5 L 0 9 z" fill={accent} />
-                </marker>
-              </defs>
-              <g transform={`translate(${viewport.x},${viewport.y}) scale(${viewport.zoom})`}>
-                <rect x={-4000} y={-4000} width={12000} height={12000} fill="url(#fcGridMajor)" />
-                <rect x={-4000} y={-4000} width={12000} height={12000} fill="url(#fcGrid)" />
-                {/* edges */}
-                {edges.map((e) => {
-                  const a = fcNodeById(nodes, e.from), b = fcNodeById(nodes, e.to);
-                  if (!a || !b) return null;
-                  const g = fcEdgeGeom(a, b);
-                  const sel = selection?.kind === "edge" && selection.id === e.id;
-                  return (
-                    <g key={e.id}>
-                      <path d={g.d} fill="none" stroke="transparent" strokeWidth={16} style={{ cursor: "pointer" }}
-                        onPointerDown={(ev) => { ev.stopPropagation(); setSelection({ kind: "edge", id: e.id }); }} />
-                      <path d={g.d} fill="none" stroke={sel ? accent : withAlpha(accent, 0.45)} strokeWidth={sel ? 2.4 : 2} opacity={sel ? 1 : 0.9} markerEnd="url(#fcArrowHead)" style={{ pointerEvents: "none" }} />
-                      {e.label && (
-                        <text x={g.mx} y={g.my - 8} textAnchor="middle" fontSize={12} fontStyle="italic" fill={P.faint} style={{ pointerEvents: "none", fontFamily: "var(--cb-font)" }}>{e.label}</text>
-                      )}
-                    </g>
-                  );
-                })}
-                {/* nodes */}
-                {nodes.map((n) => {
-                  const sel = selection?.kind === "node" && selection.id === n.id;
-                  const pend = pendingFrom === n.id;
-                  const lines = fcWrap(n.label, Math.max(8, Math.floor((n.w - 36) / 8)));
-                  const lh = 21;
-                  const isAccent = n.type === "start" || n.type === "end";
-                  /* Draft scaffolds carry a mono step numeral as a kicker —
-                     the number owns the sequence so the label only has to
-                     own the meaning. User-built nodes have no step and
-                     render label-only, as before. */
-                  const kicker = typeof n.step === "number" && !isAccent ? String(n.step).padStart(2, "0") : null;
-                  const blockH = (lines.length - 1) * lh + (kicker ? 22 : 0);
-                  /* Evidence nodes carry a source-title caption along the
-                     bottom edge — center the label block in the space above
-                     it so a three-line label never collides with the caption. */
-                  const capH = n.type === "evidence" && typeof n.sourceIdx === "number" && sources?.[n.sourceIdx] ? 16 : 0;
-                  const ty = (n.h - capH) / 2 - blockH / 2 + 5;
-                  const labelTop = ty + (kicker ? 22 : 0);
-                  return (
-                    <g key={n.id} transform={`translate(${n.x},${n.y})`}
-                      onPointerDown={(e) => onNodePointerDown(e, n)}
-                      onPointerMove={(e) => onNodePointerMove(e, n)}
-                      onPointerUp={(e) => onNodePointerUp(e, n)}
-                      onDoubleClick={(e) => { e.stopPropagation(); setSelection({ kind: "node", id: n.id }); setTimeout(() => document.getElementById("fc-label-edit")?.focus(), 50); }}
-                      style={{ cursor: tool === "connect" ? "crosshair" : "grab" }}>
-                      {pend && <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={RADIUS.lg} fill="none" stroke={accent} strokeWidth={1.6} strokeDasharray="6 4" opacity={0.8} />}
-                      <FcNodeShape n={n} P={P} accent={accent} selected={sel} pending={pend} />
-                      {kicker && (
-                        <text x={n.w / 2} y={ty + 4} textAnchor="middle" fontSize={FONT_SIZES.caption} fill={accent}
-                          style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: "normal" }}>
-                          {kicker}
-                        </text>
-                      )}
-                      {lines.map((ln, i) => (
-                        <text key={i} x={n.w / 2} y={labelTop + i * lh} textAnchor="middle" fontSize={15}
-                          fill={isAccent ? at : P.ink} style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontWeight: 500, letterSpacing: "-0.015em" }}>
-                          {ln}
-                        </text>
-                      ))}
-                      {n.type === "evidence" && typeof n.sourceIdx === "number" && sources?.[n.sourceIdx] && (
-                        <text x={n.w / 2} y={n.h - 10} textAnchor="middle" fontSize={FONT_SIZES.caption} fill={P.faint}
-                          style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--cb-font)", fontStyle: "italic" }}>
-                          {String(sources[n.sourceIdx].title || "source").slice(0, 34)}{String(sources[n.sourceIdx].title || "").length > 34 ? "…" : ""}
-                        </text>
-                      )}
-                    </g>
-                  );
-                })}
-              </g>
-            </svg>
-            {nodes.length === 0 && (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none", padding: 24, zIndex: Z.overlay }}>
-                <div style={{ textAlign: "center", maxWidth: 380 }}>
-                  <svg width="220" height="86" viewBox="0 0 220 86" aria-hidden="true" style={{ margin: "0 auto 18px", display: "block", opacity: 0.9 }}>
-                    <defs>
-                      <linearGradient id="fcEmptyA" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0" stopColor={accent} stopOpacity="0.85" /><stop offset="1" stopColor={accent} stopOpacity="0.55" />
-                      </linearGradient>
-                    </defs>
-                    <rect x="8" y="28" width="52" height="30" rx="15" fill="url(#fcEmptyA)" opacity="0.9" />
-                    <polygon points="110,8 142,36 110,64 78,36" fill={withAlpha(accent, 0.18)} stroke={accent} strokeWidth="1.5" />
-                    <rect x="160" y="28" width="52" height="30" rx="8" fill={withAlpha(accent, 0.10)} stroke={P.faint} strokeWidth="1.5" strokeDasharray="5 4" />
-                    <path d="M60 43 h14" stroke={P.faint} strokeWidth="1.5" /><path d="M71 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
-                    <path d="M146 43 h10" stroke={P.faint} strokeWidth="1.5" strokeDasharray="3 3" /><path d="M153 39 l5 4 -5 4" fill="none" stroke={P.faint} strokeWidth="1.5" />
-                  </svg>
-                  <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, marginBottom: 8, fontFamily: "var(--cb-font)", letterSpacing: "-0.015em" }}>A blank bench</div>
-                  <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.65, marginBottom: answerText ? 16 : 0 }}>
-                    {answerText ? "Add nodes from the rail, or draft a starting chart from this answer." : "Add nodes from the rail to start building."}
-                  </div>
-                  {answerText && (
-                    <button type="button" onClick={doDraft} style={{ minHeight: 44, pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 24px", borderRadius: RADIUS.sm, border: `1px solid ${accent}`, background: accent, color: at, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
-                      <Icon name="edit" size={14} /> Draft from answer
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-            {/* zoom controls */}
-            <div style={{ position: "absolute", right: 14, bottom: 14, zIndex: Z.overlay, display: "flex", alignItems: "center", gap: 2, background: P.bg, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: 4 }}>
-              {[["−", 1 / 1.25, "Zoom out"], ["+", 1.25, "Zoom in"]].map(([label, f, t2]) => (
-                <UIButton P={P} variant="ghost" key={label} type="button" title={t2} aria-label={t2}
-                  onClick={() => setViewport((v) => ({ ...v, zoom: Math.min(2.5, Math.max(0.3, v.zoom * f)) }))}
-                  style={{ minWidth: 44, minHeight: 44, width: 30, height: 30, borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink2, cursor: "pointer", fontSize: 16, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.color = accent; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.ink2; }}>
-                  {label}
-                </UIButton>
-              ))}
-              <UIButton P={P} variant="ghost" type="button" title="Reset view" aria-label="Reset view"
-                onClick={() => setViewport({ x: 40, y: 40, zoom: 1 })}
-                style={{ minWidth: 44, minHeight: 44, height: 30, padding: "0 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", letterSpacing: "normal" }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.12); e.currentTarget.style.color = accent; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = P.faint; }}>
-                {Math.round(viewport.zoom * 100)}%
-              </UIButton>
-            </div>
-          </div>
-
-          {/* Inspector */}
-          <div style={{
-            flexShrink: 0, width: isMobile ? "100%" : 264, maxHeight: isMobile ? 230 : "none", overflowY: "auto",
-            borderLeft: isMobile ? "none" : `1px solid ${P.line}`, borderTop: isMobile ? `1px solid ${P.line}` : "none",
-            background: P.surface,
-            padding: 14,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <div className="cb-kicker">Inspector</div>
-              {(selNode || selEdge) && (
-                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, background: withAlpha(accent, 0.13), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: RADIUS.viewport, padding: "3px 12px", textTransform: "none", letterSpacing: "normal" }}>
-                  {selNode ? FC_NODE_TYPES[selNode.type].name : "Arrow"}
-                </div>
-              )}
-            </div>
-            {!selection && (
-              <div>
-                <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontWeight: 500, marginBottom: 6 }}>Nothing selected</div>
-                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.7 }}>
-                  Click a node or arrow to edit it here.
-                </div>
-                <div style={{ marginTop: 12, padding: 10, borderRadius: RADIUS.lg, background: withAlpha(accent, 0.07), border: `1px solid ${withAlpha(accent, 0.18)}`, fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65 }}>
-                  <span style={{ fontWeight: 500, color: accent }}>Connect</span> links two nodes. Click the source, then the target.
-                  {sources && sources.length > 0 && <span> Evidence nodes can cite this answer's papers.</span>}
-                </div>
-              </div>
-            )}
-            {selNode && (
-              <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
-                <label htmlFor="fc-label-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Label</label>
-                <textarea id="fc-label-edit" value={selNode.label} rows={3}
-                  onChange={(e) => updateNode(selNode.id, { label: e.target.value }, false)}
-                  onBlur={pushHistory}
-                  style={{
-                    width: "100%", boxSizing: "border-box", background: P.surface,
-                    border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px",
-                    fontSize: 16, fontFamily: "var(--cb-font)", resize: "vertical",
-                  }} />
-                {/* The draft compresses answer sentences into terse labels;
-                    the full source sentence lives here so the compression
-                    never destroys information — it's one click away. */}
-                {selNode.detail && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Source sentence</div>
-                    <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.65, padding: "8px 12px", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md }}>
-                      {selNode.detail}
-                    </div>
-                  </div>
-                )}
-                {selNode.type === "evidence" && sources && sources.length > 0 && (
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Cites paper</div>
-                    <UISelect P={P} accent={accent} ariaLabel="Cites paper"
-                      value={typeof selNode.sourceIdx === "number" ? selNode.sourceIdx : ""}
-                      onChange={(v) => updateNode(selNode.id, { sourceIdx: v === "" ? undefined : Number(v) })}
-                      options={[
-                        { value: "", label: "No citation" },
-                        ...sources.slice(0, 12).map((s, i) => ({ value: i, label: `${String(s.title || "Untitled").slice(0, 60)}${s.year ? ` (${s.year})` : ""}` })),
-                      ]}
-                      style={{ width: "100%" }} />
-                    {selSource?.url && (
-                      <a href={safeHref(selSource.url)} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 8, fontSize: FONT_SIZES.caption, color: accent, fontWeight: 500 }}>
-                        Open the paper <Icon name="arrowUpRight" size={11} />
-                      </a>
-                    )}
-                    {selSource && (
-                      <div style={{ marginTop: 8, padding: "8px 12px", borderLeft: `2px solid ${accent}`, fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
-                        <div style={{ fontWeight: 500, color: P.ink }}>{selSource.title || "Untitled"}</div>
-                        <div style={{ color: P.faint }}>
-                          {[selSource.authors, selSource.journal || selSource.source, selSource.year].filter(Boolean).join(" · ")}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <button type="button" onClick={deleteSelection}
-                  style={{ minHeight: 44, marginTop: 14, width: "100%", background: "rgba(229,72,77,0.07)", border: "1px solid rgba(229,72,77,0.3)", borderRadius: RADIUS.lg, padding: "8px 16px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.14)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.07)"; }}>
-                  <Icon name="trash" size={13} /> Delete node
-                </button>
-              </div>
-            )}
-            {selEdge && (
-              <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
-                <label htmlFor="fc-edge-edit" style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, marginBottom: 6, textTransform: "none", letterSpacing: "normal" }}>Label <span style={{ opacity: 0.6, fontWeight: 400, textTransform: "none", letterSpacing: "0" }}>(e.g. yes / no)</span></label>
-                <input id="fc-edge-edit" value={selEdge.label} onChange={(e) => { setEdges((prev) => prev.map((x) => (x.id === selEdge.id ? { ...x, label: e.target.value } : x))); }} onBlur={pushHistory}
-                  style={{
-                    width: "100%", boxSizing: "border-box", background: P.surface,
-                    border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px",
-                    fontSize: 16, fontFamily: "var(--cb-font)",
-                  }} />
-                <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                  {(() => { const a = fcNodeById(nodes, selEdge.from), b = fcNodeById(nodes, selEdge.to); return a && b ? `${a.label.slice(0, 24)} → ${b.label.slice(0, 24)}` : ""; })()}
-                </div>
-                <button type="button" onClick={deleteSelection}
-                  style={{ minHeight: 44, marginTop: 14, width: "100%", background: "rgba(229,72,77,0.07)", border: "1px solid rgba(229,72,77,0.3)", borderRadius: RADIUS.lg, padding: "8px 16px", color: "#e5484d", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.14)"; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(229,72,77,0.07)"; }}>
-                  <Icon name="trash" size={13} /> Delete arrow
-                </button>
-              </div>
-            )}
-          </div>
         </div>
-
-        {/* ── Status bar ── */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 14, padding: "8px 16px", borderTop: `1px solid ${P.line}`,
-          fontSize: FONT_SIZES.caption, color: P.faint, flexShrink: 0, flexWrap: "wrap",
-          fontFamily: "var(--cb-font)", background: P.dark ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.02)",
-        }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: nodes.length ? accent : P.faint, boxShadow: "none" }} />
-            {nodes.length} node{nodes.length === 1 ? "" : "s"} · {edges.length} arrow{edges.length === 1 ? "" : "s"}
-          </span>
-          {selection && <span style={{ color: accent }}>● {selection.kind === "node" ? "node" : "arrow"} selected</span>}
-          <span style={{ flex: 1 }} />
-          <span style={{ fontFamily: "var(--cb-font)" }}>{hint}</span>
-        </div>
-    </Dialog>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   Diagram Studio, Code diagram: build a diagram from code. A code
-   editor with live preview, pan/zoom canvas, diagram type
-   templates, .mmd import/export, SVG/PNG export, and a local diagram
-   library. The other Diagram Studio editor, Evidence map, maps
-   evidence from an answer; both share StudioToolbar above.
-
-   Mermaid is lazy-loaded (dynamic import) so the main bundle never pays
-   for it until the studio opens. Rendering runs at securityLevel
-   "strict": diagram source can never inject scripts into the page.
-
-   Imported .mmd files load VERBATIM — the studio never reformats,
-   tidies, or "fixes" your source. What you wrote is what renders.
-   ══════════════════════════════════════════════════════════════════ */
-
-const MM_STORE_KEY = "cb_mermaid_diagrams";
-const MM_DRAFT_KEY = "cb_mermaid_draft_v1";
-
-const MM_DEFAULT_CODE = `flowchart TD
-    A[Raw lignin] --> B{Enzyme attack}
-    B -->|Laccase| C[Phenolic radicals]
-    B -->|Peroxidase| D[Aryl fragments]
-    C --> E[Repolymerization]
-    D --> F[Ring cleavage]
-    E --> G[Humic-like polymers]
-    F --> H[Small organic acids]
-    G --> I[Mineralization]
-    H --> I
-`;
-
-const MERMAID_TEMPLATES = [
-  { key: "flowchart", name: "Flowchart", code: `flowchart TD
-    A[Start] --> B{Decide}
-    B -->|Yes| C[Do it]
-    B -->|No| D[Skip it]
-    C --> E[End]
-    D --> E` },
-  { key: "sequence", name: "Sequence diagram", code: `sequenceDiagram
-    participant U as User
-    participant S as Server
-    U->>S: Search request
-    S->>S: Rank papers
-    S-->>U: Results` },
-  { key: "class", name: "Class diagram", code: `classDiagram
-    class Paper {
-        +String title
-        +String authors
-        +Int year
-        +cite() String
-    }
-    class Preprint {
-        +String server
-    }
-    Paper <|-- Preprint` },
-  { key: "state", name: "State diagram", code: `stateDiagram-v2
-    [*] --> Draft
-    Draft --> Review : submit
-    Review --> Published : accept
-    Review --> Draft : revise
-    Published --> [*]` },
-  { key: "er", name: "Entity relationship", code: `erDiagram
-    PAPER ||--o{ AUTHOR : has
-    PAPER {
-        string title
-        int year
-        string doi
-    }
-    AUTHOR {
-        string name
-    }` },
-  { key: "gantt", name: "Gantt chart", code: `gantt
-    title Research plan
-    dateFormat YYYY-MM-DD
-    section Phase 1
-    Literature review :a1, 2026-09-01, 14d
-    Experiments       :a2, after a1, 21d
-    section Phase 2
-    Analysis          :a3, after a2, 14d` },
-  { key: "pie", name: "Pie chart", code: `pie title Funding split
-    "Grants" : 45
-    "Industry" : 30
-    "Internal" : 25` },
-  { key: "mindmap", name: "Mindmap", code: `mindmap
-  root((Research question))
-    Background
-      Prior work
-      Key papers
-    Methods
-    Evidence
-    Open gaps` },
-  { key: "timeline", name: "Timeline", code: `timeline
-    title Discovery arc
-    2024 : Hypothesis formed
-    2025 : First results
-    2026 : Independent replication` },
-  { key: "journey", name: "User journey", code: `journey
-    title Reading a paper
-    section Skim
-      Abstract: 5: Reader
-      Figures: 4: Reader
-    section Deep read
-      Methods: 2: Reader
-      References: 3: Reader` },
-];
-
-/* The studio's own mark: a node flowing into a decision diamond, set in
-   a rounded frame. Distinct from the Cerebrum brain mark on purpose —
-   the studio is its own instrument with its own identity. */
-export function StudioMark({ size = 22, accent = "#fff" }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" stroke={accent} strokeWidth="1.8" opacity="0.85" />
-      <circle cx="8.4" cy="8.4" r="2.3" fill={accent} />
-      <path d="M10.2 10.1l3.6 3.6" stroke={accent} strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M15.2 12.4l3.4 3.4-3.4 3.4-3.4-3.4z" stroke={accent} strokeWidth="1.8" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-/* One-pass syntax highlighter: comments, strings, keywords, arrows.
-   Single pass so inserted spans are never re-scanned. */
-const MM_TOKEN_RE = /(%%[^\n]*)|("[^"\n]*")|\b(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|mindmap|timeline|journey|gitGraph|subgraph|end|participant|actor|title|section|dateFormat|classDef|click|style|linkStyle|direction|TB|TD|BT|RL|LR)\b|(-->|==>|---|-\.->|~~~|:::|<-->)/g;
-export function mmEscapeHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-export function mmHighlight(code) {
-  let out = "";
-  let last = 0;
-  let m;
-  MM_TOKEN_RE.lastIndex = 0;
-  while ((m = MM_TOKEN_RE.exec(code))) {
-    out += mmEscapeHtml(code.slice(last, m.index));
-    const cls = m[1] ? "mm-cm" : m[2] ? "mm-st" : m[3] ? "mm-kw" : "mm-ar";
-    out += `<span class="${cls}">${mmEscapeHtml(m[0])}</span>`;
-    last = m.index + m[0].length;
-    if (m[0].length === 0) MM_TOKEN_RE.lastIndex += 1;
-  }
-  out += mmEscapeHtml(code.slice(last));
-  return out + "\n";
-}
-
-/* One size for all three editor layers (C8, 2026-10-18): the gutter,
-   the highlight pre and the textarea all take MM_FONT, and the gutter
-   row height is MM_LEADING, computed from the same two constants, so
-   the highlight and the text cannot drift apart again. */
-const MM_FONT_SIZE = 16;
-const MM_LINE_HEIGHT = 1.65;
-const MM_LEADING = MM_FONT_SIZE * MM_LINE_HEIGHT;
-const MM_FONT = `${MM_FONT_SIZE}px/${MM_LINE_HEIGHT} ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`;
-
-/* Line-numbered code editor: a transparent textarea over a highlighted
-   <pre>, metrics locked together so the highlight never drifts. */
-export function MMCodeEditor({ P, accent, code, onChange }) {
-  const taRef = useRef(null);
-  const preRef = useRef(null);
-  const gutterRef = useRef(null);
-  const lineCount = code.split("\n").length;
-  const syncScroll = () => {
-    const ta = taRef.current;
-    if (!ta) return;
-    if (preRef.current) { preRef.current.scrollTop = ta.scrollTop; preRef.current.scrollLeft = ta.scrollLeft; }
-    if (gutterRef.current) gutterRef.current.scrollTop = ta.scrollTop;
-  };
-  const onKeyDown = (e) => {
-    if (e.key === "Tab") {
-      e.preventDefault();
-      const ta = taRef.current;
-      const s = ta.selectionStart;
-      const en = ta.selectionEnd;
-      const next = code.slice(0, s) + "  " + code.slice(en);
-      onChange(next);
-      requestAnimationFrame(() => { try { ta.selectionStart = ta.selectionEnd = s + 2; } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx if: ta.selectionStart = ta.selectionEnd = s + 2; }:", cbErr); } });
-    }
-  };
-  const pad = "14px 16px";
-  return (
-    <div style={{ position: "relative", flex: 1, display: "flex", minHeight: 0, minWidth: 0 }}>
-      <div ref={gutterRef} aria-hidden="true" style={{
-        width: 46, flexShrink: 0, overflow: "hidden", padding: "14px 8px 14px 0",
-        font: MM_FONT, textAlign: "right", color: P.faint, userSelect: "none",
-        borderRight: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.015)",
-      }}>
-        {Array.from({ length: lineCount }, (_, i) => (
-          <div key={i} style={{ height: MM_LEADING }}>{i + 1}</div>
-        ))}
-      </div>
-      <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-        <pre ref={preRef} aria-hidden="true" dangerouslySetInnerHTML={{ __html: mmHighlight(code) }} style={{
-          position: "absolute", inset: 0, margin: 0, padding: pad, overflow: "hidden",
-          font: MM_FONT, whiteSpace: "pre", color: P.ink2, pointerEvents: "none",
-        }} />
-        <textarea ref={taRef} value={code} wrap="off"
-          onChange={(e) => onChange(e.target.value)} onScroll={syncScroll} onKeyDown={onKeyDown}
-          spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off"
-          aria-label="Diagram source code" placeholder="flowchart TD&#10;    A --> B"
-          style={{
-            position: "absolute", inset: 0, width: "100%", height: "100%", padding: pad,
-            /* All three layers share the one MM_FONT shorthand (16px
-               at 1.65, the 16px floor), with no second size set here. */
-            font: MM_FONT, whiteSpace: "pre", overflow: "auto", resize: "none",
-            background: "transparent", color: "transparent", caretColor: accent,
-            border: 0, outline: "none",
-          }} />
-      </div>
-    </div>
-  );
-}
-
-export function MermaidStudio({ P, accent, at, isMobile, initialCode }) {
-  const [code, setCode] = useState(() => {
-    try {
-      const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || "null");
-      if (d && typeof d.code === "string" && d.code.trim()) return d.code;
-    } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx MermaidStudio: const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || 'null');:", cbErr); }
-    return initialCode || MM_DEFAULT_CODE;
-  });
-  const [title, setTitle] = useState(() => {
-    try {
-      const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || "null");
-      if (d && typeof d.title === "string" && d.title) return d.title;
-    } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx MermaidStudio: const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || 'null');:", cbErr); }
-    return "Untitled diagram";
-  });
-  const [activeId, setActiveId] = useState(() => {
-    try {
-      const d = JSON.parse(localStorage.getItem(MM_DRAFT_KEY) || "null");
-      return (d && d.activeId) || null;
-    } catch { return null; }
-  });
-  const [diagrams, setDiagrams] = useState(() => {
-    try {
-      const v = JSON.parse(localStorage.getItem(MM_STORE_KEY) || "[]");
-      return Array.isArray(v) ? v : [];
-    } catch { return []; }
-  });
-  const [mm, setMm] = useState(null);
-  const [mmError, setMmError] = useState(null);
-  const [svg, setSvg] = useState("");
-  const [diagError, setDiagError] = useState(null);
-  const [rendering, setRendering] = useState(false);
-  const [pan, setPan] = useState({ x: 28, y: 28, k: 1 });
-  const [mobilePane, setMobilePane] = useState("code");
-  const [copied, setCopied] = useState(false);
-  const [savedTick, setSavedTick] = useState(0);
-  /* Instrument layout: left rail with library + template browser, and a
-     proper export dialog instead of a dropdown. */
-  const [railTab, setRailTab] = useState("diagrams");
-  const [railOpen, setRailOpen] = useState(!isMobile);
-  /* Pass 4: toolbar state. paneLayout toggles the work area between
-     side-by-side and stacked (desktop); sourceOpen collapses the source
-     pane so the preview gets the full width. */
-  const [paneLayout, setPaneLayout] = useState("side");
-  const [sourceOpen, setSourceOpen] = useState(true);
-  /* Evidence inspector: deliberately absent from this studio. Mermaid
-     renders raw source text — nodes carry no provenance, and this
-     component receives no sources to link citation markers against.
-     Parsing 【1】-style markers out of node labels and pretending they
-     open papers would be fabricated evidence. FlowchartStudio owns
-     selNode/selSource and is the surface that can carry an inspector. */
-  const svgHostRef = useRef(null);
-  const previewRef = useRef(null);
-  const fileRef = useRef(null);
-  const renderSeq = useRef(0);
-  const dragRef = useRef(null);
-  const autoFitDone = useRef(false);
-  const dark = P.dark;
-
-  /* Lazy-load the diagram engine: the main bundle never pays for it. */
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const mod = await import("mermaid");
-        if (cancelled) return;
-        const mermaid = mod.default;
-        mermaid.initialize({
-          startOnLoad: false,
-          /* strict: diagram source is untrusted text and is never allowed
-             to run scripts, no matter what a pasted .mmd contains. */
-          securityLevel: "strict",
-          theme: "base",
-          /* Canvas colors from palette tokens (M38, 2026-10-19): node
-             and actor fills are P.surface, secondary fills P.raised,
-             and the ground behind edge labels P.bg, so a palette
-             switch restyles this canvas with the chrome. */
-          themeVariables: {
-            darkMode: dark,
-            background: "transparent",
-            primaryColor: P.surface,
-            primaryBorderColor: accent,
-            primaryTextColor: P.ink,
-            secondaryColor: P.raised,
-            tertiaryColor: P.bg,
-            lineColor: P.faint,
-            textColor: P.ink,
-            mainBkg: P.surface,
-            nodeBkg: P.surface,
-            nodeBorder: accent,
-            clusterBkg: P.raised,
-            clusterBorder: P.line2,
-            titleColor: P.ink,
-            edgeLabelBackground: P.bg,
-            actorBkg: P.surface,
-            actorBorder: accent,
-            actorTextColor: P.ink,
-            signalColor: P.ink,
-            signalTextColor: P.ink,
-            labelBoxBkgColor: P.surface,
-            labelBoxBorderColor: P.line2,
-            labelTextColor: P.ink,
-            pie1: accent,
-          },
-          flowchart: { htmlLabels: true, curve: "basis", padding: 12 },
-        });
-        setMm(mermaid);
-      } catch (e) {
-        if (!cancelled) setMmError("The diagram engine could not be loaded. Check your connection and reload.");
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [dark, accent, P.ink, P.faint, P.line2, P.surface, P.raised, P.bg]);
-
-  /* Debounced live render. */
-  useEffect(() => {
-    if (!mm) return;
-    /* A blank source is the guided empty state, not a render — clear any
-       stale output instead of throwing a syntax error at nothing. */
-    if (!code.trim()) {
-      setSvg("");
-      setDiagError(null);
-      setRendering(false);
-      return;
-    }
-    setRendering(true);
-    const t = setTimeout(() => {
-      (async () => {
-        const id = `mmd-${Date.now().toString(36)}-${(renderSeq.current += 1)}`;
-        try {
-          const { svg: out } = await mm.render(id, code);
-          setSvg(out);
-          setDiagError(null);
-        } catch (e) {
-          const msg = e && e.message ? String(e.message) : "Could not render this diagram.";
-          setDiagError(msg.split("\n").slice(0, 5).join("\n"));
-        } finally {
-          setRendering(false);
-        }
-      })();
-    }, 450);
-    return () => clearTimeout(t);
-  }, [code, mm]);
-
-  /* Push rendered SVG into the canvas host (outside React's diffing so
-     mermaid's markup is never re-parsed), then auto-fit once. */
-  useEffect(() => {
-    if (svgHostRef.current) svgHostRef.current.innerHTML = svg;
-    if (svg && !autoFitDone.current) {
-      autoFitDone.current = true;
-      const host = svgHostRef.current;
-      const wrap = previewRef.current;
-      const svgEl = host && host.querySelector("svg");
-      if (svgEl && wrap) {
-        const vb = svgEl.viewBox && svgEl.viewBox.baseVal;
-        const w = (vb && vb.width) || 800;
-        const h = (vb && vb.height) || 600;
-        const pad = 56;
-        const k = Math.max(0.2, Math.min((wrap.clientWidth - pad) / w, (wrap.clientHeight - pad) / h, 2.5));
-        setPan({
-          k,
-          x: Math.max(20, (wrap.clientWidth - w * k) / 2),
-          y: Math.max(20, (wrap.clientHeight - h * k) / 2),
-        });
-      }
-    }
-  }, [svg]);
-
-  const fitToView = useCallback(() => {
-    const host = svgHostRef.current;
-    const wrap = previewRef.current;
-    const svgEl = host && host.querySelector("svg");
-    if (!svgEl || !wrap || !wrap.clientWidth) return;
-    autoFitDone.current = true;
-    const vb = svgEl.viewBox && svgEl.viewBox.baseVal;
-    const w = (vb && vb.width) || 800;
-    const h = (vb && vb.height) || 600;
-    const pad = 56;
-    const k = Math.max(0.2, Math.min((wrap.clientWidth - pad) / w, (wrap.clientHeight - pad) / h, 2.5));
-    setPan({
-      k,
-      x: Math.max(20, (wrap.clientWidth - w * k) / 2),
-      y: Math.max(20, (wrap.clientHeight - h * k) / 2),
-    });
-  }, []);
-
-  /* Wheel zoom needs a native non-passive listener to preventDefault. */
-  useEffect(() => {
-    const el = previewRef.current;
-    if (!el) return;
-    const onWheel = (e) => {
-      e.preventDefault();
-      autoFitDone.current = true;
-      setPan((p) => ({ ...p, k: Math.min(3, Math.max(0.2, p.k * (e.deltaY < 0 ? 1.12 : 1 / 1.12))) }));
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
-
-  const onPreviewDown = (e) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    // Never start a canvas drag (or steal pointer capture) from an interactive
-    // element: pointer capture retargets the click to the canvas, which silently
-    // kills zoom/Fit button clicks.
-    if (e.target && e.target.closest && e.target.closest("button, a, input, select, textarea, [contenteditable='true']")) return;
-    dragRef.current = { sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y };
-    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx onPreviewDown: e.currentTarget.setPointerCapture(e.pointerId); }:", cbErr); }
-  };
-  const onPreviewMove = (e) => {
-    const d = dragRef.current;
-    if (!d) return;
-    autoFitDone.current = true;
-    setPan((p) => ({ ...p, x: d.px + (e.clientX - d.sx), y: d.py + (e.clientY - d.sy) }));
-  };
-  const onPreviewUp = () => { dragRef.current = null; };
-
-  /* Draft autosave + library persistence. */
-  useEffect(() => {
-    const t = setTimeout(() => {
-      try { localStorage.setItem(MM_DRAFT_KEY, JSON.stringify({ code, title, activeId, updatedAt: Date.now() })); } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx onPreviewUp: localStorage.setItem(MM_DRAFT_KEY, JSON.stringify({ code, title, activ:", cbErr); }
-    }, 800);
-    return () => clearTimeout(t);
-  }, [code, title, activeId]);
-  useEffect(() => {
-    try { localStorage.setItem(MM_STORE_KEY, JSON.stringify(diagrams)); } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx onPreviewUp: localStorage.setItem(MM_STORE_KEY, JSON.stringify(diagrams)); }:", cbErr); }
-  }, [diagrams]);
-
-  const saveDiagram = useCallback(() => {
-    const id = activeId || `mmd-${Date.now().toString(36)}`;
-    const rec = { id, title: title.trim() || "Untitled diagram", code, updatedAt: Date.now() };
-    setDiagrams((ds) => [{ ...rec }, ...ds.filter((d) => d.id !== id)].slice(0, 60));
-    setActiveId(id);
-    setSavedTick((t) => t + 1);
-  }, [activeId, title, code]);
-
-  useEffect(() => {
-    const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveDiagram(); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [saveDiagram]);
-
-  /* .mmd import: verbatim. The studio never reformats your source. */
-  const onImportFile = (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    const r = new FileReader();
-    r.onload = () => {
-      const text = String(r.result || "").replace(/^\uFEFF/, "");
-      setCode(text);
-      setTitle(f.name.replace(/\.(mmd|mermaid|txt)$/i, "") || "Imported diagram");
-      setActiveId(null);
-      autoFitDone.current = false;
-      if (isMobile) setMobilePane("preview");
-    };
-    r.readAsText(f);
-    e.target.value = "";
-  };
-
-  const copyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(code);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = code;
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand("copy"); } catch (cbErr) { console.error("[Cerebrum] flowcharts.jsx copyCode: document.execCommand('copy'); }:", cbErr); }
-      ta.remove();
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
-  };
-
-  const downloadBlob = (name, blob) => {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  };
-  const slug = fcSlug(title);
-  const exportSVG = () => {
-    const el = svgHostRef.current && svgHostRef.current.querySelector("svg");
-    if (!el) return;
-    const str = new XMLSerializer().serializeToString(el);
-    downloadBlob(`${slug}.svg`, new Blob([str], { type: "image/svg+xml;charset=utf-8" }));
-  };
-  const exportMMD = () => { download(`${slug}.mmd`, code); };
-  const exportPNG = async () => {
-    const el = svgHostRef.current && svgHostRef.current.querySelector("svg");
-    if (!el) return;
-    // 2026-09-14: Surface export failures. The empty catch left the menu
-    // closing with no file and no feedback.
-    try {
-      const clone = el.cloneNode(true);
-      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-      const str = new XMLSerializer().serializeToString(clone);
-      const url = URL.createObjectURL(new Blob([str], { type: "image/svg+xml;charset=utf-8" }));
-      const img = new Image();
-      await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error("image decode failed")); img.src = url; });
-      const vb = el.viewBox && el.viewBox.baseVal;
-      const w = Math.max(1, Math.round((vb && vb.width) || img.naturalWidth || 800));
-      const h = Math.max(1, Math.round((vb && vb.height) || img.naturalHeight || 600));
-      const scale = 3;
-      const canvas = document.createElement("canvas");
-      canvas.width = w * scale;
-      canvas.height = h * scale;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("canvas unavailable");
-      ctx.fillStyle = P.surface;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-      const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
-      if (!blob) throw new Error("PNG encoding failed");
-      downloadBlob(`${slug}.png`, blob);
-    } catch (e) { toast(e?.message || "Couldn't export the PNG. Try again.", { tone: "error" }); }
-  };
-
-  const diagramKind = useMemo(() => {
-    const line = (code.split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("%%")) || "");
-    const head = line.split(/\s+/)[0] || "";
-    const known = {
-      flowchart: "Flowchart", graph: "Flowchart", sequenceDiagram: "Sequence",
-      classDiagram: "Class", "stateDiagram-v2": "State", stateDiagram: "State",
-      erDiagram: "ER", gantt: "Gantt", pie: "Pie", mindmap: "Mindmap",
-      timeline: "Timeline", journey: "Journey", gitGraph: "Git graph",
-    };
-    return known[head] || (head ? head : "Diagram");
-  }, [code]);
-
-  const loadTemplate = (t) => {
-    setCode(t.code);
-    setTitle(t.name);
-    setActiveId(null);
-    autoFitDone.current = false;
-    if (isMobile) setMobilePane("preview");
-  };
-  const openDiagram = (d) => {
-    setCode(d.code);
-    setTitle(d.title);
-    setActiveId(d.id);
-    autoFitDone.current = false;
-  };
-  const deleteDiagram = (id) => {
-    setDiagrams((ds) => ds.filter((d) => d.id !== id));
-    if (activeId === id) setActiveId(null);
-  };
-  const newDiagram = () => {
-    setCode(MM_DEFAULT_CODE);
-    setTitle("Untitled diagram");
-    setActiveId(null);
-    autoFitDone.current = false;
-  };
-
-  const paneLabel = {
-    fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "normal", textTransform: "none",
-    color: P.faint, fontFamily: "var(--cb-font)", padding: "12px 16px",
-    borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
-  };
-  /* Ruled lines, not dots: the canvas reads as a working surface, and the
-     diagram stays the figure against it. */
-  const ruledBg = `repeating-linear-gradient(to bottom, transparent 0, transparent 27px, ${withAlpha(P.ink, 0.055)} 27px, ${withAlpha(P.ink, 0.055)} 28px)`;
-  const status = mmError
-    ? { dot: "#f87171", text: "Engine failed to load" }
-    : !mm ? { dot: P.faint, text: "Loading engine…" }
-    : rendering ? { dot: accent, text: "Rendering…" }
-    : diagError ? { dot: "#f87171", text: "Syntax error" }
-    : !code.trim() ? { dot: P.faint, text: "Empty canvas" }
-    : { dot: "#4ade80", text: "Rendered" };
-  /* Save state, derived — never asserted. A diagram is "Up to date" when
-     the working code and title match its saved record (or the blank
-     default for a new diagram); anything else is "Unsaved changes".
-     Saving or opening a diagram re-syncs it, so no extra state is needed.
-     A render error outranks both: it is the thing that needs attention. */
-  const dirty = (() => {
-    if (!activeId) return code !== MM_DEFAULT_CODE || title !== "Untitled diagram";
-    const rec = diagrams.find((d) => d.id === activeId);
-    if (!rec) return true;
-    return rec.code !== code || rec.title !== (title.trim() || "Untitled diagram");
-  })();
-  const saveStatus = diagError
-    ? { dot: "#f87171", text: "Syntax error" }
-    : dirty
-      ? { dot: STATUS.warn, text: "Unsaved changes" }
-      : { dot: "#4ade80", text: "Up to date" };
-
-  const railTabBtn = (key, label) => (
-    <UIButton P={P} variant="ghost" key={key} onClick={() => setRailTab(key)}
-      style={{
-        flex: 1, minHeight: 44, border: 0, cursor: "pointer", fontFamily: "var(--cb-font)",
-        fontSize: FONT_SIZES.label, fontWeight: 500,
-        color: railTab === key ? P.ink : P.faint,
-        background: "transparent",
-        borderBottom: `2px solid ${railTab === key ? accent : "transparent"}`,
-      }}>
-      {label}
-    </UIButton>
-  );
-
-  const railItem = {
-    display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "12px 12px",
-    borderRadius: RADIUS.lg, background: "transparent", border: 0, color: P.ink,
-    fontSize: FONT_SIZES.label, cursor: "pointer", textAlign: "left",
-    fontFamily: "var(--cb-font)", minHeight: 44,
-  };
-
-  const rail = (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: 0, height: "100%" }}>
-      <div style={{ display: "flex", borderBottom: `1px solid ${P.line}`, flexShrink: 0 }}>
-        {railTabBtn("diagrams", `Diagrams${diagrams.length ? ` (${diagrams.length})` : ""}`)}
-        {railTabBtn("templates", "Templates")}
-      </div>
-      <div style={{ flex: 1, overflowY: "auto", padding: 10, minHeight: 0 }}>
-        {railTab === "diagrams" && (
-          <>
-            <button onClick={newDiagram} style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: accent, fontWeight: 500, marginBottom: 8 }}>
-              <Icon name="plus" size={14} /> New diagram
-            </button>
-            <button onClick={() => fileRef.current && fileRef.current.click()} title="Import a .mmd file, loaded verbatim"
-              style={{ ...railItem, borderRadius: RADIUS.sm, border: `1px dashed ${P.line2}`, justifyContent: "center", color: P.ink2, fontWeight: 500, marginBottom: 8 }}>
-              <Icon name="upload" size={14} /> Import .mmd
-            </button>
-            {diagrams.length === 0 && (
-              <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-                Nothing saved yet. Press ⌘S or Ctrl+S any time to keep the diagram you are working on.
-              </div>
-            )}
-            {diagrams.map((d) => (
-              <div key={d.id} className="mm-railitem" style={{ display: "flex", alignItems: "center", borderRadius: RADIUS.lg, background: d.id === activeId ? withAlpha(accent, 0.08) : "transparent" }}>
-                <button onClick={() => { openDiagram(d); if (isMobile) setRailOpen(false); }} style={{ ...railItem, flex: 1, minWidth: 0 }} title={d.code.slice(0, 120)}>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-                    <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", fontWeight: d.id === activeId ? 500 : 400 }}>{d.title}</span>
-                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2 }}>
-                      {new Date(d.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} · {d.code.split("\n").length} lines
-                    </span>
-                  </span>
-                  {d.id === activeId && <span style={{ color: accent, fontSize: FONT_SIZES.caption, flexShrink: 0 }} aria-label="Open">●</span>}
-                </button>
-                {/* Delete uses the Icon set at full opacity (tail 21,
-                    2026-10-19), the way the Reader shelf delete does:
-                    no hover dependent text cross at 45 percent. */}
-                <button onClick={() => deleteDiagram(d.id)} aria-label={`Delete ${d.title}`} title="Delete"
-                  style={{ background: "transparent", border: 0, color: P.faint, cursor: "pointer", minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", opacity: 1 }}>
-                  <Icon name="trash" size={14} />
-                </button>
-              </div>
-            ))}
-          </>
-        )}
-        {railTab === "templates" && (
-          <>
-            <div style={{ padding: "4px 4px 12px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-              Start from a structure. Your source stays fully editable.
-            </div>
-            {MERMAID_TEMPLATES.map((t) => (
-              <button key={t.key} onClick={() => { loadTemplate(t); if (isMobile) setRailOpen(false); }} className="mm-railitem" style={{ ...railItem, marginBottom: 2 }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: accent, flexShrink: 0 }} aria-hidden="true" />
-                <span style={{ flex: 1 }}>{t.name}</span>
-              </button>
-            ))}
-          </>
-        )}
-      </div>
-    </div>
-  );
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: isMobile ? "calc(100dvh - 150px)" : "calc(100dvh - 110px)", minWidth: 0 }}>
-      <style>{`
-        .mm-kw { color: ${accent}; font-weight: 500; }
-        .mm-st { color: ${dark ? "#a5d6a7" : "#2e7d32"}; }
-        .mm-cm { color: ${P.faint}; font-style: italic; }
-        .mm-ar { color: ${dark ? "#7dd3fc" : "#0369a1"}; font-weight: 500; }
-        .mm-zoombtn { width: 44px; height: 44px; border-radius: ${RADIUS.sm}px; display: inline-flex; align-items: center; justify-content: center; background: ${P.surface}; border: 1px solid ${P.line2}; color: ${P.ink}; cursor: pointer; font-size: 16px; font-family: var(--cb-font); transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
-        .mm-zoombtn:hover { border-color: ${accent}; color: ${accent}; }
-        .mm-railitem { transition: background 150ms ease; }
-        .mm-railitem:hover { background: ${dark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.035)"} !important; }
-        /* Source pane focus: the textarea suppresses its own outline (the
-           highlight layer sits under it), so the pane carries the
-           keyboard-visible edge. !important wins over the inline border
-           shorthand; same for the title input below. */
-        .mm-srcpane:focus-within { border-color: ${withAlpha(accent, 0.45)} !important; }
-        .mm-titleinput:focus { border-color: ${withAlpha(accent, 0.5)} !important; }
-        /* Canvas loading hairline: a marker travels the 120px line and
-           drains back — transform only, and still under reduced motion. */
-        .mm-loadbar { animation: mmLoad 1.6s ease-in-out infinite; }
-        @keyframes mmLoad {
-          0% { transform: scaleX(0); transform-origin: 0 50%; }
-          55% { transform: scaleX(1); transform-origin: 0 50%; }
-          56% { transform-origin: 100% 50%; }
-          100% { transform: scaleX(0); transform-origin: 100% 50%; }
-        }
-        @media (prefers-reduced-motion: reduce) { .mm-loadbar { animation: none; opacity: 0.4; } }
-        /* Saved-line settle: the span remounts on each save (key), so the
-           entrance replays — no timers, no behavior change. */
-        .mm-saved { animation: mmSavedIn 280ms ease both; }
-        @keyframes mmSavedIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
-      `}</style>
-
-      {/* ── Top bar: the shared StudioToolbar (M37, 2026-10-19),
-          the same component and button treatment as the evidence
-          map toolbar. ── */}
-      <StudioToolbar P={P} accent={accent} job="Code diagram" detail="Build a diagram from code"
-        icon={<StudioMark size={20} accent={accent} />}
-        leading={(
-          <UIButton P={P} variant="ghost" onClick={() => setRailOpen((v) => !v)} aria-label={railOpen ? "Hide side panel" : "Show side panel"} title={railOpen ? "Hide side panel" : "Show side panel"}
-            style={{ minHeight: 44, minWidth: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, color: P.ink2, cursor: "pointer", flexShrink: 0 }}>
-            <Icon name="panelLeft" size={18} />
-          </UIButton>
-        )}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Diagram title" placeholder="Untitled diagram"
-          className="mm-titleinput"
-          style={{
-            marginLeft: 4, flex: "1 1 160px", minWidth: 120, maxWidth: 320, background: "transparent",
-            border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "8px 12px", minHeight: 44,
-            color: P.ink, fontSize: 16, fontFamily: "var(--cb-font)", outline: "none",
-          }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexShrink: 0, flexWrap: "wrap" }}>
-          {/* The toolbar is four actions: arrange the panes, take the
-              diagram out as SVG, save it, and toggle the source. Import
-              lives in the library rail; Copy lives on the source pane;
-              PNG and .mmd live in the status bar. */}
-          {!isMobile && (
-            <StudioToolbarBtn P={P} accent={accent} at={at} label="Layout"
-              onClick={() => setPaneLayout((v) => v === "side" ? "stack" : "side")}
-              title={paneLayout === "side" ? "Stack source above preview" : "Show source beside preview"}
-              pressed={paneLayout === "stack"} />
-          )}
-          <StudioToolbarBtn P={P} accent={accent} at={at} label="Export SVG"
-            onClick={() => { exportSVG(); logExport("SVG", `${slug}.svg`); }} disabled={!svg}
-            title="Download as SVG vector" icon="download" />
-          <StudioToolbarBtn P={P} accent={accent} at={at} label="Edit source"
-            onClick={() => {
-              if (isMobile) setMobilePane(mobilePane === "code" ? "preview" : "code");
-              else setSourceOpen((v) => !v);
-            }}
-            title={isMobile ? "Switch between source and preview" : (sourceOpen ? "Hide the source pane" : "Show the source pane")}
-            pressed={isMobile ? mobilePane === "code" : sourceOpen} />
-          <StudioToolbarBtn P={P} accent={accent} at={at} label="Save" primary
-            onClick={saveDiagram} title="Save (⌘S / Ctrl+S)" icon="check" />
-        </div>
-      </StudioToolbar>
-
-      {/* ── Body: rail + work area ── */}
-      <div style={{ flex: 1, display: "flex", minHeight: 0, minWidth: 0 }}>
-        {!isMobile && railOpen && (
-          <aside style={{ width: 288, flexShrink: 0, borderRight: `1px solid ${P.line}`, background: P.surface, minHeight: 0 }} aria-label="Diagram library and templates">
-            {rail}
-          </aside>
-        )}
-
-        <div style={{ flex: 1, display: "flex", flexDirection: isMobile || paneLayout === "stack" ? "column" : "row", minWidth: 0, minHeight: 0 }}>
-          {/* Mobile pane switch */}
-          {isMobile && (
-            <div style={{ display: "flex", gap: 6, padding: "12px 16px 0", flexShrink: 0 }}>
-              {[["code", "Code"], ["preview", "Preview"]].map(([key, label]) => (
-                <UIButton P={P} variant="ghost" key={key} onClick={() => setMobilePane(key)}
-                  style={{
-                    minHeight: 44, flex: 1, padding: "9px 0", borderRadius: RADIUS.sm,
-                    fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer",
-                    background: mobilePane === key ? withAlpha(accent, 0.14) : "transparent",
-                    color: mobilePane === key ? accent : P.faint,
-                    border: `1px solid ${mobilePane === key ? withAlpha(accent, 0.4) : P.line}`,
-                  }}>
-                  {label}
-                </UIButton>
-              ))}
-            </div>
-          )}
-
-          {/* Editor pane */}
-          <section aria-label="Diagram source" className="mm-srcpane" style={{
-            display: isMobile ? (mobilePane === "code" ? "flex" : "none") : (sourceOpen ? "flex" : "none"),
-            flexDirection: "column", flex: isMobile ? 1 : "0 0 42%", minWidth: 0, minHeight: 0,
-            borderRight: isMobile || paneLayout === "stack" || !sourceOpen ? "none" : `1px solid ${P.line}`,
-            borderBottom: !isMobile && paneLayout === "stack" && sourceOpen ? `1px solid ${P.line}` : "none",
-            margin: isMobile ? "10px 14px 0" : 0,
-            border: isMobile ? `1px solid ${P.line}` : undefined,
-            borderRadius: isMobile ? RADIUS.lg : 0, overflow: "hidden",
-            background: P.surface,
-          }}>
-            <div style={paneLabel}>
-              <span>Source</span>
-              <button onClick={copyCode} title="Copy diagram source"
-                style={{ minHeight: 44, padding: "6px 12px", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" }}>
-                {copied ? "Copied ✓" : "Copy"}
-              </button>
-              <span style={{ marginLeft: "auto", fontWeight: 400, letterSpacing: TRACKING.tight, textTransform: "none" }}>{diagramKind} · {code.split("\n").length} lines</span>
-            </div>
-            <MMCodeEditor P={P} accent={accent} code={code} onChange={(v) => { setCode(v); }} />
-          </section>
-
-          {/* Preview pane */}
-          <section aria-label="Diagram preview" style={{
-            display: isMobile ? (mobilePane === "preview" ? "flex" : "none") : "flex",
-            flex: 1, flexDirection: "column", minWidth: 0, minHeight: isMobile ? 420 : 0, position: "relative",
-            margin: isMobile ? "10px 14px 0" : 0,
-            border: isMobile ? `1px solid ${P.line}` : "none",
-            borderRadius: isMobile ? RADIUS.lg : 0, overflow: "hidden",
-            background: P.surface,
-          }}>
-            <div style={paneLabel}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: status.dot }} aria-hidden="true" />
-              <span>{status.text}</span>
-              <span style={{ marginLeft: "auto", fontWeight: 400, letterSpacing: TRACKING.tight, textTransform: "none" }}>{Math.round(pan.k * 100)}%</span>
-            </div>
-            <div ref={previewRef}
-              onPointerDown={onPreviewDown} onPointerMove={onPreviewMove} onPointerUp={onPreviewUp} onPointerCancel={onPreviewUp}
-              style={{
-                flex: 1, minHeight: 0, overflow: "hidden", position: "relative", cursor: "grab",
-                touchAction: "none", backgroundImage: ruledBg,
-              }}>
-              <div ref={svgHostRef} style={{
-                position: "absolute", left: 0, top: 0,
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${pan.k})`, transformOrigin: "0 0",
-                pointerEvents: "none",
-              }} />
-              {mmError && (
-                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
-                  <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", maxWidth: 320 }}>{mmError}</div>
-                </div>
-              )}
-              {/* Guided empty canvas: a blank source is a starting point, not a
-                  render. Three real template buttons (wired to loadTemplate —
-                  never dead) plus the Import hint, instead of "Rendering…". */}
-              {!mmError && !code.trim() && (
-                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-                  <div style={{ textAlign: "center", maxWidth: 320 }}>
-                    <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
-                      <StudioMark size={28} accent={accent} />
-                    </div>
-                    <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", marginBottom: 14 }}>
-                      Nothing here yet. Start from a template.
-                    </div>
-                    <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 12 }}>
-                      {[["flowchart", "Flowchart"], ["sequence", "Sequence"], ["mindmap", "Mindmap"]].map(([tkey, tlabel]) => {
-                        const t = MERMAID_TEMPLATES.find((x) => x.key === tkey);
-                        return t ? (
-                          <StudioToolbarBtn key={tkey} P={P} accent={accent} at={at} label={tlabel} onClick={() => loadTemplate(t)} />
-                        ) : null;
-                      })}
-                    </div>
-                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                      or import a .mmd file
-                    </div>
-                  </div>
-                </div>
-              )}
-              {!mmError && code.trim() && !svg && !diagError && (
-                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                    <div style={{ fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                      {mm ? "Rendering…" : "Loading diagram engine…"}
-                    </div>
-                    <div style={{ marginTop: 12, width: 120, height: 1, background: P.line, position: "relative", overflow: "hidden" }}>
-                      <div className="mm-loadbar" style={{ position: "absolute", inset: 0, background: accent }} />
-                    </div>
-                  </div>
-                </div>
-              )}
-              {diagError && (
-                <div style={{
-                  position: "absolute", top: 12, left: 12, right: 12, padding: "12px 16px", borderRadius: RADIUS.lg,
-                  background: dark ? "#3c1010" : "#fee2e2",
-                  border: "1px solid rgba(248,113,113,0.5)", zIndex: Z.float,
-                }}>
-                  <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: dark ? "#fca5a5" : "#b91c1c", fontFamily: "var(--cb-font)", marginBottom: 4 }}>
-                    Mermaid could not parse this
-                  </div>
-                  <pre style={{
-                    margin: 0, fontSize: FONT_SIZES.caption, fontFamily: MM_FONT, whiteSpace: "pre-wrap",
-                    color: dark ? "#fecaca" : "#7f1d1d",
-                  }}>{diagError}</pre>
-                </div>
-              )}
-              {/* Zoom controls — 44px targets, live percentage */}
-              <div style={{ position: "absolute", right: 12, bottom: 12, display: "flex", gap: 6, alignItems: "center", zIndex: Z.float }}>
-                <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.max(0.2, p.k / 1.25) })); }} aria-label="Zoom out" title="Zoom out">−</button>
-                <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: 1 })); }} aria-label="Reset zoom to 100 percent" title="Reset to 100%"
-                  style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.label, fontWeight: 500 }}>{Math.round(pan.k * 100)}%</button>
-                <button className="mm-zoombtn" onClick={() => { autoFitDone.current = true; setPan((p) => ({ ...p, k: Math.min(3, p.k * 1.25) })); }} aria-label="Zoom in" title="Zoom in"><Icon name="plus" size={16} /></button>
-                <button className="mm-zoombtn" onClick={fitToView} aria-label="Fit diagram to view" title="Fit to view" style={{ width: "auto", padding: "0 16px", fontSize: FONT_SIZES.label, fontWeight: 500 }}>Fit</button>
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
-
-      {/* ── Status bar ── */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 14, padding: isMobile ? "10px 14px" : "10px 24px",
-        borderTop: `1px solid ${P.line}`, flexShrink: 0, flexWrap: "wrap",
-        fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)",
-      }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: saveStatus.dot }} aria-hidden="true" />
-          {saveStatus.text}
-        </span>
-        {savedTick > 0 && <span key={savedTick} className="mm-saved" style={{ color: accent }}>✓ Saved to your diagrams</span>}
-        <span style={{ flex: 1 }} />
-        <button onClick={() => { exportPNG(); logExport("PNG", `${slug}.png`); }} disabled={!svg}
-          title="Export 3× PNG" style={{ minHeight: 44, padding: "6px 4px", background: "none", border: "none", cursor: svg ? "pointer" : "not-allowed", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", opacity: svg ? 1 : 0.5 }}>
-          PNG
-        </button>
-        <button onClick={() => { exportMMD(); logExport("MMD", `${slug}.mmd`); }}
-          title="Download the source (.mmd)" style={{ minHeight: 44, padding: "6px 4px", background: "none", border: "none", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-          .mmd
-        </button>
-        <span>Drag to pan · Scroll to zoom · ⌘S saves</span>
-      </div>
-
-      {/* ── Export dialog ── */}
-
-      {/* ── Mobile rail drawer ── */}
-      {isMobile && railOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: Z.menu }}>
-          <div onClick={() => setRailOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} aria-hidden="true" />
-          <div style={{
-            position: "absolute", top: 0, bottom: 0, left: 0, width: "min(320px, 85vw)",
-            background: P.surface, borderRight: `1px solid ${P.line2}`,
-            boxShadow: "none",
-          }} role="dialog" aria-label="Diagram library and templates">
-            <div style={{ display: "flex", alignItems: "center", padding: "12px 10px 0" }}>
-              <UIButton P={P} variant="ghost" onClick={() => setRailOpen(false)} aria-label="Close panel"
-                style={{ minWidth: 44, minHeight: 44, background: "transparent", border: 0, color: P.faint, cursor: "pointer", marginLeft: "auto" }}><Icon name="close" size={16} /></UIButton>
-            </div>
-            <div style={{ height: "calc(100% - 54px)" }}>{rail}</div>
-          </div>
+      )}
+      {dialog && (
+        <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.5 }}>
+          {boot.usedAnswer
+            ? "Diagram from this answer. Check each box before you save it."
+            : initial
+              ? `Reopened diagram: ${initial.title || title || "Diagram"}`
+              : "Add steps below. Check each box before you save it."}
         </div>
       )}
 
-      <input ref={fileRef} type="file" accept=".mmd,.mermaid,.txt,text/plain" onChange={onImportFile} style={{ display: "none" }} aria-hidden="true" tabIndex={-1} />
+      {/* Main area */}
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 16, alignItems: "stretch" }}>
+        <div style={{ flex: "1 1 auto", minWidth: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12, overflow: "auto" }}>
+          {steps.length === 0 ? (
+            <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.55, padding: 12 }}>
+              Add a step to start the diagram.
+            </div>
+          ) : (
+            <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} width="100%" style={{ display: "block" }} role="img" aria-label={title || "Diagram"}>
+              <defs>
+                <marker id="dsArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 1 L 9 5 L 0 9 z" fill={P.faint} />
+                </marker>
+              </defs>
+              {edges.map((e) => {
+                const a = fcNodeById(nodes, e.from);
+                const b = fcNodeById(nodes, e.to);
+                if (!a || !b) return null;
+                const g = fcEdgeGeom(a, b);
+                return <path key={e.id} d={g.d} fill="none" stroke={P.faint} strokeWidth={1.6} markerEnd="url(#dsArrow)" />;
+              })}
+              {nodes.map((n, i) => {
+                const step = steps[i];
+                if (!step) return null;
+                const lines = fcWrap(n.label || "", 24);
+                const lineHeight = 18;
+                const startY = n.h / 2 - ((lines.length - 1) * lineHeight) / 2 + 5;
+                return (
+                  <g key={n.id} transform={`translate(${n.x} ${n.y})`} onClick={() => setSelectedId(step.id)} style={{ cursor: "pointer" }}>
+                    <FcNodeShape n={n} P={P} accent={accent} selected={selectedId === step.id} />
+                    <text x={n.w / 2} y={startY} textAnchor="middle" fontSize={14} fill={P.ink} fontFamily="var(--cb-font)" fontWeight={500}>
+                      {lines.map((ln, li) => (
+                        <tspan key={li} x={n.w / 2} dy={li === 0 ? 0 : lineHeight}>{ln}</tspan>
+                      ))}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+          )}
+        </div>
+
+        <div style={{ width: isMobile ? "auto" : 340, flexShrink: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14 }}>
+          {mode === "write" ? (
+            <div>
+              <label htmlFor="dsWriteSteps" style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, marginBottom: 8 }}>
+                Your steps, one per line
+              </label>
+              <textarea
+                id="dsWriteSteps"
+                value={writeText}
+                onChange={onWriteChange}
+                rows={10}
+                style={{ ...fieldStyle, width: "100%", resize: "vertical", lineHeight: 1.55 }}
+              />
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {steps.map((step, i) => (
+                <div key={step.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: FONT_SIZES.body, color: P.faint, minWidth: 22, textAlign: "right" }}>{i + 1}</span>
+                  <input
+                    value={step.label}
+                    onChange={(e) => updateStep(step.id, { label: e.target.value })}
+                    aria-label={`Step ${i + 1} label`}
+                    style={{ ...fieldStyle, flex: "1 1 auto", minWidth: 0, fontSize: 16, background: P.surface }}
+                  />
+                  <select
+                    value={step.type}
+                    onChange={(e) => updateStep(step.id, { type: e.target.value })}
+                    aria-label={`Step ${i + 1} kind`}
+                    style={{ ...fieldStyle, flexShrink: 0, fontSize: 16, background: P.surface }}
+                  >
+                    <option value="process">Step</option>
+                    <option value="decision">Decision</option>
+                    <option value="evidence">Evidence</option>
+                  </select>
+                  <button type="button" onClick={() => deleteStep(step.id)} aria-label={`Delete step ${i + 1}`} style={{ ...btnStyle, flexShrink: 0 }}>
+                    Delete
+                  </button>
+                </div>
+              ))}
+              <button type="button" onClick={addStep} style={{ ...btnStyle, alignSelf: "flex-start" }}>
+                Add step
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Selected step detail */}
+      {selectedStep && (selectedStep.detail || selectedSource) && (
+        <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          {selectedStep.detail && (
+            <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55 }}>{selectedStep.detail}</div>
+          )}
+          {selectedSource && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink }}>{selectedSource.title || "Untitled"}</div>
+              {(selectedSource.year || selectedSource.journal || selectedSource.source) && (
+                <div style={{ fontSize: FONT_SIZES.label, color: P.faint }}>
+                  {[selectedSource.year, selectedSource.journal || selectedSource.source].filter(Boolean).join(" · ")}
+                </div>
+              )}
+              {(selectedSource.url || selectedSource.doi) && (
+                <a href={selectedHref} target="_blank" rel="noreferrer" style={{ fontSize: FONT_SIZES.label, color: accent, fontWeight: 500 }}>
+                  Open the paper
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  if (dialog) {
+    return (
+      <Dialog label="Diagram Studio" onClose={onClose || (() => {})} width={1240} panelStyle={{ background: P.surface, color: P.ink }}>
+        <div style={{ overflowY: "auto", padding: 20, minHeight: 0 }}>
+          {content}
+        </div>
+      </Dialog>
+    );
+  }
+
+  return (
+    <div style={{ padding: isMobile ? 16 : 24, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)" }}>
+      {content}
     </div>
   );
 }
-
 
 
 function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, P = null }) {

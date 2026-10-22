@@ -2957,7 +2957,10 @@ await test("the Player renders every second version kind and the character slot"
 
 await test("the home carries the journey, the bench, the bundle, ranks, and onboarding", () => {
   for (const needle of [
-    "Your journey", "Next stop: ", "FADING", "REVIEW BENCH", "Start review",
+    /* 2026-10-22 (simplify audit N3): the duplicate Start review
+       button is deleted; the bench's due rows call startReview
+       directly, so the handler is the pinned string now. */
+    "Your journey", "Next stop: ", "FADING", "REVIEW BENCH", "startReview",
     "COURSES FROM YOUR SEARCHES", "YOUR RANK", "rankForXp(profile ? profile.xp : 0)",
     "Mastery level", "topicMasteryLevel(topicPath, builtinProgress)",
     "function OnboardingFlow", "What are you curious about?", "How many minutes a day?",
@@ -3450,22 +3453,29 @@ await test("the home is four focused screens behind one tablist, and Today holds
   /* 2026-10-18 (design audit M47): Shop and Leagues left the tab bar,
      so four screens are reachable. Their render blocks remain in the
      file in order, unmounted, so the slices below still use all six
-     block markers while the tab entries above pin the four. */
-  const markers = ["today", "shop", "leagues", "paths", "library", "create"].map((id) => learnSrc.indexOf(`homeTab === "${id}"`));
+     block markers while the tab entries above pin the four.
+     Pin updated 2026-10-22 (simplify audit N1, the M47 fold finally
+     done): the unmounted Shop and Leagues blocks are deleted, and
+     their content lives in one SPARKS AND LEAGUES section on the
+     Nova settings screen, so the slices use the four real tab
+     markers and the economy is pinned where it now renders. */
+  const markers = ["today", "paths", "library", "create"].map((id) => learnSrc.indexOf(`homeTab === "${id}"`));
   assert.ok(markers.every((m) => m >= 0), "a home screen block is missing");
   assert.ok(markers.every((m, i) => i === 0 || m > markers[i - 1]), "the home screen blocks are out of order");
+  assert.ok(!learnSrc.includes('homeTab === "shop"') && !learnSrc.includes('homeTab === "leagues"'), "the unreachable Shop or Leagues block came back");
   const today = learnSrc.slice(markers[0], markers[1]);
   for (const s of ["DAILY PRACTICE", "Due for review", "NOVA'S SHELF"])
     assert.ok(today.includes(s), "the Today screen is missing " + s);
   for (const s of ["Your journey", "BUILD A COURSE", "Buy a streak freeze", "LEAGUES"])
     assert.ok(!today.includes(s), "the Today screen still stacks " + s);
-  const shop = learnSrc.slice(markers[1], markers[2]);
-  const leagues = learnSrc.slice(markers[2], markers[3]);
-  const paths = learnSrc.slice(markers[3], markers[4]);
-  const library = learnSrc.slice(markers[4], markers[5]);
-  const create = learnSrc.slice(markers[5]);
-  assert.ok(shop.includes("Buy a streak freeze"), "the Shop screen lost the Sparks shop");
-  assert.ok(leagues.includes("LEAGUES"), "the Leagues screen lost the leagues panel");
+  const econAt = learnSrc.indexOf("SPARKS AND LEAGUES");
+  assert.ok(econAt > 0, "the settings screen lost the Sparks and Leagues section");
+  const econ = learnSrc.slice(econAt, econAt + 5600);
+  assert.ok(econ.includes("Buy a streak freeze"), "the settings section lost the Sparks shop");
+  assert.ok(econ.includes("Join when leagues open"), "the settings section lost the leagues panel");
+  const paths = learnSrc.slice(markers[1], markers[2]);
+  const library = learnSrc.slice(markers[2], markers[3]);
+  const create = learnSrc.slice(markers[3]);
   assert.ok(paths.includes("Your journey") && paths.includes("TOPIC COURSES"), "the Paths screen lost the paths or the catalog");
   assert.ok(library.includes("COURSES FROM YOUR SEARCHES"), "the Library screen lost the search courses");
   assert.ok(create.includes("BUILD A COURSE") && create.includes("CONTRIBUTOR STUDIO"), "the Create screen lost the builder or the studio");
@@ -3908,7 +3918,11 @@ await test("the presence wave: Nova is live where she stands, and her tips obey 
   assert.ok(!learnSrc.includes("function NovaSpeech("), "LearnView grew a second private speech bubble");
   assert.ok(learnSrc.includes('from "./NovaSpeech.jsx"'), "LearnView does not take its speech from the one module");
   assert.ok(learnSrc.includes("function NovaTip("), "the tip component is missing");
-  for (const id of ["today", "paths", "library", "library-empty", "create", "shop", "leagues", "bench", "streak", "memory", "shelf"])
+  /* Pin updated 2026-10-22 (simplify audit N3, N6, N7): the today,
+     bench, and paths tips were deleted with the surfaces they
+     repeated, and the shop and leagues tips left with their
+     unreachable blocks. The surviving placed tips are these. */
+  for (const id of ["library", "library-empty", "create", "streak", "memory", "shelf"])
     assert.ok(learnSrc.includes(`id="${id}"`), "the " + id + " tip is not placed");
   // Pin moved 2026-10-15 (owner's one Nova per screen ruling):
   // the reminder bubble renders bare on the home, text only;
@@ -5105,7 +5119,11 @@ await test("the tour introduces Nova herself in its opening step", () => {
 });
 
 await test("the leagues closed state reads intentional, with the meantime named", () => {
-  const leagues = learnSrc.slice(learnSrc.indexOf('homeTab === "leagues"'), learnSrc.indexOf('homeTab === "paths"'));
+  /* Pin updated 2026-10-22 (simplify audit N1): the leagues panel
+     renders inside the SPARKS AND LEAGUES section on the Nova
+     settings screen now, so the slice reads that section. */
+  const econAt = learnSrc.indexOf("SPARKS AND LEAGUES");
+  const leagues = learnSrc.slice(econAt, econAt + 5600);
   assert.ok(leagues.includes("so the board stays shut"), "the closed state gives no reason");
   assert.ok(leagues.includes("nobody to rank you against"), "the closed state does not say why it is shut");
   assert.ok(leagues.includes("League points come from lessons and reviews"), "the closed state does not name the meantime work");
@@ -5146,10 +5164,14 @@ await test("one Nova per screen: exactly one resident figure on every home scree
   // standing speeches render bare, so no companion figure rides
   // beside the header Nova. The streak tip in the lesson sheet
   // is bare too: the sheet's own Nova is that screen's one.
+  /* Pin updated 2026-10-22 (simplify audit N3, N6, N7): the today,
+     bench, paths, shop, and leagues tips are deleted with the
+     surfaces they repeated or could never reach, so their bare
+     sites left this list. The surviving bare tips are these. */
   for (const bareSite of [
-    '<NovaTip id="today" bare', '<NovaTip id="memory" bare', '<NovaTip id="bench" bare',
-    '<NovaTip id="shelf" bare', '<NovaTip id="shop" bare', '<NovaTip id="leagues" bare',
-    '<NovaTip id="paths" bare', '<NovaTip id="library" bare', '<NovaTip id="create" bare',
+    '<NovaTip id="memory" bare',
+    '<NovaTip id="shelf" bare',
+    '<NovaTip id="library" bare', '<NovaTip id="create" bare',
     '<NovaTip id="streak" bare',
     // The two standing speeches (pin moved 2026-10-15, the
     // speech unification): NovaBubble sheet bubbles now, the
