@@ -3939,16 +3939,61 @@ export function hasNegationLead(term) {
   return EXPANSION_NEGATION_LEADS.has(t.split(" ")[0]);
 }
 
+// Wording accepted in an expansion term or alternate (2026-10-22,
+// L1-2 repair). The old alphabet test only allowed letters, spaces
+// and hyphens, so it deleted exactly the alternates that carry a
+// stated quantity: digits, units, abbreviations and symbols such
+// as "6 hours", "14 days", "mg/dl" or a percent figure. Wording is
+// now judged by shape, not by alphabet: letters and digits, spaces,
+// hyphens, dots, slashes, percent signs and plus signs, starting
+// with a letter or a digit and never ending in a hyphen. Junk
+// punctuation (exclamation marks, hashes, underscores and the
+// like) is still refused, so a malformed alternate still drops
+// while the clean ones beside it survive.
+export function isAcceptableExpansionWording(s) {
+  const t = String(s || "");
+  if (!t || t.length > 60) return false;
+  if (!/^[a-z0-9][a-z0-9\s\-./%+]*$/.test(t)) return false;
+  if (!/[a-z0-9]/.test(t)) return false;
+  if (t.endsWith("-") || t.endsWith("/")) return false;
+  return true;
+}
+
+// True when a term is itself a stated quantity constraint of the
+// question: a quantity phrase in the gate sense (a number word or
+// digit beside a time unit, as in "six hours" or "two weeks"), or
+// any term carrying a digit. Such terms are the discriminating
+// constraints of dose and duration questions, so their groups get
+// the single alternate and numeric allowances in the validator
+// below. isQuantityPhraseKey is the diagnosis era predicate the
+// gate already uses for the same class; it is read at call time.
+export function isQuantityConstraintTerm(term) {
+  const t = String(term || "").toLowerCase().trim();
+  if (!t) return false;
+  if (/\d/.test(t)) return true;
+  try { return isQuantityPhraseKey(t); } catch { return false; }
+}
+
 // Strict gate for model-proposed expansion groups. Accepts the model's
 // reply as an already-parsed value or as raw text (JSON, possibly
 // fenced). Returns a clean array of { term, alternates }:
 //   . term is lowercased and appears in the query as a word or phrase
-//   . alternates are 2 to 6 unique strings of 1 to 4 words, letters,
-//     spaces, and hyphens only, none equal to the term, none a framing
-//     word
+//   . alternates are unique strings of 1 to 4 words in acceptable
+//     wording (see isAcceptableExpansionWording: digits, units,
+//     symbols and abbreviations are allowed), none equal to the
+//     term, none a framing word; a list over the cap of 6 is
+//     trimmed to the cap, never a reason to drop the group
+//   . a group normally needs at least 2 surviving alternates; a
+//     single alternate survives when the term itself is a stated
+//     quantity constraint (isQuantityConstraintTerm), because a
+//     dose or duration may have exactly one equivalent wording
 //   . the term never begins with a negation lead (hasNegationLead):
 //     an absence cannot be a boolean requirement
-//   . at most 4 groups
+//   . at most 4 groups; concepts past the cap are not lost
+//     silently, they are decided by the coverage computation
+//     (resolveExpansionCoverage), which represents them as plain
+//     term groups within its total budget or records them as
+//     uncovered and cut in the search record
 // Anything invalid, at any level, degrades toward [] and never throws.
 export function validateExpansionGroups(raw, query) {
   let data = raw;
@@ -3977,15 +4022,16 @@ export function validateExpansionGroups(raw, query) {
 
   const cleanPiece = (s) =>
     String(s || "").toLowerCase().trim().replace(/\s+/g, " ");
-  const isCleanWording = (s) =>
-    /^[a-z][a-z\s-]*$/.test(s) && /[a-z]/.test(s) && !/^-|-$/.test(s);
+  const isCleanWording = isAcceptableExpansionWording;
   const inQuery = (term) => {
     const esc = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
     // The optional trailing s tolerates a plain plural only: the
     // model proposes "whole gut preparation" while the question says
     // "preparations" (2026-10-13). A longer continuation still fails,
     // so substring terms ("zorblax" inside "zorblaxin") stay rejected.
-    return new RegExp("(^|[^a-z])" + esc + "s?([^a-z]|$)").test(q);
+    // Boundaries are alphanumeric, not letters only, so a digit
+    // bearing term ("6 hours") can be found in the question at all.
+    return new RegExp("(^|[^a-z0-9])" + esc + "s?([^a-z0-9]|$)").test(q);
   };
 
   const out = [];
@@ -4009,9 +4055,10 @@ export function validateExpansionGroups(raw, query) {
     if (hasNegationLead(term)) continue;
     if (!inQuery(term)) continue;
     if (!Array.isArray(entry.alternates)) continue;
-    // An oversized list is the model spraying, not proposing
-    // equivalences. Reject the group rather than trim it.
-    if (entry.alternates.length > 6) continue;
+    // An oversized list is trimmed to the cap below (the slice on
+    // the push), never a reason to discard the whole group: the
+    // first entries are the model's best equivalences, and dropping
+    // the group lost the concept with them (2026-10-22, L1-2).
     const alts = [];
     const seenAlts = new Set();
     for (const a of entry.alternates) {
@@ -4023,7 +4070,13 @@ export function validateExpansionGroups(raw, query) {
       seenAlts.add(alt);
       alts.push(alt);
     }
-    if (alts.length < 2) continue;
+    if (alts.length === 0) continue;
+    // The two alternate floor stands for ordinary concepts. A
+    // stated quantity constraint keeps its single alternate: a
+    // dose or duration often has exactly one equivalent wording
+    // ("six hours" to "6 hours"), and dropping the group deleted
+    // the constraint the question turns on.
+    if (alts.length < 2 && !isQuantityConstraintTerm(term)) continue;
     seenTerms.add(term);
     out.push({ term, alternates: alts.slice(0, 6) });
   }
@@ -4255,10 +4308,19 @@ export function pluralFormOf(term) {
   return t + "s";
 }
 
-export function buildDeterministicFallbackGroups(query, uncoveredTerms) {
+export function buildDeterministicFallbackGroups(query, uncoveredTerms, opts = {}) {
   const q = String(query || "").toLowerCase().replace(/\s+/g, " ");
   const out = [];
   const seenTerms = new Set();
+  // Group budget for this build (2026-10-22, L1-11). The default
+  // stays at the historic cap of 4, so every existing caller gets
+  // exactly the groups it got before. The coverage computation
+  // (resolveExpansionCoverage) passes a larger total budget when
+  // it asks for the concepts the model and the validator caps
+  // left past position 4, so a tail concept can still be
+  // represented as a plain term group instead of vanishing.
+  const groupLimit = opts && Number.isFinite(opts.limit) && opts.limit >= 0
+    ? Math.floor(opts.limit) : 4;
   // The HEAD words of the question's own key phrases
   // (analyzeQuery): the last word of each key phrase, plus any
   // single word key phrase whole. A generated plural is allowed
@@ -4279,10 +4341,12 @@ export function buildDeterministicFallbackGroups(query, uncoveredTerms) {
     }
   } catch { /* key phrases are a permission, not a requirement */ }
   const cleanPiece = (s) => String(s || "").toLowerCase().trim().replace(/\s+/g, " ");
-  const isCleanWording = (s) =>
-    /^[a-z][a-z\s-]*$/.test(s) && /[a-z]/.test(s) && !/^-|-$/.test(s);
+  // Same wording rule as the validator (2026-10-22, L1-2): a
+  // digit bearing term such as a dose phrase is a real fallback
+  // target, not junk to be skipped for its alphabet.
+  const isCleanWording = isAcceptableExpansionWording;
   for (const rawTerm of Array.isArray(uncoveredTerms) ? uncoveredTerms : []) {
-    if (out.length >= 4) break;
+    if (out.length >= groupLimit) break;
     const term = cleanPiece(rawTerm);
     if (!term || seenTerms.has(term)) continue;
     if (term.split(" ").length > 4 || !isCleanWording(term)) continue;
@@ -4366,6 +4430,320 @@ export function buildDeterministicFallbackGroups(query, uncoveredTerms) {
     out.push({ term, alternates: [...alts].slice(0, 6) });
   }
   return out;
+}
+
+/* ── Expansion coverage as a computed state (2026-10-22, L1-1) ──
+ * Before this wave, coverage was a side effect of the model call:
+ * if the model returned any groups at all, the question counted
+ * as covered and the deterministic fallback ran only when it
+ * returned none, so a partial thesaurus result silently certified
+ * full coverage. The functions below make coverage a computed
+ * state instead. The question's central concepts are derived
+ * first, from the machinery the codebase already trusts for that
+ * job (questionCentralConcepts for the subject and lead phrase
+ * concepts, centralContentTerms for the specific content words,
+ * and the gate's own quantity phrase predicate for dose and
+ * duration phrases). Each concept is then marked covered or
+ * uncovered after every expansion source, in source order: the
+ * hand written concept table, the synonyms table, the groups a
+ * caller supplies (the model's, tagged by their via), and finally
+ * the deterministic fallback, which resolveExpansionCoverage
+ * runs per uncovered concept, not per empty result. Whatever is
+ * still uncovered after the last source is a decided state, not
+ * an absence: it is returned in the coverage object, carried on
+ * the gather diag as diag.expansionCoverage, and surfaced in the
+ * search record (buildSearchRecord) and the response _expansion
+ * field, so a reader can see exactly which concepts no source
+ * covered. Quantity and duration concepts are tracked here even
+ * though they never gate (the 2026-10-21 diagnosis fix stands):
+ * coverage is about what was searched as a concept, and a dose
+ * the question states must be decided here, covered by a fallback
+ * group or recorded uncovered, never silently absent. */
+
+// Total group budget across every expansion source for one
+// question (2026-10-22, L1-11). The per source caps stand (the
+// validator and a default fallback build still stop at 4), but a
+// question with more central concepts than one source may hold
+// gets its tail concepts represented as plain term groups inside
+// this total, and only concepts past this total are cut, with
+// the cut recorded in the coverage object.
+export const EXPANSION_TOTAL_GROUP_BUDGET = 8;
+
+const EXPANSION_NUMBER_WORD_VALUES = {
+  one: "1", two: "2", three: "3", four: "4", five: "5", six: "6",
+  seven: "7", eight: "8", nine: "9", ten: "10", eleven: "11",
+  twelve: "12", thirteen: "13", fourteen: "14", fifteen: "15",
+  sixteen: "16", seventeen: "17", eighteen: "18", nineteen: "19",
+  twenty: "20", dozen: "12",
+};
+
+// Matching key for a concept, a group term, or an alternate:
+// number words become digits and time units become singular, so
+// "six hours", "6 hours" and "6 hour" are one key. Matching only;
+// nothing generated ever uses this form.
+function normalizeConceptKey(term) {
+  const toks = String(term || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  return toks.map((tok) => {
+    if (EXPANSION_NUMBER_WORD_VALUES[tok]) return EXPANSION_NUMBER_WORD_VALUES[tok];
+    if (tok.endsWith("s") && GATE_TIME_UNIT_TOKENS.has(tok)) return tok.slice(0, -1);
+    return tok;
+  }).join(" ");
+}
+
+// True when one group (its term or any alternate) names the
+// concept: an exact normalized match, a phrase that contains
+// every token of a phrase concept, a single word concept riding
+// inside a phrase candidate ("thinking" inside the model's
+// "worse thinking"), or a single word inflection of the concept.
+function expansionGroupCoversConcept(conceptTerm, group) {
+  if (!group) return false;
+  const ck = normalizeConceptKey(conceptTerm);
+  if (!ck) return false;
+  const cToks = ck.split(" ").filter(Boolean);
+  const candidates = [];
+  if (typeof group.term === "string") candidates.push(group.term);
+  if (Array.isArray(group.alternates)) candidates.push(...group.alternates);
+  // A hand group arrives as a bare Set of members; its members
+  // are the candidates and there is no separate term.
+  if (group instanceof Set) candidates.push(...group);
+  for (const cand of candidates) {
+    if (typeof cand !== "string") continue;
+    const nk = normalizeConceptKey(cand);
+    if (!nk) continue;
+    if (nk === ck) return true;
+    const nToks = nk.split(" ").filter(Boolean);
+    if (cToks.length === 1) {
+      if (nToks.includes(ck)) return true;
+      if (nToks.length === 1 && sameInflection(nToks[0], ck)) return true;
+    } else if (cToks.every((t) => nToks.includes(t))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// True when the hand written tables already cover the concept:
+// a concept table key (exact or by inflection), a synonyms entry,
+// or membership of one of the question's resolved hand groups.
+function expansionHandCoversConcept(query, conceptTerm) {
+  const ct = String(conceptTerm || "").toLowerCase().trim();
+  if (!ct) return false;
+  if (CONCEPT_LOOKUP.has(ct)) return true;
+  if (SYNONYMS[ct]) return true;
+  if (!ct.includes(" ")) {
+    for (const key of CONCEPT_LOOKUP.keys()) {
+      if (!key.includes(" ") && sameInflection(key, ct)) return true;
+    }
+    for (const key of Object.keys(SYNONYMS)) {
+      if (!key.includes(" ") && sameInflection(key, ct)) return true;
+    }
+  }
+  try {
+    for (const set of questionConceptGroups(query, null)) {
+      if (expansionGroupCoversConcept(ct, set)) return true;
+    }
+  } catch { /* hand groups are one source, not a requirement */ }
+  return false;
+}
+
+// The question's central concepts for coverage, derived from the
+// existing ranked and central term machinery (see the header):
+// quantity phrases first (their number and unit words are
+// constituents of the dose or duration, not separate concepts),
+// then the central concepts questionCentralConcepts resolves,
+// then the remaining central content terms. Filler words the
+// filler set names (comparatives such as "worse", light verbs,
+// pronouns) are never concepts on their own; the outcome word
+// they modify ("thinking") still is, through centralContentTerms.
+// Returns [{ term, quantity }] in derivation order.
+export function expansionCentralConcepts(query) {
+  const q = String(query || "");
+  const out = [];
+  const seenKeys = new Set();
+  const constituents = new Set();
+  const push = (rawTerm, quantity) => {
+    const term = String(rawTerm || "").toLowerCase().trim().replace(/\s+/g, " ");
+    if (!term) return;
+    const key = normalizeConceptKey(term);
+    if (!key || seenKeys.has(key)) return;
+    if (!term.includes(" ")) {
+      if (constituents.has(term)) return;
+      try { if (isGateFunctionWord(term)) return; } catch { /* keep the term */ }
+      if (QUERY_FILLER_WORDS.has(term)) return;
+      if (EXPANSION_FRAMING_WORDS.has(term)) return;
+    }
+    seenKeys.add(key);
+    out.push({ term, quantity: !!quantity });
+  };
+  // Quantity phrases: a number word or digit directly beside a
+  // time unit, read off the question's own tokens. The unit set
+  // and the quantity predicate are the gate's (GATE_TIME_UNIT_TOKENS
+  // and isQuantityPhraseKey are read at call time).
+  try {
+    const toks = q.toLowerCase().replace(/[^\w\s-]/g, " ").split(/[\s-]+/).filter(Boolean);
+    for (let i = 0; i < toks.length; i++) {
+      const tok = toks[i];
+      const singular = tok.endsWith("s") ? tok.slice(0, -1) : tok;
+      const isUnit = GATE_TIME_UNIT_TOKENS.has(tok) || GATE_TIME_UNIT_TOKENS.has(singular + "s");
+      if (!isUnit) continue;
+      const prev = toks[i - 1];
+      if (prev && (EXPANSION_NUMBER_WORD_VALUES[prev] || /^\d+$/.test(prev))) {
+        push(prev + " " + tok, true);
+        constituents.add(prev);
+        constituents.add(tok);
+      }
+    }
+  } catch { /* quantity phrases are an addition, not a requirement */ }
+  try {
+    for (const c of questionCentralConcepts(q, null)) {
+      if (c && c.term) push(c.term, isQuantityConstraintTerm(c.term));
+    }
+  } catch { /* central concepts fall back to content terms below */ }
+  try {
+    for (const t of centralContentTerms(q)) push(t, false);
+  } catch { /* no content terms, no further concepts */ }
+  return out;
+}
+
+// Coverage of a set of supplied groups against the question's
+// central concepts. `central` may be passed to reuse one
+// derivation; otherwise it is derived here. Each supplied group
+// may carry a `source` tag (or the array a `via` tag, the shape
+// llmConceptGroups returns); the covering source is reported per
+// concept as hand, synonyms, the group's source, or the array
+// via, defaulting to model for untagged supplied groups.
+// Returns { central, covered, uncovered, cut } where covered is
+// [{ term, via }], uncovered is the list of concept terms no
+// source covered, and cut is that same uncovered list when the
+// supplied groups already fill the total budget (the concepts
+// were cut by a cap, not merely missed), else empty.
+export function computeExpansionCoverage(query, groups, central) {
+  const concepts = Array.isArray(central) && central.length > 0
+    ? central : expansionCentralConcepts(query);
+  const groupList = Array.isArray(groups) ? groups : [];
+  const arrayVia = (groups && groups.via) || null;
+  const covered = [];
+  const uncovered = [];
+  for (const c of concepts) {
+    const term = typeof c === "string" ? c : c && c.term;
+    if (!term) continue;
+    let via = null;
+    try {
+      if (CONCEPT_LOOKUP.has(String(term).toLowerCase())) via = "hand";
+      else if (SYNONYMS[String(term).toLowerCase()]) via = "synonyms";
+      else if (expansionHandCoversConcept(query, term)) via = "hand";
+    } catch { via = null; }
+    if (!via) {
+      for (const g of groupList) {
+        if (expansionGroupCoversConcept(term, g)) {
+          via = (g && g.source) || arrayVia || "model";
+          if (via !== "fallback" && via !== "plain") via = "model";
+          break;
+        }
+      }
+    }
+    if (via) covered.push({ term, via });
+    else uncovered.push(term);
+  }
+  const centralTerms = concepts
+    .map((c) => (typeof c === "string" ? c : c && c.term))
+    .filter(Boolean);
+  return {
+    central: centralTerms,
+    covered,
+    uncovered,
+    cut: groupList.length >= EXPANSION_TOTAL_GROUP_BUDGET ? [...uncovered] : [],
+  };
+}
+
+// Decide coverage concept by concept (2026-10-22, L1-1 and
+// L1-11). Takes the groups one source already produced (in
+// gatherPapers, the model's validated groups, possibly none),
+// computes which central concepts they leave uncovered, and runs
+// the deterministic fallback for exactly those concepts, within
+// the total group budget. A concept the fallback builder cannot
+// group (a hand table term it skips, a phrase it refuses) is
+// still represented as a plain term group while budget remains:
+// the lookup set carries the term itself, so the concept reaches
+// the retrieval consumers as a plain term. Concepts past the
+// total budget stay uncovered and are recorded as cut.
+// Returns { groups, fallbackGroups, coverage }: groups is the
+// merged clean list ({ term, alternates } only, the shape every
+// existing consumer takes), fallbackGroups the clean groups the
+// fallback and plain representation added, and coverage the
+// final computed state from computeExpansionCoverage, whose
+// uncovered and cut lists the caller records on the diag.
+export function resolveExpansionCoverage(query, proposedGroups, opts = {}) {
+  const totalBudget = opts && Number.isFinite(opts.totalBudget) && opts.totalBudget > 0
+    ? Math.floor(opts.totalBudget) : EXPANSION_TOTAL_GROUP_BUDGET;
+  const baseVia = (proposedGroups && proposedGroups.via) || "model";
+  const base = [];
+  const seenBase = new Set();
+  for (const g of Array.isArray(proposedGroups) ? proposedGroups : []) {
+    if (!g || typeof g.term !== "string" || !Array.isArray(g.alternates)) continue;
+    const term = g.term.toLowerCase().trim();
+    if (!term || seenBase.has(term)) continue;
+    seenBase.add(term);
+    base.push({
+      term,
+      alternates: g.alternates.map((a) => String(a || "").toLowerCase()).filter(Boolean),
+      source: baseVia === "fallback" ? "fallback" : "model",
+    });
+  }
+  const central = expansionCentralConcepts(query);
+  const before = computeExpansionCoverage(query, base, central);
+  const added = [];
+  if (before.uncovered.length > 0) {
+    const room = Math.max(0, totalBudget - base.length);
+    if (room > 0) {
+      let rawFallback = [];
+      try {
+        rawFallback = buildDeterministicFallbackGroups(query, before.uncovered, { limit: room });
+      } catch { rawFallback = []; }
+      const have = new Set(base.map((g) => normalizeConceptKey(g.term)));
+      for (const g of rawFallback) {
+        if (added.length >= room) break;
+        const key = normalizeConceptKey(g.term);
+        if (!key || have.has(key)) continue;
+        have.add(key);
+        added.push({ term: g.term, alternates: g.alternates || [], source: "fallback" });
+      }
+      // Plain term representation for uncovered concepts the
+      // fallback builder emitted nothing for, while budget
+      // remains (L1-11: a tail concept is at least a plain term
+      // in the lookup, or it is recorded, never just dropped).
+      for (const term of before.uncovered) {
+        if (added.length >= room) break;
+        const key = normalizeConceptKey(term);
+        if (!key || have.has(key)) continue;
+        if (!isAcceptableExpansionWording(term)) continue;
+        if (EXPANSION_FRAMING_WORDS.has(term) || hasNegationLead(term)) continue;
+        try { if (term.split(" ").every((w) => isGateFunctionWord(w))) continue; } catch { /* keep */ }
+        have.add(key);
+        added.push({ term, alternates: [], source: "plain" });
+      }
+    }
+  }
+  const tagged = [...base, ...added];
+  const coverage = computeExpansionCoverage(query, tagged, central);
+  // Any concept still uncovered after every source ran while the
+  // merged groups fill the total budget was cut by the budget;
+  // when budget remained, an uncovered concept is a coverage
+  // failure of every source, which is also an explicit
+  // limitation. Either way the final uncovered list is the
+  // recorded limitation, so cut mirrors it whenever it is
+  // non empty and at least one source produced groups or the
+  // budget was reached. An entirely group less run keeps cut
+  // empty and lets uncovered speak for itself.
+  if (coverage.uncovered.length > 0 && (tagged.length > 0)) {
+    coverage.cut = [...coverage.uncovered];
+  }
+  const clean = (g) => ({ term: g.term, alternates: g.alternates });
+  return {
+    groups: tagged.map(clean),
+    fallbackGroups: added.map(clean),
+    coverage,
+  };
 }
 
 /* clampStageLegTimeout: the synthesis stage's clampLegTimeout
@@ -17811,6 +18189,43 @@ export function buildSearchRecord(input) {
       llmExpansion = groups.length ? groups : null;
     }
 
+    // The computed expansion coverage (2026-10-22, L1-1 and
+    // L1-11): the central concepts the expansion stage derived,
+    // which source covered each, the concepts no source covered,
+    // and the ones cut by the group budget. Read from the input
+    // or the diag like llmExpansion above, normalized and
+    // bounded like every other late field, and present only
+    // when the gather computed one, so a record can show a
+    // partial expansion as partial instead of implying the
+    // whole question was covered because some groups exist.
+    let expansionCoverage = null;
+    try {
+      const covRaw = input.expansionCoverage != null ? input.expansionCoverage
+        : diag ? diag.expansionCoverage : null;
+      if (covRaw && typeof covRaw === "object") {
+        const termList = (v) => Array.isArray(v)
+          ? v.map((x) => String(x == null ? "" : typeof x === "object" ? x.term || "" : x))
+            .filter(Boolean).slice(0, 12)
+          : [];
+        expansionCoverage = {
+          central: termList(covRaw.central),
+          covered: Array.isArray(covRaw.covered)
+            ? covRaw.covered.slice(0, 12)
+              .map((c) => ({
+                term: String((c && c.term) || "").slice(0, 80),
+                via: typeof (c && c.via) === "string" && c.via ? c.via.slice(0, 40) : null,
+              }))
+              .filter((c) => c.term)
+            : [],
+          uncovered: termList(covRaw.uncovered),
+          cut: termList(covRaw.cut),
+        };
+        if (expansionCoverage.central.length === 0 && expansionCoverage.uncovered.length === 0) {
+          expansionCoverage = null;
+        }
+      }
+    } catch { expansionCoverage = null; }
+
     const modelRaw = input.synthesisModel != null ? input.synthesisModel : input.modelUsed;
     const synthesisModel = typeof modelRaw === "string" && modelRaw ? modelRaw : null;
 
@@ -18050,6 +18465,7 @@ export function buildSearchRecord(input) {
       conceptQueries,
       executedQueries: recordExecutedQueries(input, diag),
       llmExpansion,
+      ...(expansionCoverage ? { expansionCoverage } : {}),
       databases,
       funnel: recordFunnel,
       synthesisModel,
@@ -21433,16 +21849,34 @@ async function gatherPapersBody(rawQuery, opts) {
   // buildDeterministicFallbackGroups), and the diag records them
   // with via "fallback" — the groups ride the same llmExpanded
   // channel the model groups ride, labeled as what they are.
-  if (dynGroups.length === 0 && dynUncovered.length > 0) {
-    try {
-      const fbGroups = buildDeterministicFallbackGroups(surfaceQuery, dynUncovered);
-      if (fbGroups.length > 0) {
-        dynGroups = fbGroups;
-        dynGroups.via = "fallback";
-        dynLookup = buildDynLookup(dynGroups);
-      }
-    } catch { /* the fallback must never break the gather */ }
-  }
+  //
+  // COVERAGE RESOLUTION (2026-10-22, L1-1): the fallback no
+  // longer runs only on an empty model result. Coverage is a
+  // computed state (resolveExpansionCoverage): the question's
+  // central concepts are derived first, each is marked covered
+  // or uncovered after the hand tables and whatever groups the
+  // model returned, and the fallback then runs per uncovered
+  // concept, so a partial model result (groups for a duration
+  // and an outcome, nothing for the subject or the dose) gets
+  // its missing concepts decided instead of silently certifying
+  // the whole question as covered. The computed state rides the
+  // diag as expansionCoverage and from there into the search
+  // record; the still uncovered set is recorded, never absent.
+  // On the old empty result path this reduces to exactly the
+  // old fallback build for dynUncovered's concepts (the central
+  // concepts include them), with the same via label.
+  let expansionCoverage = null;
+  try {
+    const resolvedCoverage = resolveExpansionCoverage(surfaceQuery, dynGroups);
+    expansionCoverage = resolvedCoverage.coverage;
+    if (resolvedCoverage.fallbackGroups.length > 0) {
+      const prevVia = dynGroups.via || null;
+      const merged = [...dynGroups, ...resolvedCoverage.fallbackGroups];
+      merged.via = prevVia || "fallback";
+      dynGroups = merged;
+      dynLookup = buildDynLookup(dynGroups);
+    }
+  } catch { /* coverage must never break the gather */ }
   // Surface keys, lemmatized aliases (wave seven): the lookup
   // above is keyed by surface terms, but the relevance scorer
   // below matches with lemmatized terms (its own stemmer) and
@@ -21910,7 +22344,15 @@ async function gatherPapersBody(rawQuery, opts) {
   if (dynGroups.length > 0) {
     diag.llmExpanded = dynGroups;
     diag.llmExpandedVia = dynGroups.via || null;
-  } else if (dynUncovered.length > 0) {
+  }
+  // The computed expansion coverage (2026-10-22, L1-1): the
+  // central concepts, which source covered each, and the set no
+  // source covered, recorded whether or not any group survived,
+  // so a partial expansion can never read as a full one in the
+  // record. buildSearchRecord carries it into the exportable
+  // record and the response _expansion field surfaces it.
+  if (expansionCoverage) diag.expansionCoverage = expansionCoverage;
+  if (dynGroups.length === 0 && dynUncovered.length > 0) {
     // The trigger fired but no groups survived: record the attempt so
     // a live check can tell "tried and got nothing" apart from
     // "never tried" (which leaves no trace here at all). A budget
@@ -32430,12 +32872,29 @@ async function runSearchPipeline(pctx) {
          * internals beyond the leg name. */
         _expansion: (() => {
           const g = gResult && gResult._diag && gResult._diag.llmExpanded;
+          // The computed coverage state (2026-10-22, L1-1): the
+          // central concepts, the per concept covering source,
+          // and the uncovered and cut sets, so a partial expansion
+          // is visible as partial on this surface too and the
+          // uncovered set is recorded even when groups exist.
+          const cov = gResult && gResult._diag && gResult._diag.expansionCoverage;
+          const covOut = cov && typeof cov === "object"
+            ? {
+                coverage: {
+                  central: Array.isArray(cov.central) ? cov.central : [],
+                  covered: Array.isArray(cov.covered) ? cov.covered : [],
+                  uncovered: Array.isArray(cov.uncovered) ? cov.uncovered : [],
+                  cut: Array.isArray(cov.cut) ? cov.cut : [],
+                },
+                uncovered: Array.isArray(cov.uncovered) ? cov.uncovered : [],
+              }
+            : null;
           if (Array.isArray(g) && g.length > 0) {
-            return { via: gResult._diag.llmExpandedVia || null, groups: g };
+            return { via: gResult._diag.llmExpandedVia || null, groups: g, ...(covOut || {}) };
           }
           const att = gResult && gResult._diag && gResult._diag.llmExpansionAttempt;
-          if (att) return { attempted: true, uncovered: att.uncovered, groups: 0, via: null, ...(att.skipped ? { skipped: att.skipped } : {}) };
-          return null;
+          if (att) return { attempted: true, uncovered: att.uncovered, groups: 0, via: null, ...(att.skipped ? { skipped: att.skipped } : {}), ...(covOut || {}) };
+          return covOut ? { groups: 0, via: null, ...covOut } : null;
         })(),
         /* TRUST RELEASE (2026-10-13): per answer coverage disclosure and
          * the exportable search record, both computed above from this

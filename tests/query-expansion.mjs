@@ -118,7 +118,10 @@ await test("rejects a term that only appears as a substring of a longer word", (
   assert.deepEqual(out, []);
 });
 
-await test("rejects an oversized alternate list outright", () => {
+await test("trims an oversized alternate list to the cap instead of rejecting the group", () => {
+  // 2026-10-22 (L1-2): the old rule discarded the whole group for
+  // a seventh alternate, losing the concept with it. The list is
+  // now trimmed to the cap of six and the group survives.
   const out = validateExpansionGroups(
     [{
       term: "zorblaxin",
@@ -126,7 +129,10 @@ await test("rejects an oversized alternate list outright", () => {
     }],
     QUERY
   );
-  assert.deepEqual(out, []);
+  assert.deepEqual(out, [{
+    term: "zorblaxin",
+    alternates: ["alt one", "alt two", "alt three", "alt four", "alt five", "alt six"],
+  }]);
 });
 
 await test("drops alternates with junk characters, keeps the clean ones", () => {
