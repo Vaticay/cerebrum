@@ -10065,7 +10065,7 @@ function buildFactCheckSourceBlock(papers) {
     .join("\n\n");
 }
 
-function parseDeepFactCheckJSON(raw) {
+export function parseDeepFactCheckJSON(raw) {
   const txt = (raw || "").replace(/```json|```/g, "").trim();
   // Models occasionally wrap the object in a sentence or two despite the
   // instruction not to . grab the outermost {...} span rather than requiring
@@ -10089,7 +10089,21 @@ function parseDeepFactCheckJSON(raw) {
       const quote = String((c && c.quote) || "").trim().slice(0, 400);
       const sourceIndex = Number.isFinite(c && c.source_index) ? c.source_index : null;
       if (!claim || !status || !justification) return null;
-      return { claim, status, justification, quote, sourceIndex };
+      // CLAIM TYPING (2026-10-22, logic audit L5-2): claim type
+      // is a first class field from extraction, assigned by code,
+      // not by the checker model. A claim whose logical form is
+      // a universal negative, an absence claim, or a field level
+      // generalization is typed "universal" here, at parse time,
+      // so every downstream consumer can see what kind of claim
+      // it is holding. The type alone does not decide the
+      // verdict: applyUniversalClaimRuleToClaims enforces it,
+      // forcing such a claim to unsupported unless a cited
+      // source is a systematic review or literature survey whose
+      // scope covers it, regardless of the status the checker
+      // model returned. Silence across the shown abstracts can
+      // never ratify a claim about the whole literature.
+      const universal = isUniversalClaimText(claim);
+      return { claim, status, justification, quote, sourceIndex, ...(universal ? { kind: "universal" } : {}) };
     })
     .filter(Boolean);
   // Fewer than 2 usable claims isn't the "3-5 rigorous claims" this is meant
@@ -11309,30 +11323,45 @@ function existenceAnswerLine(support, pluralNoun = "papers") {
 
 /* ── Retrieval scoped honesty for AI answers (2026-10-22, answer
  * integrity repair) ─────────────────────────────────────────────
- * The prompts carry the existence rule (the full prompt always
- * did; the compact prompt that waves 1 and 2 race on did not,
- * which is the path the owner's flagged answer took), but a prompt
- * sentence is not a guarantee: the flagged answer asserted a
- * field wide negative in its short answer and then reasoned from
- * it in its disagreement and change sections. This is the
- * mechanical backstop at the ship gate. On an existence question,
- * every sentence that asserts a universal negative (the same
- * detector the claim check rule uses) is rewritten to the one
- * honest form: the first becomes the retrieval statement below,
- * later restatements become a scope sentence. Sentences about a
- * specific paper ("the available study does not present ...")
- * are not universal and are never touched, and neither are
- * caveats that already deny the assertion. The citation markers
- * a rewritten sentence carried are kept on it, so the cited set
- * the response derives from the prose does not change. */
+ * The prompts that actually serve carry the existence rule
+ * (compact for waves 1 and 2 and the rescues, bulletproof for
+ * wave 3; the full prompt also carries it but no serving leg
+ * fires with it, logic audit L4-1), but a prompt sentence is not
+ * a guarantee: the flagged answer asserted a field wide negative
+ * in its short answer and then reasoned from it in its
+ * disagreement and change sections. This is the mechanical
+ * backstop at the ship gate, and it runs on every AI answer,
+ * whatever the question's shape (L4-2): every sentence that
+ * asserts a universal negative (the same detector the claim
+ * check rule uses) is rewritten to the one honest form, the
+ * first becoming the retrieval statement below and later
+ * restatements a scope sentence. Sentences about a specific
+ * paper ("the available study does not present ...") are not
+ * universal and are never touched, neither are caveats that
+ * already deny the assertion, and neither is a negative a
+ * retrieved systematic survey supports within its own scope.
+ * The citation markers a rewritten sentence carried are kept on
+ * it, so the cited set the response derives from the prose does
+ * not change. */
 export const RETRIEVAL_NEGATIVE_STATEMENT =
   "I could not find one in the papers retrieved here. That is not proof that none exists.";
 export const RETRIEVAL_SCOPE_SENTENCE =
   "That result is limited to the papers retrieved here.";
 
-export function scopeExistenceAnswer(answer, query) {
+export function scopeExistenceAnswer(answer, query, papers) {
   const text = String(answer || "");
-  if (!text || !isExistenceQuestion(query)) return text;
+  if (!text) return text;
+  // The gate is not limited to existence shaped questions
+  // (2026-10-22, logic audit L4-2): a plain content question's
+  // answer can also assert that no study compares, measures, or
+  // reports something, and the assertion is exactly as
+  // unsupported there. Any sentence the universal detector
+  // matches is in scope, whatever the question's shape. The one
+  // exception is a sentence a retrieved systematic review or
+  // literature survey itself supports, scope checked the same
+  // way the claim rule checks it: that sentence may be reporting
+  // the review's own finding, and it stands.
+  const pool = Array.isArray(papers) ? papers : [];
   const boundary = answerBodyBeforeBibliography(text);
   const tail = text.slice(boundary.length);
   const blocks = sectionizeAnswer(boundary);
@@ -11346,13 +11375,14 @@ export function scopeExistenceAnswer(answer, query) {
       let changedLine = false;
       const kept = sentences.map((s) => {
         if (!isUniversalNegativeText(s)) return s;
+        if (pool.some((p) => systematicSourceCoversClaim(p, s))) return s;
         changedLine = true;
+        const cites = (s.match(/\[\d{1,3}\]/g) || []).join("");
         if (!replaced) {
           replaced = true;
-          const cites = (s.match(/\[\d{1,3}\]/g) || []).join("");
           return RETRIEVAL_NEGATIVE_STATEMENT + (cites ? " " + cites : "");
         }
-        return RETRIEVAL_SCOPE_SENTENCE;
+        return RETRIEVAL_SCOPE_SENTENCE + (cites ? " " + cites : "");
       });
       return changedLine ? kept.join(" ") : line;
     });
@@ -18109,7 +18139,7 @@ export function buildCachedServeTrust(input) {
   // rewritten to the retrieval statement here rather than served
   // as a field fact under a fresh timestamp.
   if (recordedMode === "ai") {
-    try { servedAnswer = scopeExistenceAnswer(servedAnswer, input && input.question); } catch { /* the guard must never break the serve */ }
+    try { servedAnswer = scopeExistenceAnswer(servedAnswer, input && input.question, labeledSources); } catch { /* the guard must never break the serve */ }
   }
   if (extractiveShipment && confidence && confidence.level && confidence.line) {
     try {
@@ -29278,7 +29308,16 @@ async function runSearchPipeline(pctx) {
         ID +
         "Every richer attempt to answer this just failed (rate limits / timeouts across multiple providers), so this is a fast, minimal pass . be direct and skip elaboration. Teach plainly: findings stated as facts about the world with citations attached as support, never as reports about the papers; paper framing only where provenance matters.\n\n" +
         STRUCTURE +
-        (useEvidence ? "Cite sources inline as [1], [2], etc., matching the numbered list below. Only cite a source if it actually supports the claim." : "");
+        (useEvidence ? "Cite sources inline as [1], [2], etc., matching the numbered list below. Only cite a source if it actually supports the claim. " +
+          // EXISTENCE SCOPE, wave 3 parity (2026-10-22, logic
+          // audit L4-1): this stripped system is one of the two
+          // prompts that actually serve (compact carries the rule
+          // for waves 1 and 2 and the rescues). A safeguard that
+          // lives only in the full prompt never reaches a model:
+          // the full prompt is built but no serving leg fires
+          // with it. The last resort tier gets the rule in its
+          // shortest form here.
+          "If the question asks whether any papers report something and none of the sources below does, write 'I could not find one in the papers retrieved here. That is not proof that none exists.' Never state that no paper does something or that the literature lacks something; you can only describe the sources below." : "");
       // Bug: this reused `userContent` verbatim . the SAME full evidence
       // block (all 12-20 papers, their full abstracts) that waves 1 and 2
       // just failed to get any model through with. Shrinking only the
@@ -30308,16 +30347,17 @@ async function runSearchPipeline(pctx) {
     }
 
     // RETRIEVAL SCOPE GUARD (2026-10-22, answer integrity
-    // repair): an AI existence answer may not assert a universal
-    // negative from the retrieved set, in any section. The
-    // prompts carry the rule; this pass enforces it on the final
-    // text before the fact check reads it, so the check, the
+    // repair): an AI answer may not assert a universal negative
+    // from the retrieved set, in any section, whatever the
+    // question's shape (logic audit L4-2). The prompts that serve
+    // carry the rule; this pass enforces it on the final text
+    // before the fact check reads it, so the check, the
     // confidence line, and the shipped prose all judge the same
     // scoped answer. Deterministic tiers are out of scope: their
     // existence lines are already retrieval scoped by
     // construction (existenceAnswerLine).
     if (aiOK && useEvidence && evidencePapers.length > 0) {
-      try { answer = scopeExistenceAnswer(answer, query); } catch { /* the guard must never break the answer */ }
+      try { answer = scopeExistenceAnswer(answer, query, evidencePapers); } catch { /* the guard must never break the answer */ }
     }
 
 

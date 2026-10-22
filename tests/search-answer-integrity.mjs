@@ -46,7 +46,7 @@ const {
   isSystematicOrSurveyPaper, systematicSourceCoversClaim,
   applyUniversalClaimRuleToClaims, applyUniversalClaimRule,
   scopeExistenceAnswer, answerAssertsRetrievalNegative,
-  RETRIEVAL_NEGATIVE_STATEMENT, deDash,
+  RETRIEVAL_NEGATIVE_STATEMENT, deDash, parseDeepFactCheckJSON,
 } = search;
 
 let passed = 0;
@@ -472,10 +472,20 @@ await test("the scope guard rewrites an AI existence answer to the retrieval sta
   assert.ok(out.includes("The available study does not present a per organism read count ratio."),
     "a statement about one specific paper was rewritten");
   assert.ok(out.includes(RETRIEVAL_NEGATIVE_STATEMENT + " [1]"), "the citation was dropped from the rewritten sentence");
-  assert.equal(scopeExistenceAnswer(answer, "how do fungi break down lignin"), answer,
-    "the guard fired on a non existence question");
+  // L4-2: the gate is not existence shape limited. A content
+  // question's answer asserting the same negative is rewritten
+  // too, and a negative a retrieved systematic survey supports
+  // within its scope stands.
+  const contentOut = scopeExistenceAnswer(answer, "what is the ratio of metagenome to metatranscriptome reads");
+  assert.ok(contentOut.includes(RETRIEVAL_NEGATIVE_STATEMENT), "a content question's universal negative was not scoped");
+  const clean = "Fungi secrete enzymes that break lignin into smaller fragments [1].";
+  assert.equal(scopeExistenceAnswer(clean, "how do fungi break down lignin"), clean,
+    "an answer with no universal negative was rewritten");
   assert.equal(scopeExistenceAnswer("Yes. Franzosa et al. report paired ratios [1].", OWNER_QUERY),
     "Yes. Franzosa et al. report paired ratios [1].", "a positive answer was rewritten");
+  const surveyBacked = "## The short answer\n\nNo primary research paper in the supplied literature directly compares the ratio of metagenomics to metatranscriptomics reads of organisms to infer abundance relative gene expression [1].";
+  assert.equal(scopeExistenceAnswer(surveyBacked, OWNER_QUERY, [systematicSurvey]), surveyBacked,
+    "a systematic survey backed negative was rewritten");
 });
 
 await test("a retrieval negative answer is capped low whatever the shelf looks like", () => {
@@ -501,9 +511,47 @@ await test("deDash maps the model's Unicode compound hyphens to ASCII at the shi
   assert.ok(!out.includes("\u2011"), "U+2011 survived deDash");
   assert.equal(deDash("soft\u00ADhyphen"), "softhyphen", "soft hyphen not dropped");
   assert.ok(src.includes("applyUniversalClaimRule(factCheckResult, evidencePapers)"), "panel backstop not wired");
-  assert.ok(src.includes("scopeExistenceAnswer(answer, query)"), "scope guard not wired in the handler");
+  assert.ok(src.includes("scopeExistenceAnswer(answer, query, evidencePapers)"), "scope guard not wired in the handler");
   assert.ok(src.includes("applyUniversalClaimRuleToClaims(attributed, evidencePapers)"), "deep construction does not apply the rule");
   assert.ok(src.includes("UNIVERSAL CLAIMS RULE"), "deep fact check prompt lacks the universal claims rule");
+});
+
+await test("the rule lives in the prompts that actually serve, not only the full prompt (L4-1)", () => {
+  // The full prompt is assembled but no serving leg fires with
+  // it: waves 1 and 2 and both rescues race on compactMessages,
+  // wave 3 on bulletproofMessages. A safeguard present only in
+  // the full prompt (or in the enforcer appended to it) is dead
+  // code. Both serving systems must carry the canonical negative.
+  const canonical = "I could not find one in the papers retrieved here. That is not proof that none exists.";
+  const compactStart = src.indexOf("const compactSystem");
+  const compactEnd = src.indexOf("const compactUser", compactStart);
+  assert.ok(compactStart > 0 && compactEnd > compactStart, "compact system not found");
+  assert.ok(src.slice(compactStart, compactEnd).includes(canonical),
+    "the compact prompt (waves 1 and 2, rescues) lacks the existence rule");
+  const bpStart = src.indexOf("const bulletproofSystem");
+  const bpEnd = src.indexOf("const bulletproofUserContent", bpStart);
+  assert.ok(bpStart > 0 && bpEnd > bpStart, "bulletproof system not found");
+  assert.ok(src.slice(bpStart, bpEnd).includes(canonical),
+    "the bulletproof prompt (wave 3) lacks the existence rule");
+  assert.ok(src.includes("callOR(m, compactMessages") || src.includes("compactMessages, maxTokens"),
+    "wave legs no longer fire on the compact prompt this test assumes");
+  assert.ok(src.includes("bulletproofMessages"), "wave 3 no longer fires on the bulletproof prompt this test assumes");
+});
+
+await test("claim type is assigned by code at extraction, before any verdict is read (L5-2)", () => {
+  const raw = JSON.stringify({ claims: [
+    { claim: OWNER_CLAIM, status: "supported", justification: "The cited paper does not perform this comparison.", quote: "q", source_index: 1 },
+    { claim: "Chung et al. counted DNA and RNA reads per taxon", status: "supported", justification: "Stated in the abstract.", quote: "q", source_index: 1 },
+  ] });
+  const claims = parseDeepFactCheckJSON(raw);
+  assert.ok(Array.isArray(claims) && claims.length === 2, "parser did not return both claims");
+  assert.equal(claims[0].kind, "universal", "the universal negative was not typed at extraction");
+  assert.equal(claims[1].kind, undefined, "an ordinary claim was typed universal");
+  // And the typed claim still cannot be ratified by the
+  // checker's own supported verdict against a single source.
+  const ruled = applyUniversalClaimRuleToClaims(claims, [xiaLike]);
+  assert.equal(ruled[0].status, "unsupported");
+  assert.equal(ruled[1].status, "supported");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
