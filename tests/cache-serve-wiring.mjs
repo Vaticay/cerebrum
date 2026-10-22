@@ -273,8 +273,15 @@ const A_PAPERS = [
 
 const A_ANSWER =
   "## Summary\n\n" +
-  "Magnesium helped older adults with insomnia sleep better in the trial that tested it, with sleep quality scores improving over eight weeks [1]. " +
-  "Reviews of the magnesium trials find shorter time to fall asleep and fewer night wakings than placebo [2].\n\n" +
+  // Fixture numbering corrected 2026-10-22 at the Wave 1-C
+  // landing (audit L5-3): the evidence set reaches the checker
+  // in relevance order, review first, so in the numbering both
+  // the answer and the verdict must speak, the trial is [2] and
+  // the review is [1]. The original fixture cited and bound
+  // them the other way, an inconsistency only quote
+  // verification could see.
+  "Magnesium helped older adults with insomnia sleep better in the trial that tested it, with sleep quality scores improving over eight weeks [2]. " +
+  "Reviews of the magnesium trials find shorter time to fall asleep and fewer night wakings than placebo [1].\n\n" +
   "## Limits\n\n" +
   "The trials are small, the doses vary widely, and most ran only a few weeks.";
 
@@ -282,14 +289,14 @@ const A_VERDICT = {
   claims: [
     {
       claim: "Magnesium helped older adults with insomnia sleep better in the trial that tested it, with sleep quality scores improving over eight weeks",
-      source_index: 1,
+      source_index: 2,
       quote: "Sleep quality scores improved in the magnesium group",
       status: "supported",
       justification: "The trial abstract states the outcome directly: sleep quality scores improved in the magnesium group and insomnia severity fell against placebo over the eight weeks the claim names. The claim adds nothing the abstract does not say.",
     },
     {
       claim: "Reviews of the magnesium trials find shorter time to fall asleep and fewer night wakings than placebo",
-      source_index: 2,
+      source_index: 1,
       quote: "shorter time to fall asleep and fewer night wakings than placebo",
       status: "supported",
       justification: "The review's abstract reports exactly these two outcomes across its eleven trials of magnesium for sleep disturbance. The claim keeps the review's own scope and does not widen it beyond the trials the review covered.",

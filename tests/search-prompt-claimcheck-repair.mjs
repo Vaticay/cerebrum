@@ -374,19 +374,28 @@ await test("a terms result reports as name presence through its own ledger", () 
   assert.equal(factCheckNamePresence({ mode: "extractive", claims: [{ claim: "x", status: "traced" }] }), null);
 });
 
-await test("a terms panel cannot satisfy the claim check gate or fire the zero support degrade", () => {
+await test("a terms panel cannot satisfy the claim check gate; the degrade trigger reads name presence only", () => {
   assert.equal(factCheckActuallyChecked(TERMS_PANEL), false,
     "a name presence result counted as a claim check that ran");
   assert.equal(factCheckActuallyChecked(DEEP_PANEL), true);
-  // The zero support serve's own gate, replicated from the
-  // handler: a terms panel yields no support object, so the
-  // serve cannot fire on it even when every name failed.
-  const zeroSupportFor = (fc) => (factCheckKind(fc) === "terms" ? null : factCheckSupport(fc));
-  assert.equal(zeroSupportFor(TERMS_PANEL_FAILED), null);
-  assert.ok(!(zeroSupportFor(TERMS_PANEL_FAILED) && zeroSupportFor(TERMS_PANEL_FAILED).supported === 0),
-    "a failed terms panel can still trigger the zero support degrade");
-  assert.ok(src.includes('factCheckKind(factCheckResult) === "terms" ? null : factCheckSupport(factCheckResult)'),
-    "the handler's zero support serve does not ask the kind before reading support");
+  // The support ledger is closed to terms in the certifying
+  // direction: a terms panel yields no support object, so no
+  // consumer can read it as claims checked or supported.
+  assert.equal(factCheckSupport(TERMS_PANEL_FAILED), null);
+  // Landing decision (Wave 1-C): the zero support serve's
+  // degrade trigger is not certification, and it keeps the wave
+  // eight protection: a terms panel whose every checked name
+  // turned up nowhere in the cited papers (present and indirect
+  // both zero) reads as a zero through factCheckNamePresence,
+  // while any name turning up in either form keeps the draft.
+  const np = factCheckNamePresence(TERMS_PANEL_FAILED);
+  assert.ok(np && np.checked >= 1 && np.present === 0 && np.indirect === 0,
+    "the failed terms panel does not read as a name presence zero: " + JSON.stringify(np));
+  const npOk = factCheckNamePresence(TERMS_PANEL);
+  assert.ok(!(npOk && npOk.present === 0 && npOk.indirect === 0),
+    "a terms panel with a name present reads as a zero");
+  assert.ok(src.includes("np.present === 0 && np.indirect === 0"),
+    "the handler's zero support serve does not read the terms panel through name presence");
   // The confidence line's support input, replicated: a terms
   // panel hands buildConfidenceLine no support object, so its
   // zero support cap cannot fire on a name match failure. The
