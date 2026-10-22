@@ -348,8 +348,18 @@ await test("grocery: a cited set that cannot address the subject falls to the ho
   assert.ok(String(data.answer || "").startsWith("## No citable literature surfaced"),
     "the honest state's own copy did not ship: " + String(data.answer || "").slice(0, 120));
   const rec = data._record || {};
-  assert.ok(rec.subjectServe && rec.subjectServe.fired === true,
-    "the subject serve did not record itself as the actor (gate audit: " +
+  // PIN UPDATED (2026-10-22, logic audit L3-2): this run used
+  // to reach the honest state through the subject serve,
+  // because the gate audit's comparison admission first
+  // readmitted five of the six papers the current standard
+  // excluded, the answer cited them, and the subject serve
+  // then refused the cited set. The admission is retired, so
+  // the citation gate itself is now the actor: it empties the
+  // pool (citableBefore 0 in the gate audit) and the run takes
+  // the no evidence state directly. The shipped outcome this
+  // test exists to pin is unchanged.
+  assert.ok(rec.gateAudit && rec.gateAudit.citableBefore === 0 && rec.gateAudit.shippedLimited === false,
+    "the gate audit did not record itself as the actor (gate audit: " +
     JSON.stringify(rec.gateAudit || null) + ", subjectServe: " + JSON.stringify(rec.subjectServe || null) + ")");
   assert.ok(!/Digital transformation in retail/.test(JSON.stringify(rec.sources || [])) ||
     (rec.sources || []).every((s) => !s.cited),

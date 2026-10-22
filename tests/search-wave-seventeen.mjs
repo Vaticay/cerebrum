@@ -357,11 +357,21 @@ await test("subjectEngagingEvidence selects exactly the subject engaging papers"
     "the rebuild pool is wrong: " + JSON.stringify(r.papers.map((p) => p.title)));
 });
 
-await test("the gate audit minimum is 1 when citable is 1 (source pin)", () => {
-  assert.ok(!src.includes("citablePapers.length === 0 ? 1 : 2"),
-    "the old minAdmitted split survives");
-  assert.ok(src.includes("the minimum is 1 in both"),
-    "the wave seventeen minAdmitted note is missing");
+await test("the gate audit admits nothing under any standard (source pin)", () => {
+  // PIN REPLACED (2026-10-22, logic audit L3-2): the wave
+  // seventeen minimum this pin guarded (minAdmitted 1 for the
+  // gate audit's comparison admission) no longer exists to
+  // guard, because the admission itself is retired. One
+  // standard governs citation, applied once, with its verdict
+  // final: the gate audit records exclusions and counts what
+  // the retired standard would have admitted, and ships
+  // nothing on that count.
+  assert.ok(!src.includes("gateAudit.shippedLimited = true"),
+    "the gate audit still ships a limited admission somewhere");
+  assert.ok(!src.includes("r.paper._gateAuditAdmitted = true"),
+    "a paper is still tagged to bypass the citation binding");
+  assert.ok(src.includes("comparisonWouldAdmit"),
+    "the record only comparison count is missing");
 });
 
 // ═══════════════════════════════════════════════════════════════
