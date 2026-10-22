@@ -891,10 +891,20 @@ async function runCappedRecordScenario() {
     authorString: "Doe J, Roe K", journalTitle: "Journal of Infant Studies",
     abstractText: bellyAbstract,
   }));
+  // Fixture shape (recalibrated 2026-10-22): the draft is ONE
+  // sentence carrying ONE bold span, so it fails the bold bar
+  // in a way the sentence boundary repair cannot lift (its only
+  // sentence already carries emphasis, and the repair needs two
+  // wrappable sentences). The run therefore stays on the
+  // extractive draw this scenario was calibrated against, the
+  // one that closes at exactly the cap. The repair rescue shape
+  // itself is covered by extractive-fallback-repair.mjs. When
+  // this draft was an ordinary multi sentence draft, the Wave 2
+  // repair rescued it and the run shipped an AI answer at 48,
+  // silently retiring this guard's premise; the premise is now
+  // pinned by an assertion in the test below.
   const answerText =
-    "The **gut microbes** living in an infant gut influence how nutrients are absorbed and how weight is gained over time [1]. " +
-    "When the microbial community is disturbed early, growth can slow until the community recovers [2]. " +
-    "The germs in the belly change month by month across the first year [1].";
+    "The **gut microbes** living in an infant gut influence how nutrients are absorbed and how weight is gained over time, and when the microbial community is disturbed early growth can slow until the community recovers while the germs in the belly change month by month across the first year [1] [2].";
   const realFetch = globalThis.fetch;
   const realCaches = globalThis.caches;
   const realRandom = Math.random;
@@ -952,6 +962,10 @@ async function runCappedRecordScenario() {
 
 await test("handler level: a run closing at exactly the cap still stores its record (Job 1)", async () => {
   const { data, ledger, log } = await runCappedRecordScenario();
+  // The scenario premise: the capped draw is the extractive
+  // one (see the fixture note in runCappedRecordScenario).
+  assert.equal(data.synthesisMode, "extractive",
+    "the scenario premise is the extractive draw, shipped " + data.synthesisMode);
   // The draw closes at exactly the cap in the SHIPPED snapshot —
   // the state that starved the store before the lane existed.
   assert.equal(data._ledger.used, SUBREQUEST_LIMIT,

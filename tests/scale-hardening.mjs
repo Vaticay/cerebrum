@@ -259,8 +259,13 @@ await test("source: ladder capped at 3 rungs", () => {
   assert.match(src, /for \(let i = 0; i < rungs\.length && i < MAX_LADDER_RUNGS; i\+\+\)/, "loop bounded by the cap");
 });
 
-await test("source: typical searches unaffected — early break on >=8 papers intact", () => {
-  assert.ok(src.includes("if (totalAccumulated >= 8 || !_budgetLeft()) break;"), "rung-1 exit still present");
+await test("source: typical searches unaffected — early break on the on topic floor intact", () => {
+  // L2-3 (2026-10-22): the rung exit reads the on topic count
+  // against the citable floor (SHELF_FLOOR_MINIMUM, 6) instead
+  // of the raw total of 8, so a rung full of off topic arrivals
+  // no longer ends the loosening early. A typical search whose
+  // first rung lands on topic papers still breaks here.
+  assert.ok(src.includes("if (onTopicOf(accumulated) >= RETRIEVAL_CITABLE_FLOOR || !_budgetLeft()) break;"), "rung-1 exit still present");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

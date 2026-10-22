@@ -29330,56 +29330,110 @@ async function runSearchPipeline(pctx) {
       return boldSpans.length >= minBoldSpans;
     };
 
-    // BOLD REPAIR (2026-10-22, extractive fallback lane, probe 8):
-    // a draft that fails ONLY the bold bar used to be discarded
-    // outright. On the probe 8 draw that was the last surviving
-    // leg (groq gpt-oss-20b) after the rest of the fleet died on
-    // HTTP 429s and timeouts, so a formatting miss converted a
-    // usable cited draft into an extractive serving. The repair
-    // is deterministic and content preserving: it wraps the
-    // first occurrence of the draft's own most repeated content
-    // terms (its key terms, by the draft's own usage) in bold
-    // markers, on prose lines only, never inside an existing
-    // bold or italic span, a heading, or a link. No words are
-    // added, removed, or reordered, so citation binding is
-    // judged on exactly the same text afterwards. A draft the
-    // repair cannot lift to the bar (no wrappable term) still
-    // throws the original error at the call sites below.
+    // BOLD REPAIR (2026-10-22, extractive fallback lane, probe 8;
+    // edge form, same day, coordinator fix): a draft that fails
+    // ONLY the bold bar used to be discarded outright. On the
+    // probe 8 draw that was the last surviving leg (groq
+    // gpt-oss-20b) after the rest of the fleet died on HTTP 429s
+    // and timeouts, so a formatting miss converted a usable
+    // cited draft into an extractive serving. The repair is
+    // deterministic and content preserving: it wraps single
+    // words at the draft's edges in bold markers until the bar
+    // is met, the last word of the last prose sentence first,
+    // then the first word of the first prose sentence, and only
+    // then the first words of the sentences between. Three
+    // earlier placements failed downstream, each caught by a
+    // suite: wrapping repeated terms wherever they fell split
+    // claim phrases in two (a shipped sentence read "did not
+    // increase **hair** shedding"); wrapping whole sentences
+    // put markers across the sentence boundaries the claim
+    // removal stage segments on, so a targeted removal took
+    // its whole paragraph with it; and wrapping the first word
+    // of every sentence in order reached the restated claim
+    // sentences in the middle of the draft, whose removal
+    // binding treats a leading wrapped word as a different
+    // sentence and let a duplicate claim survive. Edge words
+    // are the spots the binding stages anchor on least: no
+    // words are added, removed, or reordered, sentence
+    // punctuation is untouched, and every phrase that does not
+    // touch the draft's first or last word stays byte
+    // contiguous. Headings, links, list items, and sentences
+    // already carrying emphasis are left alone. A draft the
+    // repair cannot lift to the bar (no wrappable edge word)
+    // still throws the original error at the call sites below.
     const repairMissingBoldFormatting = (text) => {
       const countSpans = (t) => (String(t).match(/\*\*[^*\n]+\*\*/g) || []).length;
       if (countSpans(text) >= 2) return text;
-      const freq = new Map();
-      const firstAt = new Map();
-      const wordRe = /[A-Za-z][A-Za-z'-]{3,}/g;
-      let wm;
-      while ((wm = wordRe.exec(String(text))) !== null) {
-        const lw = wm[0].toLowerCase();
-        if (STOPWORDS.has(lw)) continue;
-        freq.set(lw, (freq.get(lw) || 0) + 1);
-        if (!firstAt.has(lw)) firstAt.set(lw, wm.index);
-      }
-      const candidates = [...freq.keys()].sort((a, b) =>
-        (freq.get(b) - freq.get(a)) || (firstAt.get(a) - firstAt.get(b)) || (b.length - a.length));
-      let out = String(text);
-      for (const term of candidates) {
-        if (countSpans(out) >= 2) break;
-        const lines = out.split("\n");
-        let wrapped = false;
-        for (let i = 0; i < lines.length && !wrapped; i++) {
-          const line = lines[i];
-          if (/^\s*#/.test(line) || line.includes("http")) continue;
-          const m = new RegExp("\\b" + escapeRegExp(term) + "\\b", "i").exec(line);
-          if (!m) continue;
-          const before = line.slice(0, m.index);
-          if ((before.match(/\*\*/g) || []).length % 2 === 1) continue;
-          if ((before.match(/_/g) || []).length % 2 === 1) continue;
-          if (before.includes("](")) continue;
-          lines[i] = before + "**" + m[0] + "**" + line.slice(m.index + m[0].length);
-          wrapped = true;
+      let spans = countSpans(text);
+      const lines = String(text).split("\n");
+      // Collect the prose sentences with their positions.
+      const sentences = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^\s*#/.test(line) || line.includes("http") || line.includes("](")) continue;
+        if (/^\s*([-*•]|\d+\.)\s/.test(line)) continue;
+        const sentenceRe = /[^.!?\n]+(?:[.!?]+["')\]]*)?/g;
+        let sm;
+        while ((sm = sentenceRe.exec(line)) !== null) {
+          if (/[*_]/.test(sm[0])) continue;
+          const before = line.slice(0, sm.index);
+          // A sentence starts the line or follows a real
+          // sentence boundary, never a decimal point or a
+          // single letter abbreviation fragment.
+          const boundaryOk = sm.index === 0 ||
+            (/[.!?]\s*$/.test(before) && !/\d[.!?]\s*$/.test(before));
+          if (boundaryOk) sentences.push({ line: i, start: sm.index, text: sm[0] });
         }
-        if (wrapped) out = lines.join("\n");
       }
-      return out;
+      // Candidate wraps as absolute ranges within their line,
+      // in priority order: the draft's last word, its first
+      // word, then the remaining sentence lead words in order.
+      const candidates = [];
+      const firstWord = (s) => {
+        const m = /^(\s*)([A-Za-z][A-Za-z'-]{3,})/.exec(s.text);
+        if (!m) return null;
+        const start = s.start + m[1].length;
+        return { line: s.line, start, end: start + m[2].length };
+      };
+      const lastWord = (s) => {
+        const wordRe = /[A-Za-z][A-Za-z'-]{3,}/g;
+        let m;
+        let last = null;
+        while ((m = wordRe.exec(s.text)) !== null) last = m;
+        if (!last) return null;
+        // Only a true tail word: nothing alphabetic after it
+        // but citations and punctuation.
+        if (!/^[^A-Za-z]*$/.test(s.text.slice(last.index + last[0].length))) return null;
+        return { line: s.line, start: s.start + last.index, end: s.start + last.index + last[0].length };
+      };
+      if (sentences.length > 0) {
+        const tail = lastWord(sentences[sentences.length - 1]);
+        if (tail) candidates.push(tail);
+        const head = firstWord(sentences[0]);
+        if (head) candidates.push(head);
+        for (const s of sentences) {
+          const fw = firstWord(s);
+          if (fw) candidates.push(fw);
+        }
+      }
+      const used = new Set();
+      const chosen = [];
+      for (const c of candidates) {
+        if (spans >= 2) break;
+        const key = c.line + ":" + c.start + ":" + c.end;
+        if (used.has(key)) continue;
+        if (chosen.some((o) => o.line === c.line && c.start < o.end && o.start < c.end)) continue;
+        used.add(key);
+        chosen.push(c);
+        spans++;
+      }
+      // Apply rightmost first so earlier ranges stay valid.
+      chosen.sort((a, b) => (b.line - a.line) || (b.start - a.start));
+      for (const c of chosen) {
+        const line = lines[c.line];
+        lines[c.line] = line.slice(0, c.start) + "**" + line.slice(c.start, c.end) + "**" + line.slice(c.end);
+      }
+      return lines.join("\n");
     };
     // The call sites' shared verdict: repair first, and only a
     // draft the repair cannot lift is rejected for formatting.

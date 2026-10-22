@@ -7,10 +7,15 @@
  *     (groq gpt-oss-20b) was discarded for "missing required
  *     **bold** formatting" after the rest of the fleet died on
  *     HTTP 429s and timeouts. A draft that fails only the bold
- *     bar is now repaired deterministically (its own repeated
- *     key terms get bold markers; no words change) instead of
+ *     bar is now repaired deterministically (the first word of
+ *     prose sentences gets bold markers; no words change and no
+ *     phrase past a sentence's second word is split) instead of
  *     discarded, and ships as an AI answer when it otherwise
- *     passes citation binding.
+ *     passes citation binding. Two earlier repair forms failed
+ *     the trust-binding end to end suite: wrapping repeated key
+ *     terms wherever they fell split claim phrases ("did not
+ *     increase **hair** shedding"), and wrapping whole sentences
+ *     broke the sentence boundaries claim removal segments on.
  *   probe 17 (honey myth): a complete uncited draft degraded
  *     with no citation repair attempt: the retry's synthesis
  *     window condition stood it down while over 11 seconds of
@@ -309,8 +314,8 @@ await test("probe 8 shape: a cited draft failing only the bold bar is repaired a
   assert.ok(spans.length >= 2, "the shipped answer carries fewer than two bold spans: " + spans.length);
   assert.ok(data.answer.includes("change how well the baby grows across the first year of life"),
     "the repaired draft's own text did not ship");
-  assert.ok(/\*\*(Germs|germs|baby|belly|grows)\*\*/.test(data.answer),
-    "the bold markers do not wrap the draft's own key terms");
+  assert.ok(spans.every((s) => !/\s/.test(s.slice(2, -2))),
+    "the bold markers wrap more than a single word: " + JSON.stringify(spans));
 });
 
 await test("probe 17 shape: a draft stripped to zero citations gets the repair retry before degrading", async () => {
