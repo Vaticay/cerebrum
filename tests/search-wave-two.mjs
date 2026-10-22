@@ -648,7 +648,9 @@ await test("the cache schema carries the wave two bump", () => {
   // history above.
   // PIN UPDATED (2026-10-15, wave seventeen): v52, the
   // citation depth wave.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v52"'), "CACHE_SCHEMA_VERSION must be v52");
+  // PIN UPDATED (2026-10-22, logic audit repair wave 1): v53,
+  // the gate one standard wave.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v53"'), "CACHE_SCHEMA_VERSION must be v53");
 });
 
 group("citation collapse — the verdict and the topic filter count concepts, not literal words");

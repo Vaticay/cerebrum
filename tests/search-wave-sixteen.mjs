@@ -1010,7 +1010,9 @@ await test("the trace summary and stage wiring name the new tier (source pins)",
   // PIN UPDATED (2026-10-15, wave seventeen): the constant
   // moved to v52, the citation depth wave; the v51 chain
   // entry above stays as history.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v52";'), "CACHE_SCHEMA_VERSION is not v52");
+  // PIN UPDATED (2026-10-22, logic audit repair wave 1): v53,
+  // the gate one standard wave.
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v53";'), "CACHE_SCHEMA_VERSION is not v53");
 });
 
 console.log(`\nsearch-wave-sixteen: ${passed} passed, ${failures.length} failed`);
