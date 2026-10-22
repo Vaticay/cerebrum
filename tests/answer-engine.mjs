@@ -920,7 +920,15 @@ test("thin evidence yields thin confidence and honest gaps", () => {
 });
 
 test("strong consensus reads differently from thin evidence", () => {
-  const many = [INC_PAPER, AGREE_PAPER, INC_PAPER, AGREE_PAPER, INC_PAPER, AGREE_PAPER];
+  // Corrected fixture (2026-10-22, logic audit L6-3): the bare
+  // papers score 71, which the old banding read as strong only
+  // because strong started at 60. The documented band table
+  // (CONFIDENCE_BANDS: strong at 75 and up) reads 71 as
+  // moderate, so the strong case here carries the signals a
+  // strong label has to earn: relevance, journal type, recency,
+  // and a semantic match.
+  const many = [INC_PAPER, AGREE_PAPER, INC_PAPER, AGREE_PAPER, INC_PAPER, AGREE_PAPER]
+    .map((p) => ({ ...p, relevance: 90, type: "Journal", semanticScore: 80, year: 2025 }));
   const strong = buildConfidenceLine(many, { status: "settled" });
   const thin = buildConfidenceLine([INC_PAPER], { status: "thin" });
   assert.equal(strong.level, "strong");

@@ -17586,11 +17586,62 @@ export function bestEvidenceClass(papers) {
   return best;
 }
 
+/* CONFIDENCE_BANDS: the one band table every confidence surface
+ * reads (2026-10-22, logic audit L6-3). The header on
+ * buildConfidenceLine always documented strong at 75 and up,
+ * moderate 50 to 74, thin under 50, but the banding code in the
+ * builder, and its copy in calibrateConfidenceScore, made strong
+ * start at 60, so Oct 21 probes scoring 63 and 69 shipped Strong
+ * from inside the documented moderate band. The table now lives
+ * here once: the builder and calibration both derive levels
+ * through confidenceLevelForScore, and the documentation states
+ * the same numbers because they are read from this definition,
+ * not restated from memory. Boundary behavior is pinned by
+ * tests/confidence-bands.mjs. */
+export const CONFIDENCE_BANDS = [
+  { level: "strong", min: 75 },
+  { level: "moderate", min: 50 },
+  { level: "thin", min: 0 },
+];
+
+/* confidenceLevelForScore(score, cap, status): the level for a
+ * score under an optional numeric cap and verdict status. The
+ * cap binds the score first, so a cap inside a band lands the
+ * level in that band (45 caps are the thin caps, 59 and 70 caps
+ * land in moderate). A divided or thin verdict can never read
+ * strong, whatever the capped score says (the wave eight rule,
+ * preserved): divided evidence asserting the opposite of strong
+ * is a contradiction, and a thin verdict means the evidence
+ * could not be weighed at all. */
+export function confidenceLevelForScore(score, cap = null, status = null) {
+  const effective = typeof cap === "number" ? Math.min(score, cap) : score;
+  let level = "thin";
+  for (const band of CONFIDENCE_BANDS) {
+    if (effective >= band.min) { level = band.level; break; }
+  }
+  if ((status === "divided" || status === "thin") && level === "strong") level = "moderate";
+  return level;
+}
+
+/* confidenceCapOneBandLower(cap): the ceiling one band below
+ * the band a cap sits in, read off the same table. Used by the
+ * compounding rule in buildConfidenceLine (L6-10): each extra
+ * independent honesty cap drops the ceiling one band. A cap
+ * already inside the thin band cannot drop further. */
+export function confidenceCapOneBandLower(cap) {
+  for (const band of CONFIDENCE_BANDS) {
+    if (band.min > 0 && cap >= band.min) return band.min - 1;
+  }
+  return cap;
+}
+
 // 0-100 confidence score built from observable evidence signals . source
 // count, mean relevance, disagreement verdict, citation quality
 // (peer-reviewed vs preprint), recency, and abstract coverage . plus a
-// human-readable list of the factors behind it. Levels stay
-// strong ≥75 / moderate 50–74 / thin <50. The `line` copy is kept short
+// human-readable list of the factors behind it. Levels come from
+// CONFIDENCE_BANDS above (strong 75 and up, moderate 50 to 74,
+// thin under 50), the one table both this builder and
+// calibrateConfidenceScore read. The `line` copy is kept short
 // for the UI; `factors` explains the number for anyone who asks "why".
 // The score and factors are INTERNAL: calibration and telemetry read
 // them, and publicConfidence (below) is the only shape a response or
@@ -17676,8 +17727,14 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   // certainty of a fully checked AI answer. The caps are bands, not a
   // claim that the underlying heuristic became a measurement.
   let cap = 100;
+  let capCount = 0;
   const capReasons = [];
   const applyCap = (limit, reason) => {
+    // Every distinct honesty condition counts, even when a
+    // lower cap already binds: the count drives the compounding
+    // rule below (L6-10), where the minimum alone used to make
+    // three stacked defects cost no more than any one of them.
+    capCount += 1;
     if (limit < cap) cap = limit;
     if (reason && !capReasons.includes(reason)) capReasons.push(reason);
   };
@@ -17776,20 +17833,31 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
     applyCap(45, "the only check that ran traced claim wording to the cited papers, which is not a verification");
   }
   if (cap < 100) {
+    // Compounding (2026-10-22, logic audit L6-10): the caps used
+    // to take the minimum only, so independent honesty problems
+    // never accumulated. Oct 21 after/13 shipped Moderate with
+    // three cap reasons in its own line (extractive, degraded,
+    // unchecked, each a 59 cap alone) exactly as if it had one
+    // defect. Each independent cap beyond the first now drops
+    // the ceiling one band on CONFIDENCE_BANDS, so two stacked
+    // moderate grade caps land in the thin band, while a single
+    // cap keeps its established band and reason wording.
+    if (capCount > 1) {
+      for (let i = 1; i < capCount; i++) cap = confidenceCapOneBandLower(cap);
+      factors.push(capCount + " independent confidence caps applied; the ceiling drops one band per extra cap");
+    }
     score = Math.min(score, cap);
     for (const reason of capReasons) factors.push("confidence capped: " + reason);
   }
 
-  let level;
-  if (cap <= 45 || score < 50) level = "thin";
-  // WAVE EIGHT (2026-10-14, Job 4a): a "thin" verdict means the
-  // cited evidence could not be weighed (too few sources checked,
-  // or the cited set failed the citation standard under the
-  // verdict guard). Strong confidence asserts the opposite, so a
-  // thin verdict caps the level at moderate exactly as a divided
-  // verdict does.
-  else if (cap <= 59 || status === "divided" || status === "thin" || score < 60) level = "moderate";
-  else level = "strong";
+  // The level is read off the one band table (L6-3). WAVE EIGHT
+  // (2026-10-14, Job 4a) survives inside confidenceLevelForScore:
+  // a "thin" verdict means the cited evidence could not be
+  // weighed (too few sources checked, or the cited set failed
+  // the citation standard under the verdict guard), and strong
+  // confidence asserts the opposite, so a thin or divided
+  // verdict holds the level at moderate at best.
+  const level = confidenceLevelForScore(score, cap < 100 ? cap : null, status || null);
 
   // The user facing line states the level and the real basis with no
   // pseudo precise number. A heuristic score built from point
@@ -17843,14 +17911,35 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
 // - Citation stripping: if stripUnsupportedCitations removed citations,
 //   the answer is weaker than the paper count suggests.
 // - Integrity flags: unsupported claims found by post-checks discount the score.
-// - Calibration curve: maps the raw 0-100 heuristic to a calibrated 0-100
-//   using a piecewise-linear curve. The curve parameters live in D1
-//   (confidence_calibration table) so they can be tuned from production
-//   telemetry without a deploy; defaults are the identity mapping.
+// - Calibration curve: the identity mapping. No curve parameters
+//   are read from D1 or anywhere else (an earlier version of this
+//   comment promised a confidence_calibration table that no code
+//   ever read; the promise is removed rather than left standing,
+//   2026-10-22, logic audit L6-11). Telemetry below is logged so
+//   a real curve can be fitted from production data later.
 //
 // Every calibration is logged to D1 (best-effort) with the raw score, the
 // adjustments applied, and the final score . the dataset future curve
 // tuning will be built from.
+/* integrityFlagCount(factCheck): how many integrity flags the
+ * finished fact check object carries (2026-10-22, logic audit
+ * L6-11). The flags are the mechanical post check claims the
+ * pipeline merges into the panel with kinds alignment, stripped,
+ * and demoted, each with status unsupported; they are the same
+ * claims FACT_CHECK_UNCHECKABLE_KINDS excludes from support
+ * counting, read here for the one consumer that needs their
+ * count: the calibration integrity penalty. Both calibration
+ * call sites used to pass a literal 0 with a comment promising
+ * a next pass that never existed, so the penalty could never
+ * fire on a live path; they now read the count from the fact
+ * check object they already hold. A missing or claimless object
+ * counts zero, which is the honest value, not a default. */
+export function integrityFlagCount(factCheck) {
+  const claims = factCheck && Array.isArray(factCheck.claims) ? factCheck.claims : [];
+  return claims.filter((c) => c && c.status === "unsupported" &&
+    (c.kind === "alignment" || c.kind === "stripped" || c.kind === "demoted")).length;
+}
+
 export function calibrateConfidenceScore(conf, ctx = {}) {
   if (!conf || typeof conf.score !== "number") return conf;
   const adjustments = [];
@@ -17895,15 +17984,15 @@ export function calibrateConfidenceScore(conf, ctx = {}) {
   const cap = typeof conf.cap === "number" ? conf.cap : null;
   if (status === "divided") score = Math.min(score, 70);
   if (cap !== null) score = Math.min(score, cap);
-  let level;
-  if ((cap !== null && cap <= 45) || score < 50) level = "thin";
-  // Wave sixteen (item 3): the banding matches the builder's
-  // exactly, including its wave eight thin verdict rule (a thin
-  // verdict caps the level at moderate) — calibration's copy of
-  // the banding had dropped that branch, so a thin verdict
-  // answer could be promoted to strong here on score alone.
-  else if ((cap !== null && cap <= 59) || status === "divided" || status === "thin" || score < 60) level = "moderate";
-  else level = "strong";
+  // The level comes from the one band table through the same
+  // function the builder uses (2026-10-22, L6-3). This block used
+  // to be a hand kept copy of the builder's banding, and the two
+  // copies are exactly how the documented 75 strong threshold
+  // drifted to a shipped 60 in both places; the wave sixteen
+  // thin verdict rule lives inside the shared function now, so
+  // a thin verdict answer still cannot be promoted to strong
+  // here on score alone.
+  const level = confidenceLevelForScore(score, cap, status);
 
   // Wave sixteen (item 3): the shipped line is REGENERATED from
   // the calibrated level through the same renderer the builder
@@ -19067,7 +19156,10 @@ export function buildCachedServeTrust(input) {
   confidence = calibrateConfidenceScore(confidence, {
     strippedCitations: 0,
     totalCitations: citeMatches,
-    integrityFlags: 0,
+    // The stored payload carries its original fact check; its
+    // flag count is the real input to the calibration penalty
+    // (L6-11), not the literal zero this call used to pass.
+    integrityFlags: integrityFlagCount(input && input.factCheck),
   });
   // BAKED LINE BINDING, cached serve parity (2026-10-14, sixth
   // panel follow up): the ship gate binds a fresh extractive
@@ -32981,7 +33073,12 @@ async function runSearchPipeline(pctx) {
         confidence = calibrateConfidenceScore(confidence, {
           strippedCitations: (unsupportedStripped || []).length,
           totalCitations: citeMatches + (unsupportedStripped || []).length,
-          integrityFlags: 0, // computed below; applied on next pass via telemetry
+          // The finished fact check object above already carries
+          // the merged integrity flags; their count is the real
+          // input to the calibration penalty (L6-11). This call
+          // used to pass a literal zero beside a comment promising
+          // a next pass that never existed.
+          integrityFlags: integrityFlagCount(factCheckResult),
         });
         // Best-effort telemetry for future curve fitting (don't await).
         // Telemetry yields to the tail reserve like the other
