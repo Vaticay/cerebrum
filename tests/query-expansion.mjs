@@ -31,6 +31,7 @@ const {
   analyzeQuery,
   topicOverlapFilter,
   questionConceptGroups,
+  pairedOmicsComparison,
   gateConceptGroups,
   gateDynLookup,
   retrievalStrategiesTried,
@@ -750,16 +751,25 @@ await test("the whole gut preparations question ships a midgut rung with no mode
   assert.ok(prep.includes('"midgut extract"'), `midgut extract missing from preparation rung: ${prep}`);
 });
 
-await test("the homogenate wording question is byte identical to its pre fix form", () => {
-  // This question already keyed the homogenate group through the
-  // single word "homogenate"; its phrase "gut homogenate" is claimed
-  // by that word, so the new phrase scan must add nothing.
+await test("the homogenate wording question ships the phrase first group rendering", () => {
+  // PIN UPDATED (2026-10-22, search diagnosis): this used to pin
+  // the byte identical pre fix form. The diagnosis's phrase first
+  // ordering (a group's multi word members render ahead of its
+  // later single words inside the unchanged seven member window)
+  // changes every group's rendering, this one included: the gut
+  // group's anatomical phrases now hold window slots the tail
+  // singles (midgut, hindgut, foregut) used to hold — midgut is
+  // not lost to the query, it ships through its own preparation
+  // rung above — and the homogenate group's extract phrases
+  // likewise displace its inflection tail. The contract that
+  // survives: the wording question adds nothing beyond the
+  // resolved groups' own vocabulary, deterministically.
   const q = "Are there any research papers that use insect gut homogenate in order to study enzyme activity, as opposed to purifying the enzymes from the gut homogenate?";
   const expected =
-    "(gut OR intestinal OR intestine OR digestive OR midgut OR hindgut OR foregut) AND " +
-    "(homogenate OR homogenates OR homogenized OR homogenised OR homogenization OR \"crude extract\" OR \"crude extracts\") AND " +
+    "(gut OR \"peritrophic membrane\" OR \"alimentary canal\" OR \"digestive tract\" OR intestinal OR intestine OR digestive) AND " +
+    "(homogenate OR \"crude extract\" OR \"crude extracts\" OR \"gut extract\" OR \"gut extracts\" OR \"midgut homogenate\" OR \"midgut extract\") AND " +
     "(enzymes OR enzyme OR enzymatic OR oxidase OR oxidases OR hydrolase OR hydrolases) AND " +
-    "(gut OR intestinal OR intestine OR digestive OR midgut OR hindgut OR foregut)";
+    "(gut OR \"peritrophic membrane\" OR \"alimentary canal\" OR \"digestive tract\" OR intestinal OR intestine OR digestive)";
   assert.equal(buildStructuredQuery(q.toLowerCase()), expected);
 });
 
@@ -1379,9 +1389,17 @@ await test("the trace's pieces now author the hygienic query, not the trace stri
   // lucky expansion draw). TRACE_QUERY stays above as the
   // literal specimen the screen pins below exercise — it is
   // the historical shipped string, not a buildable one.
+  // PIN UPDATED (2026-10-22, search diagnosis): the sleep
+  // group renders phrase first now, so the restriction
+  // vocabulary the table's tail carried ("sleep restriction",
+  // "chronic sleep restriction") survives the seven member
+  // window and the inflection tail (sleeping, slept, insomnia)
+  // falls outside it. Rendering in the rebuild pins below
+  // changed the same way, the cold group's single tail member
+  // (rhinovirus) likewise yielding its slot to the phrases.
   const authored = buildStructuredQuery(SLEEP_CLEANED, buildDynLookup(COLD_GROUP));
   assert.equal(authored,
-    "(\"easier catch cold\" OR \"increased susceptibility to colds\" OR \"elevated cold incidence\") AND (sleep OR sleeping OR slept OR insomnia OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\")");
+    "(\"easier catch cold\" OR \"increased susceptibility to colds\" OR \"elevated cold incidence\") AND (sleep OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\" OR \"sleep restriction\" OR \"sleep restricted\" OR \"chronic sleep restriction\")");
   assert.ok(!authored.split(" AND ").includes("enough"),
     "the authored query still requires enough: " + authored);
 });
@@ -1408,7 +1426,7 @@ await test("a failed authored query is rebuilt from the resolved concept groups"
   // contract (resolved concepts, screens clean, no filler) is
   // unchanged, the resolution source is the table.
   assert.equal(rebuilt,
-    "(sleep OR sleeping OR slept OR insomnia OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\") AND (cold OR \"common cold\" OR rhinovirus OR \"upper respiratory infection\" OR \"upper respiratory tract infection\" OR \"respiratory infection\")");
+    "(sleep OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\" OR \"sleep restriction\" OR \"sleep restricted\" OR \"chronic sleep restriction\") AND (cold OR \"common cold\" OR \"upper respiratory infection\" OR \"upper respiratory tract infection\" OR \"respiratory infection\" OR rhinovirus)");
   assert.equal(screenStructuredQuery(rebuilt).ok, true, "the rebuilt query must pass its own screen");
   // The shipped form (rebuild when possible) contains no filler rung.
   const shipped = rebuilt || dropFailedRungs(TRACE_QUERY, screenStructuredQuery(TRACE_QUERY).failedRungs);
@@ -1457,14 +1475,44 @@ await test("with no expansion at all, the static groups resolve and the failed r
   // rung drops and the survivors ship.
   const authored = buildStructuredQuery(SLEEP_CLEANED, null);
   assert.equal(authored,
-    "(sleep OR sleeping OR slept OR insomnia OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\") AND catch");
+    "(sleep OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\" OR \"sleep restriction\" OR \"sleep restricted\" OR \"chronic sleep restriction\") AND catch");
   const screen = screenStructuredQuery(authored);
   assert.deepEqual(screen.failedRungs, ["catch"]);
   assert.equal(rebuildStructuredQueryFromGroups(SLEEP_CLEANED, null),
-    "(sleep OR sleeping OR slept OR insomnia OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\") AND (cold OR \"common cold\" OR rhinovirus OR \"upper respiratory infection\" OR \"upper respiratory tract infection\" OR \"respiratory infection\")",
+    "(sleep OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\" OR \"sleep restriction\" OR \"sleep restricted\" OR \"chronic sleep restriction\") AND (cold OR \"common cold\" OR \"upper respiratory infection\" OR \"upper respiratory tract infection\" OR \"respiratory infection\" OR rhinovirus)",
     "the static groups resolve sleep and cold, so the rebuild exists");
   assert.equal(dropFailedRungs(authored, screen.failedRungs),
-    "(sleep OR sleeping OR slept OR insomnia OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\")");
+    "(sleep OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\" OR \"sleep restriction\" OR \"sleep restricted\" OR \"chronic sleep restriction\")");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("search diagnosis — phrase first groups and the paired omics comparison (2026-10-22)");
+
+await test("the sleep clause ships the restriction vocabulary inside the member window", () => {
+  // The diagnosis trace: the sleep group's restriction members
+  // sat at table positions 9 to 13 while both boolean builders
+  // render seven, so no executed query ever named the
+  // restriction literature. The rendering above pins the new
+  // form; this pins the property directly on a fresh phrasing.
+  const out = buildStructuredQuery("does sleeping only six hours a night for two weeks make you worse at thinking", null);
+  assert.ok(out.includes("\"sleep restriction\""), "restriction phrase missing: " + out);
+  assert.ok(out.includes("\"chronic sleep restriction\""), "chronic restriction phrase missing: " + out);
+});
+
+await test("the paired omics comparison resolves both subjects and their ratio", () => {
+  const q = "Are there any primary research papers that compares the ratio of metagenomics to metatranscriptomics reads of organisms in order to get a sense of abundance:relative gene expression?";
+  assert.deepEqual(pairedOmicsComparison(q), ["metagenome", "metatranscriptome"]);
+  const groups = questionConceptGroups(q.toLowerCase(), null);
+  const flat = groups.flatMap((g) => [...g]).map((m) => String(m).toLowerCase());
+  assert.ok(flat.includes("metagenome"), "metagenome group unresolved: " + JSON.stringify(groups));
+  assert.ok(flat.includes("metatranscriptome"), "metatranscriptome group unresolved: " + JSON.stringify(groups));
+  assert.ok(flat.includes("rna dna ratio"), "expression ratio group unresolved: " + JSON.stringify(groups));
+});
+
+await test("a single subject omics question is not a comparison shape", () => {
+  assert.equal(pairedOmicsComparison("how is a metagenome assembled from shotgun reads"), null);
+  assert.equal(pairedOmicsComparison("what does the ratio of reads mean in metagenomics"), null);
+  assert.equal(pairedOmicsComparison("how does sleep restriction affect cognition"), null);
 });
 
 await test("the analysis key phrases are screened: filler out, genuine constraints untouched", () => {

@@ -342,7 +342,14 @@ await test("closed class words are out of the boolean groups", () => {
   assert.ok(q.includes("maggots OR fryer OR oil"),
     "the topic group lost its real terms: " + q);
   const sleep = buildStructuredQuery(SLEEP_Q, null);
-  assert.ok(sleep.includes("insomnia"),
+  // WITNESS UPDATED (2026-10-22, search diagnosis): the bridge
+  // witness was "insomnia", a tail single the phrase first
+  // ordering now places outside the seven member window (the
+  // restriction phrases hold those slots; an insomnia question
+  // still heads its own clause with the word itself). The
+  // witness is the diagnosis's own vocabulary — the property
+  // pinned is unchanged: the sleep bridge renders.
+  assert.ok(sleep.includes("sleep restriction"),
     "the sleep bridge does not render in the structured query: " + sleep);
 });
 

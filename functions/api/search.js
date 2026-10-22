@@ -889,6 +889,10 @@ export const SUBREQUEST_RELAXED_NET_COST = 7;
 // the method variant's true composition; the mechanism and health
 // variants still fire five and are priced at the lane's maximum,
 // as Europe PMC's internal multiplication already was.
+// 2026-10-22 (search diagnosis): the paired omics comparison
+// shape fires the lane's three citation sorted legs (plus the
+// founding form legs when a form resolves) — inside the priced
+// maximum, so the price does not change.
 export const SUBREQUEST_FOUNDATIONAL_LANE_COST = 6;
 export const SUBREQUEST_RESERVE_REASON = "subrequest budget reserved for synthesis";
 export const SUBREQUEST_EXHAUSTED_REASON = "subrequest budget exhausted";
@@ -3613,6 +3617,38 @@ const CONCEPT_GROUPS = [
    "wood decay", "lignin", "lignocellulose", "ligninolytic",
    "lignin degradation", "white rot", "white rot fungi",
    "manganese peroxidase", "lignin peroxidase"],
+  // 2026-10-22 (search diagnosis, metagenomics trace): the two
+  // sequencing subjects and the comparison they are put in. The
+  // owner's question ("are there any primary research papers
+  // that compares the ratio of metagenomics to
+  // metatranscriptomics reads ... abundance:relative gene
+  // expression") resolved NO concept group for either subject:
+  // expansion (model and deterministic alike) grouped the
+  // framing words instead ("primary", "organisms", "sense",
+  // "order"), the one executed rung read "metagenomics ratio
+  // order relative", and no source call ever required both
+  // subjects, so the paired comparison literature (Franzosa
+  // 2014, "Relating the metatranscriptome and metagenome of
+  // the human gut"; the HUMAnN2 profiling paper) was never
+  // gathered by any index — proven by an instrumented run in
+  // which none of the four ground truth papers appeared in any
+  // source's returns. The groups are the Lane A bridge pattern:
+  // both subjects as separate concepts, so a citable paper must
+  // engage the pair, and the comparison's own vocabulary as a
+  // third, so the rebuilt boolean can phrase the ratio the
+  // papers report. Members stay rooted to the two subjects'
+  // own stems on purpose; the generic shotgun and microbiome
+  // sequencing phrases live in SYNONYMS and would let any
+  // single omics paper satisfy a subject rung.
+  ["metagenome", "metagenomes", "metagenomics", "metagenomic",
+   "metagenome sequencing", "metagenomic reads", "metagenome reads"],
+  ["metatranscriptome", "metatranscriptomes", "metatranscriptomics",
+   "metatranscriptomic", "metatranscriptome sequencing",
+   "metatranscriptomic reads", "metatranscriptome reads"],
+  ["relative gene expression", "gene expression", "rna dna ratio",
+   "rna:dna ratio", "dna rna ratio", "transcriptional activity",
+   "transcriptional contribution", "relative expression",
+   "transcript abundance", "expression ratio"],
   // 2026-10-13 (wave two): "germ"/"germs" appended at the tail. Plain
   // everyday wording for microbes had no group at all, so a question
   // asking about "the germs in a baby's belly" collapsed to the literal
@@ -5279,7 +5315,19 @@ export function rebuildStructuredQueryFromGroups(query, dynLookup) {
   const rungs = groups.slice(0, 4).map((set) => {
     const members = [...set];
     const head = members.find((m) => qLower.includes(m)) || members[0];
-    const ordered = [head, ...members.filter((m) => m !== head)].slice(0, 7);
+    // 2026-10-22 (search diagnosis, sleep trace): after the head,
+    // multi word members render before single word members, the
+    // same phrase first rule expandQueryTerms applies — under
+    // the cap of 7, table order alone dropped the sleep group's
+    // tail phrases ("sleep restriction" and family) out of every
+    // rebuilt boolean, so the restriction literature was never
+    // asked for by name. Cap and head rule unchanged.
+    const rest = members.filter((m) => m !== head);
+    const ordered = [
+      head,
+      ...rest.filter((m) => m.indexOf(" ") !== -1),
+      ...rest.filter((m) => m.indexOf(" ") === -1),
+    ].slice(0, 7);
     if (ordered.length === 1) {
       return ordered[0].includes(" ") ? '"' + ordered[0] + '"' : ordered[0];
     }
@@ -5773,13 +5821,23 @@ export function buildStructuredQuery(query, dynLookup) {
     // homogenised) that the engines stem anyway, and under the cap
     // they crowded the field vocabulary out of the preparation rung
     // entirely. Word anchored rungs keep the table order untouched.
-    const ordered =
-      t.indexOf(" ") !== -1
-        ? [
-            ...others.filter((m) => m.indexOf(" ") !== -1),
-            ...others.filter((m) => m.indexOf(" ") === -1),
-          ]
-        : others;
+    // 2026-10-22 (search diagnosis, sleep trace): the phrase first
+    // ordering now applies to word anchored rungs too. The sleep
+    // group's restriction vocabulary ("sleep restriction",
+    // "chronic sleep restriction", "sleep loss", "short sleep")
+    // rides the tail as phrases behind four single word members,
+    // so under the cap of 7 every rendered rung carried the head
+    // forms and NONE of the restriction phrases the 2026-10-21
+    // bridge added — the bridge existed in the table and in no
+    // executed query (proven by the instrumented trace: the
+    // Europe PMC clause for the two weeks question rendered
+    // exactly the seven pre bridge members). Phrases are the
+    // field's names in print in both anchor shapes; the cap and
+    // the head first rule are unchanged.
+    const ordered = [
+      ...others.filter((m) => m.indexOf(" ") !== -1),
+      ...others.filter((m) => m.indexOf(" ") === -1),
+    ];
     const members = [t, ...ordered].slice(0, 7);
     return "(" + members.map((m) => (m.includes(" ") ? '"' + m + '"' : m)).join(" OR ") + ")";
   });
@@ -6879,6 +6937,46 @@ export function methodSubjectPhrase(rawQuery) {
     }
   }
   return best;
+}
+
+// The paired omics comparison shape (2026-10-22, search
+// diagnosis): a question that names BOTH sequencing subjects —
+// a metagenome side and a metatranscriptome side — and asks
+// for their comparison (a ratio, a comparison, a relating).
+// The founding case is the owner's metagenomics question: the
+// literature that answers it (Franzosa 2014 relating the
+// metatranscriptome and metagenome; the HUMAnN2 species level
+// profiling of metagenomes and metatranscriptomes) is indexed
+// everywhere and returned by no relevance ordered call the
+// pipeline made, because no executed query ever required both
+// subjects at once (see the concept group comment at the
+// metagenome groups). Citation order is what surfaces the
+// class: probed directly on 2026-10-22, a citation sorted
+// Europe PMC call requiring both subjects returns the HUMAnN2
+// paper ninth of twelve. The shape therefore opens the
+// foundational lane, whose legs all sort by citations, with
+// the pair as its core terms and the ratio as its vocabulary.
+// The test is deliberately narrow — both subject stems and a
+// comparison marker, in the question's own words — so an
+// ordinary single subject omics question is judged exactly as
+// before. Returns the pair in the literature's noun forms, or
+// null. The noun forms are the point: the paired papers title
+// themselves with the -ome nouns ("Species-level functional
+// profiling of metagenomes and metatranscriptomes"), and the
+// indexes do not stem the -omics adjectives onto them —
+// probed directly on 2026-10-22, a citation sorted Europe PMC
+// call on (metagenomics AND metatranscriptomics) returns a
+// first page of reviews that merely mention both techniques
+// and not one paired paper, while (metagenome AND
+// metatranscriptome) returns the HUMAnN2 paper ninth, and
+// with the ratio required, fifth.
+export function pairedOmicsComparison(rawQuery) {
+  const lc = String(rawQuery || "").toLowerCase();
+  if (!lc) return null;
+  if (!/metagenom\w*/.test(lc)) return null;
+  if (!/metatranscriptom\w*/.test(lc)) return null;
+  if (!/(ratio|compar|versus|\bvs\b|relating|relative)/.test(lc)) return null;
+  return ["metagenome", "metatranscriptome"];
 }
 
 // The closed set of reasons a lane returned paper fails the
@@ -21995,7 +22093,16 @@ async function gatherPapersBody(rawQuery, opts) {
   // so cohort studies and systematic reviews are in the pool
   // before the clause fanout spends on commentary.
   const healthShape = isFamousHealthShapeQuery(rawQuery);
-  if (mechanismShape || methodShape || healthShape) {
+  // 2026-10-22 (search diagnosis): the paired omics comparison
+  // shape gets the lane too — see pairedOmicsComparison. Its
+  // core terms are the pair itself, ahead of the ranked terms:
+  // the lane's citation sorted legs only surface the paired
+  // literature when both subjects are required together, and
+  // the ranked top three demonstrably spent the founding
+  // method case's slots on generic words.
+  const comparisonPair = pairedOmicsComparison(rawQuery);
+  const comparisonShape = !!comparisonPair;
+  if (mechanismShape || methodShape || healthShape || comparisonShape) {
     const laneCoreTerms = [];
     const laneSeen = new Set();
     const lanePush = (term) => {
@@ -22004,12 +22111,22 @@ async function gatherPapersBody(rawQuery, opts) {
       if (t && !laneSeen.has(key)) { laneSeen.add(key); laneCoreTerms.push(t); }
     };
     if (organismTerm) lanePush(organismTerm);
-    for (const t of ranked.slice(0, 3)) lanePush(t);
+    if (comparisonPair) for (const t of comparisonPair) lanePush(t);
+    // 2026-10-22 (search diagnosis): the comparison shape's
+    // lane query is the pair plus its ratio vocabulary and
+    // nothing else. The ranked fill demonstrably spends slots
+    // on the question's scaffolding ("order", from "in order
+    // to"), and every lane leg ANDs its whole query string, so
+    // one scaffolding word in the fill silently narrows the
+    // citation sorted legs away from the paired literature.
+    if (!comparisonPair) for (const t of ranked.slice(0, 3)) lanePush(t);
     const laneVocabulary = mechanismShape
       ? ["mechanism", "cleavage", "structure", "guide"]
       : healthShape
         ? ["systematic review", "meta-analysis", "cohort"]
-        : ["assay", "determination", "measurement", "method"];
+        : comparisonShape
+          ? ["ratio"]
+          : ["assay", "determination", "measurement", "method"];
     const laneQuery = [...laneCoreTerms, ...laneVocabulary].join(" ").trim();
     if (laneQuery) {
       const totalBeforeLane = results.reduce(
@@ -22111,7 +22228,7 @@ async function gatherPapersBody(rawQuery, opts) {
         diag.foundationalLane = {
           query: laneQuery,
           foundingQuery: foundingForm || null,
-          shape: mechanismShape ? "mechanism" : healthShape ? "health" : "method",
+          shape: mechanismShape ? "mechanism" : healthShape ? "health" : comparisonShape ? "comparison" : "method",
           count: laneResults.reduce(
             (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0),
         };
