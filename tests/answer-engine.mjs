@@ -1033,7 +1033,8 @@ test("turns carry every NEXT-GEN instrument from the response", () => {
 
 test("FactCheck renders the mechanical extractive check honestly", () => {
   assert.ok(appSrc.includes('fc.mode === "extractive"'), "extractive mode not handled");
-  assert.ok(appSrc.includes("shares real vocabulary with the paper"), "extractive copy missing");
+  assert.ok(appSrc.includes("for shared wording and"), "extractive receipt copy missing");
+  assert.ok(appSrc.includes("The rest of the answer was not claim checked."), "receipt scope line missing");
   assert.ok(appSrc.includes("assembled without AI"), "extractive caveat missing");
 });
 

@@ -13,7 +13,7 @@ const ast = parse(source,{sourceType:'module',plugins:['jsx']});
 const dsAst = parse(dsSource,{sourceType:'module',plugins:['jsx']});
 const fcAst = parse(fcSource,{sourceType:'module',plugins:['jsx']});
 const tuAst = parse(tuSource,{sourceType:'module',plugins:['jsx']});
-const names = [/* 2026-10-22 (simplify audit SH8): AskModePicker left the list because the component is deleted; the mode is set by the composer shapeshifter now, so there is no picker left to render */'ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks','MediaFigure','TrendThumb',/* 2026-10-19 (S2, audit C3): CitationPeek renders its title through the shared inline renderer now, so the harness extracts the real chain */'renderTitleInline','renderInlineNodes','inlineTokens','speciesRuns','renderCleanTitle'];
+const names = [/* 2026-10-22 (simplify audit SH8): AskModePicker left the list because the component is deleted; the mode is set by the composer shapeshifter now, so there is no picker left to render */'ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks','MediaFigure','TrendThumb',/* 2026-10-19 (S2, audit C3): CitationPeek renders its title through the shared inline renderer now, so the harness extracts the real chain */'renderTitleInline','renderInlineNodes','inlineTokens','speciesRuns','renderCleanTitle',/* 2026-10-22 (logic audit L7-2, L7-16): the real FactCheck receipt and the real buildEvidenceMap join the harness */'FactCheck','buildEvidenceMap'];
 const dsNames = ['UIButton','UICard'];
 const functions = ast.program.body.filter(n=>n.type==='FunctionDeclaration' && names.includes(n.id.name));
 const dsFunctions = dsAst.program.body
@@ -25,7 +25,7 @@ const fcFunctions = fcAst.program.body
 const tuDecls = tuAst.program.body
   .map(n=>n.type==='ExportNamedDeclaration' ? n.declaration : n)
   .filter(n=>n && ((n.type==='FunctionDeclaration' && (n.id.name==='renderCleanTitle' || n.id.name==='highlightKeywords')) || (n.type==='VariableDeclaration' && n.declarations.some(d=>d.id.name==='TITLE_SAFE_TAG_RE'))));
-assert.equal(functions.length + dsFunctions.length + fcFunctions.length + tuDecls.length,24); // 2026-10-22: was 25 before AskModePicker was deleted (simplify audit SH8)
+assert.equal(functions.length + dsFunctions.length + fcFunctions.length + tuDecls.length,26); // 2026-10-22: was 25, AskModePicker deleted (simplify audit SH8) makes 24, FactCheck and buildEvidenceMap added (logic audit L7-2, L7-16) makes 26
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n')+'\n'+tuDecls.map(n=>tuSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
 const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none',xl:()=>'none'} /* 2026-10-18: Dialog calls SHADOW.xl (design audit C5) */,STATUS:{bad:'#b44',warn:'#B08B4F',good:'#7A9E7E'} /* 2026-10-20, readability residue wave: warn and good keys added beside bad because extracted components now read STATUS.warn and STATUS.good through withAlpha */,TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c,
 /* 2026-10-14, design overhaul wave 1: UIButton and UICard now close over
@@ -340,4 +340,79 @@ console.log('Actual shared-button and card components render in dark/light and m
  assert.doesNotMatch(hero,/\*Helicobacter/,'the raw italics marker printed literally in the summary');
  assert.match(hero,/Gut study finds a pattern/);
  console.log('Trending hero renders a summary binomial in italics; the marker never prints.');
+}
+
+/* ── FactCheck receipt scope, render level (2026-10-22, L7-16) ─────
+   The REAL FactCheck in its all clear state, over every mode the
+   payload can carry. The collapsed line must state its denominator
+   against the answer (the extracted set it ran on, plus the rest of
+   the answer named as not claim checked), and the green pass dot
+   may only show when the check's own summary carries no scope
+   caveat. The deep summary carries none; the terms summary limits
+   itself ("not a check on whether the conclusions are right") and
+   the extractive summary limits itself ("not a verification"), so
+   both render a neutral dot. */
+{
+ const P={dark:true,ink:'#eee',ink2:'#bbb',faint:'#999',line:'#444',line2:'#555'};
+ const deep=renderToStaticMarkup(React.createElement(context.FactCheck,{P,accent:'#A3B899',fc:{
+  mode:'claims',
+  summary:'Checked 2 claims against the cited sources: 2 supported, 0 thin, 0 unsupported.',
+  claims:[{claim:'First claim [1]',status:'supported',note:''},{claim:'Second claim [2]',status:'supported',note:''}],
+ }}));
+ assert.match(deep,/Checked 2 extracted claims against their papers and each one held up\. The rest of the answer was not claim checked\./,'deep receipt does not state its scope');
+ assert.match(deep,/background:#7A9E7E/,'deep receipt lost its pass dot though its summary carries no caveat');
+ assert.doesNotMatch(deep,/all 2 claims in this answer/,'the old exhaustive receipt wording is back');
+ console.log('FactCheck deep receipt states its extracted denominator and keeps its pass dot.');
+
+ const none=renderToStaticMarkup(React.createElement(context.FactCheck,{P,accent:'#A3B899',fc:{
+  summary:'',
+  claims:[{claim:'Only claim [1]',status:'supported',note:''}],
+ }}));
+ assert.match(none,/Checked 1 extracted claim against its paper and it held up\. The rest of the answer was not claim checked\./,'modeless receipt does not state its scope');
+ assert.match(none,/background:#7A9E7E/,'modeless receipt lost its pass dot though its summary carries no caveat');
+ console.log('FactCheck modeless receipt states its extracted denominator and keeps its pass dot.');
+
+ const terms=renderToStaticMarkup(React.createElement(context.FactCheck,{P,accent:'#A3B899',fc:{
+  mode:'terms',
+  summary:'Every specific name the answer uses turns up in a paper it cites. That means it is drawing on this evidence rather than reaching past it. It is not a check on whether the conclusions are right.',
+  claims:[{claim:'GENE1',status:'supported',note:''}],
+ }}));
+ assert.match(terms,/Checked 1 extracted name against its paper and it turned up\. The rest of the answer was not claim checked\./,'terms receipt does not state its scope');
+ assert.doesNotMatch(terms,/background:#7A9E7E/,'terms receipt shows a pass dot though its own summary carries a scope caveat');
+ console.log('FactCheck terms receipt states its scope and shows no pass dot.');
+
+ const extractive=renderToStaticMarkup(React.createElement(context.FactCheck,{P,accent:'#A3B899',fc:{
+  mode:'extractive',
+  summary:'Traced 2 cited claims against the wording of the papers they cite: 2 traced to the cited paper\'s wording, 0 overlap only weakly, 0 do not trace. A wording trace is not a verification of the claims.',
+  claims:[{claim:'First cited claim',status:'traced',note:''},{claim:'Second cited claim',status:'traced',note:''}],
+ }}));
+ assert.match(extractive,/Checked 2 extracted claims against their papers for shared wording and each one matched\. The rest of the answer was not claim checked\./,'extractive receipt does not state its scope');
+ assert.doesNotMatch(extractive,/background:#7A9E7E/,'extractive receipt shows a pass dot though its own summary carries a scope caveat');
+ console.log('FactCheck extractive receipt states its scope and shows no pass dot.');
+}
+
+/* ── buildEvidenceMap: unknown means unknown (2026-10-22, L7-2) ───
+   The REAL buildEvidenceMap, called directly. A turn whose check
+   never ran (factCheck null, a disagreement verdict present, the
+   after/03 shape) builds no map at all, so it can stamp zero
+   paragraphs as supported. A cited paragraph no claim matched
+   returns null, the default state. Only a matched claim stamps,
+   each in its own honest state. */
+{
+ assert.equal(context.buildEvidenceMap(null,{status:'settled',summary:'No opposing findings were detected.'}),null,'a verdict alone built an evidence map');
+ assert.equal(context.buildEvidenceMap(null,null),null,'a missing check built an evidence map');
+ assert.equal(context.buildEvidenceMap({claims:[]},{status:'settled'}),null,'an empty check built an evidence map');
+ const evMap=context.buildEvidenceMap({claims:[
+  {claim:'Alpha finding about sleep and memory consolidation in adults',status:'supported',cites:[1]},
+  {claim:'Beta finding about dose response in the same cohort',status:'traced',cites:[2]},
+  {claim:'Gamma finding about outcomes after treatment ends',status:'unsupported',cites:[3]},
+ ]},null);
+ assert.equal(evMap('A paragraph no claim reached, citing a paper anyway.',[4]),null,'an unmatched cited paragraph got a stamp');
+ assert.equal(evMap('A paragraph with no citations at all.',[]),null,'an uncited paragraph got a stamp');
+ assert.equal(evMap('Any paragraph citing the first paper.',[1]).status,'supported','a supported claim lost its stamp');
+ assert.equal(evMap('Any paragraph citing the second paper.',[2]).status,'traced','a traced claim lost its own state');
+ assert.equal(evMap('Any paragraph citing the third paper.',[3]).status,'unsupported','an unsupported claim lost its stamp');
+ const mystery=context.buildEvidenceMap({claims:[{claim:'Delta finding with a status nobody defined',status:'mystery',cites:[1]}]},null);
+ assert.equal(mystery('Any paragraph citing the first paper.',[1]),null,'an unknown claim status stamped a paragraph');
+ console.log('buildEvidenceMap stamps only paragraphs a check actually reached, each in its honest state.');
 }
