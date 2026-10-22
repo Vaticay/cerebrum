@@ -427,7 +427,26 @@ async function exportTopPapersExcel(papers, { accent, title, subtitle, filename,
 function pdfInlineText(t) {
   return String(t || "")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    // Unicode dash variants (2026-10-22, answer integrity
+    // repair): the embedded PDF fonts carry no glyph for U+2011,
+    // the non breaking hyphen the answer models emit inside
+    // compound words, so jsPDF measured the character, advanced
+    // past it, and drew nothing: the compound printed joined
+    // (the metagenome metatranscriptome compound, the read ratio
+    // compound, and the abundance relative compound all glued in
+    // the owner's exported answer), while the on screen
+    // rendering, which falls back to a system font for the
+    // missing glyph, looked correct. The whole dash family from
+    // U+2010 to U+2015 plus the minus sign becomes a plain
+    // hyphen here, the one dash the embedded fonts provably
+    // draw, and the soft hyphen (U+00AD, an invisible break
+    // hint) is dropped. The backend ship point normalizes
+    // answer text the same way (deDash in functions/api); this
+    // pass covers every string the export draws: body runs,
+    // the question title, section headings, source titles.
+    .replace(/[\u2010-\u2015\u2212]/g, "-")
+    .replace(/\u00AD/g, "");
 }
 /* Split a line into {t, bold, italic} runs through the shared inline
    tokenizer (2026-10-19, S2 / C3), so the PDF pairs underscore italics
@@ -526,10 +545,24 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
       doc.setFontSize(o.size);
       doc.setTextColor(o.color[0], o.color[1], o.color[2]);
       const words = [];
+      // Word boundaries come from the source text, not from run
+      // boundaries (2026-10-22, answer integrity repair): a style
+      // change mid word ("**abundance**-relative", a bold genus
+      // name against its punctuation) has no whitespace in the
+      // source, and laying a space at every run seam printed a
+      // spurious gap there. Each word now records whether
+      // whitespace actually preceded it; layout inserts the
+      // measured space only where the source has one.
+      let spaceBeforeNext = false;
       for (const r of runs) {
         const st = pdfRunStyle(r);
         doc.setFont(o.font, st);
-        for (const w of r.t.split(/\s+/).filter(Boolean)) words.push({ t: w, st, w: doc.getTextWidth(w) });
+        for (const part of r.t.split(/(\s+)/)) {
+          if (!part) continue;
+          if (/^\s+$/.test(part)) { spaceBeforeNext = true; continue; }
+          words.push({ t: part, st, w: doc.getTextWidth(part), spaceBefore: spaceBeforeNext && words.length > 0 });
+          spaceBeforeNext = false;
+        }
       }
       if (!words.length) return;
       doc.setFont(o.font, "normal");
@@ -541,7 +574,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
         const lx = x0 + (isFirst ? 0 : o.hanging);
         let dx = lx, first = true;
         for (const wd of line) {
-          if (!first) dx += spaceW;
+          if (!first && wd.spaceBefore) dx += spaceW;
           first = false;
           doc.setFont(o.font, wd.st);
           doc.text(wd.t, dx, y);
@@ -552,7 +585,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
       };
       for (const wd of words) {
         const avail = w0 - (isFirst ? 0 : o.hanging);
-        const add = (line.length ? spaceW : 0) + wd.w;
+        const add = (line.length && wd.spaceBefore ? spaceW : 0) + wd.w;
         if (lw + add > avail && line.length) flush();
         line.push(wd);
         lw += add;
@@ -604,7 +637,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     doc.text(kicker, (W - doc.getTextWidth(kicker)) / 2, y);
     y += 22;
     doc.setFont(PDF_SERIF_FONT, "bold"); doc.setFontSize(20); doc.setTextColor(20, 20, 20);
-    const titleLines = doc.splitTextToSize(String(question || "Research Answer"), maxW);
+    const titleLines = doc.splitTextToSize(pdfInlineText(question || "Research Answer"), maxW);
     need(titleLines.length * 26);
     doc.text(titleLines, W / 2, y, { align: "center" });
     y += titleLines.length * 26 + 4;
@@ -624,7 +657,7 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     const sections = pdfSplitSections(answer);
     let printedBlocks = 0;
     for (const sec of sections) {
-      if (sec.heading) sectionHeading(plainInlineText(sec.heading));
+      if (sec.heading) sectionHeading(pdfInlineText(plainInlineText(sec.heading)));
       const before = y;
       renderBlocks(sec);
       if (y !== before) printedBlocks++;

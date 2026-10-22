@@ -42,6 +42,11 @@ const {
   planDelayedRescue, resetLegHealth, recordLegOutcome,
   splitShippedSources, remapCitationMarkers, remapFactCheckIndices,
   labelUncitedSources,
+  isUniversalNegativeText, isFieldLevelGeneralizationText,
+  isSystematicOrSurveyPaper, systematicSourceCoversClaim,
+  applyUniversalClaimRuleToClaims, applyUniversalClaimRule,
+  scopeExistenceAnswer, answerAssertsRetrievalNegative,
+  RETRIEVAL_NEGATIVE_STATEMENT, deDash,
 } = search;
 
 let passed = 0;
@@ -361,6 +366,144 @@ await test("the rescue wave roster is no longer nested inside the Groq provider'
     "the Groq rescue legs are not conditional on their own family");
   assert.ok(src.includes("if (rescueCall || cfBound || token) {"),
     "the rescue does not fire on whichever family is available");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+group("Answer integrity repair (2026-10-22) — universal claims and retrieval scope");
+
+/* The owner's exported answer, 2026-10-22. To an existence
+   question, the short answer asserted a field wide negative
+   resting on ONE cited primary paper (a thermophilic consortium
+   study), and the claim check shipped "supports 1 of 1 checked
+   claim": it had verified the negative against that one paper,
+   which indeed does not perform the comparison. One paper not
+   doing X cannot support "no paper does X". The fixtures below
+   reproduce that exact case shape. */
+const OWNER_QUERY = "Are there any primary research papers that compares the ratio of metagenomics to metatranscriptomics reads of organisms in order to get a sense of abundance:relative gene expression?";
+const OWNER_CLAIM = "No primary research paper in the supplied literature directly compares the ratio of metagenomics to metatranscriptomics reads of organisms to infer abundance relative gene expression";
+const xiaLike = {
+  title: "Metagenomics of a thermophilic bacterial consortium for cellulose degradation",
+  abstract: "A thermophilic consortium was enriched on cellulose. Community composition was profiled by 16S sequencing and metagenomic reads.",
+  year: 2014, type: "Journal Article", source: "pubmed", journal: "PLoS ONE", relevance: 61,
+};
+const systematicSurvey = {
+  title: "Systematic review of paired metagenome and metatranscriptome read ratio studies",
+  abstract: "This systematic review surveys primary studies that compare metagenomics reads with metatranscriptomics reads of organisms to infer abundance and relative gene expression, and catalogues the ratio methods used.",
+  year: 2023, type: "Systematic Review", source: "pubmed", journal: "Nucleic Acids Research", relevance: 88,
+};
+
+await test("the universal negative detector matches the flagged shapes and spares specifics and caveats", () => {
+  assert.equal(isUniversalNegativeText(OWNER_CLAIM), true, "owner claim not detected");
+  assert.equal(isUniversalNegativeText("The retrieved literature does not contain any study that reports both data types from the same samples"), true);
+  assert.equal(isUniversalNegativeText("No study has measured this enzyme in soil samples"), true);
+  assert.equal(isUniversalNegativeText(RETRIEVAL_NEGATIVE_STATEMENT), false, "the canonical honest form must not flag itself");
+  assert.equal(isUniversalNegativeText("That is not proof that none exists."), false, "a caveat denying the assertion flagged");
+  assert.equal(isUniversalNegativeText("None of the patients in the cohort developed antibodies."), false, "a within study finding flagged");
+  assert.equal(isUniversalNegativeText("The trial found no significant difference in survival between arms."), false, "an ordinary negative finding flagged");
+  assert.equal(isUniversalNegativeText("Xia et al. describe a consortium enriched on cellulose [1]."), false);
+  assert.equal(isFieldLevelGeneralizationText("The literature consistently shows that sleep restriction impairs working memory."), true);
+  assert.equal(isFieldLevelGeneralizationText("One 2019 trial showed that sleep restriction impairs working memory."), false);
+});
+
+await test("the exact case: one non systematic source cannot support the universal negative", () => {
+  const deepClaims = [{
+    claim: OWNER_CLAIM, status: "supported", sourceIndex: 1,
+    quote: "Community composition was profiled by 16S sequencing and metagenomic reads",
+    justification: "The cited paper does not compare metagenome to metatranscriptome read ratios.",
+  }];
+  const corrected = applyUniversalClaimRuleToClaims(deepClaims, [xiaLike]);
+  assert.notEqual(corrected, deepClaims, "the rule did not fire on the exact case shape");
+  assert.equal(corrected[0].status, "unsupported", "universal negative still supported by one primary paper");
+  assert.equal(corrected[0].kind, "universal");
+  assert.match(corrected[0].justification, /Requires systematic evidence/);
+  // The finished panel object recounts: supports 0 of 1, never 1 of 1.
+  const panel = {
+    overall: "supported", mode: "claims",
+    summary: "Checked 1 claim against the cited sources: 1 supported, 0 thin, 0 unsupported.",
+    claims: [{ claim: OWNER_CLAIM, status: "supported", note: "\"Community composition was profiled\" [1] . The paper does not do this." }],
+  };
+  const ruled = applyUniversalClaimRule(panel, [xiaLike]);
+  assert.equal(ruled.claims[0].status, "unsupported");
+  assert.equal(ruled.overall, "unsupported");
+  assert.equal(ruled.summary, "Checked 1 claim against the cited sources: 0 supported, 0 thin, 1 unsupported.");
+  assert.deepEqual(factCheckSupport(ruled), { checked: 1, supported: 0 });
+});
+
+await test("a systematic survey whose scope covers the claim may carry it", () => {
+  assert.equal(isSystematicOrSurveyPaper(systematicSurvey), true);
+  assert.equal(isSystematicOrSurveyPaper(xiaLike), false);
+  assert.equal(systematicSourceCoversClaim(systematicSurvey, OWNER_CLAIM), true);
+  assert.equal(systematicSourceCoversClaim(xiaLike, OWNER_CLAIM), false);
+  const claims = [{ claim: OWNER_CLAIM, status: "supported", sourceIndex: 2, quote: "q", justification: "j" }];
+  const out = applyUniversalClaimRuleToClaims(claims, [xiaLike, systematicSurvey]);
+  assert.equal(out, claims, "the systematic exception did not hold");
+  // A systematic review on an unrelated topic standing elsewhere in the answer does not qualify.
+  const offTopic = { ...systematicSurvey, title: "Systematic review of honey for wound healing", abstract: "Trials of honey dressings for burns and ulcers." };
+  const claims2 = [{ claim: OWNER_CLAIM, status: "supported", sourceIndex: 1, quote: "q", justification: "j" }];
+  const out2 = applyUniversalClaimRuleToClaims(claims2, [xiaLike, offTopic]);
+  assert.equal(out2[0].status, "unsupported", "an off scope systematic review carried the claim");
+});
+
+await test("field level generalizations rest on more than one source or fall", () => {
+  const claim = "The literature consistently shows that honey speeds wound healing";
+  const single = [{ claim, status: "supported", sourceIndex: 1, quote: "q", justification: "j" }];
+  assert.equal(applyUniversalClaimRuleToClaims(single, [xiaLike])[0].status, "unsupported");
+  const multi = [{ claim, status: "supported", quote: "q", justification: "j" }];
+  assert.equal(applyUniversalClaimRuleToClaims(multi, [xiaLike, systematicSurvey]), multi,
+    "a multi source generalization was corrected");
+  // The provenance wording trace never claimed support and is untouched.
+  const prov = { overall: "supported", mode: "terms", summary: "s", claims: [{ claim: "doxycycline", status: "supported", note: "" }] };
+  assert.equal(applyUniversalClaimRule(prov, [xiaLike]), prov);
+});
+
+await test("the scope guard rewrites an AI existence answer to the retrieval statement", () => {
+  const answer = [
+    "## The short answer", "",
+    "No primary research paper in the supplied literature directly compares the ratio of metagenomics to metatranscriptomics reads of organisms to infer abundance relative gene expression [1].", "",
+    "## What the research shows", "",
+    "Xia et al. (2014) describe a thermophilic consortium enriched on cellulose. The available study does not present a per organism read count ratio.", "",
+    "## Where researchers disagree", "",
+    "The retrieved literature does not contain any study that reports both data types from the same samples, so no disagreement can be identified from it.",
+  ].join("\n");
+  const out = scopeExistenceAnswer(answer, OWNER_QUERY);
+  assert.ok(out.includes(RETRIEVAL_NEGATIVE_STATEMENT), "canonical retrieval statement missing");
+  assert.ok(!out.includes("No primary research paper"), "the field wide negative survived");
+  assert.ok(!out.includes("does not contain any study"), "the disagreement restatement survived");
+  assert.ok(out.includes("The available study does not present a per organism read count ratio."),
+    "a statement about one specific paper was rewritten");
+  assert.ok(out.includes(RETRIEVAL_NEGATIVE_STATEMENT + " [1]"), "the citation was dropped from the rewritten sentence");
+  assert.equal(scopeExistenceAnswer(answer, "how do fungi break down lignin"), answer,
+    "the guard fired on a non existence question");
+  assert.equal(scopeExistenceAnswer("Yes. Franzosa et al. report paired ratios [1].", OWNER_QUERY),
+    "Yes. Franzosa et al. report paired ratios [1].", "a positive answer was rewritten");
+});
+
+await test("a retrieval negative answer is capped low whatever the shelf looks like", () => {
+  assert.equal(answerAssertsRetrievalNegative("Short answer: " + RETRIEVAL_NEGATIVE_STATEMENT, OWNER_QUERY), true);
+  assert.equal(answerAssertsRetrievalNegative("None of the retrieved papers report this practice directly.", OWNER_QUERY), true);
+  assert.equal(answerAssertsRetrievalNegative("Yes, paired ratios are reported [1].", OWNER_QUERY), false);
+  const strong = [0, 1, 2].map((i) => ({
+    title: "Paper " + i, year: 2025, type: "Journal Article", source: "pubmed", relevance: 92,
+  }));
+  const ctx = { support: { supported: 3, checked: 3 }, factCheckChecked: true, claimExtractionRatio: 1 };
+  const plain = buildConfidenceLine(strong, { status: "settled" }, ctx);
+  assert.equal(plain.level, "strong", "fixture shelf is not strong: " + plain.level);
+  const capped = buildConfidenceLine(strong, { status: "settled" }, { ...ctx, existenceNegative: true });
+  assert.ok(capped.score <= 45, "retrieval negative not capped: " + capped.score);
+  assert.ok(["thin", "low"].includes(capped.level), "capped level is not low band: " + capped.level);
+  assert.ok(capped.capReasons.some((r) => /not proof that no paper exists/.test(r)),
+    "cap reason missing: " + JSON.stringify(capped.capReasons));
+});
+
+await test("deDash maps the model's Unicode compound hyphens to ASCII at the ship point", () => {
+  const out = deDash("a cellulose\u2011degrading consortium with read\u2011ratios");
+  assert.equal(out, "a cellulose-degrading consortium with read-ratios");
+  assert.ok(!out.includes("\u2011"), "U+2011 survived deDash");
+  assert.equal(deDash("soft\u00ADhyphen"), "softhyphen", "soft hyphen not dropped");
+  assert.ok(src.includes("applyUniversalClaimRule(factCheckResult, evidencePapers)"), "panel backstop not wired");
+  assert.ok(src.includes("scopeExistenceAnswer(answer, query)"), "scope guard not wired in the handler");
+  assert.ok(src.includes("applyUniversalClaimRuleToClaims(attributed, evidencePapers)"), "deep construction does not apply the rule");
+  assert.ok(src.includes("UNIVERSAL CLAIMS RULE"), "deep fact check prompt lacks the universal claims rule");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
