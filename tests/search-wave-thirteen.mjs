@@ -474,8 +474,8 @@ const SKY_FACTCHECK_13 = JSON.stringify({ claims: [
     status: "supported",
     justification: "The first source states the scattering claim directly in its abstract and names Rayleigh scattering as the explanation of the sky's blue color, so the claim as the answer states it is backed by the cited source's own text." },
   { claim: "Aerosol particles whiten the sky near the horizon",
-    source_index: 2, quote: "aerosol load", status: "thin",
-    justification: "The second source models the blue of the daytime sky and its variation with aerosol load, which is adjacent to the whitening claim without stating the horizon effect in terms, so the support is partial rather than direct." },
+    source_index: 4, quote: "Aerosol particles scatter sunlight across all wavelengths, which whitens the blue of the sky near the horizon", status: "thin",
+    justification: "The fourth source states the whitening directly, but ties it to hazy days, a qualifier the claim omits, so the support is partial rather than direct. (Fixture corrected 2026-10-22 at the Wave 1-C landing: this claim previously pointed at source 2 with the quote \"aerosol load\", a mis binding the L5-3 quote verification now rejects; the claim's own sentence cites [1][4] and source 4 states it verbatim.)" },
 ] });
 
 await test("a request with no factCheck setting names that cause in the stage record and the search record", async () => {
