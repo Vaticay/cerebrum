@@ -315,13 +315,22 @@ await test("retrieved source text is fenced with a per-request nonce", () => {
 await test("the question is stated outside the source fence", () => {
   assert.match(searchSrc, /fence\.open \+ "\\n" \+ evidence \+ \(briefSection \? "\\n\\n" \+ briefSection : ""\) \+ "\\n" \+ fence\.close/,
     "evidence and question are still concatenated into one blob");
-  // The brief is untrusted model output: it must live INSIDE the fence (data),
-  // never outside it where it could speak as instruction — and the ACTUAL
-  // brief text must reach wave 2, not just the explanatory prose. (A prior
-  // version checked the brief's presence but dropped its content, so wave 2
-  // composed from prose about claims rather than the claims themselves.)
-  assert.match(searchSrc, /fence\.clean\(brief\)/, "wave 2 never receives the actual brief text");
-  assert.match(searchSrc, /briefSection\s*=\s*\n?\s*"EVIDENCE BRIEF/, "brief section is not built through the fenced content builder");
+  // The brief is untrusted model output: it must be fence
+  // cleaned before it reaches any serving leg, never raw, and
+  // the ACTUAL brief text must reach the legs, not just the
+  // explanatory prose. (A prior version checked the brief's
+  // presence but dropped its content, so wave 2 composed from
+  // prose about claims rather than the claims themselves.)
+  // PIN UPDATED (2026-10-22, Wave 1-C landing, audit L4-1): the
+  // old pins matched fence.clean(brief) and a briefSection
+  // assignment that lived only inside buildBriefMessages, the
+  // never called prompt constructor L4-1 deleted. The living
+  // discipline is the one pinned now: wave 2 appends
+  // fence.clean(briefText) to the compact content it races on,
+  // and the bulletproof leg's brief block is built from
+  // fence.clean(briefText) under its EVIDENCE BRIEF header.
+  assert.match(searchSrc, /fence\.clean\(briefText\)/, "wave 2 never receives the actual brief text");
+  assert.match(searchSrc, /"EVIDENCE BRIEF \(pre-extracted claims \. lead with these, cite the \[n\] shown\):\\n" \+ fence\.clean\(briefText\)/, "the bulletproof brief block is not built from the cleaned brief text");
 });
 await test("our own annotation markers cannot be forged by a source", () => {
   assert.match(searchSrc, /RETRACTED\|WRONG SPECIES/, "reserved markers are not stripped from source text");

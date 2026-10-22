@@ -16211,8 +16211,10 @@ export function factCheckSupport(factCheck) {
   // whether a name appears in the pooled evidence text, so its
   // marks are excluded from every support total exactly as the
   // trace's are. A run whose only check was the terms fallback
-  // presents no support count in either direction: it can neither
-  // certify an answer nor trigger a zero support degrade of one.
+  // presents no support count at all: it can never certify an
+  // answer. (The zero support serve reads a terms panel only
+  // through factCheckNamePresence for its degrade trigger; the
+  // support ledger itself stays closed to terms.)
   if (factCheckKind(factCheck) !== "verification") return null;
   const claims = factCheck && Array.isArray(factCheck.claims) ? factCheck.claims : null;
   if (!claims || claims.length === 0) return null;
@@ -29612,7 +29614,7 @@ async function runSearchPipeline(pctx) {
         // The brief (when ready) leads the compact payload: atomic claims
         // are the highest-signal, lowest-token content available.
         const briefBlock = (useEvidence && briefText && briefText.length > 100)
-          ? "EVIDENCE BRIEF (pre-extracted claims . lead with these, cite the [n] shown):\n" + briefText + "\n\n"
+          ? "EVIDENCE BRIEF (pre-extracted claims . lead with these, cite the [n] shown):\n" + fence.clean(briefText) + "\n\n"
           : "";
         const compact = pool
           .slice(0, 5)
@@ -31303,14 +31305,21 @@ async function runSearchPipeline(pctx) {
     // alignment machinery.
     if (aiOK && useEvidence && !isFollowupMode && factCheckResult && factCheckAttempted) {
       try {
-        // A terms panel can never fire this serve in either
-        // direction (2026-10-22, audit L5-1): factCheckSupport
-        // already returns null for it, and the kind is asked
-        // explicitly here as well, so a name presence result
-        // whose names all failed to turn up cannot degrade a won
-        // draft the way a baseline probe's draft was degraded
-        // after the deep stage timed out.
-        const zeroSupport = factCheckKind(factCheckResult) === "terms" ? null : factCheckSupport(factCheckResult);
+        // A terms panel never counts as claim support anywhere
+        // (2026-10-22, audit L5-1): factCheckSupport returns null
+        // for it, so it can certify nothing. The degrade trigger
+        // below is a different question from certification, and
+        // it reads the terms panel through its own ledger: when
+        // every name the fallback checked turned up nowhere in
+        // the cited papers, the answer's named claims are
+        // unanchored in a way the wave eight protection exists to
+        // catch (a central claim naming a drug no cited paper
+        // mentions). Landing decision, Wave 1-C: the serve keeps
+        // that trigger on the name presence counts; the support
+        // ledger stays closed to terms in both directions.
+        const zeroSupport = factCheckKind(factCheckResult) === "terms"
+          ? (() => { const np = factCheckNamePresence(factCheckResult); return np && np.checked >= 1 && np.present === 0 && np.indirect === 0 ? { supported: 0, checked: np.checked } : null; })()
+          : factCheckSupport(factCheckResult);
         if (zeroSupport && zeroSupport.checked >= 1 && zeroSupport.supported === 0) {
           // Only the stage's own verdicts strip here (wave
           // twelve, item 1): mechanical flags and unattributed
