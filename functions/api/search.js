@@ -1161,6 +1161,20 @@ export function createSubrequestLedger(limit = SUBREQUEST_LIMIT) {
     retrievalAllowance() { return retrievalCeiling; },
     retrievalSpent() { return retrievalUsed; },
     retrievalRefusals() { return retrievalRefused; },
+    /* How many more subrequests a retrieval grant can still spend
+     * right now (2026-10-22, L2-2): while the retrieval phase is
+     * active and no cascade yield is armed, the tighter of the
+     * invocation total left and the distance to the retrieval
+     * ceiling; under a yield, or outside the phase, the invocation
+     * total left. The fanout planner prices a rung against this
+     * number before firing it, instead of discovering refusals
+     * mid round. */
+    retrievalHeadroom() {
+      if (inRetrievalPhase() && !yieldOn) {
+        return Math.max(0, Math.min(cap - usedCount, retrievalCeiling - usedCount));
+      }
+      return Math.max(0, cap - usedCount);
+    },
     /* True when a grant of `margin` more would cross the
      * ceiling right now (gatherPapers reads this to arm the
      * cascade yield for an empty shelf). */
@@ -1396,6 +1410,114 @@ export function publicLedgerSnapshot(ledger) {
     tailReserve: SUBREQUEST_TAIL_RESERVE,
   };
   return view;
+}
+
+/* Fanout pricing and funding (2026-10-22, L2-2). One ladder rung
+ * fires 14 or 15 fetchers, and the priced costs below are the
+ * internal multiplication the file already documents for the
+ * fallback nets: Europe PMC can spend up to 3 calls on its query
+ * formulations, PubMed up to 4 (up to 3 esearch formulations plus
+ * efetch), and every other fanout fetcher 1 call. The priced
+ * total for the whole fanout is therefore 20, inside
+ * SUBREQUEST_RUNG_COST (25), whose slack already treats transient
+ * retries the same way. The funding plan in planFanoutFunding
+ * prices that whole fanout before anything fires, then funds
+ * FIRST calls in priority order: a fetcher's first call is the
+ * search itself, so whenever the headroom funds every first call
+ * the whole roster fires, exactly the breadth the rung exists
+ * for, and the internal follow on calls draw on what priced
+ * headroom remains, ledger enforced at grant time with every
+ * refusal recorded in the run's budget record. Only when the
+ * headroom cannot fund every first call does the plan leave a
+ * source unfired, and that source is recorded not searched.
+ * Before this pricing existed, a rung fired every fetcher at
+ * once with no plan at all, the ledger refused the tail mid
+ * round, and each refused fetcher was caught by its own fetcher
+ * and recorded as a fulfilled empty result: a source whose
+ * search never ran read as a source that answered with zero. */
+export const FANOUT_PAIR_COSTS = {
+  europePMC: 3,
+  pubmed: 4,
+  openAlex: 1,
+  openAlexCommon: 1,
+  crossref: 1,
+  arxiv: 1,
+  semanticScholar: 1,
+  doaj: 1,
+  biorxiv: 1,
+  plos: 1,
+  CORE: 1,
+  BASE: 1,
+  pmcFullText: 1,
+  openAire: 1,
+  preprints: 1,
+};
+export function fanoutPairCost(name) {
+  const c = FANOUT_PAIR_COSTS[String(name || "")];
+  return typeof c === "number" ? c : 1;
+}
+/* The priority names the fanout already sequences first when the
+ * question is clinical or headroom is short (see runFanoutPairs in
+ * gatherPapersBody): the high yield trio for the shape, plus the
+ * extra OpenAlex query that rides its slot. */
+export const FANOUT_PRIORITY_NAMES = ["pubmed", "europePMC", "openAlex", "openAlexCommon"];
+/* planFanoutFunding(names, available, opts): price the whole
+ * fanout before any fetcher fires, then fund first calls in
+ * priority order until the available budget is spent. Priority
+ * order is the pairs list order itself (the fanout roster is
+ * built in yield order), with FANOUT_PRIORITY_NAMES moved to the
+ * front when the caller asks for it (a clinical question, or a
+ * rung whose headroom cannot fund the whole fanout: the same two
+ * conditions that already sequenced the trio first) or when the
+ * caller passes its own priorityNames for the question.
+ * fundedCost counts the funded first calls; totalCost is the
+ * whole priced fanout (first calls plus the internal follow on
+ * calls in FANOUT_PAIR_COSTS), reported so the caller and the
+ * record can see what the rung was priced at. Pure over its
+ * inputs, like planWaveLegs: the caller owns the firing and
+ * records every name in notFunded as not searched. A non finite
+ * available means no ledger is pricing the rung, so every pair
+ * funds, exactly the pre ledger behavior. */
+export function planFanoutFunding(names, available, opts = {}) {
+  const list = Array.isArray(names) ? names.map((n) => String(n || "")).filter(Boolean) : [];
+  const totalCost = list.reduce((n, name) => n + fanoutPairCost(name), 0);
+  const budget = available === null || available === undefined ? NaN : Number(available);
+  if (!Number.isFinite(budget)) {
+    return { funded: list.slice(), notFunded: [], fundedCost: list.length, totalCost, priorityOrder: list.slice() };
+  }
+  const cap = Math.max(0, Math.floor(budget));
+  const wantPriority = !!(opts && (opts.prioritizeTrio || opts.clinical));
+  const explicit = opts && Array.isArray(opts.priorityNames) ? opts.priorityNames.map((n) => String(n || "")) : [];
+  const front = explicit.length > 0 ? explicit : wantPriority ? FANOUT_PRIORITY_NAMES : [];
+  const priorityOrder = [];
+  for (const n of front) if (list.includes(n) && !priorityOrder.includes(n)) priorityOrder.push(n);
+  for (const n of list) if (!priorityOrder.includes(n)) priorityOrder.push(n);
+  const funded = [];
+  const notFunded = [];
+  for (const name of priorityOrder) {
+    if (funded.length < cap) funded.push(name);
+    else notFunded.push(name);
+  }
+  return { funded, notFunded, fundedCost: funded.length, totalCost, priorityOrder };
+}
+/* The retrieval headroom a rung may price against, read off a
+ * ledger of either the current shape (retrievalHeadroom) or an
+ * older test fake carrying only snapshot(). Null when no ledger
+ * prices the rung at all. */
+export function retrievalHeadroomOf(ledger) {
+  if (!ledger) return null;
+  try {
+    if (typeof ledger.retrievalHeadroom === "function") return ledger.retrievalHeadroom();
+    if (typeof ledger.snapshot === "function") {
+      const snap = ledger.snapshot();
+      if (snap && typeof snap.used === "number" && typeof snap.retrievalAllowance === "number") {
+        return Math.max(0, Math.min(snap.limit - snap.used, snap.retrievalAllowance - snap.used));
+      }
+      if (snap && typeof snap.remaining === "number") return snap.remaining;
+    }
+    if (typeof ledger.remaining === "function") return ledger.remaining();
+  } catch { /* a broken fake prices nothing; the rung fires unpriced */ }
+  return null;
 }
 
 function stripTags(s) {
@@ -5984,11 +6106,69 @@ function cleanQuery(raw) {
 // ============ SCHOLARLY DATABASE SOURCES ============
 // Each source returns [] on any failure, never throws. Timeouts keep them fast.
 
-async function europePMC(query, limit = 8, ledger = null, opts = {}) {
+/* Fetcher internal fallback signal (2026-10-22, L2-3). Inside
+ * europePMC and pubmed the structured and organism fallback forms
+ * used to fire only when the first form returned exactly zero
+ * rows, so a first form returning only off topic rows blocked the
+ * better query form. The fetchers receive only a query string:
+ * no dynLookup and no gate context rides along, so the full
+ * citable signal (countOnTopicPapers, judged by the citation
+ * gate) is not reachable there. The cheaper documented proxy used
+ * instead: a row is on topic when its title or abstract touches
+ * at least two distinct content terms of the sent query (at
+ * least one when the query carries a single content term), judged
+ * by the same stem aware term hit the gate uses
+ * (termStemHitInText). Rows may be raw Europe PMC records
+ * (abstractText) or mapped papers (abstract); both are read.
+ * fetcherRowsNeedFallback is the decision both fetchers consult:
+ * true when there are no rows at all, or when rows exist and none
+ * of them is on topic under the proxy. */
+export function fetcherQueryContentTerms(query) {
+  const raw = String(query || "").toLowerCase()
+    .replace(/\b(and|or|not)\b/g, " ")
+    .replace(/[a-z_]+:/g, " ")
+    .replace(/[^a-z0-9\s-]+/g, " ");
+  const terms = [];
+  for (const t of raw.split(/[\s-]+/)) {
+    if (t.length > 2 && !STOPWORDS.has(t) && !terms.includes(t)) terms.push(t);
+  }
+  return terms;
+}
+export function fetcherRowsOnTopicCount(rows, query) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length === 0) return 0;
+  const terms = fetcherQueryContentTerms(query);
+  if (terms.length === 0) return list.length;
+  const need = terms.length === 1 ? 1 : 2;
+  let n = 0;
+  for (const r of list) {
+    if (!r) continue;
+    const hay = (String(r.title || "") + " " + String(r.abstractText || r.abstract || "")).toLowerCase();
+    if (!hay.trim()) continue;
+    let hits = 0;
+    for (const t of terms) {
+      try { if (termStemHitInText(hay, t)) hits++; } catch { if (hay.includes(t)) hits++; }
+    }
+    if (hits >= need) n++;
+  }
+  return n;
+}
+export function fetcherRowsNeedFallback(rows, query) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length === 0) return true;
+  return fetcherRowsOnTopicCount(list, query) === 0;
+}
+
+export async function europePMC(query, limit = 8, ledger = null, opts = {}) {
   // Trust the query we were given. The retrieval ladder passes progressively
   // simpler forms . if this function silently rebuilds them, the ladder can't
-  // work. Only fall back to the structured/organism forms if the given query
-  // returns nothing.
+  // work. Fall back to the structured/organism forms when the given query
+  // returns nothing, or when everything it returns scores off topic under
+  // the fetcher proxy above (fetcherRowsNeedFallback, 2026-10-22, L2-3):
+  // volume alone no longer blocks the better form. A fallback form's rows
+  // replace the current rows only when they score more on topic papers, or
+  // when the current rows are empty; a failed fallback call keeps the rows
+  // already in hand instead of losing them to the outer catch.
   const runSearch = async (qs) => {
     // 2026-10-05: prefer English. Europe PMC's LANG field filters to
     // English-language records server-side.
@@ -6021,18 +6201,26 @@ async function europePMC(query, limit = 8, ledger = null, opts = {}) {
   };
   try {
     let rows = await runSearch(query);
-    if (!rows.length) {
+    if (fetcherRowsNeedFallback(rows, query)) {
       const structured = buildStructuredQuery(query);
       if (structured && structured !== query) {
-        rows = await runSearch(structured);
+        const structuredRows = await runSearch(structured).catch(() => null);
+        if (structuredRows && structuredRows.length
+          && (rows.length === 0 || fetcherRowsOnTopicCount(structuredRows, query) > fetcherRowsOnTopicCount(rows, query))) {
+          rows = structuredRows;
+        }
       }
     }
-    if (!rows.length) {
+    if (fetcherRowsNeedFallback(rows, query)) {
       const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
       if (hasOrganism) {
-        rows = await runSearch(
+        const orgRows = await runSearch(
           orgPhrases.map((e) => (e.includes(" ") ? '"' + e + '"' : e)).join(" OR ")
-        );
+        ).catch(() => null);
+        if (orgRows && orgRows.length
+          && (rows.length === 0 || fetcherRowsOnTopicCount(orgRows, query) > fetcherRowsOnTopicCount(rows, query))) {
+          rows = orgRows;
+        }
       }
     }
     return rows
@@ -6106,7 +6294,7 @@ function parsePubmedXML(xmlText) {
   });
 }
 
-async function pubmed(query, limit = 10, apiKey = "", ledger = null) {
+export async function pubmed(query, limit = 10, apiKey = "", ledger = null) {
   const keyParam = apiKey ? "&api_key=" + apiKey : "";
   const tool = "&tool=cerebrum&email=contact@askcerebrum.org" + keyParam;
   try {
@@ -6147,6 +6335,29 @@ async function pubmed(query, limit = 10, apiKey = "", ledger = null) {
     }
     if (!ids.length) return [];
 
+    const fetchByIds = async (idList) => {
+      const xml = await getText(
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?" +
+          new URLSearchParams({ db: "pubmed", id: idList.join(","), retmode: "xml" }) +
+          tool,
+        {},
+        4000,
+        1,
+        ledger
+      ).catch(() => "");
+      const fetched = xml ? parsePubmedXML(xml) : [];
+      const byPmid = new Map(fetched.map((p) => [p.pmid, p]));
+      const out = [];
+      for (const pmid of idList) {
+        const rec = byPmid.get(pmid) || null;
+        if (rec && rec.title) out.push(rec);
+      }
+      for (const p of fetched) {
+        if (!out.some((m) => m.pmid === p.pmid)) out.push(p);
+      }
+      return out;
+    };
+
     // Two logical calls on the success path (2026-10-14, wave
     // eight round three, Job 2): esearch, then efetch. The
     // esummary call that used to race efetch is gone: efetch's
@@ -6161,27 +6372,40 @@ async function pubmed(query, limit = 10, apiKey = "", ledger = null) {
     // records; a PMID efetch does not return a record for no
     // longer becomes an abstract free stub, which could never
     // clear the citation gate anyway.
-    const idStr = ids.join(",");
-    const xml = await getText(
-      "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?" +
-        new URLSearchParams({ db: "pubmed", id: idStr, retmode: "xml" }) +
-        tool,
-      {},
-      4000,
-      1,
-      ledger
-    ).catch(() => "");
+    let merged = await fetchByIds(ids);
 
-    const fetched = xml ? parsePubmedXML(xml) : [];
-    const byPmid = new Map(fetched.map((p) => [p.pmid, p]));
-    const merged = [];
-    for (const pmid of ids) {
-      const rec = byPmid.get(pmid) || null;
-      if (rec && rec.title) merged.push(rec);
-    }
-    // Include any fetched not already merged
-    for (const p of fetched) {
-      if (!merged.some((m) => m.pmid === p.pmid)) merged.push(p);
+    // Off topic fallback (2026-10-22, L2-3): esearch returns
+    // IDs only, so topicality cannot be judged until the
+    // records are fetched. When every fetched record scores
+    // off topic under the fetcher proxy (fetcherRowsNeedFallback),
+    // the structured and organism forms run now, the same forms
+    // the esearch stage already tried when the first form
+    // returned no IDs at all. Volume with no on topic paper no
+    // longer blocks them. A fallback form's papers are adopted
+    // only when they carry on topic papers the current set
+    // lacks; a failed fallback call keeps the papers in hand.
+    if (fetcherRowsNeedFallback(merged, query)) {
+      const tryFallbackForm = async (formQuery) => {
+        if (!formQuery || formQuery === query) return;
+        if (!fetcherRowsNeedFallback(merged, query)) return;
+        try {
+          const formData = await getJSON(esUrl(formQuery), {}, 4000, 1, ledger).catch(() => null);
+          const formIds = (formData && formData.esearchresult && formData.esearchresult.idlist) || [];
+          if (!formIds.length) return;
+          const formPapers = await fetchByIds(formIds);
+          if (fetcherRowsOnTopicCount(formPapers, query) > fetcherRowsOnTopicCount(merged, query)) {
+            merged = formPapers;
+          }
+        } catch { /* keep the papers already in hand */ }
+      };
+      await tryFallbackForm(buildStructuredQuery(query));
+      if (fetcherRowsNeedFallback(merged, query)) {
+        const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
+        if (hasOrganism) {
+          await tryFallbackForm(
+            orgPhrases.map((e) => (e.includes(" ") ? '"' + e + '"' : e)).join(" OR "));
+        }
+      }
     }
     return merged;
   } catch {
@@ -15749,6 +15973,93 @@ export function conceptGateContext(papers, query, dynLookup) {
   return { groups, centralTerms: standard.centralTerms, subjectGroup: standard.subjectGroup || null, centralConcepts: standard.centralConcepts || [], mechanismShape: standard.mechanismShape, anchorNeedles, existenceIdx };
 }
 
+/* The citable floor every retrieval continuation decision now
+ * reads (2026-10-22, L2-3): the same minimum the ladder
+ * continuation and the shelf floor use, SHELF_FLOOR_MINIMUM.
+ * Exported so the gather code and its tests read one number. */
+export const RETRIEVAL_CITABLE_FLOOR = SHELF_FLOOR_MINIMUM;
+
+/* countOnTopicPapers(papers, query, dynLookup): how many distinct
+ * papers in a raw gathered pool are on the question, judged by the
+ * citation gate's own topicality half, before any shelf is built
+ * (2026-10-22, L2-3). A paper counts when conceptGateKeeps judges
+ * it: the citation gate standard itself (paperClearsCitationGate
+ * over the question's resolved groups, central terms, and central
+ * concepts), with the gate's own anchor and existence exemptions.
+ * The relevance floor half of paperIsCitable cannot be judged
+ * here: raw arrivals carry no relevance score, and the shelf
+ * scorer that assigns one runs later, in processGathered. This is
+ * therefore the same on topic signal the citable aware ladder
+ * continuation reads, minus the floor the shelf has not assigned
+ * yet, and it is the signal every earlier continuation decision
+ * now reads too. Distinct papers only: records are deduped by
+ * their candidate keys first, so one paper returned by four
+ * sources counts once, never four times. When the question yields
+ * no gate standard at all (no groups, no central terms, no
+ * central concepts), topicality cannot be judged and the count is
+ * the distinct raw count, so unjudgeable questions keep the old
+ * raw count behavior instead of a fabricated zero. */
+export function countOnTopicPapers(papers, query, dynLookup) {
+  const list = Array.isArray(papers) ? papers : [];
+  const seenKeys = new Set();
+  const distinct = [];
+  for (const p of list) {
+    if (!p || typeof p !== "object" || !p.title) continue;
+    let keys = [];
+    try { keys = paperDedupeKeys(p); } catch { keys = []; }
+    if (keys.length > 0) {
+      if (keys.some((k) => seenKeys.has(k))) continue;
+      for (const k of keys) seenKeys.add(k);
+    }
+    distinct.push(p);
+  }
+  if (distinct.length === 0) return 0;
+  let ctx = null;
+  try { ctx = conceptGateContext(distinct, query, dynLookup); } catch { ctx = null; }
+  if (!ctx) return distinct.length;
+  const hasStandard = (ctx.groups || []).length > 0
+    || (ctx.centralTerms || []).length > 0
+    || (Array.isArray(ctx.centralConcepts) && ctx.centralConcepts.length > 0)
+    || !!ctx.subjectGroup;
+  if (!hasStandard) return distinct.length;
+  /* Compound questions: the full question standard can demand
+   * engagement with every clause at once, which no single
+   * clause paper can show (measured 2026-10-22: on a CRISPR plus
+   * PCR question the gate standard kept neither field's primary,
+   * so the count read zero on a pool the answer can cite from).
+   * A paper that clears one clause's own standard is on topic
+   * for the question, the same split the clause fanout below
+   * searches by, so each clause gets its own gate context here
+   * and a paper counts when it keeps under the full standard or
+   * any clause's. */
+  const clauseCtxs = [];
+  try {
+    const clauses = String(query || "")
+      .split(/\s*(?:,\s*)?\band\b\s+(?=how|what|why|when|where|which|do|does|can|is|are)|\s*[;?]\s*/i)
+      .map((c) => c.trim())
+      .filter((c) => c.split(/\s+/).filter((w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase())).length >= 2);
+    if (clauses.length > 1) {
+      for (const clause of clauses.slice(0, 3)) {
+        try {
+          const clauseDyn = buildDynLookup(buildDeterministicFallbackGroups(clause, centralContentTerms(clause)));
+          const cctx = conceptGateContext(distinct, clause, clauseDyn);
+          if (cctx && ((cctx.groups || []).length > 0 || (cctx.centralTerms || []).length > 0)) clauseCtxs.push(cctx);
+        } catch { /* a clause with no standard simply adds no path */ }
+      }
+    }
+  } catch { /* the full standard alone still counts */ }
+  let n = 0;
+  distinct.forEach((p, i) => {
+    try {
+      if (conceptGateKeeps(p, i + 1, ctx)) { n++; return; }
+      for (const cctx of clauseCtxs) {
+        if (conceptGateKeeps(p, i + 1, cctx)) { n++; return; }
+      }
+    } catch { /* one bad record never zeroes the count */ }
+  });
+  return n;
+}
+
 /* ── WAVE SIXTEEN (2026-10-14, eighth panel, item 1): THE
  * SERVE SIDE SUBJECT TEST ───────────────────────────────────
  * The eighth panel's Search verdict: the honest no evidence
@@ -17356,7 +17667,15 @@ function recordDatabasesOf(raw) {
     const source = String(o.source || "").trim();
     if (!source) continue;
     const count = Number(o.count);
-    out.push({ source, ok: !!o.ok, count: Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0 });
+    const entry = { source, ok: !!o.ok, count: Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0 };
+    // Not searched (2026-10-22, L2-2): a source the rung funding
+    // never fired is recorded as not searched, not as a source
+    // that answered with zero. The field rides only when the run
+    // actually left the source unsearched, so older shapes stay
+    // byte identical.
+    const notSearched = Number(o.notSearched);
+    if (Number.isFinite(notSearched) && notSearched > 0) entry.notSearched = Math.floor(notSearched);
+    out.push(entry);
   }
   return out.length ? out : null;
 }
@@ -18008,6 +18327,30 @@ export function buildSearchRecord(input) {
       }
     } catch { recordFactCheckTrace = null; }
 
+    // The retrieval budget record (2026-10-22, L2-2): present
+    // only when the gather stamped it (diag.retrievalBudget, the
+    // ledger's own counts at the end of the gather). A run whose
+    // retrieval grants were refused says so here: how many grants
+    // were refused, what was spent against the allowance, and
+    // which sources the rung funding never reached. Normalized
+    // defensively like every other late field; absent entirely
+    // when the gather recorded nothing.
+    let recordRetrievalBudget = null;
+    try {
+      const rb = (input && input.retrievalBudget != null) ? input.retrievalBudget
+        : (diag ? diag.retrievalBudget : null);
+      if (rb && typeof rb === "object") {
+        recordRetrievalBudget = {
+          retrievalRefused: Number.isFinite(rb.retrievalRefused) ? Math.max(0, Math.floor(rb.retrievalRefused)) : null,
+          retrievalSpent: Number.isFinite(rb.retrievalSpent) ? Math.max(0, Math.floor(rb.retrievalSpent)) : null,
+          retrievalAllowance: Number.isFinite(rb.retrievalAllowance) ? Math.max(0, Math.floor(rb.retrievalAllowance)) : null,
+          notSearchedSources: Array.isArray(rb.notSearchedSources)
+            ? rb.notSearchedSources.map((s) => String(s == null ? "" : s)).filter(Boolean).slice(0, 20)
+            : [],
+        };
+      }
+    } catch { recordRetrievalBudget = null; }
+
     // Wave sixteen (brief item 1): the subject serve — present
     // only when the final cited set failed the subject
     // engagement test: how many papers the answer cited and the
@@ -18062,6 +18405,7 @@ export function buildSearchRecord(input) {
       ...(recordGateAudit ? { gateAudit: recordGateAudit } : {}),
       ...(recordSubjectServe ? { subjectServe: recordSubjectServe } : {}),
       ...(recordFactCheckTrace ? { factCheckTrace: recordFactCheckTrace } : {}),
+      ...(recordRetrievalBudget ? { retrievalBudget: recordRetrievalBudget } : {}),
     };
   } catch {
     return null;
@@ -21815,6 +22159,22 @@ async function gatherPapersBody(rawQuery, opts) {
   // recordRungResults labels them by their own pair's name
   // regardless of firing order.
   const FANOUT_PRIORITY_NAMES = ["pubmed", "europePMC", "openAlex", "openAlexCommon"];
+  // Priced funding (2026-10-22, L2-2): the rung is budgeted BEFORE
+  // it fires. planFanoutFunding prices the whole fanout
+  // (FANOUT_PAIR_COSTS) against the ledger's retrieval headroom
+  // and funds sources in pairs list order, with the priority trio
+  // first when the question is clinical or the headroom cannot
+  // fund the whole rung (the same two triggers the wave eight
+  // sequencing used). A pair the plan does not fund NEVER FIRES:
+  // it settles with the status "not_searched" and an empty value,
+  // so recordRungResults records it as not searched rather than
+  // as a source that answered with zero (the old failure: a
+  // refused fetcher's grant throw was caught inside the fetcher,
+  // returned as an empty list, and recorded fulfilled). Funded
+  // pairs keep the wave eight behaviour: the priority trio
+  // settles first on clinical shapes so the sequential PubMed
+  // fetcher still gets its second call in before the long tail;
+  // the long tail then fires under the rung's remaining plan.
   const runFanoutPairs = async (fanoutResult) => {
     const pairs = (fanoutResult && fanoutResult.pairs) || [];
     const fire = (p) => {
@@ -21827,15 +22187,36 @@ async function gatherPapersBody(rawQuery, opts) {
       catch { headroomShort = false; }
     }
     const sequenceFirst = !!(fanoutResult && fanoutResult.clinical) || headroomShort;
-    if (!sequenceFirst) return Promise.allSettled(pairs.map(fire));
-    const head = pairs.filter((p) => FANOUT_PRIORITY_NAMES.includes(p.name));
-    const tail = pairs.filter((p) => !FANOUT_PRIORITY_NAMES.includes(p.name));
-    const headResults = await Promise.allSettled(head.map(fire));
-    const tailResults = await Promise.allSettled(tail.map(fire));
-    const byPair = new Map();
-    head.forEach((p, i) => byPair.set(p, headResults[i]));
-    tail.forEach((p, i) => byPair.set(p, tailResults[i]));
-    return pairs.map((p) => byPair.get(p));
+    const available = retrievalHeadroomOf(ledger);
+    const plan = planFanoutFunding(pairs.map((p) => p.name), available, {
+      clinical: !!(fanoutResult && fanoutResult.clinical),
+      prioritizeTrio: sequenceFirst,
+    });
+    const fundedNames = new Set(plan.funded);
+    const fundedPairs = pairs.filter((p) => fundedNames.has(p.name));
+    let fundedResults;
+    if (!sequenceFirst) {
+      fundedResults = await Promise.allSettled(fundedPairs.map(fire));
+    } else {
+      const head = fundedPairs.filter((p) => FANOUT_PRIORITY_NAMES.includes(p.name));
+      const tail = fundedPairs.filter((p) => !FANOUT_PRIORITY_NAMES.includes(p.name));
+      const headResults = await Promise.allSettled(head.map(fire));
+      const tailResults = await Promise.allSettled(tail.map(fire));
+      const byPair = new Map();
+      head.forEach((p, i) => byPair.set(p, headResults[i]));
+      tail.forEach((p, i) => byPair.set(p, tailResults[i]));
+      fundedResults = fundedPairs.map((p) => byPair.get(p));
+    }
+    const fundedByName = new Map();
+    fundedPairs.forEach((p, i) => fundedByName.set(p.name, fundedResults[i]));
+    return pairs.map((p) => {
+      if (fundedByName.has(p.name)) return fundedByName.get(p.name);
+      return {
+        status: "not_searched",
+        value: [],
+        reason: new Error("retrieval budget: rung funding did not reach this source"),
+      };
+    });
   };
 
   // Multi-part question detection.
@@ -21897,6 +22278,34 @@ async function gatherPapersBody(rawQuery, opts) {
   const endCascadeYield = (armed) => {
     if (armed && ledger) ledger.setRetrievalYield(false);
   };
+  // The on topic count every continuation decision below reads
+  // (2026-10-22, L2-3): the settled results flattened to their
+  // papers and counted by countOnTopicPapers, the citation gate's
+  // topicality signal on the raw arrivals. Raw arrival counts no
+  // longer gate anything in this gather: volume with no on topic
+  // papers triggers more retrieval, not less, until the citable
+  // floor (RETRIEVAL_CITABLE_FLOOR) is met or the budget record
+  // says the attempt was refused. Any failure of the count falls
+  // back to the raw count, so a broken signal can never starve
+  // retrieval below the old behaviour. The cascade yield keeps
+  // its own raw empty shelf signal on purpose: it is a one round
+  // pass for a literally empty shelf (the foundational lane arms
+  // its own on shape), not a continuation decision, so a pool of
+  // off topic volume spends its nets inside the room gate and
+  // never consumes the yield the lane may need.
+  const onTopicOf = (settled) => {
+    const flat = [];
+    for (const r of settled || []) {
+      if (r && r.status === "fulfilled" && Array.isArray(r.value)) {
+        for (const p of r.value) if (p) flat.push(p);
+      }
+    }
+    try {
+      return countOnTopicPapers(flat, rawQuery, dynLookup);
+    } catch {
+      return flat.length;
+    }
+  };
   // The boolean query this run actually searches with, recorded so the
   // exportable search record (buildSearchRecord) can carry the exact
   // string a reader would re run. Recorded, not recomputed later: the
@@ -21942,9 +22351,18 @@ async function gatherPapersBody(rawQuery, opts) {
   // Dive's progress callback), so the two can never drift.
   let ladderRungsExecuted = 0;
   const recordRungResults = (i, rungResults, rungNames, continuation) => {
+    // Not searched is a distinct recorded state (2026-10-22,
+    // L2-2): a source the rung's funding plan never fired carries
+    // the "not_searched" status from runFanoutPairs. It is not ok,
+    // it adds no count, and it does not count as an attempt in the
+    // source totals below; the per rung entry names it
+    // (notSearched: true) and the totals carry a notSearched count,
+    // so the coverage record says the source was never asked
+    // rather than that it answered with zero.
     const perSource = rungResults.map((r, idx) => ({
       source: rungNames[idx] || sourceNames[idx],
       status: r.status,
+      notSearched: r.status === "not_searched",
       count: r.status === "fulfilled" ? (r.value || []).length : 0,
       error: r.status === "rejected" ? String(r.reason && r.reason.message || r.reason).slice(0, 120) : null,
     }));
@@ -21980,10 +22398,11 @@ async function gatherPapersBody(rawQuery, opts) {
       // exactly the canonical sources. Per rung perSource detail
       // above keeps the raw slot name for diagnostics.
       const key = o.source === "openAlexCommon" ? "openAlex" : o.source;
-      const prev = diag.sourceTotals.get(key) || { source: key, ok: false, count: 0, attempts: 0 };
+      const prev = diag.sourceTotals.get(key) || { source: key, ok: false, count: 0, attempts: 0, notSearched: 0 };
       prev.ok = prev.ok || o.status === "fulfilled";
       prev.count += o.count;
-      prev.attempts += 1;
+      if (o.notSearched) prev.notSearched += 1;
+      else prev.attempts += 1;
       diag.sourceTotals.set(key, prev);
     }
     diag.sourceOutcomes = [...diag.sourceTotals.values()];
@@ -22050,7 +22469,14 @@ async function gatherPapersBody(rawQuery, opts) {
     // is built (see LADDER CONTINUATION below) re decides on the
     // GATE CLEARING citable count and executes the rungs this loop
     // skipped whenever that count is below the citable minimum.
-    if (totalAccumulated >= 8 || !_budgetLeft()) break;
+    // L2-3 (2026-10-22): the break itself now reads the on topic
+    // count (onTopicOf, the citation gate's topicality signal on
+    // the accumulated arrivals) against the citable floor, not
+    // the raw total: 8 or more raw arrivals that score zero on
+    // topic no longer stop the loosening here. The on topic count
+    // is computed for the record on every rung; the raw total
+    // above it stays for the callers that still read it.
+    if (onTopicOf(accumulated) >= RETRIEVAL_CITABLE_FLOOR || !_budgetLeft()) break;
   }
   results = accumulated;
 
@@ -22061,11 +22487,16 @@ async function gatherPapersBody(rawQuery, opts) {
   const totalSoFar = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
+  // L2-3 (2026-10-22): every fallback gate below reads the on
+  // topic count, not the raw total beside it. The raw totals stay
+  // computed for the record; the decisions use onTopic (recomputed
+  // after each stage, since results grows).
+  const onTopicSoFar = onTopicOf(results);
   // Priced at its real cost (2026-10-14): the net fires only when
   // the remaining budget covers its fetchers' internal fanout AND
   // leaves the answer reserve intact (see SUBREQUEST_RAW_NET_COST).
   const yieldRaw = beginCascadeYield(totalSoFar, SUBREQUEST_RAW_NET_COST);
-  if (totalSoFar < 8 && _budgetLeft() && (yieldRaw || roomOrTrim("raw-fallback", SUBREQUEST_RAW_NET_COST))) {
+  if (onTopicSoFar < RETRIEVAL_CITABLE_FLOOR && _budgetLeft() && (yieldRaw || roomOrTrim("raw-fallback", SUBREQUEST_RAW_NET_COST))) {
     if (yieldRaw) diag.cascadeYield = "raw-fallback";
     // Include organism name in the raw fallback so we find species-specific papers
     const rawQ = organismTerm
@@ -22105,8 +22536,9 @@ async function gatherPapersBody(rawQuery, opts) {
   const totalAfterRaw = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
+  const onTopicAfterRaw = onTopicOf(results);
   const yieldConcept = beginCascadeYield(totalAfterRaw, SUBREQUEST_RUNG_COST);
-  if (totalAfterRaw < 8 && _budgetLeft() && (yieldConcept || roomOrTrim("concept-expanded-fallback", SUBREQUEST_RUNG_COST))) {
+  if (onTopicAfterRaw < RETRIEVAL_CITABLE_FLOOR && _budgetLeft() && (yieldConcept || roomOrTrim("concept-expanded-fallback", SUBREQUEST_RUNG_COST))) {
     if (yieldConcept) diag.cascadeYield = "concept-expanded-fallback";
     // Build synonym-expanded queries from concept groups
     const topicTermsForExpansion = ranked.slice(0, 3);
@@ -22211,8 +22643,9 @@ async function gatherPapersBody(rawQuery, opts) {
   const totalBeforeBroad = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
+  const onTopicBeforeBroad = onTopicOf(results);
   const yieldBroad = beginCascadeYield(totalBeforeBroad, SUBREQUEST_RAW_NET_COST);
-  if (stillUncoveredTerms.length > 0 && totalBeforeBroad < 8 && _budgetLeft() && (yieldBroad || roomOrTrim("broad-terms-rung", SUBREQUEST_RAW_NET_COST))) {
+  if (stillUncoveredTerms.length > 0 && onTopicBeforeBroad < RETRIEVAL_CITABLE_FLOOR && _budgetLeft() && (yieldBroad || roomOrTrim("broad-terms-rung", SUBREQUEST_RAW_NET_COST))) {
     if (yieldBroad) diag.cascadeYield = "broad-terms-rung";
     const broadQuery = stillUncoveredTerms.join(" OR ");
     const broadResults = await Promise.allSettled([
@@ -22240,8 +22673,9 @@ async function gatherPapersBody(rawQuery, opts) {
   const totalAfterConcept = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
+  const onTopicAfterConcept = onTopicOf(results);
   const yieldTopic = opts.db ? beginCascadeYield(totalAfterConcept, SUBREQUEST_RUNG_COST) : false;
-  if (totalAfterConcept < 5 && opts.db && _budgetLeft() && (yieldTopic || roomOrTrim("topic-memory-recall", SUBREQUEST_RUNG_COST))) {
+  if (onTopicAfterConcept < RETRIEVAL_CITABLE_FLOOR && opts.db && _budgetLeft() && (yieldTopic || roomOrTrim("topic-memory-recall", SUBREQUEST_RUNG_COST))) {
     if (yieldTopic) diag.cascadeYield = "topic-memory-recall";
     const topicForRecall = orgInfo.hasOrganism
       ? orgInfo.orgPhrases[0] + " " + ranked.slice(0, 3).join(" ")
@@ -22274,6 +22708,7 @@ async function gatherPapersBody(rawQuery, opts) {
   const totalAfterExpand = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
+  const onTopicAfterExpand = onTopicOf(results);
   // Priced at its real cost (2026-10-14), same rule as the raw net
   // above (see SUBREQUEST_NL_NET_COST): under the old margin 0 this
   // net and the relaxed boolean net below could spend the answer
@@ -22281,7 +22716,7 @@ async function gatherPapersBody(rawQuery, opts) {
   // every net, and validation and synthesis skipped as budget
   // exhausted (the live sleep and colds trace).
   const yieldNl = beginCascadeYield(totalAfterExpand, SUBREQUEST_NL_NET_COST);
-  if (totalAfterExpand < 5 && _budgetLeft() && (yieldNl || roomOrTrim("natural-language-fallback", SUBREQUEST_NL_NET_COST))) {
+  if (onTopicAfterExpand < RETRIEVAL_CITABLE_FLOOR && _budgetLeft() && (yieldNl || roomOrTrim("natural-language-fallback", SUBREQUEST_NL_NET_COST))) {
     if (yieldNl) diag.cascadeYield = "natural-language-fallback";
     const nlFallback = await Promise.allSettled([
       semanticScholar(rawQuery.slice(0, 200), 15, s2Key, ledger),
@@ -22323,11 +22758,12 @@ async function gatherPapersBody(rawQuery, opts) {
   const totalAfterNL = results.reduce(
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
+  const onTopicAfterNL = onTopicOf(results);
   // Priced at its real cost (2026-10-14): europePMC's internal
   // formulations plus PubMed's five call worst case (see
   // SUBREQUEST_RELAXED_NET_COST).
   const yieldRelaxed = beginCascadeYield(totalAfterNL, SUBREQUEST_RELAXED_NET_COST);
-  if (totalAfterNL < 5 && _budgetLeft() && (yieldRelaxed || roomOrTrim("relaxed-boolean-fallback", SUBREQUEST_RELAXED_NET_COST))) {
+  if (onTopicAfterNL < RETRIEVAL_CITABLE_FLOOR && _budgetLeft() && (yieldRelaxed || roomOrTrim("relaxed-boolean-fallback", SUBREQUEST_RELAXED_NET_COST))) {
     if (yieldRelaxed) diag.cascadeYield = "relaxed-boolean-fallback";
     const orgNames = [...new Set([
       organismTerm ? organismTerm.replace(/"/g, "") : null,
@@ -24238,6 +24674,28 @@ async function gatherPapersBody(rawQuery, opts) {
       diag.ladderContinuation = { rungsRun: nextRung - ladderRungsExecuted, citable: citableCount };
     }
   }
+  // The retrieval budget record (2026-10-22, L2-2): the real
+  // ledger counts for this gather, stamped on the diag so the
+  // search record (buildSearchRecord) can say plainly when
+  // retrieval grants were refused and which sources were never
+  // searched because the rung funding did not reach them. The
+  // counts are the ledger's own, never recomputed here.
+  if (ledger) {
+    try {
+      const notSearchedSources = [];
+      if (diag.sourceTotals) {
+        for (const v of diag.sourceTotals.values()) {
+          if (v && v.notSearched > 0) notSearchedSources.push(v.source);
+        }
+      }
+      diag.retrievalBudget = {
+        retrievalRefused: ledger.retrievalRefusals(),
+        retrievalSpent: ledger.retrievalSpent(),
+        retrievalAllowance: ledger.retrievalAllowance(),
+        notSearchedSources,
+      };
+    } catch { /* the record stamp is best effort; retrieval stands */ }
+  }
   return gatheredOut;
   } catch (e) {
     // Any throw in gatherPapers: log the full detail server-side (Cloudflare
@@ -26001,7 +26459,13 @@ async function runSearchPipeline(pctx) {
     // and reused by the Wave-4 context, the coverage note, and the response.
     const publicSourcesQueried = () => (
       gResult && gResult._diag && Array.isArray(gResult._diag.sourceOutcomes)
-        ? gResult._diag.sourceOutcomes.map((o) => ({ source: o.source, ok: !!o.ok, count: o.count || 0 }))
+        ? gResult._diag.sourceOutcomes.map((o) => ({
+            source: o.source, ok: !!o.ok, count: o.count || 0,
+            // Not searched (2026-10-22, L2-2): carried only when
+            // the run left this source unsearched, so the public
+            // record can tell "never asked" from "answered zero".
+            ...(o.notSearched > 0 ? { notSearched: o.notSearched } : {}),
+          }))
         : null
     );
     if (isFollowupMode) {
