@@ -1,11 +1,13 @@
 /**
  * answer-ship tests: the provider-error sanitizer, the Wave-4 TLDR lede,
- * and the Venn render guarantee.
+ * and the Venn classification contract.
  *
  * These cover the defects Dusty caught live on 2026-09-12: a Pollinations
- * budget error shipped as cited claim [3] in a soil-cracking answer, the
+ * budget error shipped as cited claim [3] in a soil-cracking answer, and the
  * robotic "Across the N sources below, the clearest reported findings are:
- * [Results]" lede, and the Venn diagram not rendering without fact-check.
+ * [Results]" lede. The Venn contract changed on 2026-10-22 (logic audit
+ * L7-1): citation alone is not a stance, so a body cited paper with no
+ * fact check verdict stays unclassified instead of defaulting to support.
  *
  * Unit tests against the real modules — no server, no database, no network.
  *
@@ -221,24 +223,25 @@ await test("every provider call self-validates (no path can forget the check)", 
   assert.ok(searchSrc.includes("formattingRelaxed = true"), "wave-3 formatting relaxation missing");
 });
 
-await test("two body-cited sources render the Venn (no fact-check)", () => {
+await test("body-cited sources take no stance without a fact-check (no default agree)", () => {
   const m = classifyVennPapers({
     answer: "## The short answer\n\nCracks ran deeper in depositional crusts [1]. Drying cycles propagated the network rapidly [2].",
     sources: [{ title: "a" }, { title: "b" }, { title: "c" }],
     factCheck: null,
   });
   const placed = m.agree.length + m.disagree.length + m.middle.length;
-  assert.ok(placed >= 2, `Venn needs >=2 placed papers, got ${placed}`);
-  assert.ok(m.agree.includes(1) && m.agree.includes(2), "body-cited papers should default to agree");
+  assert.equal(placed, 0, `citation alone placed papers: ${JSON.stringify(m)}`);
+  assert.deepEqual(m.unclear, [1, 2, 3], "unclassified papers must stay in the neutral group");
 });
 
-await test("explicit fact-check verdicts still override the default", () => {
+await test("explicit fact-check verdicts place their papers; the rest stay unclear", () => {
   const m = classifyVennPapers({
     answer: "Cracks ran deeper [1]. Cycles propagated rapidly [2].",
     sources: [{ title: "a" }, { title: "b" }],
     factCheck: { claims: [{ claim: "cracks ran deeper [1]", note: "", status: "contradicted" }] },
   });
   assert.ok(m.disagree.includes(1), "contradicted claim should place paper 1 in disagree");
+  assert.deepEqual(m.unclear, [2], "paper 2 has no verdict and must stay unclassified");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

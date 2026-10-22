@@ -421,18 +421,29 @@ export function extractOpenQuestions(answer, factCheck, sources, selfReasoning) 
    VENN CLASSIFICATION — where each cited paper stands
 
    Deterministic, no invention: every paper lands in exactly one region
-   from signals already on the turn.
+   from signals already on the turn. Citation alone is never a signal:
+   a paper the answer merely cites has no classified stance, however
+   often it is cited, and lands in unclear. Only a verdict about that
+   paper, a conflict pair it belongs to, or its place in the
+   disagreement section can place it.
 
-     agree    — cited by a fact-check claim with status "supported",
-                or by a provenance trace claim with status "traced"
-                (the answer's wording comes from that paper; a trace
-                is not a verification, and no supported-claims count
-                anywhere includes it — placement only)
-     disagree — cited inside the disagreement section, or by a claim
-                with status "contradicted", "thin", or "unsupported"
-     middle   — cited by a "partly"/mixed claim, or cited on BOTH sides
-                (a paper that backs a core claim and is also contested)
-     unclear  — no signal at all; shown honestly, never placed
+     agree    — cited by a fact check claim with status "supported"
+     disagree — cited by a claim with status "contradicted"
+     middle   — cited by a "partly", "mixed", or "thin" claim (thin
+                backing qualifies the direction, it never contests
+                it), cited in the disagreement section, placed on both
+                sides by claim verdicts, or named in a literature
+                conflict pair
+     unclear  — no stance signal at all; shown honestly, never
+                placed. "Unsupported" and "traced" claims place
+                nothing: a paper that fails to back a claim has not
+                contested it, and a wording trace says where the
+                words came from, not what the paper concludes.
+
+   Claim indices come from the claim text itself or from structured
+   fields on the claim (cites, sourceIndex), never from free text in
+   the checker's note, where a mentioned paper number would otherwise
+   inherit a stance it was never given.
 
    Returns 1-based citation indices: { agree, disagree, middle, unclear }.
    ══════════════════════════════════════════════════════════════════ */
@@ -457,30 +468,37 @@ export function classifyVennPapers({ answer, sources, factCheck, conflicts }) {
   const claims = factCheck && Array.isArray(factCheck.claims) && factCheck.mode !== "terms"
     ? factCheck.claims
     : [];
-  const fcPlaced = new Set();
   for (const c of claims) {
-    const idx = extractCitedIndices(String(c.claim || "") + " " + String(c.note || ""), n);
+    const idxSet = new Set(extractCitedIndices(String(c.claim || ""), n));
+    if (Array.isArray(c.cites)) {
+      for (const v of c.cites) {
+        const i = Number(v);
+        if (Number.isFinite(i) && i >= 1 && i <= n) idxSet.add(i);
+      }
+    }
+    const si = Number(c.sourceIndex);
+    if (Number.isFinite(si) && si >= 1 && si <= n) idxSet.add(si);
+    const idx = [...idxSet];
     const st = String(c.status || "").toLowerCase();
     for (const i of idx) {
-      if (st === "supported" || st === "traced") { agree.add(i); fcPlaced.add(i); }
-      else if (st === "contradicted" || st === "thin" || st === "unsupported") { disagree.add(i); fcPlaced.add(i); }
-      else if (st === "partly" || st === "mixed") { middle.add(i); fcPlaced.add(i); }
+      if (st === "supported") { agree.add(i); }
+      else if (st === "contradicted") { disagree.add(i); }
+      else if (st === "partly" || st === "mixed" || st === "thin") { middle.add(i); }
     }
   }
 
-  // Papers cited in the answer body were used to build it — they stand behind
-  // it unless a stronger signal places them elsewhere. Without this default
-  // the Venn only renders when fact-check produced claims, so most answers
-  // (fact-check skipped, disagreement section uncited) show no diagram at all.
-  // Cited on both sides (body + disagreement section) = nuanced, not hidden.
+  // A paper cited in the disagreement section takes part in a divided
+  // literature, so it qualifies the direction rather than cleanly
+  // supporting or contesting it. A paper a claim verdict already
+  // placed in disagree keeps that stronger placement. Citation
+  // anywhere else in the answer places nothing: being used to build
+  // the answer is not a stance, so a body cited paper with no verdict
+  // stays in unclear below.
   const disagSet = new Set(disagreementCitedIndices(answer, n));
-  const bodySet = new Set(extractCitedIndices(String(answer || ""), n));
-  for (const i of bodySet) {
-    if (disagSet.has(i)) { agree.delete(i); disagree.delete(i); middle.add(i); }
-    else if (!fcPlaced.has(i)) agree.add(i);
-  }
   for (const i of disagSet) {
-    if (!bodySet.has(i)) disagree.add(i);
+    if (disagree.has(i)) continue;
+    agree.delete(i);
+    middle.add(i);
   }
 
   // Cited on both sides = nuanced, not contradictory data to hide.

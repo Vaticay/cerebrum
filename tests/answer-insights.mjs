@@ -469,22 +469,21 @@ await test("supported claims land in agree", () => {
   assert.deepEqual(r.unclear, [3, 4, 5]);
 });
 
-await test("traced claims place their papers in agree, as placement only", () => {
+await test("traced claims place nothing: a wording trace is not a stance", () => {
   // A provenance trace means the answer's wording comes from the
-  // paper, so the paper stands behind the answer the way any
-  // body cited paper does — placement, not a verdict. The status
-  // itself is never read as "supported" anywhere (the convergence
-  // read above is the counting surface, and it excludes traces).
+  // paper. It says where the words came from, not what the paper
+  // concludes, so it can never count the paper as a supporter.
   const r = classifyVennPapers({
     answer: "", sources: VENN_SOURCES,
     factCheck: { mode: "extractive", claims: [{ claim: "X works [1][2]", status: "traced" }] },
   });
-  assert.deepEqual(r.agree, [1, 2]);
+  assert.deepEqual(r.agree, []);
   assert.deepEqual(r.disagree, []);
-  assert.deepEqual(r.unclear, [3, 4, 5]);
+  assert.deepEqual(r.middle, []);
+  assert.deepEqual(r.unclear, [1, 2, 3, 4, 5]);
 });
 
-await test("unsupported, thin, and contradicted claims land in disagree", () => {
+await test("only contradicted claims land in disagree; thin qualifies and unsupported places nothing", () => {
   const r = classifyVennPapers({
     answer: "", sources: VENN_SOURCES,
     factCheck: { claims: [
@@ -493,9 +492,36 @@ await test("unsupported, thin, and contradicted claims land in disagree", () => 
       { claim: "Z refuted [3]", status: "contradicted" },
     ] },
   });
-  assert.deepEqual(r.disagree, [1, 2, 3]);
+  assert.deepEqual(r.disagree, [3]);
+  assert.deepEqual(r.middle, [2]);
   assert.deepEqual(r.agree, []);
-  assert.deepEqual(r.unclear, [4, 5]);
+  assert.deepEqual(r.unclear, [1, 4, 5]);
+});
+
+await test("a paper number mentioned in a checker note inherits no stance", () => {
+  const r = classifyVennPapers({
+    answer: "", sources: VENN_SOURCES,
+    factCheck: { claims: [
+      { claim: "X works", status: "supported", note: "\"quote\" [2]. Compare paper [3] on this point." },
+    ] },
+  });
+  assert.deepEqual(r.agree, []);
+  assert.deepEqual(r.disagree, []);
+  assert.deepEqual(r.middle, []);
+  assert.deepEqual(r.unclear, [1, 2, 3, 4, 5]);
+});
+
+await test("structured claim indices place papers without any note text", () => {
+  const r = classifyVennPapers({
+    answer: "", sources: VENN_SOURCES,
+    factCheck: { claims: [
+      { claim: "X works", status: "supported", cites: [2] },
+      { claim: "Y fails", status: "contradicted", sourceIndex: 4 },
+    ] },
+  });
+  assert.deepEqual(r.agree, [2]);
+  assert.deepEqual(r.disagree, [4]);
+  assert.deepEqual(r.unclear, [1, 3, 5]);
 });
 
 await test("partly and mixed claims land in the middle", () => {
@@ -559,20 +585,32 @@ await test("empty sources classify to empty regions", () => {
     { agree: [], disagree: [], middle: [], unclear: [] });
 });
 
-await test("papers cited in the answer body default to agree (Venn renders without fact-check)", () => {
-  // Regression: the soil-cracking answer cited [1][2][3] in the body with no
-  // fact-check claims and an uncited disagreement section — the Venn must
-  // still render instead of vanishing.
+await test("papers cited in the answer body stay unclear without a stance signal", () => {
+  // Citation is use, not stance. The soil cracking shape (body
+  // citations, no fact check claims, an uncited disagreement
+  // section) used to read as unanimous support; every paper is
+  // unclassified, so every paper stays in unclear.
   const r = classifyVennPapers({
     answer: "## The short answer\nCracks form as soil dries [1][2].\n## What the research shows\nTensile stress drives it [2][3].\n## Where researchers disagree\nNo clear divide on timing.",
     sources: [{ title: "A" }, { title: "B" }, { title: "C" }],
     factCheck: null,
   });
-  assert.deepEqual(r.agree, [1, 2, 3]);
+  assert.deepEqual(r.agree, []);
   assert.deepEqual(r.disagree, []);
   assert.deepEqual(r.middle, []);
-  assert.deepEqual(r.unclear, []);
-  assert.ok(r.agree.length + r.disagree.length + r.middle.length >= 2, "Venn renders");
+  assert.deepEqual(r.unclear, [1, 2, 3]);
+});
+
+await test("a paper cited only in the disagreement section lands in the middle", () => {
+  const r = classifyVennPapers({
+    answer: "## The short answer\nCracks form as soil dries.\n## Where researchers disagree\nBut [2] reports otherwise.",
+    sources: [{ title: "A" }, { title: "B" }],
+    factCheck: null,
+  });
+  assert.deepEqual(r.agree, []);
+  assert.deepEqual(r.disagree, []);
+  assert.deepEqual(r.middle, [2]);
+  assert.deepEqual(r.unclear, [1]);
 });
 
 await test("a paper cited in both the body and the disagreement section lands in the middle", () => {
@@ -581,19 +619,21 @@ await test("a paper cited in both the body and the disagreement section lands in
     sources: [{ title: "A" }, { title: "B" }],
     factCheck: null,
   });
-  assert.deepEqual(r.agree, [1]);
+  assert.deepEqual(r.agree, []);
   assert.deepEqual(r.disagree, []);
   assert.deepEqual(r.middle, [2]);
+  assert.deepEqual(r.unclear, [1]);
 });
 
-await test("fact-check status beats the body-citation default", () => {
+await test("fact-check status places its paper; a body citation alone places nothing", () => {
   const r = classifyVennPapers({
     answer: "Cracks form [1][2].",
     sources: [{ title: "A" }, { title: "B" }],
     factCheck: { claims: [{ claim: "Cracks form [2]", status: "contradicted" }] },
   });
-  assert.deepEqual(r.agree, [1]);
+  assert.deepEqual(r.agree, []);
   assert.deepEqual(r.disagree, [2]);
+  assert.deepEqual(r.unclear, [1]);
 });
 
 // ══════════════════════════════════════════════════════════════════

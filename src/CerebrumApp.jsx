@@ -4097,8 +4097,12 @@ function renderFlashpointClaim(text, P) {
    wins for a paragraph. */
 function buildEvidenceMap(factCheck, disagreementVerdict) {
   const claims = (factCheck && factCheck.claims) || [];
-  if (!claims.length && !disagreementVerdict) return null;
-  const statusRank = { unsupported: 0, thin: 1, partly: 1, traced: 1, supported: 2 };
+  /* Evidence state is a closed set produced only by an actual check.
+     A disagreement verdict on its own checked no paragraph, so with
+     no claims there is no map at all: every paragraph renders in the
+     default state, with no stamp. Unknown means unknown, as a class. */
+  if (!claims.length) return null;
+  const statusRank = { unsupported: 0, contradicted: 0, thin: 1, partly: 1, mixed: 1, traced: 1, supported: 2 };
   return (paraText, paraCites) => {
     let best = null;
     let bestRank = -1;
@@ -4116,7 +4120,10 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
         match = ct.length > 20 && (pt.includes(ct) || c.claim.toLowerCase().includes(pt.slice(0, 80)));
       }
       if (match) {
-        const rank = statusRank[c.status] !== undefined ? statusRank[c.status] : 1;
+        /* A claim whose status is outside the known set names no
+           evidence state, so it can never stamp a paragraph. */
+        if (statusRank[c.status] === undefined) continue;
+        const rank = statusRank[c.status];
         if (rank < bestRank || bestRank === -1) {
           // Lower rank = weaker evidence = more important to surface
           if (bestRank === -1 || rank < bestRank) {
@@ -4133,10 +4140,10 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
        What differs by status is the stamp and the small text label:
        thin and partly supported paragraphs now carry the same kind
        of label unsupported already had, in the stamp's own words. */
-    // If no claim matched but paragraph has citations, treat as supported
-    if (!best && paraCites && paraCites.length > 0) {
-      return { weight: 400, cls: "cb-ev-established", label: null, labelTone: null, status: "supported" };
-    }
+    /* No claim matched this paragraph, so its evidence state is
+       unknown, whatever it cites. It renders with no stamp, in the
+       default state: support iconography is reserved for paragraphs
+       a check actually reached. */
     if (!best) return null;
     if (best.status === "supported") {
       // Supported stays clean: a naked "disputed" label with no explanation
@@ -4161,10 +4168,10 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
         labelTone: null,
       };
     }
-    if (best.status === "unsupported") {
+    if (best.status === "unsupported" || best.status === "contradicted") {
       return { weight: 400, cls: "cb-ev-supported", status: "unsupported", label: "needs source", labelTone: "cb-ev-bad" };
     }
-    // thin or partly: labeled, like unsupported, in the stamp's words.
+    // thin, partly, or mixed: labeled, like unsupported, in the stamp's words.
     return { weight: 400, cls: "cb-ev-supported", status: best.status, label: "thin evidence", labelTone: "cb-ev-warn" };
   };
 }
@@ -4454,23 +4461,28 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
     </p>
     );
     if (!paraCites.length) return <div key={pi} className="cb-assemble-para" style={{ margin: "0 0 22px" }}>{pNode}</div>;
-    /* Calibration stamp: every cited paragraph carries its evidence state
-       in the gutter as a verdict glyph, so the reader sees at a glance
-       which claims are traced and which need a closer look. Shape plus
-       color, never color alone. */
+    /* Calibration stamp: a cited paragraph a check actually reached
+       carries its evidence state in the gutter as a verdict glyph, so
+       the reader sees at a glance which claims held up and which need
+       a closer look. A paragraph no claim matched carries no stamp
+       at all. Shape plus color, never color alone. */
     const stampGlyph = ev && ev.status === "supported" ? "verdictSupported"
-      : ev && (ev.status === "thin" || ev.status === "partly" || ev.status === "traced") ? "verdictMixed"
+      : ev && (ev.status === "thin" || ev.status === "partly" || ev.status === "mixed" || ev.status === "traced") ? "verdictMixed"
       : ev && ev.status === "unsupported" ? "verdictContradicted" : null;
     const stampTone = ev && ev.status === "supported" ? statusGood(P)
-      : ev && (ev.status === "thin" || ev.status === "partly" || ev.status === "traced") ? statusWarn(P)
+      : ev && (ev.status === "thin" || ev.status === "partly" || ev.status === "mixed" || ev.status === "traced") ? statusWarn(P)
       : ev && ev.status === "unsupported" ? statusBad(P) : null;
-    const stampLabel = ev && ev.status === "supported" ? "traced to cited paper"
+    /* The traced wording belongs only to the traced state, where a
+       vocabulary trace actually ran. A supported paragraph says
+       supported, in its own words. An unchecked paragraph has no
+       stamp and no stamp label at all. */
+    const stampLabel = ev && ev.status === "supported" ? "Supported by a cited paper"
       : ev && ev.status === "traced" ? "Traced to the cited paper's wording"
-      : ev && (ev.status === "thin" || ev.status === "partly") ? "thin evidence"
+      : ev && (ev.status === "thin" || ev.status === "partly" || ev.status === "mixed") ? "thin evidence"
       : ev && ev.status === "unsupported" ? "needs source" : null;
     return (
       <div key={pi} className="cb-claim cb-assemble-para" data-claim={claimNo || undefined} style={{ margin: "0 0 22px" }}>
-        <div className="cb-claim-refs" role="group" aria-label={`Supported by references ${paraCites.join(", ")}`}>
+        <div className="cb-claim-refs" role="group" aria-label={`Cites references ${paraCites.join(", ")}`}>
           {stampGlyph && (
             <span className="cb-stamp" title={stampLabel} aria-label={stampLabel} style={{ color: stampTone }}>
               <Icon name={stampGlyph} size={15} />
@@ -4615,6 +4627,26 @@ function FactCheck({ fc, P, accent }) {
   const allClear = flagged.length === 0;
   const [open, setOpen] = useState(false);
 
+  /* Scope in the line, as a class: every receipt states its
+     denominator against the answer in the line itself. The count is
+     the extracted set the checker actually ran on, read from the
+     payload's own claims, and the rest of the answer is named as
+     not claim checked. The green pass dot is a pass signal, so it
+     may only show when the check's own summary carries no scope
+     caveat; a summary that limits its own check (a wording trace is
+     not a verification, a name check is not a check on whether the
+     conclusions are right) gets a neutral dot instead. */
+  const summaryText = String(fc.summary || "");
+  const summaryHasScopeCaveat = /not a check|not a verification|does not check|does not verify|did not check|not claim checked|cannot tell|can not tell/i.test(summaryText);
+  const showPassDot = !summaryHasScopeCaveat;
+  const receiptNoun = isTerms ? "name" : "claim";
+  const receiptScope = `Checked ${total} extracted ${receiptNoun}${total === 1 ? "" : "s"} against ${total === 1 ? "its paper" : "their papers"}. The rest of the answer was not claim checked.`;
+  const checkedLine = isExtractive
+    ? `Checked ${total} extracted claim${total === 1 ? "" : "s"} against ${total === 1 ? "its paper" : "their papers"} for shared wording and ${total === 1 ? "it matched" : "each one matched"}. The rest of the answer was not claim checked.`
+    : isTerms
+    ? `Checked ${total} extracted name${total === 1 ? "" : "s"} against ${total === 1 ? "its paper" : "their papers"} and ${total === 1 ? "it turned up" : "each one turned up"}. The rest of the answer was not claim checked.`
+    : `Checked ${total} extracted claim${total === 1 ? "" : "s"} against ${total === 1 ? "its paper" : "their papers"} and ${total === 1 ? "it held up" : "each one held up"}. The rest of the answer was not claim checked.`;
+
   if (total === 0) return null;
 
   /* ── Clean: one line, and it stays one line unless asked ──
@@ -4634,20 +4666,8 @@ function FactCheck({ fc, P, accent }) {
             lineHeight: 1.5, fontFamily: "var(--cb-font)",
           }}
         >
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: STATUS.good, flexShrink: 0 }} />
-          <span>
-            {isExtractive
-              ? (total === 1
-                  ? "Checked: the cited claim in this answer shares real vocabulary with the paper it cites"
-                  : `Checked: all ${total} cited claims in this answer share real vocabulary with the papers they cite`)
-              : isTerms
-              ? total === 1
-                ? "Checked: the specific name in this answer appears in the papers it cites"
-                : `Checked: all ${total} specific names in this answer appear in the papers it cites`
-              : total === 1
-                ? "Checked: the claim in this answer traces to a quote in a cited paper"
-                : `Checked: all ${total} claims in this answer trace to quotes in cited papers`}
-          </span>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: showPassDot ? STATUS.good : P.faint, flexShrink: 0 }} />
+          <span>{checkedLine}</span>
           <span style={{ color: P.ink2, fontWeight: 500, flexShrink: 0 }}>{open ? "Hide" : "What this means"}</span>
         </button>
 
@@ -4683,7 +4703,7 @@ function FactCheck({ fc, P, accent }) {
               </>
             ) : (
               <>
-                Each claim in the answer was matched against a specific quote from the
+                Each extracted claim was matched against a specific quote from the
                 paper it cites, and every one of them held up. This is the stronger of
                 the two checks Cerebrum runs. It still reads abstracts rather than full
                 texts, so a claim that depends on a method or a caveat buried in the
@@ -4740,6 +4760,7 @@ function FactCheck({ fc, P, accent }) {
         <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: oc, fontFamily: "var(--cb-font)", lineHeight: 1.4, minWidth: 0, overflowWrap: "anywhere" }}>{headline}</span>
       </div>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6, marginBottom: 4 }}>{why}</div>
+      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, marginBottom: 4 }}>{receiptScope}</div>
       {nPass > 0 && (
         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
           {/* "The other 1 claim" reads like a typo. English wants the bare
