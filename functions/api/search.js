@@ -2890,6 +2890,21 @@ export function deDash(text) {
   if (!text) return text;
   let t = String(text);
 
+  // Unicode hyphen variants first (2026-10-22, answer integrity
+  // repair): the fleet's models emit U+2011 (non breaking hyphen)
+  // and U+2010 inside compound words. Those are real compound
+  // hyphens and keep their place, as ASCII hyphens. Leaving the
+  // codepoints in the shipped text was a live defect: the answer
+  // PDF's embedded fonts carry no glyph for U+2011, so the
+  // character printed as nothing and the compound joined on the
+  // page (the owner's exported answer showed the metagenome and
+  // metatranscriptome compound, the read ratio compound, and the
+  // abundance relative compound all glued), while the screen,
+  // which falls back to a system font for the missing glyph,
+  // looked correct. The soft hyphen (U+00AD) is an invisible
+  // break hint and is dropped, which is how it renders elsewhere.
+  t = t.replace(/[\u2010\u2011]/g, "-").replace(/\u00AD/g, "");
+
   // Ranges first: "5–60 minutes", "2019–2024". A dash between two numbers
   // is a range, never punctuation, and "to" is how it is read aloud.
   t = t.replace(/(\d)\s*[\u2013\u2014]\s*(\d)/g, "$1 to $2");
@@ -9912,6 +9927,23 @@ const DEEP_FACT_CHECK_SYSTEM_PROMPT =
   "sources actually contain: when a cited source DOES state the very thing such a claim " +
   "denies, the claim is \"unsupported\" and the quote must be the sentence from that source " +
   "that states it.\n\n" +
+  // ANSWER INTEGRITY (2026-10-22): the universal claim rule. The
+  // owner's exported answer shipped a field wide negative ("no
+  // primary research paper compares X") checked as supported 1 of
+  // 1 against the one cited paper, which indeed does not do X.
+  // One paper not doing X is not evidence that no paper does X,
+  // and the prompt now states the rule the deterministic pass
+  // below (applyUniversalClaimRule) also enforces.
+  "UNIVERSAL CLAIMS RULE: a claim that something does not exist in the literature, has " +
+  "never been done, or is absent from a field (for example 'no paper reports X', 'no study " +
+  "has measured X', 'the literature does not contain X', or a field level generalization " +
+  "resting on one source) can never be \"supported\" by an individual paper: a paper not " +
+  "doing X says nothing about what other papers do. Mark such a claim \"unsupported\" " +
+  "unless the cited source is itself a systematic review or a survey of the literature " +
+  "whose stated scope covers the claim. Do not select statements about the retrieval " +
+  "itself (what the answer says it could or could not find among the retrieved papers, or " +
+  "a caveat that a retrieval result is not proof of absence): those are process " +
+  "statements, not claims a source can verify.\n\n" +
   "Output ONLY this JSON shape . no markdown fences, no commentary before or after:\n" +
   '{"claims": [{"claim": "...", "source_index": 1, "quote": "...", "status": "supported", "justification": "..."}]}';
 
@@ -11095,6 +11127,7 @@ export function isExistenceQuestion(query) {
     /^has\s+(?:anyone|anybody|a researcher|any researcher|research)\b/.test(q) ||
     /^have\s+(?:researchers|scientists|studies|papers)\b/.test(q) ||
     /^(?:are|is)\s+there\b[^?]*\b(?:papers?|studies|research|evidence)\b/.test(q) ||
+    /^(?:do|does|did)\s+any\b[^?]*\b(?:papers?|studies|research)\b/.test(q) ||
     /\bany\s+(?:papers?|studies)\s+(?:that|which|on|about)\b/.test(q)
   );
 }
@@ -11174,6 +11207,78 @@ function existenceAnswerLine(support, pluralNoun = "papers") {
   }
   const plural = pluralNoun.endsWith("s") ? pluralNoun : pluralNoun + "s";
   return "None of the retrieved " + plural + " report this practice directly.";
+}
+
+/* ── Retrieval scoped honesty for AI answers (2026-10-22, answer
+ * integrity repair) ─────────────────────────────────────────────
+ * The prompts carry the existence rule (the full prompt always
+ * did; the compact prompt that waves 1 and 2 race on did not,
+ * which is the path the owner's flagged answer took), but a prompt
+ * sentence is not a guarantee: the flagged answer asserted a
+ * field wide negative in its short answer and then reasoned from
+ * it in its disagreement and change sections. This is the
+ * mechanical backstop at the ship gate. On an existence question,
+ * every sentence that asserts a universal negative (the same
+ * detector the claim check rule uses) is rewritten to the one
+ * honest form: the first becomes the retrieval statement below,
+ * later restatements become a scope sentence. Sentences about a
+ * specific paper ("the available study does not present ...")
+ * are not universal and are never touched, and neither are
+ * caveats that already deny the assertion. The citation markers
+ * a rewritten sentence carried are kept on it, so the cited set
+ * the response derives from the prose does not change. */
+export const RETRIEVAL_NEGATIVE_STATEMENT =
+  "I could not find one in the papers retrieved here. That is not proof that none exists.";
+export const RETRIEVAL_SCOPE_SENTENCE =
+  "That result is limited to the papers retrieved here.";
+
+export function scopeExistenceAnswer(answer, query) {
+  const text = String(answer || "");
+  if (!text || !isExistenceQuestion(query)) return text;
+  const boundary = answerBodyBeforeBibliography(text);
+  const tail = text.slice(boundary.length);
+  const blocks = sectionizeAnswer(boundary);
+  let replaced = false;
+  const outBlocks = blocks.map((block) => {
+    const outLines = block.lines.map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("|") || /^[-*]\s/.test(trimmed) || /^\d+[.)]\s/.test(trimmed)) return line;
+      const sentences = splitBodySentences(line);
+      if (sentences.length === 0) return line;
+      let changedLine = false;
+      const kept = sentences.map((s) => {
+        if (!isUniversalNegativeText(s)) return s;
+        changedLine = true;
+        if (!replaced) {
+          replaced = true;
+          const cites = (s.match(/\[\d{1,3}\]/g) || []).join("");
+          return RETRIEVAL_NEGATIVE_STATEMENT + (cites ? " " + cites : "");
+        }
+        return RETRIEVAL_SCOPE_SENTENCE;
+      });
+      return changedLine ? kept.join(" ") : line;
+    });
+    return { heading: block.heading, lines: outLines };
+  });
+  if (!replaced) return text;
+  const joined = joinAnswerSections(outBlocks);
+  if (!joined) return text;
+  return joined + tail;
+}
+
+/* answerAssertsRetrievalNegative(answer, query): the shipped
+ * answer to an existence question reports a retrieval negative,
+ * in either the AI guard's canonical form or the deterministic
+ * tiers' scoped line. The confidence builder caps such answers
+ * low (context.existenceNegative): a retrieval result is not
+ * evidence about the field, whatever the shelf behind it looks
+ * like. */
+export function answerAssertsRetrievalNegative(answer, query) {
+  if (!isExistenceQuestion(query)) return false;
+  const t = String(answer || "");
+  return /could not find one in the papers retrieved here/i.test(t) ||
+    /none of the (?:retrieved|papers retrieved)/i.test(t) ||
+    /none of the papers retrieved here/i.test(t);
 }
 
 // The honest answer for a failed honesty gate: no synthesized claims, no
@@ -16050,6 +16155,228 @@ export function dedupeFactCheckClaims(factCheck) {
   return out;
 }
 
+/* ── Universal claims (2026-10-22, answer integrity repair) ─────
+ * The owner's exported answer asserted a field wide negative
+ * ("No primary research paper in the supplied literature directly
+ * compares the ratio of metagenomics to metatranscriptomics reads
+ * ...") resting on ONE cited primary paper, and its claim check
+ * shipped "supports 1 of 1 checked claim" — the checker had
+ * verified the negative against that one paper, which indeed does
+ * not perform the comparison. One paper not doing X cannot
+ * support "no paper does X": an individual source can verify what
+ * it reports, never what the whole literature lacks. The rules
+ * below are the deterministic backstop for the deep checker's new
+ * prompt rule, applied to the checker's own verdicts before any
+ * count, removal, or confidence surface reads them:
+ *
+ *   . A universal negative (no / none / never / no study / no
+ *     paper shapes, "the literature does not ...", unreported and
+ *     unstudied shapes) is NOT verifiable by individual sources.
+ *     A verdict of supported (or thin) on one stands only when a
+ *     CITED source for that claim is itself a systematic review
+ *     or a survey of the literature whose text covers the claim's
+ *     scope. Otherwise the claim is corrected to unsupported with
+ *     kind "universal", so factCheckSupport counts it as checked
+ *     and not supported, and the removal machinery treats it like
+ *     any other refused claim.
+ *   . A field level generalization (a claim predicated of the
+ *     literature, the field, or researchers collectively) resting
+ *     on a single cited source gets the same correction under the
+ *     same systematic exception.
+ *   . Statements that deny their own assertion ("that is not
+ *     proof that none exists", "work using other terms may
+ *     exist") are caveats, not claims, and are never corrected:
+ *     they are the honest form the synthesis is told to use.
+ *   . The provenance wording trace is out of scope: it never
+ *     claimed support in the first place (factCheckKind). */
+
+const UNIVERSAL_NON_ASSERTION_RE =
+  /\bnot proof\b|\bdoes not prove\b|\bdo not prove\b|\bnot evidence\b|\bmay (?:still )?exist\b|\bmight (?:still )?exist\b|\bcould (?:still )?exist\b|\bmay use different terms\b|\busing different terms may exist\b/i;
+
+const UNIVERSAL_NEGATIVE_RES = [
+  /\bno\s+(?:[a-z]+\s+){0,3}?(papers?|studies|study|articles?|reports?|trials?|reviews?)\b/i,
+  /\bno\s+evidence\s+(?:that|for|supports?|suggests?)\b/i,
+  /\bnone\s+of\s+(?:the\s+|these\s+|those\s+)?(?:retrieved\s+|supplied\s+|provided\s+|cited\s+|gathered\s+)?(?:papers|studies|sources|articles|reports)\b/i,
+  /\bno\s+disagreement\b/i,
+  /\bno\s+one\s+has\b/i,
+  /\bhas\s+never\s+been\b/i,
+  /\bhave\s+never\s+been\b/i,
+  /\bhas\s+not\s+been\s+(?:reported|shown|demonstrated|measured|observed|found|established|published)\b/i,
+  /\bhave\s+not\s+been\s+(?:reported|shown|demonstrated|measured|observed|found|established|published)\b/i,
+  /\bnever\b[^.!?]{0,48}\b(?:reported|shown|demonstrated|measured|observed|found|established|published|tested|examined)\b/i,
+  /\bdoes\s+not\s+(?:contain|report|show|include|address|examine|describe)\s+any\b/i,
+  /\bdo\s+not\s+(?:contain|report|show|include|address|examine|describe)\s+any\b/i,
+  /\bnot\s+contain\s+any\s+(?:study|studies|paper|papers|report|reports|article|articles)\b/i,
+  /\bthe\s+literature\s+does\s+not\b/i,
+  /\bthe\s+evidence\s+does\s+not\s+(?:show|contain|report|establish|address)\b/i,
+  /\bthere\s+(?:is|are)\s+no\s+(?:[a-z]+\s+){0,3}?(papers?|studies|evidence|research|reports?)\b/i,
+  /\bremains?\s+(?:unstudied|unreported|unexamined|untested|unexplored)\b/i,
+  /\babsence\s+of\s+(?:any\s+)?(?:studies|papers|evidence|reports)\b/i,
+];
+
+const FIELD_SUBJECT_RE =
+  /\bthe literature\b|\bthe field\b|\bresearchers\b|\bscientists\b|\bstudies (?:show|showed|report|reported|demonstrate|demonstrated|suggest|suggested)\b|\bthe evidence (?:shows|showed|suggests|indicates|establishes)\b/i;
+const FIELD_GENERALITY_RE =
+  /\bstandard\b|\bwidely\b|\bgenerally\b|\bin general\b|\btypically\b|\bconsistently\b|\buniversally\b|\bwell established\b|\bestablished (?:that|as)\b|\bshows? that\b|\bdemonstrates? that\b/i;
+
+export function isUniversalNegativeText(text) {
+  const t = String(text || "").replace(/\[\d{1,3}\]/g, " ");
+  if (!t.trim()) return false;
+  if (UNIVERSAL_NON_ASSERTION_RE.test(t)) return false;
+  return UNIVERSAL_NEGATIVE_RES.some((re) => re.test(t));
+}
+
+export function isFieldLevelGeneralizationText(text) {
+  const t = String(text || "").replace(/\[\d{1,3}\]/g, " ");
+  if (!t.trim()) return false;
+  if (UNIVERSAL_NON_ASSERTION_RE.test(t)) return false;
+  return FIELD_SUBJECT_RE.test(t) && FIELD_GENERALITY_RE.test(t);
+}
+
+export function isUniversalClaimText(text) {
+  return isUniversalNegativeText(text) || isFieldLevelGeneralizationText(text);
+}
+
+/* isSystematicOrSurveyPaper(paper): the one source class that can
+ * carry a literature wide claim — a systematic review, a meta
+ * analysis, an umbrella or scoping review, or a survey of the
+ * literature. Read from the evidence class ladder first (which
+ * already classifies from study type data, title, and publication
+ * types), then from the paper's own title and type text for the
+ * survey shapes the ladder does not name. A questionnaire survey
+ * of people is not a survey of the literature and never qualifies
+ * on the word "survey" alone: the survey words must pair with a
+ * literature or review marker in the title or type text. */
+export function isSystematicOrSurveyPaper(paper) {
+  if (!paper || typeof paper !== "object") return false;
+  try {
+    if (evidenceClassOfPaper(paper).rank >= 4) return true;
+  } catch { /* the text scan below is the fallback */ }
+  const hay = (String(paper.title || "") + " " + String(paper.type || "") + " " +
+    (Array.isArray(paper.publicationTypes) ? paper.publicationTypes.join(" ") : "")).toLowerCase();
+  if (/\b(systematic review|meta[-\s]?analysis|meta[-\s]?analyses|umbrella review|scoping review)\b/.test(hay)) return true;
+  if (/\bsurvey\b/.test(hay) && /\b(literature|review)\b/.test(hay)) return true;
+  if (/\breview of the literature\b/.test(hay)) return true;
+  return false;
+}
+
+const UNIVERSAL_SCOPE_STOPWORDS = new Set([
+  "paper", "papers", "study", "studies", "article", "articles", "report", "reports",
+  "literature", "research", "primary", "directly", "direct", "evidence", "using",
+  "about", "above", "there", "their", "these", "those", "which", "would", "could",
+]);
+
+/* systematicSourceCoversClaim(paper, claimText): a systematic
+ * source supports a universal claim only when its own text covers
+ * the claim's scope — the claim's distinctive terms must actually
+ * appear in the review's title or abstract. A systematic review of
+ * an unrelated topic standing elsewhere in the answer never
+ * qualifies: at least three of the claim's distinctive terms (or
+ * all of them, when the claim has fewer) must hit. */
+export function systematicSourceCoversClaim(paper, claimText) {
+  if (!isSystematicOrSurveyPaper(paper)) return false;
+  const hay = (String(paper.title || "") + " " + String(paper.abstract || "")).toLowerCase();
+  if (!hay.trim()) return false;
+  const words = [];
+  for (const w of String(claimText || "").toLowerCase().split(/[^a-z0-9]+/)) {
+    if (w.length >= 5 && !UNIVERSAL_SCOPE_STOPWORDS.has(w) && !words.includes(w)) words.push(w);
+  }
+  if (words.length === 0) return true;
+  let hits = 0;
+  for (const w of words) {
+    if (hay.includes(w) || hay.includes(extractiveStem(w))) hits++;
+  }
+  return hits >= Math.min(3, words.length) && hits * 3 >= words.length;
+}
+
+/* The source indices a claim is bound to, from every shape the
+ * pipeline carries: the raw deep check's sourceIndex field, the
+ * panel note's bracketed quote reference, and brackets inside the
+ * claim text itself. */
+function universalClaimSourceIndices(claim) {
+  const idx = new Set();
+  if (!claim || typeof claim !== "object") return [];
+  const direct = claim.sourceIndex != null ? claim.sourceIndex : claim.source_index;
+  if (Number.isInteger(direct) && direct > 0) idx.add(direct);
+  for (const field of [claim.claim, claim.note, claim.justification]) {
+    if (typeof field !== "string") continue;
+    for (const m of field.matchAll(/\[(\d{1,3})\]/g)) idx.add(parseInt(m[1], 10));
+  }
+  return [...idx].filter((n) => n >= 1);
+}
+
+export const UNIVERSAL_CLAIM_RULE_NOTE =
+  "Requires systematic evidence: an individual paper cannot verify a claim about the whole literature, and a paper not reporting something does not establish that no paper reports it.";
+
+/* applyUniversalClaimRuleToClaims(claims, papers): the rule over
+ * a claims array in either carried shape (the raw deep check's
+ * {claim, status, justification, quote, sourceIndex} or the
+ * panel's {claim, status, note, kind}). Returns the SAME array
+ * when nothing changes, so callers can test identity. */
+export function applyUniversalClaimRuleToClaims(claims, papers) {
+  if (!Array.isArray(claims) || claims.length === 0) return claims;
+  const pool = Array.isArray(papers) ? papers : [];
+  let changed = false;
+  const out = claims.map((c) => {
+    if (!c || typeof c.claim !== "string" || !c.claim.trim()) return c;
+    if (c.status !== "supported" && c.status !== "thin") return c;
+    const universalNegative = isUniversalNegativeText(c.claim);
+    const fieldGeneralization = !universalNegative && isFieldLevelGeneralizationText(c.claim);
+    if (!universalNegative && !fieldGeneralization) return c;
+    const citedIdx = universalClaimSourceIndices(c);
+    const citedPapers = citedIdx.length > 0
+      ? citedIdx.map((n) => pool[n - 1]).filter(Boolean)
+      : pool;
+    // A field level generalization is the checker's ordinary call
+    // when several sources carry it; the single source shape is
+    // the unverifiable one.
+    if (fieldGeneralization && citedPapers.length !== 1) return c;
+    if (citedPapers.some((p) => systematicSourceCoversClaim(p, c.claim))) return c;
+    changed = true;
+    const next = { ...c, status: "unsupported", kind: "universal" };
+    if (typeof c.justification === "string") {
+      next.justification = UNIVERSAL_CLAIM_RULE_NOTE + (c.justification ? " Checker note: " + c.justification : "");
+    }
+    if (typeof c.note === "string") {
+      next.note = UNIVERSAL_CLAIM_RULE_NOTE + (c.note ? " " + c.note : "");
+    }
+    if (typeof c.justification !== "string" && typeof c.note !== "string") {
+      next.note = UNIVERSAL_CLAIM_RULE_NOTE;
+    }
+    return next;
+  });
+  return changed ? out : claims;
+}
+
+/* applyUniversalClaimRule(factCheck, papers): the rule over a
+ * finished fact check object, with the summary and overall
+ * recounted the way dedupeFactCheckClaims recounts them, so the
+ * shipped "supports N of N" line can never again count a
+ * universal negative as supported by a non systematic source.
+ * The provenance wording trace is returned untouched: it never
+ * claimed support. */
+export function applyUniversalClaimRule(factCheck, papers) {
+  if (!factCheck || typeof factCheck !== "object") return factCheck;
+  if (factCheckKind(factCheck) === "provenance") return factCheck;
+  if (!Array.isArray(factCheck.claims) || factCheck.claims.length === 0) return factCheck;
+  const claims = applyUniversalClaimRuleToClaims(factCheck.claims, papers);
+  if (claims === factCheck.claims) return factCheck;
+  const out = { ...factCheck, claims };
+  if (factCheck.mode === "claims" && typeof factCheck.summary === "string" &&
+      /^Checked \d+ claims? against the cited sources:/.test(factCheck.summary)) {
+    const counted = claims.filter((c) => c && factCheckClaimCountable(c));
+    if (counted.length > 0) {
+      const nSup = counted.filter((c) => c.status === "supported").length;
+      const nThin = counted.filter((c) => c.status === "thin").length;
+      const nUns = counted.filter((c) => c.status === "unsupported").length;
+      out.overall = nUns === 0 ? "supported" : (nSup > 0 || nThin > 0) ? "partly" : "unsupported";
+      out.summary = "Checked " + counted.length + " claim" + (counted.length === 1 ? "" : "s") +
+        " against the cited sources: " + nSup + " supported, " + nThin + " thin, " + nUns + " unsupported.";
+    }
+  }
+  return out;
+}
+
 /* appendClaimCheckSentence(answer, sentence): state the claim
  * check's result inside an answer body whose confidence line was
  * composed BEFORE the check ran (the extractive and definition
@@ -16356,6 +16683,16 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   // sources are mandatory, one good source defeats the purpose).
   if (n === 1) {
     applyCap(45, "the answer rests on a single source");
+  }
+  // Retrieval negative cap (2026-10-22, answer integrity
+  // repair): an existence answer whose result is "not found in
+  // what was retrieved" reports a property of this retrieval, not
+  // of the field, and its confidence is low by construction —
+  // whatever the shelf's size, recency, or relevance say. The
+  // caller asserts the shape via context.existenceNegative
+  // (answerAssertsRetrievalNegative on the final answer).
+  if (context && context.existenceNegative) {
+    applyCap(45, "the answer reports what this retrieval did not find, which is not proof that no paper exists");
   }
   // Evidence class cap (2026-10-21, answer integrity lane,
   // audit H3): the label is tied to the cited evidence CLASS
@@ -17666,6 +18003,16 @@ export function buildCachedServeTrust(input) {
   const recordedMode = input && typeof input.synthesisMode === "string" ? input.synthesisMode : null;
   const extractiveShipment = recordedMode === null || recordedMode === "extractive";
   let servedAnswer = answer;
+  // RETRIEVAL SCOPE GUARD, cached serve parity (2026-10-22,
+  // answer integrity repair): a stored AI answer is served under
+  // current rules, so the guard applies to it exactly as it
+  // applies at a fresh AI answer's ship gate — a universal
+  // negative an older build asserted from its retrieved set is
+  // rewritten to the retrieval statement here rather than served
+  // as a field fact under a fresh timestamp.
+  if (recordedMode === "ai") {
+    try { servedAnswer = scopeExistenceAnswer(servedAnswer, input && input.question); } catch { /* the guard must never break the serve */ }
+  }
   if (extractiveShipment && confidence && confidence.level && confidence.line) {
     try {
       servedAnswer = bindBakedConfidenceLine(answer, confidence.level, confidence.line);
@@ -17696,7 +18043,20 @@ export function buildCachedServeTrust(input) {
     answer: servedAnswer,
     cachedServe: true,
   });
-  return { answer: servedAnswer, labeledSources, funnel, coverage, record, confidence };
+  // UNIVERSAL CLAIM RULE, cached serve parity (2026-10-22): the
+  // stored fact check is corrected under the current rule against
+  // the stored payload's own source list (the list its source
+  // references index into), and the corrected object is what the
+  // serve ships after the split remap. A stored "supported"
+  // verdict on a universal negative from a non systematic source
+  // never reaches a reader from a cache hit either.
+  let correctedFactCheck = null;
+  try {
+    correctedFactCheck = (input && input.factCheck && typeof input.factCheck === "object")
+      ? applyUniversalClaimRule(input.factCheck, labeledSources)
+      : null;
+  } catch { correctedFactCheck = null; }
+  return { answer: servedAnswer, labeledSources, funnel, coverage, record, confidence, factCheck: correctedFactCheck };
 }
 
 // ── Retrieval strategy record (for the no-results "what was tried") ─
@@ -19434,7 +19794,7 @@ export const CEREBRUM_SYSTEM_v1 = {
     // indistinguishable from a real result to anyone not checking.
     "- NEVER invent illustrative numbers. Do not write example figures like 'a small study (n=12) versus a larger one (n=1000)' to explain a concept. Every number you write must come from a specific abstract above, and must carry that source's citation. If you want to say sample sizes varied, say which studies and give their actual numbers . or say the abstracts do not report them. An invented number next to a citation reads as a real finding and is the single worst error you can make here.\n" +
     "- ZERO-HALLUCINATION GROUNDING: ground every factual assertion strictly in the provided abstracts. Do NOT introduce external acronyms, gene names, brain regions, or pathways (e.g., BDNF, DMN, TPJ) unless that exact term appears verbatim somewhere in the retrieved abstracts above . importing a real-but-unsourced acronym to sound precise is exactly as dishonest as inventing a fake one, and it will fail fact-checking either way. If a concept needs a name the sources don't give you, describe it in plain language instead.\n" +
-    "- EXISTENCE QUESTIONS: when the question asks whether any papers report something ('are there any studies that...', 'has anyone measured...'), a negative answer may only describe the papers in front of you. Write 'None of the papers retrieved here report X' and note that work using different terms may exist. NEVER write 'the literature does not report X' or 'no study has done X' as a claim about all published research: you only ever see the abstracts listed above, and a retrieval miss is not evidence that the work does not exist.\n" +
+    "- EXISTENCE QUESTIONS: when the question asks whether any papers report something ('are there any studies that...', 'has anyone measured...'), a negative answer may only describe the papers in front of you. Write 'None of the papers retrieved here report X' and note that work using different terms may exist. NEVER write 'the literature does not report X' or 'no study has done X' as a claim about all published research: you only ever see the abstracts listed above, and a retrieval miss is not evidence that the work does not exist. The first person form of the same statement is 'I could not find one in the papers retrieved here. That is not proof that none exists.' Never answer such a question with a bare 'no'. The scope binds EVERY section, not just the opening line: the disagreement section may not treat the negative as established about the field, and 'what would change this' may not presuppose that no such paper exists.\n" +
     "- NEVER suggest, recommend, or name specific papers you were not given. Do not say 'you could look for Smith et al. 2020' or 'a study by Jones found...' unless that paper is in your source list above. If you want to suggest the user search for more, say 'searching for [topic keywords] would likely surface more' . but NEVER invent specific paper titles or authors.\n" +
     "- NEVER write 'Source [1] discusses...' or 'According to [2]...' . weave the citation into your own sentence.\n" +
     "- TEACHING FRAME: the citation is the warranty, not the subject. Sentences state facts about the world and carry citations as support. A sentence whose subject is a paper, a study, or 'the researchers' breaks the teaching frame (outside disagreement, single weak source, and methods moments, where provenance is the point) . rewrite it as the fact itself.\n" +
@@ -24840,7 +25200,7 @@ async function runSearchPipeline(pctx) {
               // verdict ship beside the recomputed artifacts. A
               // pre envelope payload stored neither, and both are
               // honestly null — never recomputed into existence.
-              factCheck: earlyTrustSignals ? remapFactCheckIndices(earlyTrustSignals.factCheck, earlySplit.indexMap) : null,
+              factCheck: earlyTrust.factCheck ? remapFactCheckIndices(earlyTrust.factCheck, earlySplit.indexMap) : null,
               disagreementVerdict: earlyTrustSignals ? earlyTrustSignals.disagreementVerdict : null,
               related: [],
               source: "Cached (verified)",
@@ -27270,7 +27630,8 @@ async function runSearchPipeline(pctx) {
         "8. Your answer will be QUALITY-SCORED. Score < 40 = regenerated with a different model.\n" +
         "9. This checklist is for you alone . never mention, quote, summarize, or allude to it (or words like " +
         "'mechanical enforcement', 'banned phrase', or 'post-processed') anywhere in your answer. Just follow it silently " +
-        "and write the answer itself, starting directly with the scientific content.]"
+        "and write the answer itself, starting directly with the scientific content.\n" +
+        "10. EXISTENCE SCOPE: if the question asks whether any papers report something and none of the sources in front of you does, the only honest negative is 'I could not find one in the papers retrieved here. That is not proof that none exists.' A field wide negative ('no paper does X', 'the literature does not contain X', 'no study has done X') FAILS, in any section.]"
       : "\n\n[MECHANICAL ENFORCEMENT . your response is post-processed:\n" +
         "1. BANNED PHRASES (stripped): 'further research is needed', 'plays a crucial role', 'in conclusion', 'in summary', " +
         "'Overall', 'it is clear that', 'sheds light on'.\n" +
@@ -27336,6 +27697,7 @@ async function runSearchPipeline(pctx) {
           "Write a structured scientific answer. The first section answers the question directly, then the evidence sections support it. " +
           "Synthesize claims across papers instead of listing papers one by one. Teach the answer as plain facts about the world, the way a knowledgeable assistant explains it: mechanism and cause in ordinary language, citations attached as support. Do not frame sentences around papers ('a study found'); name a paper inside a sentence only where papers disagree or a single weak source carries the claim. Cite inline as [1], [2] at the end of the sentence a source supports, and only for claims that source actually reports. " +
           "Never invent numbers, authors, or findings; use the exact numbers the abstracts give. If the sources do not answer part of the question, say so plainly in one sentence and answer only what they support. " +
+          "Existence questions bind harder: when the question asks whether any papers report something and none of the retrieved papers does, the only honest negative is 'I could not find one in the papers retrieved here. That is not proof that none exists.' Never write 'no paper does X', 'no study has done X', or 'the literature does not contain X' from a retrieved set, never answer with a bare 'no', and do not let the disagreement or limits sections treat such a negative as established about the field. " +
           "Bold at least four key terms with **double asterisks**. Italicize species names with _underscores_. Expand every abbreviation on first use. " +
           "Never use an em dash or en dash as punctuation. " + lengthHint + "\n\n" +
           ACTIVE_STRUCTURE;
@@ -27484,7 +27846,7 @@ async function runSearchPipeline(pctx) {
           // Parity with the fresh path (wave eight round two): the
           // stored run's fact check and verdict, or honest nulls
           // for a pre envelope payload.
-          factCheck: laterTrustSignals ? remapFactCheckIndices(laterTrustSignals.factCheck, laterSplit.indexMap) : null,
+          factCheck: laterTrust.factCheck ? remapFactCheckIndices(laterTrust.factCheck, laterSplit.indexMap) : null,
           disagreementVerdict: laterTrustSignals ? laterTrustSignals.disagreementVerdict : null,
           related: [],
           source: "Cached (verified)",
@@ -29219,7 +29581,8 @@ async function runSearchPipeline(pctx) {
           "'Overall', 'it is important to note', 'sheds light on'.\n\n" +
           "5. START with a direct scientific claim. No 'Based on...' or 'The research shows...'.\n\n" +
           "6. Italicize species: _E. coli_. Quantify: give numbers, not 'significant'.\n" +
-          "7. TEACH, DO NOT REPORT: phrase claims as facts about the world, explained plainly, with citations as support. BAD: 'A 2021 study found that gut microbes shift as larvae grow.' GOOD: 'Gut microbes shift as larvae grow, with early instars dominated by _Proteobacteria_ [1][3].' Paper framing only where papers disagree or a single weak source carries a claim.";
+          "7. TEACH, DO NOT REPORT: phrase claims as facts about the world, explained plainly, with citations as support. BAD: 'A 2021 study found that gut microbes shift as larvae grow.' GOOD: 'Gut microbes shift as larvae grow, with early instars dominated by _Proteobacteria_ [1][3].' Paper framing only where papers disagree or a single weak source carries a claim.\n\n" +
+          "8. EXISTENCE SCOPE: if the question asks whether any papers report something and none of the sources does, write 'I could not find one in the papers retrieved here. That is not proof that none exists.' Never state a field wide negative ('no paper does X', 'the literature does not contain X') from a retrieved set.";
 
         const retryMsgs = [
           { role: "system", content: retrySystemPrompt },
@@ -29283,6 +29646,7 @@ async function runSearchPipeline(pctx) {
             { role: "system", content: "You are a scientific expert. Write a thorough, accurate answer. " +
               "Cite papers ONLY if they directly address the question's specific topic and organism. " +
               "If none of the papers are relevant, say so briefly and do not invent findings . summarize only what the papers actually report, and mark any general background as such. " +
+              "If the question asks whether any papers report something and none of the papers above does, say 'I could not find one in the papers retrieved here. That is not proof that none exists.' Never state a field wide negative from a retrieved set. " +
               "An honest short answer is better than wrong citations. SYNTHESIZE . do not list sources. Teach plainly: state findings as facts about the world with citations attached as support, not as reports about the papers; paper framing only where provenance matters." },
             { role: "user", content: "Papers:\n\n" + evidence + "\n\n---\nQuestion: " + query +
               "\n\nA previous draft of this answer carried no citations at all. Write the answer again and cite the papers inline as [1], [2], etc. after the claims they support, using only the numbered papers above. Every key claim needs a citation." },
@@ -29826,6 +30190,19 @@ async function runSearchPipeline(pctx) {
       answer = correctNameVariants(answer, canonicalName);
     }
 
+    // RETRIEVAL SCOPE GUARD (2026-10-22, answer integrity
+    // repair): an AI existence answer may not assert a universal
+    // negative from the retrieved set, in any section. The
+    // prompts carry the rule; this pass enforces it on the final
+    // text before the fact check reads it, so the check, the
+    // confidence line, and the shipped prose all judge the same
+    // scoped answer. Deterministic tiers are out of scope: their
+    // existence lines are already retrieval scoped by
+    // construction (existenceAnswerLine).
+    if (aiOK && useEvidence && evidencePapers.length > 0) {
+      try { answer = scopeExistenceAnswer(answer, query); } catch { /* the guard must never break the answer */ }
+    }
+
 
     // ════════════════════════════════════════════════════════════════
     // FACT-CHECK PASS (the real implementation . see verifyAnswerAgainstSources
@@ -30017,7 +30394,16 @@ async function runSearchPipeline(pctx) {
           unattributed: typeof c.sourceIndex === "number" &&
             (c.sourceIndex < 1 || c.sourceIndex > evidencePapers.length),
         }));
-        const checkedClaims = attributed.filter((c) => !c.unattributed);
+        // UNIVERSAL CLAIM RULE (2026-10-22, answer integrity
+        // repair): a universal negative or a single source field
+        // generalization the checker marked supported is corrected
+        // HERE, before the counts, the overall, the panel, and
+        // the removal list below are derived from the claims — so
+        // no downstream surface can ever read the uncorrected
+        // verdict. One paper not doing X cannot support "no paper
+        // does X" (see applyUniversalClaimRuleToClaims).
+        const ruledClaims = applyUniversalClaimRuleToClaims(attributed, evidencePapers);
+        const checkedClaims = ruledClaims.filter((c) => !c.unattributed);
         const unsupportedCount = checkedClaims.filter((c) => c.status === "unsupported").length;
         const supportedCount = checkedClaims.filter((c) => c.status === "supported").length;
         const thinCount = checkedClaims.filter((c) => c.status === "thin").length;
@@ -30028,10 +30414,10 @@ async function runSearchPipeline(pctx) {
           : (supportedCount > 0 || thinCount > 0)
           ? "partly"
           : "unsupported";
-        const claims = attributed.map((c) => ({
+        const claims = ruledClaims.map((c) => ({
           claim: c.claim,
           status: c.status,
-          ...(c.unattributed ? { kind: "unattributed" } : {}),
+          ...(c.unattributed ? { kind: "unattributed" } : (c.kind ? { kind: c.kind } : {})),
           // Same shape the frontend has always rendered . {claim, status,
           // note} . so this richer backend needed zero FactCheck component
           // changes. The quote-plus-reasoning combination is what makes each
@@ -30444,6 +30830,20 @@ async function runSearchPipeline(pctx) {
     // citations is one checked claim in the panel, the support
     // totals, the body sentence, and the record alike.
     if (factCheckResult) factCheckResult = dedupeFactCheckClaims(factCheckResult);
+
+    // UNIVERSAL CLAIM RULE, PANEL BACKSTOP (2026-10-22, answer
+    // integrity repair): the deep construction applies the rule
+    // to the checker's raw verdicts; this pass applies it to the
+    // finished panel object, so a universal claim that reached the
+    // panel by any other route (a terms verdict, a merged flag
+    // object, a future checker tier) is corrected before the zero
+    // support serve, the body sentence, and the confidence line
+    // count it. Source indices are read from the panel's own
+    // bracketed references at this point, against the same
+    // evidence list the check judged.
+    if (factCheckResult && useEvidence && evidencePapers.length > 0) {
+      try { factCheckResult = applyUniversalClaimRule(factCheckResult, evidencePapers); } catch { /* the rule must never break the serve */ }
+    }
 
     // WAVE EIGHT (2026-10-14, seventh panel, Job 4b): THE ZERO
     // SUPPORT SERVE. The panel's checkout probe shipped an AI
@@ -30993,6 +31393,12 @@ async function runSearchPipeline(pctx) {
           // verification ran on this answer at all, and the level
           // is capped at thin inside buildConfidenceLine.
           provenanceOnly: factCheckKind(factCheckResult) === "provenance",
+          // Retrieval negative (2026-10-22, answer integrity
+          // repair): an existence answer whose shipped result is
+          // "not found in what was retrieved" is capped low inside
+          // buildConfidenceLine — the result describes this
+          // retrieval, not the field.
+          existenceNegative: answerAssertsRetrievalNegative(answer, query),
         })
       : null;
     if (confidence) {

@@ -157,5 +157,108 @@ await test("exportAnswerToPDF registers the embedded faces and keeps built ins o
 });
 
 // ══════════════════════════════════════════════════════════════════════════
+group("Export spacing: Unicode dash variants never join compounds (2026-10-22)");
+
+/* The owner's exported answer (2026-10-22) printed compounds
+   joined — the metagenome metatranscriptome compound, the read
+   ratio compound, the abundance relative compound — because the
+   synthesis model writes compound hyphens as U+2011 (non
+   breaking hyphen), the embedded Source Serif subset carries no
+   glyph for U+2011, and jsPDF measured the character, advanced
+   past it, and drew nothing. On screen the browser falls back
+   to a system font for the missing glyph, so only the export
+   joined the words. These tests extract the REAL export text
+   functions from src/CerebrumApp.jsx and exercise them with
+   bold terms mid sentence, exactly the flagged shape. */
+function extractFn(name, src) {
+  const i = src.indexOf("function " + name);
+  assert.ok(i > 0, name + " not found in CerebrumApp.jsx");
+  const j = src.indexOf("{", i);
+  let depth = 0;
+  for (let k = j; k < src.length; k++) {
+    if (src[k] === "{") depth++;
+    else if (src[k] === "}") { depth--; if (depth === 0) return src.slice(i, k + 1); }
+  }
+  throw new Error("unterminated " + name);
+}
+const appSrc = readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8");
+const pdfTextFns = new Function(
+  ["pdfInlineText", "inlineTokens", "pdfInlineRuns", "pdfRunStyle"].map((n) => extractFn(n, appSrc)).join("\n") +
+  "\nreturn { pdfInlineText, inlineTokens, pdfInlineRuns, pdfRunStyle };"
+)();
+const NBH = "\u2011"; // U+2011, the model's compound hyphen
+
+await test("pdfInlineText normalizes the dash family to the hyphen the embedded fonts draw", () => {
+  const { pdfInlineText } = pdfTextFns;
+  const out = pdfInlineText("cellulose" + NBH + "degrading and read" + NBH + "ratio work");
+  assert.equal(out, "cellulose-degrading and read-ratio work");
+  assert.ok(!out.includes(NBH), "U+2011 survived the export text pass");
+  assert.equal(pdfInlineText("soft\u00ADhyphen"), "softhyphen", "soft hyphen (U+00AD) is not dropped");
+  assert.equal(pdfInlineText("a [link](https://example.org/x) here"), "a link here", "link stripping changed");
+});
+
+await test("bold terms mid sentence keep their hyphens and spaces in the export runs", () => {
+  const { pdfInlineRuns } = pdfTextFns;
+  const line = "To infer **abundance**" + NBH + "relative **gene expression**, compare the metagenome" +
+    NBH + "metatranscriptome read" + NBH + "ratio [1].";
+  const runs = pdfInlineRuns(line);
+  const joined = runs.map((r) => r.t).join("");
+  assert.equal(joined, "To infer abundance-relative gene expression, compare the metagenome-metatranscriptome read-ratio [1].");
+  assert.ok(!joined.includes("abundancerelative"), "bold boundary joined the words");
+  assert.ok(!joined.includes("metagenomemetatranscriptome"), "compound joined");
+  assert.ok(!joined.includes(NBH), "U+2011 reached a run");
+  const boldRuns = runs.filter((r) => r.bold).map((r) => r.t);
+  assert.deepEqual(boldRuns, ["abundance", "gene expression"], "bold runs changed shape");
+});
+
+await test("the real richPara lays bold terms mid sentence with source true spacing", async () => {
+  const { jsPDF } = await import("jspdf");
+  const { pdfInlineRuns } = pdfTextFns;
+  const real = new jsPDF({ unit: "pt", format: "letter" });
+  const registered = await registerPdfFonts(real, { fetchBytes: fetchBytesFromDisk });
+  real.setFontSize(11);
+  const draws = [];
+  let curStyle = "normal";
+  const fakeDoc = {
+    setFontSize() {}, setTextColor() {},
+    setFont(_family, st) { curStyle = st || "normal"; real.setFont(registered.serif, curStyle); },
+    getTextWidth(t) { return real.getTextWidth(t); },
+    text(t, x, y) { draws.push({ t, x, w: real.getTextWidth(t) }); },
+  };
+  // richPara is a closure inside the builder; evaluate the real
+  // source with its closure environment stubbed (doc, margins,
+  // the page cursor, the space measurer).
+  const richPara = new Function(
+    "doc", "ML", "maxW", "PDF_SERIF_FONT", "need", "pdfRunStyle",
+    "let y = 200;\n" + extractFn("richPara", appSrc) + "\nreturn richPara;"
+  )(fakeDoc, 72, 468, registered.serif, () => {}, pdfTextFns.pdfRunStyle);
+  const line = "To infer **abundance**" + NBH + "relative **gene expression**, compare the read" + NBH + "ratio [1].";
+  richPara(pdfInlineRuns(line), {});
+  const texts = draws.map((d) => d.t);
+  assert.deepEqual(texts,
+    ["To", "infer", "abundance", "-relative", "gene", "expression", ",", "compare", "the", "read-ratio", "[1]."],
+    "drawn words differ from the source words");
+  const at = (t) => draws[texts.indexOf(t)];
+  const gap = (a, b) => at(b).x - (at(a).x + at(a).w);
+  real.setFont(registered.serif, "normal");
+  const spaceW = real.getTextWidth(" ");
+  assert.ok(Math.abs(gap("abundance", "-relative")) < 0.01,
+    "a space was laid at the bold seam: gap " + gap("abundance", "-relative"));
+  assert.ok(Math.abs(gap("-relative", "gene") - spaceW) < 0.01,
+    "the real source space after the compound was lost");
+  assert.ok(Math.abs(gap("expression", ",")) < 0.01,
+    "punctuation was detached from its word");
+  assert.ok(!texts.join(" ").includes(NBH), "U+2011 reached a draw");
+});
+
+await test("the export title and section headings route through the same normalization", () => {
+  const start = appSrc.indexOf("async function exportAnswerToPDF");
+  const end = appSrc.indexOf("async function saveToZotero", start);
+  const builder = appSrc.slice(start, end);
+  assert.ok(builder.includes("pdfInlineText(question || "), "title is not normalized");
+  assert.ok(builder.includes("pdfInlineText(plainInlineText(sec.heading))"), "headings are not normalized");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
