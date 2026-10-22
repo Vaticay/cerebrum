@@ -312,8 +312,8 @@ await test("the founding form legs, the near miss wiring, and the record section
   // side honesty wave. The v50 entry stays as history below.
   // PIN UPDATED (2026-10-15, wave seventeen): v52, the
   // citation depth wave. The v51 entry stays as history below.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v52";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v52");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v53";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v53");
   assert.ok(/\/\/ v51 \(2026-10-14, wave sixteen\)/.test(src),
     "the v51 chain entry is missing its dated reason");
   assert.ok(/\/\/ v50 \(2026-10-14, wave fifteen\)/.test(src),

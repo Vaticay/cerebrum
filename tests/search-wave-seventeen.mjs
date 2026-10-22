@@ -453,9 +453,9 @@ await test("the readmission carries the diagnosis's exact conditions", () => {
 // ═══════════════════════════════════════════════════════════════
 group("Cache version");
 
-await test("CACHE_SCHEMA_VERSION is v52 with the dated chain entry, v51 kept as history", () => {
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v52";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v52");
+await test("CACHE_SCHEMA_VERSION is v53 with the dated chain entry, v52 kept as history", () => {
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v53";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v53");
   assert.ok(/\/\/ v52 \(2026-10-15, wave seventeen\)/.test(src),
     "the v52 chain entry is missing its dated reason");
   assert.ok(/\/\/ v51 \(2026-10-14, wave sixteen\)/.test(src),

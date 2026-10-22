@@ -2435,7 +2435,16 @@ export function isNonLiterature(p) {
 // same words; and the citable aware readmission restocks thin
 // citable shelves from the floor's one hit misses, so a warm
 // entry's shelf is not the shelf the chain would build.
-const CACHE_SCHEMA_VERSION = "v52";
+// v53 (2026-10-22, logic audit repair wave 1): the citation
+// gate's legacy comparison admission is deleted, so papers a
+// warm entry shipped under the retired standard are citable
+// no longer and its cited set overstates the shelf; a gate
+// emptied pool now ships a retrieval state report instead of
+// the old no evidence answer text; and unscored papers from
+// the post scoring merges carry an explicit unscored flag and
+// face the citation standard in full, so cited sets change
+// for questions those merges feed.
+const CACHE_SCHEMA_VERSION = "v53";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
