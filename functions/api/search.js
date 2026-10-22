@@ -13480,6 +13480,11 @@ export function publicStageHealth(stageHealth) {
       // Parked legs ride under their own count too (sixth panel,
       // Job 3b), present only when the health store parked any.
       if (s.parkedLegs) o.parkedLegs = s.parkedLegs;
+      // Zero support degrade instrumentation (2026-10-22):
+      // present only when the synthesis record was amended by
+      // a zero support degrade, naming the check mode behind
+      // the zero (deep, terms, or flags).
+      if (s.zeroSupportCheckMode) o.zeroSupportCheckMode = String(s.zeroSupportCheckMode);
     }
     return o;
   });
@@ -16911,6 +16916,29 @@ export function factCheckSupport(factCheck) {
   if (countable.length === 0) return null;
   const supported = countable.filter((c) => c.status === "supported").length;
   return { supported, checked: countable.length };
+}
+
+/* zeroSupportCheckMode(factCheck): which check produced this
+ * panel, in the trace's own three shapes (2026-10-22,
+ * extractive fallback lane, probe 13 instrumentation). The
+ * zero support serve degrades a draft on a support total of
+ * zero, but that total can come from the deep claim check
+ * (mode "claims", countable claim verdicts), from the zero
+ * network terms check (mode "terms": a name spelling check,
+ * not a claim verification), or from a panel whose claims are
+ * all mechanical integrity flags (every claim carries an
+ * uncheckable kind). A later verification has to tell a
+ * checker failure from a draft failure, so the synthesis
+ * stage record names this mode when it degrades on zero
+ * support. Pure over the panel object; returns null when no
+ * panel or an unrecognised shape stands. */
+export function zeroSupportCheckMode(factCheck) {
+  if (!factCheck || typeof factCheck !== "object") return null;
+  if (factCheck.mode === "terms") return "terms";
+  const claims = Array.isArray(factCheck.claims) ? factCheck.claims : [];
+  if (claims.length > 0 && claims.every((c) => c && typeof c.kind === "string" && FACT_CHECK_UNCHECKABLE_KINDS.has(c.kind))) return "flags";
+  if (factCheck.mode === "claims") return "deep";
+  return null;
 }
 
 /* factCheckActuallyChecked(factCheck): did a real check run
@@ -29292,6 +29320,66 @@ async function runSearchPipeline(pctx) {
       return boldSpans.length >= minBoldSpans;
     };
 
+    // BOLD REPAIR (2026-10-22, extractive fallback lane, probe 8):
+    // a draft that fails ONLY the bold bar used to be discarded
+    // outright. On the probe 8 draw that was the last surviving
+    // leg (groq gpt-oss-20b) after the rest of the fleet died on
+    // HTTP 429s and timeouts, so a formatting miss converted a
+    // usable cited draft into an extractive serving. The repair
+    // is deterministic and content preserving: it wraps the
+    // first occurrence of the draft's own most repeated content
+    // terms (its key terms, by the draft's own usage) in bold
+    // markers, on prose lines only, never inside an existing
+    // bold or italic span, a heading, or a link. No words are
+    // added, removed, or reordered, so citation binding is
+    // judged on exactly the same text afterwards. A draft the
+    // repair cannot lift to the bar (no wrappable term) still
+    // throws the original error at the call sites below.
+    const repairMissingBoldFormatting = (text) => {
+      const countSpans = (t) => (String(t).match(/\*\*[^*\n]+\*\*/g) || []).length;
+      if (countSpans(text) >= 2) return text;
+      const freq = new Map();
+      const firstAt = new Map();
+      const wordRe = /[A-Za-z][A-Za-z'-]{3,}/g;
+      let wm;
+      while ((wm = wordRe.exec(String(text))) !== null) {
+        const lw = wm[0].toLowerCase();
+        if (STOPWORDS.has(lw)) continue;
+        freq.set(lw, (freq.get(lw) || 0) + 1);
+        if (!firstAt.has(lw)) firstAt.set(lw, wm.index);
+      }
+      const candidates = [...freq.keys()].sort((a, b) =>
+        (freq.get(b) - freq.get(a)) || (firstAt.get(a) - firstAt.get(b)) || (b.length - a.length));
+      let out = String(text);
+      for (const term of candidates) {
+        if (countSpans(out) >= 2) break;
+        const lines = out.split("\n");
+        let wrapped = false;
+        for (let i = 0; i < lines.length && !wrapped; i++) {
+          const line = lines[i];
+          if (/^\s*#/.test(line) || line.includes("http")) continue;
+          const m = new RegExp("\\b" + escapeRegExp(term) + "\\b", "i").exec(line);
+          if (!m) continue;
+          const before = line.slice(0, m.index);
+          if ((before.match(/\*\*/g) || []).length % 2 === 1) continue;
+          if ((before.match(/_/g) || []).length % 2 === 1) continue;
+          if (before.includes("](")) continue;
+          lines[i] = before + "**" + m[0] + "**" + line.slice(m.index + m[0].length);
+          wrapped = true;
+        }
+        if (wrapped) out = lines.join("\n");
+      }
+      return out;
+    };
+    // The call sites' shared verdict: repair first, and only a
+    // draft the repair cannot lift is rejected for formatting.
+    const enforceBoldFormatting = (cleaned, label) => {
+      if (!useEvidence || formattingRelaxed || hasMinimumFormatting(cleaned, 2)) return cleaned;
+      const repaired = repairMissingBoldFormatting(cleaned);
+      if (!hasMinimumFormatting(repaired, 2)) throw new Error(label + ": missing required **bold** formatting");
+      return repaired;
+    };
+
     // Every thrown error is prefixed with the model name and, where possible,
     // the response body text. This is the difference between a future total
     // failure being a mystery ("all N models failed") and being diagnosable
@@ -29347,10 +29435,10 @@ async function runSearchPipeline(pctx) {
         }
         const j = await r.json();
         const txt = j?.choices?.[0]?.message?.content || "";
-        const cleaned = cleanAIResponse(txt);
+        let cleaned = cleanAIResponse(txt);
         assertValidProviderText(cleaned, model);
         if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short (" + cleaned.length + " chars)");
-        if (useEvidence && !formattingRelaxed && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
+        cleaned = enforceBoldFormatting(cleaned, model);
         return { answer: cleaned, model };
       } catch (e) {
         if (e && e.name === "AbortError") throw new Error(model + ": timed out");
@@ -29451,10 +29539,10 @@ async function runSearchPipeline(pctx) {
         }
         const j = await r.json();
         const txt = (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "";
-        const cleaned = cleanAIResponse(txt);
+        let cleaned = cleanAIResponse(txt);
         assertValidProviderText(cleaned, tag);
         if (cleaned.length < minAnswerLen) throw new Error(tag + ": response too short (" + cleaned.length + " chars)");
-        if (useEvidence && !formattingRelaxed && !hasMinimumFormatting(cleaned, 2)) throw new Error(tag + ": missing required **bold** formatting");
+        cleaned = enforceBoldFormatting(cleaned, tag);
         return { answer: cleaned, model: tag };
       } catch (e) {
         if (e && e.name === "AbortError") throw new Error(tag + ": timed out");
@@ -29580,10 +29668,10 @@ async function runSearchPipeline(pctx) {
           env.AI.run(model, { messages: msgs, max_tokens: cfCompletionBudget(model, maxTok) }),
           new Promise((_, reject) => setTimeout(() => reject(new Error(model + ": timed out")), timeoutMs)),
         ]);
-        const cleaned = cleanAIResponse((out && out.response) || "");
+        let cleaned = cleanAIResponse((out && out.response) || "");
         assertValidProviderText(cleaned, model);
         if (cleaned.length < minAnswerLen) throw new Error(model + ": response too short");
-        if (useEvidence && !formattingRelaxed && !hasMinimumFormatting(cleaned, 2)) throw new Error(model + ": missing required **bold** formatting");
+        cleaned = enforceBoldFormatting(cleaned, model);
         return { answer: cleaned, model };
       } catch (e) {
         throw new Error(model + ": " + (e && e.message ? e.message : String(e)));
@@ -30965,11 +31053,30 @@ async function runSearchPipeline(pctx) {
     // extractive tier builds the shipped answer from the papers.
     if (aiOK && useEvidence && evidencePapers.length > 0) {
       const hasCitations = /\[\d+\]/.test(answer);
-      // 2026-09-12: budget-gated like the quality retry above.
-      // Wave sixteen (item 5): the synthesis window gate from
-      // the quality retry applies here too (the close window
-      // must fit before the synthesis deadline).
-      if (!hasCitations && msLeft() > 9000 && (synthesisDeadline - Date.now()) > RETRY_RACE_CLOSE_MS) {
+      // CITATION REPAIR GATE (2026-10-22, extractive fallback
+      // lane, probe 17): the retry used to require its close
+      // window to fit before the synthesis deadline on top of
+      // the request budget gate. The synthesis deadline holds
+      // back the fact check reserve, so on the probe 17 draw
+      // (synthesis stage 3,147 ms, over 11 seconds of request
+      // budget left, ledger synthesis spend exactly the three
+      // fired wave legs) the window condition alone stood the
+      // retry down and a complete uncited draft degraded to
+      // extractive with no repair attempt at all. An uncited
+      // draft never ships as an AI answer either way: when
+      // the retry fails it degrades and no AI fact check runs,
+      // and when it succeeds the light terms check still runs
+      // behind it. So for THIS shape the gate is the request
+      // budget alone: msLeft above 9,000 covers the race's
+      // 5,000 close window, the 2,500 assembly reserve, and
+      // margin. The quality and minimum support retries keep
+      // their synthesis window gates unchanged: their drafts
+      // ship when the retry is skipped, an uncited one does
+      // not. The ledger tail reserve still applies inside
+      // plannedRetryRace through fireWaveLegs.
+      let citationRetryAttempted = false;
+      const runCitationRetry = async () => {
+        citationRetryAttempted = true;
         try {
           const retryMsgs2 = [
             { role: "system", content: buildCitationRetrySystemPrompt() },
@@ -30984,11 +31091,14 @@ async function runSearchPipeline(pctx) {
             const cleaned = r && typeof r.answer === "string" ? postProcessAnswer(r.answer) : "";
             // Accepted only when it fixed the defect: real citations
             // to the shelf. A longer uncited draft is not an upgrade.
-            if (cleaned && /\[\d+\]/.test(cleaned)) {
-              answer = cleaned;
-            }
+            if (cleaned && /\[\d+\]/.test(cleaned)) return cleaned;
           } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
         } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
+        return null;
+      };
+      if (!hasCitations && msLeft() > 9000) {
+        const retried = await runCitationRetry();
+        if (retried) answer = retried;
       }
 
       // ============ CITATION SUPPORT STRIP ============
@@ -31045,6 +31155,41 @@ async function runSearchPipeline(pctx) {
       // prose; the tidy runs here, at the ship point the
       // strips feed, and again at the claim removal point.
       try { answer = tidyCitationArtifacts(answer); } catch { /* the tidy must never break the answer */ }
+      // POST STRIP CITATION REPAIR (2026-10-22, extractive
+      // fallback lane): a draft that ARRIVED cited never fired
+      // the retry above, even when the strips just removed every
+      // marker because none of them bound. That shape reached
+      // the flip with no repair attempt. When no retry has run
+      // yet in this block and the request budget gate above
+      // still holds, the same retry runs once here, and its
+      // candidate is accepted only after the same strip and
+      // coverage passes run on it: a candidate whose citations
+      // do not bind is rejected whole, never dressed up.
+      if (!/\[\d+\]/.test(answer) && !citationRetryAttempted && msLeft() > 9000) {
+        const retried = await runCitationRetry();
+        if (retried) {
+          try {
+            let candidate = retried;
+            const candStripped = stripUnsupportedCitations(candidate, evidencePapers);
+            candidate = candStripped.text;
+            let candDemoted = [];
+            if (!isFollowupMode && !(gateAudit && gateAudit.shippedLimited)) {
+              const gateDyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+                ? buildDynLookup(gResult._diag.llmExpanded)
+                : null;
+              const candGated = applyConceptCoverageGate(candidate, evidencePapers, query, gateDyn);
+              candidate = candGated.text;
+              candDemoted = candGated.demoted;
+            }
+            candidate = tidyCitationArtifacts(candidate);
+            if (/\[\d+\]/.test(candidate)) {
+              answer = candidate;
+              unsupportedStripped = candStripped.removed;
+              conceptDemoted = candDemoted;
+            }
+          } catch { /* a failed repair pass leaves the flip below standing */ }
+        }
+      }
       // The flip (defect 2): whatever reaches this point with zero
       // citations . the draft never had any and the retry could not
       // fix it, or the strips above removed every marker because
@@ -31591,6 +31736,18 @@ async function runSearchPipeline(pctx) {
     // record stops naming a winner for an answer that did not
     // ship.
     const degradeAnswerToExtractiveOrNoEvidence = (synthSkipReason) => {
+      // Zero support instrumentation (2026-10-22, extractive
+      // fallback lane): capture which check produced the panel
+      // BEFORE the degrade rebuilds factCheckResult into the
+      // shipped answer's wording trace. Recorded on the
+      // synthesis stage record at the amendment below, only
+      // for the zero support reason, so a later verification
+      // can tell a checker failure (a terms or flags zero) from
+      // a draft failure (a deep check zero). The degrade rule
+      // itself is unchanged.
+      const degradeCheckMode = synthSkipReason === "the claim check supported none of the checked claims"
+        ? zeroSupportCheckMode(factCheckResult)
+        : null;
       const gateDynZ = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
         ? buildDynLookup(gResult._diag.llmExpanded)
         : null;
@@ -31659,6 +31816,7 @@ async function runSearchPipeline(pctx) {
           synthEntry.ok = false;
           synthEntry.winner = null;
           synthEntry.skipReason = synthSkipReason;
+          if (degradeCheckMode) synthEntry.zeroSupportCheckMode = degradeCheckMode;
         }
       } catch { /* the record amendment is best effort */ }
     };
