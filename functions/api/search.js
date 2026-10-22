@@ -1864,6 +1864,25 @@ export function paperRelevance(p) {
   const r = p ? p.relevance : undefined;
   return typeof r === "number" && Number.isFinite(r) ? r : -1;
 }
+/* Score provenance (2026-10-22, logic audit L3-5). A candidate
+ * enters the evidence pipeline in exactly one of two states: it
+ * carries a real score from the scorer, or it carries the
+ * explicit _unscored flag, stamped at the merge point that
+ * added it after scoring had already run (the handler's LLM
+ * rescue and the contradiction first adjudicator merge). The
+ * flag is provenance, not a score: no number is invented for
+ * these papers, and paperRelevance still reads minus one for
+ * them. What the flag changes is the gate's right to discard
+ * them on a numeric threshold they never had the chance to
+ * meet: a flagged paper is judged by the citation gate's
+ * topicality standard alone (see paperIsCitable), the same
+ * standard half every scored paper must also clear. A record
+ * with no score and no flag keeps the old reading exactly:
+ * below the floor, out. If a flagged paper later gains a real
+ * score, the score governs and the flag stops applying. */
+export function paperIsUnscored(p) {
+  return !!(p && p._unscored === true) && paperRelevance(p) < 0;
+}
 export function applyRelevanceGate(list) {
   // A paper tagged _subjectRescued (set only at the handler's
   // citable set construction, for a paper paperIsCitable's
@@ -1871,7 +1890,12 @@ export function applyRelevanceGate(list) {
   // this floor-only recheck: the recheck exists to keep below
   // floor papers merged in later out of the evidence set, and
   // the rescue was a judged admission, not a merge accident.
-  return (list || []).filter((p) => paperRelevance(p) >= RELEVANCE_FLOOR || (p && p._subjectRescued));
+  // A paper carrying the unscored provenance flag survives for
+  // the same structural reason: this recheck is a floor on
+  // scores, and the flagged paper has no score to floor. Its
+  // topicality judgment happens at the citation binding
+  // (paperIsCitable), which runs after every merge.
+  return (list || []).filter((p) => paperRelevance(p) >= RELEVANCE_FLOOR || (p && p._subjectRescued) || paperIsUnscored(p));
 }
 
 
@@ -15196,15 +15220,22 @@ export function paperClearsCitationGate(paper, standard) {
  * that stands below the topicality branch in
  * paperClearsCitationGate (subject touch or two group hits;
  * one group, one hit; no groups, a shared central term), judged
- * WITHOUT the central concepts topicality layer. Wave ten's
- * gate audit (items 1 and 2) uses it as the comparison
- * standard: when the current standard admits nothing from a
- * healthy gathered pool but this one admits papers at the
- * relevance floor, the strict standard — not retrieval — is
- * what emptied the run, and the handler ships a limited answer
- * over the comparison set instead of a false no evidence
- * state. It never loosens anything on its own: it runs only
- * inside that audit, on a zero citable outcome. */
+ * WITHOUT the central concepts topicality layer. It survives
+ * for one purpose only: the gate audit's record. When the
+ * current standard empties a gathered pool, the record notes
+ * how many of the excluded papers the retired standard would
+ * have admitted, so a strict standard emptying healthy pools
+ * stays visible to operators instead of silently becoming a
+ * false no evidence state.
+ * RETIRED AS AN ADMISSION PATH (2026-10-22, logic audit
+ * L3-2): wave ten's gate audit used to ship a limited answer
+ * over the papers this standard admitted, tagged to bypass
+ * the choke point and the later gates. One standard now
+ * governs citation, the current one, applied once, and its
+ * verdict is final: nothing in the handler admits a paper on
+ * this function's say so, and no tag exempts a paper from the
+ * binding downstream. If the current standard is wrong for a
+ * class of pool, the standard itself is what changes. */
 export function paperClearsLegacyStandard(paper, query, dynLookup) {
   const std = citationGateStandard(query, dynLookup);
   return paperClearsCitationGate(paper, { ...std, centralConcepts: null, mechanismShape: false });
@@ -15412,7 +15443,17 @@ export function paperIsCitable(paper, idx, gateCtx) {
   const groups = ctx.groups || [];
   const centralTerms = ctx.centralTerms || [];
   const centralConcepts = Array.isArray(ctx.centralConcepts) ? ctx.centralConcepts : [];
-  if (paperRelevance(p) < RELEVANCE_FLOOR) {
+  // Score provenance (2026-10-22, logic audit L3-5): a paper
+  // carrying the explicit unscored flag (stamped where a post
+  // scoring merge added it: the LLM rescue, the contradiction
+  // adjudicators) has no score for the floor to judge, so the
+  // floor half of the binding does not apply to it. The
+  // standard half below applies in full, with the same anchor
+  // and existence exemptions a scored paper gets, and nothing
+  // else: an unscored paper that engages none of what the
+  // standard asks for is out, exactly like a scored one.
+  const unscored = paperIsUnscored(p);
+  if (!unscored && paperRelevance(p) < RELEVANCE_FLOOR) {
     // Below the floor the only road in is the subject engaging
     // rescue (see subjectEngagingRescue above): a near miss
     // score on a paper the gate standard itself judges on
@@ -15423,8 +15464,10 @@ export function paperIsCitable(paper, idx, gateCtx) {
   // No resolvable standard (no groups, no central terms, no
   // central concepts): the gate has nothing to judge with,
   // exactly its own early return, and the relevance floor alone
-  // binds.
-  if (groups.length === 0 && centralTerms.length === 0 && centralConcepts.length === 0) return paperRelevance(p) >= RELEVANCE_FLOOR;
+  // binds. An unscored paper has no floor reading either, and
+  // retrieval rank alone never certifies a citation, so with
+  // no standard to judge it by it stays out.
+  if (groups.length === 0 && centralTerms.length === 0 && centralConcepts.length === 0) return unscored ? false : paperRelevance(p) >= RELEVANCE_FLOOR;
   if (idx && ctx.existenceIdx && idx === ctx.existenceIdx) return true;
   if (Array.isArray(ctx.anchorNeedles) && ctx.anchorNeedles.length > 0) {
     const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
@@ -18106,7 +18149,7 @@ export async function detectSemanticDivergence(papers, env, ledger = null) {
 // retrieval record), the most likely reasons (ranked by signal), and
 // concrete reformulations derived from the question itself. It never
 // guesses at the science . only reports the search.
-export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gatedOut, gatedExamples, errored, filteredOut, filterLabel }) {
+export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gatedOut, gatedExamples, errored, filteredOut, filterLabel, gatheredCount, exclusionReasonCounts }) {
   const q = String(query || "").trim();
   const list = Array.isArray(sourcesQueried) ? sourcesQueried : [];
   const failedCount = list.filter((s) => !s.ok).length;
@@ -18129,9 +18172,38 @@ export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gated
   }
   whatWasTried.push("Expanded the question with scientific synonyms and indexed (MeSH) terms before concluding.");
   if (gatedOut > 0) {
-    let line = "Found " + gatedOut + " candidate paper" + (gatedOut === 1 ? "" : "s") + " but cited none: " +
-      (gatedOut === 1 ? "it didn't" : "none did") + " clear the relevance bar for this question, and citing " +
-      (gatedOut === 1 ? "it" : "them") + " would have been misleading.";
+    // RETRIEVAL STATE, NOT A LITERATURE VERDICT (2026-10-22,
+    // logic audit L3-2): a zero citable outcome reports the
+    // search, never the state of the field. When the gate
+    // audit's aggregate exclusion counts ride along, the line
+    // says how many papers retrieval gathered in total and
+    // why the withheld papers were withheld, counted once per
+    // paper under its first failing reason. Without the audit
+    // (the callers that never emptied at the citation gate),
+    // the older plainer line stands unchanged.
+    const reasonPhrases = [];
+    if (exclusionReasonCounts && typeof exclusionReasonCounts === "object") {
+      const rc = exclusionReasonCounts;
+      const pushCount = (n, one, many) => {
+        if (typeof n === "number" && n > 0) reasonPhrases.push(n + " " + (n === 1 ? one : many));
+      };
+      pushCount(rc.belowFloor, "paper scored below the relevance floor while clearing the topicality standard", "papers scored below the relevance floor while clearing the topicality standard");
+      pushCount(rc.noConcept, "paper engaged none of the central concepts in the question", "papers engaged none of the central concepts in the question");
+      pushCount(rc.shortOfStandard, "paper engaged some central concepts but fell short of the citation standard", "papers engaged some central concepts but fell short of the citation standard");
+      pushCount(rc.applicationOnly, "paper engaged the topic only as an application on a mechanism question", "papers engaged the topic only as an application on a mechanism question");
+    }
+    let line;
+    if (reasonPhrases.length > 0) {
+      line = "Found " + gatedOut + " candidate paper" + (gatedOut === 1 ? "" : "s") + " but cited none. " +
+        "Counted once per paper under the first reason it failed: " + reasonPhrases.join("; ") + ".";
+      if (typeof gatheredCount === "number" && gatheredCount > gatedOut) {
+        line = "Retrieval gathered " + gatheredCount + " papers in total. " + line;
+      }
+    } else {
+      line = "Found " + gatedOut + " candidate paper" + (gatedOut === 1 ? "" : "s") + " but cited none: " +
+        (gatedOut === 1 ? "it didn't" : "none did") + " clear the relevance bar for this question, and citing " +
+        (gatedOut === 1 ? "it" : "them") + " would have been misleading.";
+    }
     if (Array.isArray(gatedExamples) && gatedExamples.length > 0) {
       line += " The closest " + (gatedExamples.length === 1 ? "was" : "were") + " " +
         gatedExamples.slice(0, 2).map((t) => "\"" + String(t).slice(0, 80) + "\"").join("; ") + ".";
@@ -25523,6 +25595,18 @@ async function runSearchPipeline(pctx) {
                 const key = (p.title || "").toLowerCase().trim();
                 if (key && !seenTitles.has(key)) {
                   seenTitles.add(key);
+                  // Score provenance (2026-10-22, logic audit
+                  // L3-5): these records arrive after gatherPapers
+                  // has scored, carrying no relevance at all. The
+                  // old reading (no score means minus one, below
+                  // every floor) silently killed every one of
+                  // them at the citation gate while the diag
+                  // below recorded them as rescued. Stamp the
+                  // provenance instead: the paper enters the
+                  // pipeline explicitly unscored, and the gate
+                  // judges it on the citation standard alone
+                  // (see paperIsUnscored and paperIsCitable).
+                  try { p._unscored = true; } catch { /* tagging is best effort */ }
                   gResult.papers.push(p);
                 }
               }
@@ -26004,9 +26088,11 @@ async function runSearchPipeline(pctx) {
         // sits below RELEVANCE_FLOOR got in through
         // paperIsCitable's rescue, a judged admission. Tag it
         // so the floor only rechecks downstream (the final
-        // dedupe gate, the contradiction merge) keep it, the
-        // same role the gate audit's _gateAuditAdmitted tag
-        // plays at the choke point below.
+        // dedupe gate, the contradiction merge) keep it: the
+        // rescue lives inside the one citation standard
+        // itself, so the tag certifies a judgment the standard
+        // made, and the choke point below re judges the paper
+        // with the same predicate and reaches the same verdict.
         for (const p of citablePapers) {
           if (p && paperRelevance(p) < RELEVANCE_FLOOR) { try { p._subjectRescued = true; } catch { /* tagging is best effort */ } }
         }
@@ -26019,35 +26105,43 @@ async function runSearchPipeline(pctx) {
       }
     }
     // ════════════════════════════════════════════════════════════
-    // GATE AUDIT + COMPARISON ADMISSION (2026-10-14, wave ten,
-    // brief items 1 and 2). The hardcore audit's headline defect:
-    // healthy retrieval pools (66 gathered on the PCR question,
-    // 58 on the yogurt question, budget a third unspent) emptied
-    // at the citation layer into "no citable literature" answers,
-    // while the record could not even say WHICH papers were
-    // excluded or why. The rule now: the no evidence state must
-    // prove emptiness at RETRIEVAL. When the citable set is
-    // empty — or a single paper against a large gathered pool —
-    // the audit runs before any no evidence copy can ship:
-    //   1. every shelf paper is judged under BOTH standards
-    //      (the current topicality standard and the pre wave
-    //      eight legacy standard, paperClearsLegacyStandard),
-    //      with its exclusion reasons named;
-    //   2. the top exclusions ride the search record
-    //      (gateAudit), so the outcome is auditable, not a
-    //      black box;
-    //   3. when the gathered pool is substantial and the legacy
-    //      standard admits papers at the relevance floor, the
-    //      run ships a LIMITED answer over the comparison set
-    //      (union with whatever the strict standard admitted)
-    //      instead of the false empty state. The strict standard
-    //      judged first and its verdict stands in the record;
-    //      the comparison is the standard this product shipped
-    //      for months, not an invention, and the admission is
-    //      labeled shippedLimited wherever it is reported.
-    // When retrieval genuinely gathered near zero, or the
-    // legacy standard also admits nothing, the honest no
-    // evidence state fires exactly as before.
+    // GATE AUDIT (2026-10-14, wave ten, items 1 and 2; admission
+    // retired 2026-10-22, logic audit L3-2). The hardcore audit's
+    // headline defect: healthy retrieval pools (66 gathered on
+    // the PCR question, 58 on the yogurt question, budget a
+    // third unspent) emptied at the citation layer into "no
+    // citable literature" answers, while the record could not
+    // even say WHICH papers were excluded or why. The audit's
+    // recording half stands: when the citable set is empty — or
+    // a single paper against a large gathered pool — every
+    // shelf paper is judged, its exclusion reasons are named,
+    // and the top exclusions plus the aggregate reason counts
+    // ride the search record (gateAudit), so the outcome is
+    // auditable, not a black box. Those aggregate counts are
+    // also what the zero citable answer reports to the reader
+    // (see buildNoResultsPayload): a retrieval state, what was
+    // searched and what the gate withheld and why, never a
+    // verdict about the literature itself.
+    //
+    // The admission half is RETIRED. Wave ten readmitted papers
+    // that cleared the retired pre wave eight standard
+    // (paperClearsLegacyStandard) at the relevance floor,
+    // tagged them _gateAuditAdmitted, and exempted the tag from
+    // the choke point and the set from the later gates, so one
+    // gate was absolute in one direction (zero citable blocked
+    // synthesis outright) and self overriding in the other
+    // (a weaker, undisclosed standard certified citations).
+    // The rule now is one standard and one vocabulary: the
+    // current citation standard, applied once by
+    // paperIsCitable, with its verdict final. The legacy
+    // judgment still runs here as a record only comparison, so
+    // a standard that empties healthy pools stays measurable;
+    // it admits nothing, tags nothing, and exempts nothing.
+    // Papers this standard excludes stay where excluded papers
+    // have always stayed when the gate is final: on the shelf,
+    // reachable through the further reading tail, labeled
+    // uncited. If a class of pool is wrongly emptied, the fix
+    // is to change the standard itself and retest it.
     if (!isNameSearch && !isFollowupMode && papers.length > 0 &&
         (citablePapers.length === 0 || citablePapers.length === 1)) {
       try {
@@ -26062,16 +26156,37 @@ async function runSearchPipeline(pctx) {
             const legacy = paperClearsLegacyStandard(p, query, _dynForValidation);
             const reasons = [];
             if (rel < RELEVANCE_FLOOR) reasons.push("relevance " + rel + " below the floor of " + RELEVANCE_FLOOR);
+            let hitsTotal = null;
+            let applicationOnly = false;
             if (!std) {
               const hits = centralConceptHits(p, stdNow.centralConcepts || []);
+              hitsTotal = hits.total;
               if (hits.total === 0) reasons.push("engages none of the question's central concepts");
               else reasons.push("engages " + hits.total + " central concept" + (hits.total === 1 ? "" : "s") + ", short of the citation standard");
-              if (stdNow.mechanismShape && paperApplicationOnly(p)) reasons.push("application or delivery only engagement on a mechanism question");
+              if (stdNow.mechanismShape && paperApplicationOnly(p)) { applicationOnly = true; reasons.push("application or delivery only engagement on a mechanism question"); }
             }
-            return { paper: p, rel, std, legacy, reasons };
+            return { paper: p, rel, std, legacy, reasons, hitsTotal, applicationOnly };
           });
           const alreadyCitable = new Set(citablePapers);
-          const admitted = rows.filter((r) => r.legacy && r.rel >= RELEVANCE_FLOOR && !alreadyCitable.has(r.paper));
+          // The record only comparison count: how many excluded
+          // papers the retired standard would have admitted.
+          // Counted, never shipped (see the header above).
+          const comparisonWouldAdmit = rows.filter((r) => r.legacy && r.rel >= RELEVANCE_FLOOR && !alreadyCitable.has(r.paper)).length;
+          // Aggregate exclusion accounting for the zero citable
+          // answer: every excluded paper counted once, under
+          // the first reason it failed in a fixed accounting
+          // order (the standard's topicality verdict first,
+          // then the floor, which collects the papers the
+          // standard cleared but whose score the subject
+          // engaging rescue did not admit).
+          const excludedReasonCounts = { belowFloor: 0, noConcept: 0, shortOfStandard: 0, applicationOnly: 0 };
+          for (const r of rows) {
+            if (alreadyCitable.has(r.paper)) continue;
+            if (!r.std && r.applicationOnly) excludedReasonCounts.applicationOnly++;
+            else if (!r.std && r.hitsTotal === 0) excludedReasonCounts.noConcept++;
+            else if (!r.std) excludedReasonCounts.shortOfStandard++;
+            else excludedReasonCounts.belowFloor++;
+          }
           // The audit record names each excluded paper once:
           // the same paper can reach the shelf through several
           // sources at different scores, and the record is a
@@ -26089,8 +26204,9 @@ async function runSearchPipeline(pctx) {
           gateAudit = {
             gathered: gatheredCount,
             citableBefore: citablePapers.length,
-            comparisonAdmitted: admitted.length,
+            comparisonAdmitted: comparisonWouldAdmit,
             shippedLimited: false,
+            excludedReasonCounts,
             excluded: excludedRows.map((r) => ({
               title: String(r.paper.title || ""),
               standard: r.std,
@@ -26098,44 +26214,15 @@ async function runSearchPipeline(pctx) {
               reasons: r.reasons,
             })),
           };
-          // Wave seventeen (2026-10-15, citation depth
-          // diagnosis, stage 3): the minimum is 1 in both
-          // cases. The 2 floor for the citable 1 case demanded
-          // TWO comparison papers beside the strict one before
-          // any could ship — a three source bar to reach a two
-          // source answer — and on the diagnosis's Cohen shaped
-          // draws it held the shelf's best paper out entirely.
-          // One admitted paper beside one citable paper is the
-          // two source thin answer the product asks for, and
-          // the standard it cleared to get here is unchanged.
-          const minAdmitted = 1;
-          // Substantial, measured on DISTINCT papers: the raw
-          // gathered count inflates with the fanout (the same
-          // two papers returned by eight rungs count sixteen
-          // times), and the wave eight grocery shape is exactly
-          // two distinct off topic papers arriving as many
-          // copies — a pool is at least four distinct papers on
-          // the judged shelf. The audit's emptied pools were
-          // dozens of distinct papers; two is an anecdote, and
-          // the honest empty state keeps it.
-          const distinctShelf = new Set(rows.map((r) => String(r.paper.title || "").toLowerCase().trim())).size;
-          const substantialPool = distinctShelf >= 4;
-          if (substantialPool && admitted.length >= minAdmitted) {
-            // The admission is tagged on the paper objects:
-            // the canonical binding choke point below re judges
-            // the evidence set with the strict predicate, and
-            // without the tag it would silently undo the
-            // admission one layer down (the wave ten yogurt
-            // fixture caught exactly that: the serve gate
-            // admitted, the choke point emptied, and the run
-            // shipped the zero evidence fallback).
-            for (const r of admitted) { try { r.paper._gateAuditAdmitted = true; } catch { /* tagging is best effort */ } }
-            citablePapers = [...citablePapers, ...admitted.map((r) => r.paper)];
-            serveGateNoEvidence = false;
-            gateAudit.shippedLimited = true;
-          }
         }
       } catch { /* the audit must never break the serve gate; the pre wave ten behavior stands */ }
+    }
+    // Diagnostics count what survived, not what was pushed
+    // (2026-10-22, logic audit L3-5): of the papers the post
+    // scoring merges added without a score, how many reached
+    // the citable set under the citation standard.
+    if (gResult && gResult._diag) {
+      try { gResult._diag.unscoredCitable = citablePapers.filter((p) => paperIsUnscored(p)).length; } catch { /* diagnostics only */ }
     }
     if (foundationalFates) advanceFoundationalFates(foundationalFates, "gate", citablePapers);
     let evidencePapers;
@@ -26389,6 +26476,18 @@ async function runSearchPipeline(pctx) {
                     if (p && p.title) {
                       p._contraAdjudicator = true;
                       p._contraDispute = cq.dispute;
+                      // Score provenance (2026-10-22, logic
+                      // audit L3-5): adjudicators are fresh
+                      // fetcher records with no relevance; the
+                      // relevance gate recheck that follows this
+                      // merge used to remove every one that was
+                      // not a duplicate of an already scored
+                      // paper, so the stage adjudicated with
+                      // none of its own papers. Stamp the same
+                      // unscored provenance the LLM rescue uses;
+                      // the choke point's citation standard still
+                      // judges each one before it can be cited.
+                      if (paperRelevance(p) < 0) { try { p._unscored = true; } catch { /* tagging is best effort */ } }
                       found.push(p);
                     }
                   }
@@ -26455,12 +26554,16 @@ async function runSearchPipeline(pctx) {
       try {
         const chokeCtx = conceptGateContext(evidencePapers, query, _dynForValidation);
         const beforeChoke = evidencePapers.length;
-        // Wave ten (items 1 and 2): a paper the gate audit's
-        // comparison admission shipped (tagged at the serve
-        // gate) survives the choke point on its tag — the
-        // admission was a judged decision recorded in the
-        // search record, not an oversight to be corrected here.
-        evidencePapers = evidencePapers.filter((p, i) => (p && p._gateAuditAdmitted) || paperIsCitable(p, i + 1, chokeCtx));
+        // One standard at the choke point (2026-10-22, logic
+        // audit L3-2): every paper in the evidence set is re
+        // judged with the same predicate selection used, and
+        // no tag exempts a paper from it. The wave ten gate
+        // audit's comparison admission used to survive here on
+        // its _gateAuditAdmitted tag; that admission is
+        // retired, the tag is never set, and a paper that
+        // cannot clear paperIsCitable cannot be cited, whoever
+        // merged it in.
+        evidencePapers = evidencePapers.filter((p, i) => paperIsCitable(p, i + 1, chokeCtx));
         relevanceGatedOut += beforeChoke - evidencePapers.length;
         if (evidencePapers.length === 0) serveGateNoEvidence = true;
       } catch { /* the selection binding already ran; a choke point failure must not zero the run */ }
@@ -29652,6 +29755,13 @@ async function runSearchPipeline(pctx) {
           // Bug 4 fix: honest filter attribution in the no-results answer.
           filteredOut: evidenceFilteredOut,
           filterLabel: evidenceFilterApplied,
+          // Retrieval state for a gate emptied run (2026-10-22,
+          // logic audit L3-2): the total retrieval gathered and
+          // the gate audit's aggregate exclusion counts, so the
+          // shipped answer reports the search instead of
+          // pronouncing on the literature.
+          gatheredCount: gateAudit && typeof gateAudit.gathered === "number" ? gateAudit.gathered : null,
+          exclusionReasonCounts: gateAudit && gateAudit.excludedReasonCounts ? gateAudit.excludedReasonCounts : null,
         });
         answer = renderNoResultsAnswer(searchQuery, noResultsPayload);
         responseKind = "no-results";

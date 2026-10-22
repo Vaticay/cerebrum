@@ -629,9 +629,9 @@ const epmc = (id, title, abstractText, citedByCount = 40, pubYear = "2021") => (
   abstractText,
 });
 
-group("Handler — the creatine funnel never lands in the false empty state");
+group("Handler — the creatine funnel lands in the honest retrieval state, not a readmitted limited answer");
 
-await test("a legacy admitting pool ships sources with the gate audit labeled, not a no results answer", async () => {
+await test("a legacy admitting pool ships the retrieval state answer, with the gate audit labeled and nothing readmitted", async () => {
   // Synthesis fails outright (the audit's afternoon shape):
   // the limited ship is the extractive tier over the
   // comparison admitted papers.
@@ -667,14 +667,31 @@ await test("a legacy admitting pool ships sources with the gate audit labeled, n
   ];
   scenAnswer = "## Summary\n\nAcross trials, the **supplement** at recommended doses did not impair **renal function** in healthy adults [1]. Athletes taking the supplement for two years kept renal markers within reference ranges [2].";
   const { data } = await runScenario("is creatine bad for your kidneys");
-  assert.notEqual(data.responseKind, "no-results",
-    "the creatine pool landed in the no results state: " + JSON.stringify(data.noResults || {}));
-  assert.ok(Array.isArray(data.sources) && data.sources.length >= 2,
-    "fewer than two sources shipped: " + (data.sources || []).length);
+  // PIN UPDATED (2026-10-22, logic audit L3-2, owner order
+  // "fix all of it"): the comparison admission this test was
+  // written to pin is retired. One standard governs citation
+  // now, so a pool the current standard empties ships the
+  // retrieval state answer (what was searched, how many
+  // papers were gathered, how many were withheld and why in
+  // aggregate) instead of a limited answer over papers a
+  // retired weaker standard admitted. The gate audit still
+  // runs and still counts, in the record only, how many the
+  // legacy standard would have admitted; it admits none.
+  assert.equal(data.responseKind, "no-results",
+    "the creatine pool did not land in the retrieval state: " + data.responseKind);
+  assert.ok((data.sources || []).every((s) => !s.cited),
+    "a paper the current standard excluded shipped as cited: " + JSON.stringify((data.sources || []).map((s) => [s.title, s.cited])));
   const ga = data._record && data._record.gateAudit;
-  assert.ok(ga, "the record carries no gate audit for a comparison admitted run");
-  assert.equal(ga.shippedLimited, true, "the gate audit does not label the comparison admission");
+  assert.ok(ga, "the record carries no gate audit for a gate emptied run");
+  assert.equal(ga.shippedLimited, false, "the gate audit still labels a comparison admission as shipped");
   assert.equal(ga.citableBefore, 0, "the strict standard admitted papers the fixture says it should not");
+  assert.ok(ga.comparisonAdmitted >= 1,
+    "the record no longer counts what the legacy standard would have admitted: " + ga.comparisonAdmitted);
+  const answerText = String(data.answer || "");
+  assert.ok(/Counted once per paper under the first reason it failed/.test(answerText),
+    "the shipped answer carries no aggregate exclusion accounting: " + answerText.slice(0, 400));
+  assert.ok(!answerText.includes("No citable primary literature was found for this question."),
+    "the literature verdict sentence shipped as an answer claim");
 });
 
 group("Handler — the honest empty state still fires, with an audit and honest reasons");
