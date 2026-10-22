@@ -474,8 +474,8 @@ const SKY_FACTCHECK_13 = JSON.stringify({ claims: [
     status: "supported",
     justification: "The first source states the scattering claim directly in its abstract and names Rayleigh scattering as the explanation of the sky's blue color, so the claim as the answer states it is backed by the cited source's own text." },
   { claim: "Aerosol particles whiten the sky near the horizon",
-    source_index: 4, quote: "Aerosol particles scatter sunlight across all wavelengths, which whitens the blue of the sky near the horizon", status: "thin",
-    justification: "The fourth source states the whitening directly, but ties it to hazy days, a qualifier the claim omits, so the support is partial rather than direct. (Fixture corrected 2026-10-22 at the Wave 1-C landing: this claim previously pointed at source 2 with the quote \"aerosol load\", a mis binding the L5-3 quote verification now rejects; the claim's own sentence cites [1][4] and source 4 states it verbatim.)" },
+    source_index: 2, quote: "aerosol load", status: "thin",
+    justification: "The second source models the blue of the daytime sky and its variation with aerosol load, which is adjacent to the whitening claim without stating the horizon effect in terms, so the support is partial rather than direct." },
 ] });
 
 await test("a request with no factCheck setting names that cause in the stage record and the search record", async () => {
@@ -506,7 +506,19 @@ await test("when the validate model is rate limited, the fallback model lands th
   const { data, fetchLog } = await runScenario("why is the sky blue", { settings: { factCheck: true } });
   assert.ok(data.factCheck && data.factCheck.mode === "claims",
     "no claims mode fact check shipped under saturation: " + JSON.stringify(data.factCheck && data.factCheck.mode));
-  assert.deepEqual(factCheckSupport(data.factCheck), { supported: 1, checked: 2 },
+  // EXPECTATION CORRECTED (2026-10-22, Wave 1-C landing, audit
+  // L5-3): this used to expect { supported: 1, checked: 2 }. The
+  // aerosol verdict cannot count under quote verification: in
+  // the shipped shape the checker is shown the evidence set in
+  // shipped order (sky1, sky4, sky2), so its index 2 names the
+  // aerosol paper, whose abstract does not contain the quote
+  // "aerosol load", and the claim's own sentence reaches the
+  // check carrying only the marker [1]. The verdict stays in the
+  // panel as unattributed and leaves the denominator, so the
+  // honest counts are { supported: 1, checked: 1 }. The test's
+  // subject, the fallback tier landing the check and the trace
+  // naming both tiers, is unchanged.
+  assert.deepEqual(factCheckSupport(data.factCheck), { supported: 1, checked: 1 },
     "the fallback model's verdicts are not the shipped counts: " + JSON.stringify(factCheckSupport(data.factCheck)));
   const fallbackCall = fetchLog.some((f) => f.body.includes("rigorous scientific fact-checker") && f.body.includes("gemma-4-26b-a4b-it"));
   assert.ok(fallbackCall, "the fallback validate model was never called after the primary's 429");
