@@ -96,6 +96,17 @@ export function fcCompressionUnsafe(raw) {
 export function fcCompressStep(raw, max = 52) {
   // L7-13 (2026-10-23): unsafe sentences are skipped, not shortened.
   if (fcCompressionUnsafe(raw)) return "";
+  // L5-15 composed at the Wave 3 S5 landing (2026-10-23): the
+  // broader incompressible classes (qualifiers and the wider
+  // negation forms) pass through whole, the fallback L5-15
+  // allows and L7-13 does not govern.
+  if (fcSentenceIncompressible(raw)) {
+    const whole = String(raw || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/[.;:]+$/, "");
+    return cap1(whole);
+  }
   let s = String(raw || "")
     .replace(/\([^()]*\)/g, " ") // parenthetical asides carry detail, not the point
     .replace(/\s+/g, " ")

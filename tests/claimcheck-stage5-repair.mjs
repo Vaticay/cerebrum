@@ -323,13 +323,20 @@ await test("supported needs a supported claim, all thin is partly, zero countabl
 // ═══════════════════════════════════════════════════════════
 group("L5-15 — fcLabel refuses scope carrying sentences");
 
-await test("negation, qualifier, and contrast sentences pass through whole", () => {
+await test("negation, qualifier, and contrast sentences are never compressed", () => {
+  // PIN COMPOSED at the Wave 3 S5 landing (2026-10-23): L5-15's
+  // repair allows two fallbacks for an incompressible sentence,
+  // pass it through whole or omit the step. Lane S7's L7-13,
+  // landed first, mandates the omit form for diagram labels
+  // (the step is skipped, not shortened), so the composed
+  // behavior is the empty label. The refusal itself, the point
+  // of both repairs, is what this pin now asserts.
   const neg = "The treatment did not reduce mortality in older adults with severe disease at all.";
-  assert.equal(fcCompressStep(neg), "The treatment did not reduce mortality in older adults with severe disease at all");
+  assert.equal(fcCompressStep(neg), "");
   const qual = "The drug may lower blood pressure in some patients with resistant hypertension.";
   assert.equal(fcCompressStep(qual), "The drug may lower blood pressure in some patients with resistant hypertension");
   const con = "The dose lowered glucose while raising risk in older adults with kidney disease.";
-  assert.equal(fcCompressStep(con), "The dose lowered glucose while raising risk in older adults with kidney disease");
+  assert.equal(fcCompressStep(con), "");
   assert.equal(fcSentenceIncompressible("Metformin lowers blood glucose."), false);
   assert.ok(fcCompressStep("The study found that metformin lowers blood glucose in adults with diabetes mellitus type two.").length <= 52,
     "a marker free sentence no longer compresses");
