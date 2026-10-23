@@ -102,7 +102,7 @@ import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities
 
 /* Flowchart/diagram components (extracted 2026-10-07, monolith split). */
 import {DiagramStudio, Dialog, cbMotionOff, ChromeHeader, ModalChrome } from "./flowcharts.jsx";
-import { InboxView, ReportConductModal } from "./inbox.jsx";
+import { InboxView, ReportConductModal, PaperSharePicker, paperAttachmentFromSource } from "./inbox.jsx";
 import { SettingsView } from "./settings.jsx";
 import LearnView from "./LearnView.jsx";
 import NovaEgg from "./NovaEgg.jsx";
@@ -1190,54 +1190,6 @@ function Reveal({ children, deps = [], y, stagger, duration, delay, descend, sty
 /* Moved to src/appUtils.js: NOTIFY_KINDS, notifyPref, setNotifyPref */
 /* Moved to src/appUtils.js: cbNotify */
 
-function useCallTone(kind, active) {
-  useEffect(() => {
-    if (!active) return;
-    try { if (getCookie("cb_muted") !== "0") return; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx useCallTone: if (getCookie('cb_muted') !== '0') return; }:", cbErr); }
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
-    let ctx;
-    try { ctx = new AC(); } catch { return; }
-    let stopped = false;
-    let timer = null;
-
-    const blip = (freqs, dur, gainValue) => {
-      if (stopped || ctx.state === "closed") return;
-      const master = ctx.createGain();
-      master.gain.setValueAtTime(0, ctx.currentTime);
-      // Ramped, never switched: an instant gain change on a sine wave is an
-      // audible click, and a clicking ringtone sounds broken rather than
-      // premium.
-      master.gain.linearRampToValueAtTime(gainValue, ctx.currentTime + 0.04);
-      master.gain.setValueAtTime(gainValue, ctx.currentTime + dur - 0.06);
-      master.gain.linearRampToValueAtTime(0, ctx.currentTime + dur);
-      master.connect(ctx.destination);
-      freqs.forEach((f) => {
-        const osc = ctx.createOscillator();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(f, ctx.currentTime);
-        osc.connect(master);
-        osc.start();
-        osc.stop(ctx.currentTime + dur);
-      });
-    };
-
-    const ringback = () => { blip([440, 480], 1.6, 0.09); timer = setTimeout(ringback, 5200); };
-    const ringtone = () => {
-      blip([660, 880], 0.32, 0.11);
-      setTimeout(() => blip([660, 880], 0.32, 0.11), 480);
-      timer = setTimeout(ringtone, 2600);
-    };
-
-    (kind === "incoming" ? ringtone : ringback)();
-
-    return () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      try { ctx.close(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx ringtone: ctx.close(); }:", cbErr); }
-    };
-  }, [kind, active]);
-}
 
 /* Commit 57 — the daily hook.
    Engagement worth having, not the manipulative kind: a reason to come
@@ -6243,7 +6195,7 @@ function bibYearOf(s) {
   return Number.isFinite(y) ? y : null;
 }
 
-function Bibliography({ sources, answer = "", query = "", P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null, gatedOut = 0, relOf = null, activeCite = 0, onActivateCite = () => {} }) {
+function Bibliography({ sources, answer = "", query = "", P, accent, citationStyle, setCitationStyle, onOpenPaper = () => {}, bare = false, onRetry = null, onAdjustQuery = null, gatedOut = 0, relOf = null, activeCite = 0, onActivateCite = () => {}, onSharePaper = null }) {
   const bibTerms = useMemo(() => extractQueryTerms(query), [query]);
   const [copied, setCopied] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -6542,7 +6494,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
             const anchor = jumpLetters && L && /[A-Z]/.test(L) && !seen.has(L) ? (seen.add(L), L) : null;
             const doi = normalizeSourceDoi(s);
             return <BibEntry key={i} source={s} index={i + 1} P={P} accent={accent} style={citationStyle} last={pos === rows.length - 1}
-              onOpen={() => onOpenPaper(i + 1)} alphaAnchor={anchor}
+              onOpen={() => onOpenPaper(i + 1)} alphaAnchor={anchor} onShare={onSharePaper ? () => onSharePaper(s) : null}
               rel={relOf ? relOf(i + 1) : "supports"} active={activeCite === i + 1} onActivate={onActivateCite}
               tally={doi && tallies[doi] ? tallies[doi] : null} terms={bibTerms} />;
           });
@@ -6752,7 +6704,7 @@ function ReceptionLine({ source, P, tally = null }) {
     </div>
   );
 }
-function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {}, tally = null, terms = null }) {
+function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {}, tally = null, terms = null, onShare = null }) {
   const [copiedOne, setCopiedOne] = useState(false);
   const copyOne = (e) => {
     e.stopPropagation();
@@ -6870,11 +6822,17 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
           </div>
         )}
       </div>
-      <div>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         <button onClick={copyOne} title="Copy this citation" aria-label={`Copy citation ${index}`} className="cb-bibentry-copy cb-textbtn"
           style={{ minHeight: 44, padding: "6px 0", whiteSpace: "nowrap", color: copiedOne ? statusGood(P) : undefined }}>
           {copiedOne ? "\u2713 Copied" : "Copy"}
         </button>
+        {onShare && (
+          <button onClick={(e) => { e.stopPropagation(); onShare(); }} title="Send this paper into a conversation" aria-label={`Share source ${index} in a conversation`} className="cb-textbtn"
+            style={{ minHeight: 44, padding: "6px 0", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <Icon name="send" size={12} />Share
+          </button>
+        )}
       </div>
     </li>
   );
@@ -8735,7 +8693,7 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
         )
       ) : (
         <Bibliography bare sources={sources} answer={t.answer} query={t.q || ""} P={P} accent={accent} citationStyle={citationStyle} setCitationStyle={setCitationStyle}
-          onOpenPaper={onOpenPaper} onRetry={onRetry} onAdjustQuery={onAdjustQuery}
+          onOpenPaper={onOpenPaper} onRetry={onRetry} onAdjustQuery={onAdjustQuery} onSharePaper={onSharePaper}
           relOf={relOf} activeCite={activeCite} onActivateCite={onActivateCite} />
       )}
       </div>
@@ -9761,7 +9719,7 @@ function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, on
 
 function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = false, hoverCite, setHoverCite, onRelated, citationStyle, setCitationStyle, onShowFlowchart = () => {}, onShowAutopsy = () => {}, interactive = true, user = null, onWatchChanged = () => {}, onStress = null, busyNow = false, onRequireAuth = () => {}, onOpenPaper = () => {}, saveState = null, retrySave = null,
   /* #10/#15: contextual discovery + zero-result recovery wiring. */
-  onSaveInvestigation = null, onOpenDocumentMode = null, onShowLearn = null, evidenceFilter = "all", onClearFilterAndRetry = null, onFollowUp = null }) {
+  onSaveInvestigation = null, onOpenDocumentMode = null, onShowLearn = null, evidenceFilter = "all", onClearFilterAndRetry = null, onFollowUp = null, onSharePaper = null }) {
   const viewTabUid = useId().replace(/:/g, "");
   /* ANSWER ASSEMBLY: paragraphs arrive with a stagger on fresh turns
      instead of character-by-character typing. History turns render
@@ -14211,1112 +14169,8 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
 // Commit 46: rebuilt as a dedicated full-screen overlay (FaceTime-style)
 // instead of an inline panel confined to the Inbox's right pane — kept as-is
 // below, only what's inside it changed.
-/* ════════════════════════════════════════════════════════════════
-   INCOMING CALL — the receiving half of a video huddle
-   ════════════════════════════════════════════════════════════════
-   Until this existed, "calling someone" in Cerebrum wasn't a thing that
-   could happen: VideoHuddle assumed both people had already independently
-   opened the same thread's huddle, and if they hadn't, both sides simply
-   sat on "Waiting for X to join" until one of them gave up. That is the
-   whole of the reported bug — the WebRTC handshake underneath was fine.
-
-   The caller now emits a `ring` heartbeat (see VideoHuddle), every signed-in
-   client polls "is anyone calling me" app-wide (see the effect in App), and
-   this is what that poll puts on screen. Modeled on the incoming-call sheet
-   every phone uses: who's calling, and two unmistakable choices.
-
-   Declining posts a `bye` on the thread so the caller's own huddle closes
-   immediately rather than ringing into a void — a decline the caller can't
-   see is just a call that seems to go unanswered. */
-function IncomingCall({ call, P, accent, at, isMobile, onAccept, onDecline }) {
-  useCallTone("incoming", true);
-  const initial = (call.fromName || "?").trim().charAt(0).toUpperCase();
-  const skin = avatarSkin(call.fromName || call.fromId);
-  /* Dialog semantics, in place (the Cortex Player pattern): this card is
-     not routed through the Dialog primitive because it is not a centered
-     modal sheet — it anchors to a corner and the page stays visible and
-     scrollable behind it — but it declares aria-modal, so it carries the
-     full contract itself: focus moves into the card on mount, Tab cycles
-     inside it, Escape declines, and focus returns to whatever held it
-     when the card goes away. It previously had no focus handling at
-     all, so a keyboard user tabbed through the page behind a dialog
-     that claimed to be modal. */
-  const panelRef = useRef(null);
-  const onDeclineRef = useRef(onDecline);
-  onDeclineRef.current = onDecline;
-  useEffect(() => {
-    const prevFocus = document.activeElement;
-    const panel = panelRef.current;
-    if (panel) panel.focus();
-    const onKey = (e) => {
-      if (e.key === "Escape") { e.preventDefault(); onDeclineRef.current(); return; }
-      if (e.key !== "Tab" || !panel) return;
-      const f = panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-      if (!f.length) return;
-      const first = f[0], last = f[f.length - 1];
-      // Focus starts on the panel root itself (tabIndex -1, so it is
-      // not in the list above): treat the root as the boundary, or
-      // Shift + Tab from the freshly focused root steps backward out
-      // of a surface that declares aria-modal before any wrap engages.
-      if (document.activeElement === panel) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
-      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch { /* the trigger may be gone */ }
-    };
-  }, []);
-  const btn = (bg, color, label, icon, onClick) => (
-    <button onClick={onClick} style={{
-      display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-      background: "none", border: "none", cursor: "pointer", color: P.ink2,
-      fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
-    }}>
-      <span style={{
-        width: 58, height: 58, borderRadius: "50%", background: bg, color,
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}><Icon name={icon} size={22} /></span>
-      {label}
-    </button>
-  );
-  return (
-    <div role="dialog" aria-modal="true" aria-label={`Incoming call from ${call.fromName}`}
-      ref={panelRef} tabIndex={-1}
-      style={{
-        position: "fixed", zIndex: Z.modalTop,
-        // Phone-like placement: top sheet on mobile (where a call banner
-        // belongs), bottom-right card on desktop (where it doesn't cover
-        // what someone is reading).
-        ...(isMobile
-          ? { top: 12, left: 12, right: 12 }
-          : { bottom: 24, right: 24, width: 340 }),
-        padding: 20, borderRadius: RADIUS.lg,
-        background: P.surface,
-        border: `1px solid ${P.line2}`,
-        boxShadow: "none",
-      }}
-      className="cb-modal"
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
-        <span aria-hidden="true" style={{
-          width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
-          background: withAlpha(accent, 0.2), border: `1px solid ${withAlpha(accent, 0.45)}`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 20, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)",
-          animation: "cbHuddleRing 1.6s ease-in-out infinite",
-        }}>{initial}</span>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>Incoming call</div>
-          <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{call.fromName}</div>
-        </div>
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-evenly" }}>
-        {btn(withAlpha(STATUS.bad, 0.16), STATUS.bad, "Decline", "phoneOff", onDecline)}
-        {/* The accept glyph names the call the person is actually
-            answering: a phone for an audio only call, a camera for a
-            video call. This always drew the camera, so an audio call
-            announced itself with the wrong medium. */}
-        {btn(accent, at, "Accept", call.audioOnly ? "phone" : "camera", onAccept)}
-      </div>
-    </div>
-  );
-}
-
-let __cbHuddleClientSeq = 0;
-function newHuddleClientId() {
-  __cbHuddleClientSeq += 1;
-  return `${Date.now().toString(36)}-${__cbHuddleClientSeq}-${Math.random().toString(36).slice(2, 8)}`;
-}
-// Returns true only if the signal actually landed. Commit 59: this used to
-// be fire-and-forget, which is why a call could ring on the caller's screen
-// while the ring POST was being rejected — nothing anywhere looked at the
-// result, so a 404 (endpoint not deployed) and a 200 were indistinguishable.
-// Commit 70 — returns `true` on success, or a short human-readable reason
-// on failure, so the caller can say what actually went wrong instead of
-// guessing. The old version returned a bare boolean, which is why a failed
-// ring rendered as "Calls aren't fully set up on the server" whether the
-// real cause was a missing table, a rate limit, a blocked user, an expired
-// session, or a dropped connection — five very different problems, one
-// misleading sentence, and no way to tell them apart from a screenshot.
-/* ── API ROUTE NAMING: NO HYPHENS. EVER. ────────────────────────────────
-   Cloudflare Pages maps functions/api/<name>.js to /api/<name>, literally
-   and with no normalization. These endpoints were originally called
-   call-signal, ice-servers and trending-refresh, and when the files were
-   copied into the repo the hyphens were lost — so the files existed as
-   callsignal.js and iceservers.js while the app kept asking for
-   /api/call-signal. Nothing served those paths.
-
-   That is not a small bug. Pages answers a request for a route no Function
-   claims by falling back to the STATIC handler: a GET returns index.html
-   with HTTP 200, and a POST returns 405. So the app got a 200 containing a
-   web page where it expected JSON, and failed silently. Calling never
-   worked at all, and Trending never showed a single picture, for weeks —
-   while every health probe reported "live", because a 200 is a 200.
-
-   The convention is now: API filenames are a single lowercase word, no
-   hyphens, no underscores. It is not prettier. It is simply the only
-   version of this that cannot be broken by a filename losing a character
-   in transit, and a route name nobody can mistype is worth more than a
-   route name that reads nicely.
-   ─────────────────────────────────────────────────────────────────────── */
-async function postCallSignal(threadId, clientId, type, payload) {
-  try {
-    const res = await fetch("/api/callsignal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadId, clientId, type, payload }),
-    });
-    if (res.ok) return true;
-    let reason = "";
-    try { reason = (await res.json()).error || ""; } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx postCallSignal: reason = (await res.json()).error || ''; }:", cbErr); }
-    if (!reason) {
-      reason = res.status === 401 ? "Your session expired: sign in again."
-        : res.status === 403 ? "You're not authorized to call in this conversation."
-        : res.status === 429 ? "Too many requests: wait a moment."
-        : `Server returned ${res.status}.`;
-    }
-    return reason;
-  } catch {
-    // Best-effort. A dropped offer/answer/ICE post is recoverable — the
-    // sender's own retry logic or the next natural signal covers it, except
-    // `bye` on unmount, which is inherently best-effort everywhere (the tab
-    // may already be closing when it fires).
-    return false;
-  }
-}
-
-function VideoHuddle({ P, accent, at, isMobile, name, roomSeed, currentUserId, audioOnly = false, onClose }) {
-  const threadId = roomSeed; // roomSeed has always actually been the DM's thread id — see onStartHuddle in InboxView
-  const videoARef = useRef(null); // "main stage" slot
-  const videoBRef = useRef(null); // picture-in-picture slot
-  const localStreamRef = useRef(null);
-  const remoteStreamRef = useRef(null);
-  const pcRef = useRef(null);
-  const screenTrackRef = useRef(null);
-  const clientIdRef = useRef(null);
-  // Set when endCall posts its own bye: the effect cleanup must not post
-  // a second one on the unmount that follows.
-  const byeSentRef = useRef(false);
-  if (!clientIdRef.current) clientIdRef.current = newHuddleClientId();
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const [status, setStatus] = useState("loading"); // loading | waiting | connecting | ready | error | ended (ended added 2026-10-19, S7b M55)
-  const [endedSecs, setEndedSecs] = useState(0);
-  const connectedAtRef = useRef(0);
-  const endedTimerRef = useRef(null);
-  const showEndedRef = useRef(null);
-  const [errorReason, setErrorReason] = useState("");
-  const [retryTick, setRetryTick] = useState(0);
-  const [micMuted, setMicMuted] = useState(false);
-  // An audio call is a video call that opens with the camera already off —
-  // same surface, same controls, so switching the camera on mid-call is one
-  // tap rather than hanging up and calling back a different way.
-  const [camMuted, setCamMuted] = useState(audioOnly);
-  const [hasCamera, setHasCamera] = useState(true);
-  // Repurposes the old Jitsi "tile view" toggle: with exactly two
-  // participants and no SFU, a tile grid doesn't apply the way it did for
-  // Jitsi's multi-party rooms — swapping which feed is the big one (the way
-  // Instagram/Messenger's own video calls let you tap the small bubble) is
-  // the equivalent that actually fits a 1:1 call.
-  const [mainIsSelf, setMainIsSelf] = useState(false);
-  const mainIsSelfRef = useRef(false);
-  // Commit 47 — "amazing video call optimization":
-  // - `minimized`: the call keeps running (same mounted RTCPeerConnection —
-  //   nothing is torn down or recreated) while shrinking to a small floating
-  //   bubble, so navigating to another tab doesn't hang up.
-  // - `screenSharing`/`dataSaver`: both drive real, documented WebRTC
-  //   primitives (`getDisplayMedia` + `replaceTrack` / `RTCRtpSender.
-  //   setParameters` bitrate caps) — not new/speculative surface area.
-  const [minimized, setMinimized] = useState(false);
-  const [screenSharing, setScreenSharing] = useState(false);
-  const [dataSaver, setDataSaver] = useState(false);
-  // Commit 48: report this call — kind: "call" against content_reports,
-  // scoped by thread_id rather than a specific user, since a call has no
-  // single message to point at the way the Inbox's per-message report does.
-  const [reportOpen, setReportOpen] = useState(false);
-  // Refs don't re-render, and which slot each stream belongs in changes the
-  // moment the remote track lands — so the arrival itself has to be state.
-  const [hasRemote, setHasRemote] = useState(false);
-
-  /* Dialog semantics, in place (the IncomingCall pattern, ported
-     rather than routed through the Dialog primitive: the huddle is a
-     full screen call surface whose root element doubles as the
-     minimized bubble, and the primitive's centered sheet, scrim, and
-     stack bookkeeping do not fit a surface that stays mounted and
-     keeps streaming while it changes shape). In its expanded state
-     the root declares role dialog with aria-modal, so it carries the
-     contract itself, the way IncomingCall does: focus moves into the
-     surface when it opens (and again when it expands from the
-     bubble), Tab cycles inside it, Escape minimizes (this surface's
-     own non destructive dismissal; its destructive one is the End
-     call control), and focus returns to whatever held it when the
-     call surface unmounts. Until 2026-10-14 it had none of this: a
-     keyboard user tabbed through the page behind a dialog that
-     claimed to be modal, and Escape did nothing. The trap is only
-     armed while expanded: minimized, the root is a button and the
-     page behind it is legitimately interactive again. */
-  const huddleRef = useRef(null);
-  useEffect(() => {
-    const prevFocus = document.activeElement;
-    return () => {
-      try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch { /* the trigger may be gone */ }
-    };
-  }, []);
-  useEffect(() => {
-    if (minimized) return;
-    const panel = huddleRef.current;
-    if (panel) panel.focus();
-    const onKey = (e) => {
-      /* A dialog stacked over the call (the report sheet renders
-         through the Dialog primitive) owns its own keys while it is
-         up: a key whose target sits inside that dialog is not the
-         call surface's to answer, or Escape would minimize the call
-         at the same moment it closes the sheet. Keys from the page
-         body (a click on the video settles focus there) still count
-         as the surface's own. */
-      const t = e.target;
-      if (t && t.closest && t.closest('[role="dialog"]') && !(panel && panel.contains(t))) return;
-      if (e.key === "Escape") { e.preventDefault(); setMinimized(true); return; }
-      if (e.key !== "Tab" || !panel) return;
-      const f = panel.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-      if (!f.length) return;
-      const first = f[0], last = f[f.length - 1];
-      // Focus starts on the huddle root itself (tabIndex -1 while
-      // expanded, so it is not in the list above): treat the root as
-      // the boundary, or Shift + Tab from the freshly focused root
-      // steps backward out of a surface that declares aria-modal
-      // before any wrap engages. Same fix as IncomingCall.
-      if (document.activeElement === panel) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
-      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("keydown", onKey); };
-  }, [minimized]);
-
-  // Which physical <video> slot shows which stream. The `!remote` clause is
-  // what makes the outgoing-call screen feel like FaceTime instead of a
-  // loading spinner: until the other side's track actually arrives there is
-  // nothing to put on the main stage, and the old code put that nothing
-  // there anyway — a black rectangle with "Waiting for X to join" over it.
-  // Every real calling app shows YOU full-screen while it's ringing out,
-  // then demotes you to the corner the instant the other person appears.
-  // That's exactly what this does, and it also means the call screen proves
-  // your own camera and mic are working before the call ever connects.
-  function assignVideos(isSelfMain) {
-    const a = videoARef.current, b = videoBRef.current;
-    const local = localStreamRef.current, remote = remoteStreamRef.current;
-    const selfOnMain = isSelfMain || !remote;
-    if (a) a.srcObject = selfOnMain ? local : remote;
-    if (b) b.srcObject = selfOnMain ? remote : local;
-  }
-
-  useEffect(() => { mainIsSelfRef.current = mainIsSelf; assignVideos(mainIsSelf); }, [mainIsSelf]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let pc = null;
-    let localStream = null;
-    let pollTimer = null;
-    let lastSeenId = 0;
-    let peerId = null;
-    let role = null; // 'offerer' | 'answerer', decided once the peer's first message is seen
-    let madeOffer = false;
-    let remoteDescSet = false;
-    let connected = false;
-    // Set once a ring is actually delivered: only then does the peer have
-    // any reason to expect us, and only then is a "bye" owed on cleanup. A
-    // call that died before ringing (permission denied, signaling down)
-    // must not send a phantom hangup for a call that never existed.
-    let didRing = false;
-    let pollFailures = 0;
-    let ringTimer = null;
-    const startedAt = Date.now();
-    const pendingRemoteCandidates = [];
-    const myClientId = clientIdRef.current;
-
-    setStatus("loading");
-    setErrorReason("");
-
-    const postSignal = (type, payload) => postCallSignal(threadId, myClientId, type, payload);
-
-    async function flushPendingCandidates() {
-      while (pendingRemoteCandidates.length) {
-        const c = pendingRemoteCandidates.shift();
-        try { await pc.addIceCandidate(c); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx while: await pc.addIceCandidate(c); }:", cbErr); }
-      }
-    }
-
-    async function makeOffer(iceRestart = false) {
-      if (!pc) return;
-      setStatus("connecting");
-      try {
-        const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
-        await pc.setLocalDescription(offer);
-        const sent = await postSignal("offer", offer);
-        if (sent !== true && !cancelled) {
-          // A rejected offer used to vanish into the console: the other
-          // side simply never answered and both people watched a spinner.
-          // (The historical cause was the signaling payload cap rejecting
-          // genuine SDPs.) Say it out loud instead.
-          setErrorReason(
-            (typeof sent === "string" && sent ? sent + " " : "") +
-            "The call setup could not be sent, so the other person cannot answer. Try again."
-          );
-          setStatus("error");
-        }
-      } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx makeOffer: const offer = await pc.createOffer();:", cbErr); }
-    }
-
-    async function handleMessage(msg) {
-      // Commit 56 — ignore signals that predate this huddle. Rows live for
-      // ten minutes (SIGNAL_TTL_MS in call-signal.js), so a thread that has
-      // been called on recently still holds hello/ice/bye rows from an
-      // abandoned attempt. Without this, a fresh call can latch its peer
-      // identity onto a client that is no longer there — which decides the
-      // offerer/answerer tie-break against a ghost, and then neither live
-      // side ever sends an offer. That failure looks exactly like the
-      // connection simply never establishing, and it gets MORE likely the
-      // more times a pair retries, which is the worst possible property for
-      // something someone is already struggling to get working.
-      if (msg.created_at && msg.created_at < startedAt - 2000) return;
-      if (peerId == null && msg.sender_id) {
-        peerId = msg.sender_id;
-        // Deterministic tie-break so exactly one side ever creates the
-        // offer, computed identically on both sides with no coordination
-        // beyond comparing two already-known, stable ids — avoids "glare"
-        // from both peers racing to offer at once. Normally this compares
-        // user ids, which are always distinct for two real participants in
-        // a DM. If they're ever equal or missing (e.g. testing a call
-        // against your own account from two tabs, where "currentUserId"
-        // is identical on both sides and a plain user-id compare would
-        // make BOTH sides "answerer" and neither would ever offer — the
-        // exact failure mode that leaves a call stuck at "waiting"
-        // forever), fall back to comparing the per-tab clientId instead,
-        // which is always unique.
-        const mine = (currentUserId != null && peerId != null && String(currentUserId) !== String(peerId))
-          ? String(currentUserId) : myClientId;
-        const theirs = (currentUserId != null && peerId != null && String(currentUserId) !== String(peerId))
-          ? String(peerId) : String(msg.client_id || peerId);
-        role = mine < theirs ? "offerer" : "answerer";
-      }
-      if (msg.type === "hello" || msg.type === "ring") {
-        // The ring must be allowed to trigger the offer, not just the
-        // hello. The caller posts its hello ONCE, before the callee has
-        // opened the huddle, so the stale filter above drops it on the
-        // callee's side. The repeating ring is the only fresh proof of the
-        // peer the callee ever sees — and when the callee is the side the
-        // tie-break picked as offerer, nothing else ever sent an offer.
-        // Those pairs rang forever and never connected.
-        if (role === "offerer" && !madeOffer) { madeOffer = true; await makeOffer(); }
-        else setStatus((s) => (s === "loading" || s === "waiting" ? "connecting" : s));
-      } else if (msg.type === "offer") {
-        setStatus("connecting");
-        try {
-          await pc.setRemoteDescription(msg.payload);
-          remoteDescSet = true;
-          await flushPendingCandidates();
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          const sentAnswer = await postSignal("answer", answer);
-          if (sentAnswer !== true && !cancelled) {
-            setErrorReason("Your answer to the call could not be sent, so the call cannot connect. Try again.");
-            setStatus("error");
-          }
-        } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: await pc.setRemoteDescription(msg.payload);:", cbErr); }
-      } else if (msg.type === "answer") {
-        try {
-          await pc.setRemoteDescription(msg.payload);
-          remoteDescSet = true;
-          await flushPendingCandidates();
-        } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: await pc.setRemoteDescription(msg.payload);:", cbErr); }
-      } else if (msg.type === "ice") {
-        if (remoteDescSet) { try { await pc.addIceCandidate(msg.payload); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: await pc.addIceCandidate(msg.payload); }:", cbErr); } }
-        else pendingRemoteCandidates.push(msg.payload);
-      } else if (msg.type === "bye") {
-        if (!cancelled && showEndedRef.current) showEndedRef.current();
-      }
-    }
-
-    async function poll() {
-      if (cancelled) return;
-      try {
-        const qs = new URLSearchParams({ threadId: String(threadId), since: String(lastSeenId), clientId: myClientId });
-        const res = await fetch(`/api/callsignal?${qs.toString()}`);
-        if (res.ok) {
-          pollFailures = 0;
-          const data = await res.json().catch(() => null);
-          const messages = (data && data.messages) || [];
-          for (const msg of messages) {
-            lastSeenId = Math.max(lastSeenId, msg.id);
-            await handleMessage(msg);
-          }
-        } else if (res.status === 404) {
-          // The endpoint itself doesn't exist — this is a deploy problem
-          // (call-signal.js missing from the live Functions), not a
-          // networking blip. Surfacing it immediately, rather than
-          // retrying into a silent "waiting" forever, is the difference
-          // between "the call feature is broken" and "why didn't Dusty's
-          // deploy work" being knowable at all from the UI.
-          if (!cancelled) {
-            setErrorReason("Video calling isn't available right now. Try again in a bit. If it keeps happening, let us know.");
-            setStatus("error");
-          }
-          return;
-        } else {
-          pollFailures += 1;
-        }
-      } catch {
-        pollFailures += 1;
-      }
-      if (cancelled) return;
-      if (pollFailures >= 8) {
-        // ~8 consecutive failures (a handful of seconds to over a minute,
-        // depending on phase) is well past anything a transient blip
-        // explains — surface it rather than spinning "Waiting…" forever
-        // with no way for anyone to tell the call is actually broken.
-        setErrorReason("Lost connection to the call signaling service. Check your connection and try again.");
-        setStatus("error");
-        return;
-      }
-      // Fast while establishing the call, slower once connected — from
-      // there on the only thing still worth polling for is a hangup.
-      pollTimer = setTimeout(poll, connected ? 3000 : 800);
-    }
-
-    async function start() {
-      const icePromise = fetch("/api/iceservers").then((r) => (r.ok ? r.json() : null)).catch(() => null);
-      try {
-        // Commit 97 — do not ask for a camera on an audio call. This always
-        // requested video first and fell back only after the request FAILED,
-        // so an audio call still fired a camera permission prompt and, on a
-        // machine with a camera that is present but busy, could hang there.
-        // Explicit media constraints: bare { video: true, audio: true }
-        // takes whatever the browser defaults to, which is often 640x480
-        // with unspecified audio processing — the "quality is horrible"
-        // report. Ask for a real call profile instead: 720p30 video and
-        // echo/noise/gain processing on the microphone.
-        localStream = await navigator.mediaDevices.getUserMedia({
-          video: audioOnly ? false : {
-            width: { ideal: 1280, max: 1920 },
-            height: { ideal: 720, max: 1080 },
-            frameRate: { ideal: 30, max: 30 },
-            facingMode: "user",
-          },
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        });
-      } catch {
-        try {
-          localStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
-          if (!cancelled) setHasCamera(false);
-        } catch {
-          if (!cancelled) {
-            setErrorReason(audioOnly
-              ? "Cerebrum needs microphone access for this call. Allow it in your browser, then try again."
-              : "Cerebrum needs camera and microphone access for this call. Allow them in your browser, then try again.");
-            setStatus("error");
-          }
-          return;
-        }
-      }
-      if (cancelled) { localStream.getTracks().forEach((t) => t.stop()); return; }
-      localStreamRef.current = localStream;
-      assignVideos(mainIsSelfRef.current);
-
-      let iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
-      const iceData = await icePromise;
-      if (iceData && Array.isArray(iceData.iceServers) && iceData.iceServers.length) iceServers = iceData.iceServers;
-      // "none" means /api/iceservers has no working relay configured. Held
-      // here so the failure message below can say that instead of blaming
-      // the network. See functions/api/iceservers.js.
-      const relayKind = (iceData && iceData.relay) || "unknown";
-      if (cancelled) return;
-
-      let iceRestarted = false;
-      pc = new RTCPeerConnection({ iceServers });
-
-      /* Commit 85 — calls that ring, exchange signalling cleanly, and then
-         never connect.
-
-         Everything up to media was already observable: the ring arrives,
-         /api/callsignal returns 200, the message cursor climbs. What was
-         invisible was ICE. A relay that rejects its credentials reports
-         that ONLY through onicecandidateerror, which nothing listened to,
-         and a connection with no relay candidate on either side simply
-         runs out of pairs and fails with no explanation. Both are now
-         observed: `sawRelay` records whether a relay candidate was ever
-         gathered, and the failure message distinguishes "your networks
-         need a relay and none is configured" from a genuine network
-         problem. That is the difference between a bug report saying "calls
-         don't work" and one naming the variable to set. */
-      let sawRelay = false;
-      let iceErr = null;
-      pc.onicecandidateerror = (e) => {
-        // 701 is "STUN/TURN server unreachable"; 401/403 are credential
-        // rejections. Anything in that range means the relay is the fault.
-        if (e && (e.errorCode === 401 || e.errorCode === 403 || e.errorCode === 701)) {
-          iceErr = { code: e.errorCode, url: e.url || "" };
-        }
-      };
-      pcRef.current = pc;
-      localStream.getTracks().forEach((t) => {
-        // Encoder hints: speech tuning for the microphone, motion tuning
-        // for the camera, so the encoder spends its bits on the right
-        // thing instead of treating a face like a screen share.
-        try { t.contentHint = t.kind === "audio" ? "speech" : "motion"; } catch { /* older browsers */ }
-        pc.addTrack(t, localStream);
-      });
-      // Encoder parameters the browser defaults leave on the floor:
-      // voice allowed 64 kbps, video allowed 2.5 Mbps at 30 fps with
-      // resolution held over frame rate. Applied again once connected,
-      // because some browsers refuse setParameters before negotiation
-      // finishes and the call must not depend on that timing.
-      const applySenderQuality = async () => {
-        if (!pc) return;
-        for (const sender of pc.getSenders()) {
-          if (!sender.track) continue;
-          try {
-            const params = sender.getParameters();
-            if (!params.encodings || !params.encodings.length) params.encodings = [{}];
-            if (sender.track.kind === "video") {
-              params.encodings[0].maxBitrate = 2500000;
-              params.encodings[0].maxFramerate = 30;
-              params.degradationPreference = "maintain-resolution";
-            } else if (sender.track.kind === "audio") {
-              params.encodings[0].maxBitrate = 64000;
-            }
-            await sender.setParameters(params);
-          } catch { /* a refused hint is not a failed call */ }
-        }
-      };
-      applySenderQuality();
-      pc.ontrack = (e) => {
-        remoteStreamRef.current = e.streams[0];
-        if (!cancelled) setHasRemote(true);
-        assignVideos(mainIsSelfRef.current);
-      };
-      pc.onicecandidate = (e) => {
-        if (!e.candidate) return;
-        if (e.candidate.type === "relay" || /\btyp relay\b/.test(e.candidate.candidate || "")) sawRelay = true;
-        postSignal("ice", e.candidate.toJSON());
-      };
-      pc.onconnectionstatechange = () => {
-        if (cancelled || !pc) return;
-        if (pc.connectionState === "connected") {
-          connected = true;
-          if (!connectedAtRef.current) connectedAtRef.current = Date.now();
-          if (ringTimer) { clearInterval(ringTimer); ringTimer = null; }
-          setStatus("ready");
-          applySenderQuality();
-        }
-        else if (pc.connectionState === "disconnected") {
-          // A transient drop (a phone changing cell, Wi-Fi to LTE) recovers
-          // on its own most of the time. Re-gather once rather than tearing
-          // the call down on the first blip.
-          connected = false;
-          if (!iceRestarted) {
-            iceRestarted = true;
-            // restartIce on its own renegotiates nothing: only the
-            // offerer can restart, by sending a fresh offer that carries
-            // the restart flag. An answerer calling it was a silent
-            // no-op and the call simply stayed dead.
-            if (role === "offerer") { makeOffer(true); }
-            else { try { pc.restartIce(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: pc.restartIce(); }:", cbErr); } }
-          }
-        }
-        else if (pc.connectionState === "failed") {
-          connected = false;
-          if (!iceRestarted && role === "offerer") {
-            // One real recovery attempt, from the only side that can
-            // make it: a fresh offer with the restart flag. The old code
-            // called restartIce and returned, which renegotiates
-            // nothing, so a failed call never recovered and never even
-            // reached the error below.
-            iceRestarted = true;
-            makeOffer(true);
-            return;
-          }
-          setErrorReason(
-            relayKind === "none" || !sawRelay
-              ? "This call couldn't connect. Your network and theirs can't reach each other directly, and no relay server is available right now. Try again later, or switch networks (for example off VPN) and retry."
-              : iceErr
-                ? `The call couldn't connect through the relay server (code ${iceErr.code}). Try again in a bit. If it keeps happening, let us know.`
-                : "Couldn't establish a connection to the other person. This can happen on some restrictive networks."
-          );
-          setStatus("error");
-        }
-      };
-
-      setStatus("waiting");
-      await postSignal("hello", {});
-      // Commit 54 — this is the half of "call someone" that never existed.
-      // Everything else in this component assumed both people had already
-      // decided to be in the same huddle; nothing ever told the other
-      // person a call was happening, so unless they independently clicked
-      // Huddle on the same thread within seconds, both sides sat on
-      // "Waiting for X to join" indefinitely. That's the reported bug, and
-      // no amount of fixing the WebRTC handshake could have solved it.
-      //
-      // A repeating heartbeat rather than one "incoming call" row: hanging
-      // up, closing the tab, a dead network and a killed browser all stop
-      // it in exactly the same way, so the other end's ringing UI expires
-      // by itself. There is no cleanup path that can fail and leave someone
-      // with a phantom call ringing forever.
-      // If the very first ring can't be delivered, the person on the other
-      // end will never know they're being called no matter how long we spin.
-      // Better to say so immediately than to show "Calling…" forever.
-      let ringFailures = 0;
-      let lastRingReason = "";
-      const ring = async () => {
-        if (cancelled || connected) return;
-        /* Commit 97 — the ring now carries the call kind.
-           An audio call was being answered as a VIDEO call. The caller
-           picks "Start an audio call", but the ring payload was empty and
-           incoming-calls returned only {threadId, fromId, fromName, at},
-           so the callee had no way to know and its accept handler built a
-           huddle with audioOnly undefined. The callee's browser then asked
-           for a camera the caller never wanted, and on any machine without
-           a working one the whole call died with "Camera/microphone access
-           is required" instead of connecting as audio. */
-        const ok = await postSignal("ring", { audioOnly: !!audioOnly });
-        if (ok !== true) {
-          ringFailures += 1;
-          if (typeof ok === "string" && ok) lastRingReason = ok;
-          if (ringFailures >= 3 && !cancelled) {
-            // Commit 70 — say what the server actually said. Three failed
-            // heartbeats means the other person genuinely will not be
-            // notified, so the message still has to be blunt about that —
-            // but the reason is now the real one, which is the difference
-            // between a bug report someone can act on and a screenshot.
-            setErrorReason(
-              (lastRingReason || "The ring couldn't be delivered.") +
-              " The other person won't be notified until this is resolved."
-            );
-            setStatus("error");
-          }
-        } else { ringFailures = 0; lastRingReason = ""; didRing = true; }
-      };
-      ring();
-      ringTimer = setInterval(ring, 3000);
-      poll();
-    }
-
-    start();
-
-    return () => {
-      cancelled = true;
-      if (pollTimer) clearTimeout(pollTimer);
-      if (ringTimer) clearInterval(ringTimer);
-      if (didRing && !byeSentRef.current) postSignal("bye", {});
-      if (pc) { try { pc.close(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: pc.close(); }:", cbErr); } }
-      if (localStream) localStream.getTracks().forEach((t) => t.stop());
-      if (screenTrackRef.current) { try { screenTrackRef.current.stop(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: screenTrackRef.current.stop(); }:", cbErr); } screenTrackRef.current = null; }
-      pcRef.current = null;
-      localStreamRef.current = null;
-      remoteStreamRef.current = null;
-    };
-  }, [threadId, currentUserId, retryTick, audioOnly]);
-
-  const toggleMic = () => {
-    const track = localStreamRef.current?.getAudioTracks()[0];
-    if (!track) return;
-    track.enabled = !track.enabled;
-    setMicMuted(!track.enabled);
-  };
-  const toggleCam = () => {
-    const track = localStreamRef.current?.getVideoTracks()[0];
-    if (!track) return;
-    track.enabled = !track.enabled;
-    setCamMuted(!track.enabled);
-  };
-  const toggleView = () => setMainIsSelf((v) => !v);
-  /* 2026-10-19 (S7b, M55): an ended state held about two seconds on the
-     solid stage, so a dropped call and a deliberate goodbye no longer
-     look identical, and neither looks like the app closed something by
-     accident. Whichever side hangs up, both surfaces land here first. */
-  const showEnded = () => {
-    if (status === "ended") return;
-    const secs = connectedAtRef.current ? Math.max(0, Math.round((Date.now() - connectedAtRef.current) / 1000)) : 0;
-    setEndedSecs(secs);
-    setMinimized(false);
-    setStatus("ended");
-    if (endedTimerRef.current) clearTimeout(endedTimerRef.current);
-    endedTimerRef.current = setTimeout(() => { if (onCloseRef.current) onCloseRef.current(); }, 2000);
-  };
-  showEndedRef.current = showEnded;
-  useEffect(() => () => { if (endedTimerRef.current) clearTimeout(endedTimerRef.current); }, []);
-  const endCall = () => { if (status === "ended") return; byeSentRef.current = true; postCallSignal(threadId, clientIdRef.current, "bye", {}); showEnded(); };
-  const stopScreenShare = () => {
-    const camTrack = localStreamRef.current?.getVideoTracks()[0];
-    const sender = pcRef.current?.getSenders().find((s) => s.track && s.track.kind === "video");
-    if (sender && camTrack) sender.replaceTrack(camTrack).catch(() => {});
-    if (screenTrackRef.current) { try { screenTrackRef.current.stop(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: screenTrackRef.current.stop(); }:", cbErr); } screenTrackRef.current = null; }
-    setScreenSharing(false);
-  };
-  const toggleScreenShare = async () => {
-    if (screenSharing) { stopScreenShare(); return; }
-    try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      const screenTrack = screenStream.getVideoTracks()[0];
-      const sender = pcRef.current?.getSenders().find((s) => s.track && s.track.kind === "video");
-      if (sender) await sender.replaceTrack(screenTrack);
-      screenTrackRef.current = screenTrack;
-      // Real event, not polled/guessed — fires when the share ends via the
-      // browser's own native "Stop sharing" bar, not just our own button.
-      screenTrack.onended = () => stopScreenShare();
-      setScreenSharing(true);
-    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: const screenStream = await navigator.mediaDevices.getDisplayMedia({ vi:", cbErr); }
-  };
-  // ~150kbps in Data saver vs ~2.5Mbps normally — real bitrate caps WebRTC's
-  // own encoder honors (documented RTCRtpSender.setParameters), not a
-  // cosmetic label.
-  const toggleDataSaver = async () => {
-    const next = !dataSaver;
-    setDataSaver(next);
-    const sender = pcRef.current?.getSenders().find((s) => s.track && s.track.kind === "video");
-    if (sender) {
-      try {
-        const params = sender.getParameters();
-        if (!params.encodings || !params.encodings.length) params.encodings = [{}];
-        params.encodings[0].maxBitrate = next ? 150000 : 2500000;
-        await sender.setParameters(params);
-      } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx if: const params = sender.getParameters();:", cbErr); }
-    }
-  };
-
-  const controlBtn = (active, onClick, iconOn, iconOff, label) => (
-    <button key={label} onClick={onClick} aria-label={label} aria-pressed={active} title={label} style={{
-      width: 48, height: 48, borderRadius: "50%", border: "none", cursor: "pointer",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      background: active ? "#ffffff" : "#26262b",
-      color: active ? "#0b0b0d" : "#fff",
-      transition: "background 150ms ease, color 150ms ease",
-    }}>
-      <Icon name={active ? iconOff : iconOn} size={19} />
-    </button>
-  );
-
-  // Commit 47: minimized is a pure CSS/layout mode change, not a remount —
-  // the `<video>` elements (and the RTCPeerConnection feeding them) stay
-  // exactly where they are in the tree the whole time; only the wrapping
-  // box's size and position change, and the chrome around it (top bar,
-  // self-view PiP, full control island) is swapped for a compact bubble
-  // overlay. That's what lets the call keep running while minimized instead
-  // of dropping and reconnecting.
-  // Self takes the main stage whenever there's no remote feed to put there
-  // (ringing out, reconnecting), regardless of the manual swap state.
-  // Ringback for the caller, but only while actually ringing out — the
-  // moment a peer answers, status leaves "waiting" and the tone stops.
-  useCallTone("outgoing", status === "waiting" && !minimized);
-  const selfOnMain = mainIsSelf || !hasRemote;
-  const bubbleSize = isMobile ? { width: 148, height: 108 } : { width: 220, height: 150 };
-  const wrapStyle = minimized
-    ? {
-        position: "fixed", zIndex: Z.modal, cursor: "pointer",
-        // Mobile: sits above the back-to-top circle (bottom 88px + 44px tall
-        // when a search has started), so the two never overlap.
-        bottom: isMobile ? 156 : 24, right: 20,
-        width: bubbleSize.width, height: bubbleSize.height,
-        borderRadius: RADIUS.lg, overflow: "hidden", background: "#0b0b0d",
-        border: "1px solid rgba(255,255,255,0.16)", boxShadow: "none",
-      }
-    : { position: "fixed", inset: 0, zIndex: Z.modal, background: "#0b0b0d" };
-
-  return (
-    <div role={minimized ? "button" : "dialog"} aria-modal={!minimized} aria-label={minimized ? `Call with ${name} (minimized). Activate to restore.` : `Call with ${name}`}
-      ref={huddleRef}
-      tabIndex={minimized ? 0 : -1}
-      onKeyDown={minimized ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMinimized(false); } } : undefined}
-      style={wrapStyle} onClick={minimized ? () => setMinimized(false) : undefined}>
-      {/* Main stage — a plain <video> now instead of a Jitsi iframe mount;
-          which stream (self or remote) plays here vs. in the PiP slot below
-          is decided by mainIsSelf/assignVideos, not by which JSX slot this
-          is. Muted here because the main slot can hold the self stream when
-          swapped — the PiP slot's video carries the opposite mute value. */}
-      <div style={{
-        position: "absolute", inset: minimized ? 0 : (isMobile ? 0 : 16),
-        borderRadius: minimized ? 0 : (isMobile ? 0 : 2), overflow: "hidden", background: "#000",
-      }}>
-        <video ref={videoARef} autoPlay playsInline muted={selfOnMain} style={{
-          position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
-          transform: selfOnMain ? "scaleX(-1)" : "none",
-          opacity: selfOnMain && (!hasCamera || camMuted) ? 0 : 1,
-        }} />
-        {selfOnMain && (!hasCamera || camMuted) && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon name="cameraOff" size={28} style={{ color: "rgba(255,255,255,0.4)" }} />
-          </div>
-        )}
-        {/* While ringing out, this sits ON TOP of your own live camera feed
-            (see assignVideos) rather than replacing it, so the screen reads
-            as "you, calling someone" the way FaceTime does.
-            2026-10-19 (S7b, H25): the status block itself is a solid panel
-            in the stage color. Text no longer sits on a gradient scrim
-            over the live picture at partial opacity, and every fill in
-            every call state is fully opaque; the camera picture stays
-            visible around the panel. */}
-        {status !== "ready" && !minimized && (
-          <div style={{
-            position: "absolute", inset: 0, display: "flex",
-            alignItems: "center", justifyContent: "center", padding: 24,
-          }}>
-            <div style={{
-              display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: 12, padding: "28px 32px", textAlign: "center",
-              background: "#141418", border: "1px solid rgba(255,255,255,0.14)", borderRadius: RADIUS.lg,
-              maxWidth: "calc(100% - 16px)",
-            }}>
-            {status === "loading" ? (<>
-              <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-              <div style={{ fontSize: FONT_SIZES.label, color: "#d7d7db" }}>Getting camera ready…</div>
-            </>) : status === "waiting" ? (<>
-              {/* "Waiting for X to join" described the old behavior
-                  accurately — nothing was calling anyone, it really was
-                  just waiting. Now that starting a huddle actually rings
-                  the other person (see the ring heartbeat in the effect
-                  above), the copy says what is happening: it's calling. */}
-              <div aria-hidden="true" style={{
-                width: 84, height: 84, borderRadius: "50%", marginBottom: 4,
-                background: accent, border: "1px solid rgba(255,255,255,0.14)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 30, fontWeight: 500, color: at, fontFamily: "var(--cb-font)",
-                animation: "cbHuddleRing 2s ease-in-out infinite",
-              }}>{(name || "?").trim().charAt(0).toUpperCase()}</div>
-              <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: "#fff" }}>Calling {name}…</div>
-              <div style={{ fontSize: FONT_SIZES.caption, color: "#b9b9bf" }}>Ringing on Cerebrum. They'll see it if they're online.</div>
-              <UIButton P={P} variant="ghost" onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ minHeight: 44, padding: "8px 16px", borderRadius: RADIUS.viewport, border: "none", background: "#26262b", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)" }}>Back to chat</UIButton>
-            </>) : status === "connecting" ? (<>
-              <div style={{ width: 32, height: 32, border: "2px solid rgba(255,255,255,0.2)", borderTopColor: accent, borderRadius: "50%", animation: "cbspin 0.8s linear infinite" }} />
-              <div style={{ fontSize: FONT_SIZES.label, color: "#d7d7db" }}>Connecting…</div>
-            </>) : status === "ended" ? (<>
-              <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: "#fff" }}>{name}</div>
-              <div style={{ fontSize: FONT_SIZES.label, color: "#d7d7db" }}>Call ended</div>
-              {endedSecs > 0 && (
-                <div style={{ fontSize: FONT_SIZES.caption, color: "#b9b9bf", fontVariantNumeric: "tabular-nums" }}>
-                  {Math.floor(endedSecs / 60)}:{String(endedSecs % 60).padStart(2, "0")}
-                </div>
-              )}
-            </>) : (<>
-              <Icon name="warning" size={22} style={{ color: "#b9b9bf" }} />
-              <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: "#fff" }}>{errorReason || "Couldn't reach the video call service."}</div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={(e) => { e.stopPropagation(); setRetryTick((n) => n + 1); }} style={{ minHeight: 44, padding: "8px 16px", borderRadius: RADIUS.viewport, border: "1px solid rgba(255,255,255,0.25)", background: "none", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)" }}>Retry</button>
-                <UIButton P={P} variant="ghost" onClick={(e) => { e.stopPropagation(); onClose(); }} style={{ minHeight: 44, padding: "8px 16px", borderRadius: RADIUS.viewport, border: "none", background: "#26262b", color: "#fff", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)" }}>Back to chat</UIButton>
-              </div>
-            </>)}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {minimized ? (
-        // Compact bubble chrome: name + a tiny mute/hangup/expand row. The
-        // whole bubble is click-to-expand (see the wrapper's onClick above);
-        // these three buttons stop propagation so they act on the call
-        // directly instead of also re-expanding it.
-        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", justifyContent: "space-between", padding: 8, pointerEvents: "none" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, pointerEvents: "none" }}>
-            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: "#fff", background: "#000000", padding: "3px 8px", borderRadius: RADIUS.viewport, maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 2, pointerEvents: "auto" }}>
-            {/* The buttons are 44px hit areas; the visible circle stays
-                30px, drawn on an inner span. (These used to be 30px
-                buttons with minHeight: 0 — an explicit opt-out of the
-                touch floor on the surface used one-handed mid-call.) */}
-            <button onClick={(e) => { e.stopPropagation(); toggleMic(); }} aria-label={micMuted ? "Unmute microphone" : "Mute microphone"} style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
-              <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: "50%", background: "#000000", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon name={micMuted ? "micOff" : "mic"} size={14} />
-              </span>
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); setMinimized(false); }} aria-label="Expand call" title="Expand" style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
-              <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: "50%", background: "#000000", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon name="maximize2" size={14} />
-              </span>
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); endCall(); }} aria-label="End call" title="End call" style={{ width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: "transparent", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
-              <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: "50%", background: "#d13438", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon name="phoneOff" size={14} />
-              </span>
-            </button>
-          </div>
-        </div>
-      ) : (<>
-      {/* Top bar: who you're calling, reachable even before the call connects */}
-      <div style={{ position: "absolute", top: isMobile ? 14 : 28, left: isMobile ? 14 : 28, display: "flex", alignItems: "center", gap: 8, padding: "6px 16px 6px 6px", borderRadius: RADIUS.viewport, background: "#000000", }}>
-        <span style={{ width: 26, height: 26, borderRadius: "50%", background: withAlpha(accent, 0.35), color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)" }}>{(name || "?")[0]?.toUpperCase()}</span>
-        <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: "#fff", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
-        {dataSaver && <span title="Data saver is on: video quality lowered" style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: accentInk(P, accent), display: "inline-flex", alignItems: "center", gap: 3 }}><Icon name="zap" size={11} />Saver</span>}
-      </div>
-
-      {/* Minimize — keeps the call connected, shrinks to a floating bubble
-          so the rest of the app is usable mid-call (see the block comment
-          above this component for the FaceTime/Messenger-style rationale). */}
-      {status === "ready" && (
-        <button onClick={() => setMinimized(true)} aria-label="Minimize call" title="Minimize" style={{ position: "absolute", top: isMobile ? 14 : 28, right: isMobile ? 14 : 28, width: 44, height: 44, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(0,0,0,0.85)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", zIndex: Z.raised }}>
-          <Icon name="minimize2" size={16} />
-        </button>
-      )}
-
-      {/* Picture-in-picture slot — click to swap with the main stage (same
-          gesture Instagram/Messenger's own calling uses). Whichever stream
-          (self or remote) actually plays here is decided by
-          mainIsSelf/assignVideos, matching the main-stage slot above. */}
-      {status === "ready" && (
-        <div onClick={(e) => { e.stopPropagation(); toggleView(); }} title="Switch view" role="button" tabIndex={0} aria-label="Switch view"
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); toggleView(); } }} style={{
-          position: "absolute", top: isMobile ? 60 : 76, right: isMobile ? 14 : 28, width: isMobile ? 96 : 140, height: isMobile ? 128 : 104,
-          borderRadius: RADIUS.lg, overflow: "hidden", background: "#18181c", cursor: "pointer",
-          border: "1px solid rgba(255,255,255,0.22)", boxShadow: "none",
-        }}>
-          <video ref={videoBRef} autoPlay playsInline muted={!selfOnMain} style={{
-            width: "100%", height: "100%", objectFit: "cover",
-            transform: !selfOnMain ? "scaleX(-1)" : "none",
-            opacity: !selfOnMain && (!hasCamera || camMuted) ? 0 : 1,
-            transition: "opacity 280ms ease",
-          }} />
-          {!selfOnMain && (!hasCamera || camMuted) && (
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Icon name="cameraOff" size={18} style={{ color: "rgba(255,255,255,0.4)" }} />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Floating control island */}
-      {status === "ready" && (
-        <div style={{
-          position: "absolute", bottom: isMobile ? 20 : 32, left: "50%", transform: "translateX(-50%)",
-          /* 2026-10-16 layout fix (finding 5): on mobile the gap drops to
-             8 and the padding to 8, so the row sums to 352px instead of
-             386px and fits a 360px screen without clipping the mic and
-             end call buttons. */
-          display: "flex", alignItems: "center", gap: isMobile ? 8 : 14, padding: isMobile ? 8 : 10, borderRadius: RADIUS.viewport,
-          background: "#141418",
-          border: "1px solid rgba(255,255,255,0.14)", boxShadow: "none",
-        }}>
-          {controlBtn(micMuted, toggleMic, "mic", "micOff", micMuted ? "Unmute microphone" : "Mute microphone")}
-          {controlBtn(camMuted, toggleCam, "camera", "cameraOff", camMuted ? "Turn camera on" : "Turn camera off")}
-          {!isMobile && controlBtn(screenSharing, toggleScreenShare, "screenShare", "screenShareOff", screenSharing ? "Stop sharing screen" : "Share screen")}
-          {controlBtn(mainIsSelf, toggleView, "grid", "speakerView", "Switch view")}
-          {controlBtn(dataSaver, toggleDataSaver, "zap", "zap", dataSaver ? "Turn off data saver" : "Turn on data saver (lower video quality)")}
-          <button onClick={() => setReportOpen(true)} aria-label="Report this call" title="Report this call" style={{
-            width: 48, height: 48, borderRadius: "50%", border: "none", cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            background: "#26262b", color: "#fff",
-          }}>
-            <Icon name="flag" size={18} />
-          </button>
-          <button onClick={endCall} aria-label="End call" title="End call" style={{ width: 54, height: 48, borderRadius: RADIUS.viewport, border: "none", cursor: "pointer", background: "#d13438", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon name="phoneOff" size={20} />
-          </button>
-        </div>
-      )}
-      </>)}
-      {reportOpen && (
-        <ReportConductModal
-          P={P} accent={accent} at={at} kind="call" targetLabel={name}
-          threadId={roomSeed} onClose={() => setReportOpen(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-// Inbox — get-inbox (functions/api/data.js) supplies the thread list with
-// just each thread's most recent message, since that's all a list needs;
-// opening a thread fetches its full history from the separate get-thread
-// endpoint. Genuinely live now: sending a message is a real INSERT into
-// `messages`. What's still honestly missing: there is no "start a new
-// conversation" flow anywhere in the app yet — no directory, no "message
-// this person" button on a profile — so a brand-new account's inbox is
-// correctly empty rather than seeded with anything illustrative, and stays
-// that way until a thread-creation path exists somewhere.
-//
-// Commit 46: promoted from a centered InboxModal to a real full-page view
-// (InboxView), the same treatment ProfileView/SettingsView/TrendingView
-// already got — see the "inbox" case in App's handleSidebarNavigate and
-// the Sidebar NAV entry. No more dialog role, backdrop, focus trap, or
-// Escape-to-close: it's a page you navigate to and away from, not a
-// transient overlay. Mobile gets a real two-step flow (conversation list,
-// then the open thread with a back button) instead of squeezing both
-// panes into one narrow column the modal never had to solve for.
-// Commit 48 — one report dialog for all three conduct-report surfaces
-// (a person, from the Inbox thread header; a single message, from its hover
-// actions; a call, from the Video Huddle controls) instead of three near-
-// identical modals, same "one table + a kind discriminator" reasoning as
-// content_reports itself in schema.sql. Posts straight to file-report in
-// functions/api/data.js — see the comment there for validation/scoping.
-/* Moved to src/appUtils.js: REPORT_REASONS */
-
-/* Moved to src/inbox.jsx: ReportConductModal */
-
-/* Moved to src/inbox.jsx: InboxView */
-
-// Maps a real `badge_type` value returned by get-profile (functions/api/
-// data.js) to how it renders. Only badge types this codebase can actually
-// grant belong here — see the badge_type comment in schema.sql for which
-// ones that is today ("top_peer_reviewer" and "published_author" have no
-// granting mechanism yet, so they're deliberately absent rather than
-// showing a badge nobody has actually earned). An unrecognized badge_type
-// is skipped, not guessed at, so a future badge type shows nothing instead
-// of broken chrome until this map is updated to know about it.
-/* Commit 74 — badges.
-
-   `verified` is a blue check and it means one specific, checkable thing:
-   the server matched this account's email against FOUNDER_EMAIL, an
-   environment variable only the operator can set. It is not for sale, it
-   cannot be requested, and no client-side value can produce it. A check
-   mark that anyone can obtain is decoration; this one is a fact.
-
-   `founder` is the same grant, said in words rather than a glyph. */
-/* ═══════════════════════════════════════════════════════════════════════
-   Commit 84 — THE PRIMITIVE LAYER.
-
-   The honest diagnosis of why this app kept "feeling AI-coded" no matter
-   how many times its surfaces were polished: there were no shared
-   components. Thirteen thousand lines, inline styles on nearly every
-   element, and no <Button>, no <Card>, no <Label>. So every surface
-   invented its own padding, its own radius, its own hover, its own type
-   scale — and every polish pass was a manual sweep that the next feature
-   silently undid.
-
-   That is not a metaphor for machine-written code. It is literally its
-   signature: locally correct everywhere, globally inconsistent.
-
-   These five primitives are where the design system now lives. They are
-   deliberately small and unclever — no variant explosion, no styled-
-   components, no theme provider. Each takes the palette it is handed and
-   returns one well-made thing. New surfaces should reach for these first;
-   a one-off inline style is now a decision to justify, not the default.
-   ═══════════════════════════════════════════════════════════════════════ */
-
-/* Type scale — one place, four steps, so a heading is never "18px because
-   that looked right here". */
-/* Moved to src/designSystem.jsx: TYPE */
-
-
-/* Spacing — a 4px scale. Referenced by name so "a bit more room" is a
-   step, not a new number nobody else knows about. */
-/* Moved to src/designSystem.jsx: SP */
-
-
-/* ── Button ──────────────────────────────────────────────────────────
-   Three kinds, one shape language, press feedback for free. Everything
-   in the app that is a button should be this. */
-/* Moved to src/designSystem.jsx: UIButton */
-
-
-/* ── Card ────────────────────────────────────────────────────────────
-   The surface everything sits on. `pad={false}` for media that must go
-   edge to edge. */
-/* Moved to src/designSystem.jsx: UICard */
-
-
-/* ── Label ───────────────────────────────────────────────────────────
-   The section marker. Sentence case, body face, one accent dot — the
-   pattern that replaced five different shouted uppercase-mono eyebrows. */
+/* Calling was removed from the client in the October 2026 inbox redo.
+   The server signaling endpoints stay in place, dormant. */
 function UILabel({ children, P, accent, right, style }) {
   return (
     <div style={{
@@ -20622,16 +19476,20 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
       )}
       <div style={{ ...S.sidebarNav, ...(expanded ? {} : { padding: "6px 8px", alignItems: "center" }) }}>
         {NAV_ITEMS.map(([key, label, icon]) => {
+          const inboxUnread = key === "inbox" ? (threads || []).reduce((n, t) => n + (t.unreadCount || (t.unread ? 1 : 0)), 0) : 0;
           return (
           /* data-nav: the landing target for the save-to-library flight.
              A stable hook on the row itself, so the animation never has
              to guess at the rail's structure. */
           <button key={key} data-nav={key} onClick={() => onNavigate(key)} title={expanded ? undefined : label}
             style={{ ...itemStyle(key), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
-            aria-current={view === key ? "page" : undefined} aria-label={label} className=""
+            aria-current={view === key ? "page" : undefined} aria-label={key === "inbox" && inboxUnread > 0 ? `Inbox, ${inboxUnread} unread` : label} className=""
             onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
             <Icon name={icon} size={16} />
             {expanded && <span>{label}</span>}
+            {key === "inbox" && inboxUnread > 0 && (expanded
+              ? <span style={S.sidebarItemBadge}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>
+              : <span aria-hidden="true" style={{ position: "absolute", top: 5, right: 5, minWidth: 16, height: 16, borderRadius: RADIUS.viewport, background: accent, color: at, fontSize: 10, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>)}
           </button>
           );
         })}
@@ -21443,16 +20301,9 @@ function App({ profileHandle = null } = {}) {
   // see the comment on that effect in InboxView for why the hand-back
   // matters.
   const [pendingThreadId, setPendingThreadId] = useState(null);
-  // Commit 47: a huddle used to be InboxView-local state, which meant
-  // navigating to any other tab unmounted InboxView and killed the call —
-  // there was no way to keep talking while checking Settings or starting a
-  // new search. Lifted to App level and rendered once at the app root (see
-  // the bottom of this return) so the same mounted VideoHuddle survives a
-  // `view` change; it minimizes to a small floating bubble instead of
-  // disappearing. `null` = no call. `{ name, roomSeed }` = active.
-  const [activeHuddle, setActiveHuddle] = useState(null);
-  // The call currently ringing at THIS client, or null. Polled below.
-  const [incomingCall, setIncomingCall] = useState(null);
+  // The paper being shared into a conversation, as a paper attachment
+  // built from a source card or a saved source, or null.
+  const [sharePaper, setSharePaper] = useState(null);
   // Profile — name/username/affiliation live in the `users` table now (see
   // functions/api/data.js's get-profile/update-profile), pulled down on
   // sign-in and pushed back up on every edit by the debounced sync effect
@@ -23468,8 +22319,8 @@ function App({ profileHandle = null } = {}) {
     || (entered && !legalOk)
     // Background scroll bled through these modals on iOS (body never
     // locked): flowchart studio, Pro modal, profile viewer, provenance
-    // panel, film credits, and incoming/active call overlays.
-    || flowchartOpen || proModalOpen || !!viewingProfileId || provenanceOpen || filmCreditsOpen || !!incomingCall || !!activeHuddle
+    // panel, and film credits.
+    || flowchartOpen || proModalOpen || !!viewingProfileId || provenanceOpen || filmCreditsOpen
     || beta2Open;
   // Body scroll lock: one call, one system. useScrollLock is the unified
   // ref-counted lock from src/scrollLock.js — it pins the body at the exact
@@ -23482,57 +22333,6 @@ function App({ profileHandle = null } = {}) {
   useEffect(() => { setCookie("cb_fc", factCheck ? "1" : "0"); }, [factCheck]);
   useEffect(() => { setCookie("cb_muted", muted ? "1" : "0"); }, [muted]);
   useEffect(() => { setCookie("cb_cite", citationStyle); }, [citationStyle]);
-  // Commit 54 — app-wide "is anyone calling me right now?" poll. This is
-  // the piece that turns a video huddle into something you can actually
-  // receive: it runs for any signed-in user on any screen, so a call
-  // reaches someone reading a paper or in Settings, not only someone who
-  // happens to be staring at the same Inbox thread.
-  //
-  // Suspended while a huddle is already open — you can't be rung by a call
-  // you're on, and it stops the accepted call from immediately re-ringing
-  // itself from its own leftover heartbeat rows.
-  //
-  // 3s matches the caller's ring heartbeat; the server only returns rings
-  // from the last ~9s, so a caller who hangs up, closes the tab or drops
-  // off the network stops ringing here within a poll or two with nothing to
-  // clean up. No push notifications involved — this is in-app only, which
-  // is exactly the "if they have Cerebrum open" case.
-  const userId = user?.id ?? null;
-  const huddleOpen = !!activeHuddle;
-  useEffect(() => {
-    if (!userId || huddleOpen) { setIncomingCall(null); return; }
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const data = await apiDataGet("incoming-calls");
-        if (cancelled) return;
-        const call = data && data.call ? data.call : null;
-        // Only on the transition into ringing, not on every poll — the
-        // poll runs every 3s and a notification per poll would be abuse.
-        setIncomingCall((prev) => {
-          if (call && (!prev || prev.threadId !== call.threadId)) {
-            cbNotify("Incoming call", `${call.fromName} is calling you on Cerebrum`, "cb-call", "call");
-          }
-          return call;
-        });
-      } catch { /* a failed poll is just "no call right now" */ }
-    };
-    tick();
-    const id = setInterval(tick, 3000);
-    return () => { cancelled = true; clearInterval(id); };
-    // Depends on primitives, NOT on the `user` / `activeHuddle` objects.
-    // That is not a style preference — it was the bug. App rebuilds its
-    // `user` object on its own cadence (profile refreshes, inbox polls), so
-    // an effect keyed on the object identity tore down and restarted every
-    // few hundred milliseconds. Each restart fired a fresh fetch and each
-    // teardown flipped `cancelled`, so the in-flight poll was almost always
-    // discarded on arrival: the request went out, the server answered with a
-    // real ringing call, and the handler returned early without ever calling
-    // setIncomingCall. Verified in a browser — the network tab showed the
-    // call arriving while nothing appeared on screen. Keying on user.id and
-    // a boolean keeps one long-lived interval that actually gets to finish.
-  }, [userId, huddleOpen]);
-
   useEffect(() => {
     setCookie("cb_anim2", animationMode);
     /* The motion toggle's broadcast: useReducedMotion() listeners re-read
@@ -24298,6 +23098,7 @@ function App({ profileHandle = null } = {}) {
             pill shells. cb-textbtn already carries the 44px touch target. */}
         <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 12, textDecoration: "none", color: isSaved(s) ? accentInk(P, accent) : undefined }} onClick={(e) => { e.stopPropagation(); const wasSaved = isSaved(s); toggleSave(s); if (!wasSaved) flyToLibrary(e.currentTarget, accent); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={12} />{isSaved(s) ? "Saved" : "Save"}</button>
         <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 12, textDecoration: "none", color: isPinned(s) ? accentInk(P, accent) : undefined }} onClick={(e) => { e.stopPropagation(); togglePin(s); }} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={12} />{isPinned(s) ? "Pinned" : "Pin"}</button>
+        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 12 }} onClick={(e) => { e.stopPropagation(); if (!user) { stableOnRequireAuth(); return; } setSharePaper(paperAttachmentFromSource(s)); }} title="Send this paper into a conversation"><Icon name="send" size={12} />Share</button>
         {s.authors && <button type="button" className="cb-textbtn" style={{ padding: "6px 4px", fontSize: 12 }} onClick={(e) => { e.stopPropagation(); setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
       </div>
     </div>
@@ -24369,7 +23170,7 @@ function App({ profileHandle = null } = {}) {
           screen or a history to come back to), so a first session is
           consent, entry, and one search with no pop in it. */}
       {(turns.length > 0 || (history && history.length > 0)) && (
-        <NovaSidebarPop searchRunning={busy} inCall={!!activeHuddle || !!incomingCall} novaOpen={view === "learn"} railCollapsed={railCollapsed} isMobile={isMobile} onOpenNova={() => handleSidebarNavigateRef.current("learn")} />
+        <NovaSidebarPop searchRunning={busy} inCall={false} novaOpen={view === "learn"} railCollapsed={railCollapsed} isMobile={isMobile} onOpenNova={() => handleSidebarNavigateRef.current("learn")} />
       )}
       <a href="#cb-main" className="cb-skip-link" onClick={(e) => { e.preventDefault(); mainRef.current?.focus({ preventScroll: false }); }}>Skip to main content</a>
       <a href="#cb-search" className="cb-skip-link cb-skip-link--second" onClick={(e) => { e.preventDefault(); inputRef.current?.focus({ preventScroll: false }); }}>Skip to search</a>
@@ -24955,7 +23756,7 @@ function App({ profileHandle = null } = {}) {
                   return (
                     <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
                       onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
-                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: scrollBehavior(), block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} onSharePaper={(s) => { if (!user) { stableOnRequireAuth(); return; } setSharePaper(paperAttachmentFromSource(s)); }} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: scrollBehavior(), block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
                     </div>
                   );
                 })}
@@ -25309,7 +24110,10 @@ function App({ profileHandle = null } = {}) {
                                       <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { setLibArm(null); setSaved((prev) => prev.filter((x) => sourceKey(x) !== key)); }}>Remove this paper for good</UIButton>
                                     </>
                                   ) : (
-                                    <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setLibArm(`paper:${key}`)}>Remove</UIButton>
+                                    <>
+                                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { if (!user) { stableOnRequireAuth(); return; } setSharePaper(paperAttachmentFromSource(sv)); }}>Share</UIButton>
+                                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setLibArm(`paper:${key}`)}>Remove</UIButton>
+                                    </>
                                   )}
                                 </span>
                               )}
@@ -25339,6 +24143,10 @@ function App({ profileHandle = null } = {}) {
                                           <Icon name="search" size={15} />
                                         </button>
                                       )}
+                                      <button onClick={() => { if (!user) { stableOnRequireAuth(); return; } setSharePaper(paperAttachmentFromSource(sv)); }} title="Send this paper into a conversation" aria-label={`Share ${sv.title || "paper"} in a conversation`}
+                                        style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: RADIUS.md }}>
+                                        <Icon name="send" size={15} />
+                                      </button>
                                       <button onClick={() => setLibArm(`paper:${key}`)} title="Remove from library" aria-label={`Remove ${sv.title || "paper"} from library`}
                                         style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: RADIUS.md }}>
                                         <Icon name="close" size={15} />
@@ -25906,8 +24714,6 @@ function App({ profileHandle = null } = {}) {
             threads={threads} setThreads={setThreads}
             initialThreadId={pendingThreadId}
             onConsumeInitialThread={() => setPendingThreadId(null)}
-            onStartHuddle={(name, roomSeed, opts) => setActiveHuddle({ name, roomSeed, audioOnly: !!(opts && opts.audioOnly) })}
-            activeHuddleRoomSeed={activeHuddle?.roomSeed ?? null}
             onCompose={() => setNetworkSearchOpen(true)}
           />
         </Reveal>
@@ -26052,6 +24858,15 @@ function App({ profileHandle = null } = {}) {
         />
       )}
       {evidenceTableSources && <EvidenceTableModal P={P} accent={accent} at={at} sources={evidenceTableSources} close={() => setEvidenceTableSources(null)} />}
+      {sharePaper && (
+        <PaperSharePicker
+          P={P} accent={accent} at={at}
+          paper={sharePaper}
+          threads={threads}
+          onClose={() => setSharePaper(null)}
+          onSent={(threadId) => { setSharePaper(null); if (threadId) setPendingThreadId(threadId); setView("inbox"); }}
+        />
+      )}
       {flowchartOpen && (
         /* 2026-10-22 (simplify audit R21): the answer dialog is the
            same Diagram Studio as the page, in dialog dress. Saving
@@ -26075,39 +24890,6 @@ function App({ profileHandle = null } = {}) {
           tree. Its state and setters are gone too, so nothing can freeze
           the page behind a drawer that never renders. Restore all three
           together if the drawer ever returns. */}
-      {/* Commit 47: rendered here, at the app root, specifically so it's not
-          a child of the "inbox" view branch above — a component instance
-          only exists in the DOM while its parent renders it, so nesting this
-          inside `view === "inbox"` would tear down (and disconnect) the
-          call the instant the sidebar navigated anywhere else. Being a
-          sibling of every view instead means switching tabs mid-call can
-          never unmount it; only `onClose`/hangup does. */}
-      {incomingCall && !activeHuddle && (
-        <IncomingCall
-          call={incomingCall} P={P} accent={accent} at={at} isMobile={isMobile}
-          onAccept={() => {
-            sfx();
-            // roomSeed has always been the thread id (see VideoHuddle) — so
-            // accepting is just opening the same huddle the caller is
-            // already sitting in, and the existing handshake takes over.
-            // Commit 97 — carry the caller's audio-only intent through.
-            setActiveHuddle({ name: incomingCall.fromName, roomSeed: incomingCall.threadId, audioOnly: !!incomingCall.audioOnly });
-            setIncomingCall(null);
-          }}
-          onDecline={() => {
-            sfx();
-            postCallSignal(incomingCall.threadId, newHuddleClientId(), "bye", {});
-            setIncomingCall(null);
-          }}
-        />
-      )}
-      {activeHuddle && (
-        <VideoHuddle
-          P={P} accent={accent} at={at} isMobile={isMobile}
-          name={activeHuddle.name} roomSeed={activeHuddle.roomSeed} audioOnly={activeHuddle.audioOnly} currentUserId={user?.id}
-          onClose={() => setActiveHuddle(null)}
-        />
-      )}
       {/* Commit 71 — see .cb-grain / .cb-vignette. Rendered near the end so
           they sit above the page but below modals and the consent gate. */}
       {/* Commit 82 — both texture layers now follow the Appearance >

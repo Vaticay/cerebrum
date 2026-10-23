@@ -497,6 +497,29 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [targetMessageId, setTargetMessageId] = useState(null);
   const [highlightMessageId, setHighlightMessageId] = useState(null);
   const highlightTimerRef = useRef(null);
+  // Mobile keyboard: how much of the layout viewport the on screen
+  // keyboard covers, from the visual viewport. Zero when closed.
+  const [kbInset, setKbInset] = useState(0);
+  // Touch device with no fine pointer: the return key makes a new
+  // line there and Send is the send path, and per message actions
+  // come from a long press rather than a hover.
+  const [isTouch] = useState(() => {
+    try { return typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(pointer: coarse)").matches; } catch { return false; }
+  });
+  const [actionMsgId, setActionMsgId] = useState(null);
+  const longPressRef = useRef(null);
+  useEffect(() => {
+    if (!isMobile || typeof window === "undefined" || !window.visualViewport) return undefined;
+    const vv = window.visualViewport;
+    const onViewport = () => {
+      const inset = Math.max(0, Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0)));
+      setKbInset(inset > 60 ? inset : 0);
+    };
+    onViewport();
+    vv.addEventListener("resize", onViewport);
+    vv.addEventListener("scroll", onViewport);
+    return () => { vv.removeEventListener("resize", onViewport); vv.removeEventListener("scroll", onViewport); };
+  }, [isMobile]);
   useEffect(() => () => { if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current); }, []);
   // List row menu and thread lifecycle controls. The menu acts on a
   // thread without opening it, so acting never reads the thread.
@@ -682,6 +705,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       pollTimer = setTimeout(refresh, delay);
     };
     const refresh = () => {
+      // Paused while the page is hidden: a background tab does not
+      // need the 15 second rhythm, and the poll resumes on its next
+      // scheduled tick once the page is visible again.
+      if (typeof document !== "undefined" && document.hidden) { schedule(15000); return; }
       apiDataGet("inbox").then((data) => {
         if (cancelled) return;
         if (!data?.items) {
@@ -946,6 +973,8 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       pollTimer = setTimeout(() => refresh(false), delay);
     };
     const refresh = (isFirst) => {
+      // Paused while the page is hidden, except for the first load.
+      if (!isFirst && typeof document !== "undefined" && document.hidden) { schedule(5000); return; }
       apiDataGet("thread", isFirst ? { thread_id: activeId, full: 1 } : { thread_id: activeId }).then(async (data) => {
         if (cancelled) return;
         if (isFirst) setLoadingThread(false);
@@ -1878,7 +1907,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         inbox follows the container instead of overflowing it by
         exactly the difference. The mobile paddings stay: they clear
         the app's own fixed chrome, which overlays the parent too. */}
-    <div style={{ height: "100%", maxHeight: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 0 : 16, boxSizing: "border-box", background: P.bg, paddingTop: isMobile ? 56 : 16, paddingRight: isMobile ? 0 : 16, paddingBottom: isMobile ? "calc(72px + env(safe-area-inset-bottom, 0px))" : 16, paddingLeft: isMobile ? 0 : 16 }}>
+    <div style={{ height: "100%", maxHeight: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 0 : 16, boxSizing: "border-box", background: P.bg, paddingTop: isMobile ? 56 : 16, paddingRight: isMobile ? 0 : 16, paddingBottom: isMobile ? (kbInset > 0 ? kbInset : "calc(72px + env(safe-area-inset-bottom, 0px))") : 16, paddingLeft: isMobile ? 0 : 16 }}>
       {showList && (
         <div style={{ width: isMobile ? "100%" : 336, flexShrink: 0, borderRight: isMobile ? "none" : undefined, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, background: P.surface, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden", display: "flex", flexDirection: "column", height: "100%" }}>
           <div style={{ padding: "18px 18px 12px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
@@ -2276,6 +2305,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 )}
                 <div className="cb-msg-bubble" id={m.id ? "cb-msg-" + m.id : undefined} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start", marginTop: groupedWithPrev ? -8 : 0, borderRadius: RADIUS.lg, ...(highlightMessageId && m.id === highlightMessageId ? { outline: `2px solid ${accent}`, outlineOffset: 3, background: withAlpha(accent, 0.07) } : {}) }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
+                  onTouchStart={() => { if (longPressRef.current) clearTimeout(longPressRef.current); longPressRef.current = setTimeout(() => setActionMsgId(m.id || key), 450); }}
+                  onTouchEnd={() => { if (longPressRef.current) clearTimeout(longPressRef.current); }}
+                  onTouchMove={() => { if (longPressRef.current) clearTimeout(longPressRef.current); }}
+                  onContextMenu={isTouch ? (e) => { e.preventDefault(); setActionMsgId(m.id || key); } : undefined}
                 >
                   {/* Group threads show who said what — DMs don't need it, you
                       already know who you're talking to. One label per
@@ -2390,7 +2423,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         onClick={() => deleteOwnMessage(m.id)}
                         aria-label="Delete this message" title="Delete this message"
                         style={{
-                          opacity: hoverMsgId === key ? 1 : 0, transition: "opacity 150ms ease",
+                          opacity: hoverMsgId === key || actionMsgId === (m.id || key) ? 1 : 0, transition: "opacity 150ms ease",
                           background: "none", border: "none", color: P.faint, cursor: "pointer",
                           width: 40, height: 40, padding: 0, flexShrink: 0,
                           display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -2405,7 +2438,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         aria-label="Report this message" title="Report this message"
                         className="cb-msg-report"
                         style={{
-                          opacity: hoverMsgId === key ? 1 : 0, transition: "opacity 150ms ease",
+                          opacity: hoverMsgId === key || actionMsgId === (m.id || key) ? 1 : 0, transition: "opacity 150ms ease",
                           background: "none", border: "none", color: P.faint, cursor: "pointer",
                           width: 40, height: 40, padding: 0, flexShrink: 0,
                           display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -2415,6 +2448,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       </button>
                     )}
                   </div>
+                  {actionMsgId === (m.id || key) && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, justifyContent: m.mine ? "flex-end" : "flex-start", flexWrap: "wrap" }}>
+                      {!m.mine && m.id && (
+                        <button onClick={() => { setActionMsgId(null); setReportModal({ kind: "message", messageId: m.id }); }} style={{ minHeight: 44, padding: "7px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: statusBad(P), fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Report this message</button>
+                      )}
+                      {m.mine && m.id && !m.pending && (
+                        <button onClick={() => { setActionMsgId(null); deleteOwnMessage(m.id); }} style={{ minHeight: 44, padding: "7px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: statusBad(P), fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Delete this message</button>
+                      )}
+                      <button onClick={() => setActionMsgId(null)} style={{ minHeight: 44, padding: "7px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Close</button>
+                    </div>
+                  )}
                   {(!groupedWithNext || (m.mine && lastMineMessage?.id === m.id)) && (
                   <div style={{
                     display: "flex", alignItems: "center", gap: 6, marginTop: 4,
@@ -2489,12 +2533,31 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               ) : (<>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                   <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: "none" }} aria-hidden="true" />
+                  <UIButton P={P} variant="ghost"
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={attachBusy}
+                    aria-label="Attach an image" title="Attach an image"
+                    style={{ width: 44, height: 44, borderRadius: RADIUS.md, flexShrink: 0, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                  ><Icon name={attachBusy ? "refresh" : "image"} size={16} className={attachBusy ? "cb-spin" : undefined} /></UIButton>
+                  <textarea
+                    ref={composerRef}
+                    value={draft}
+                    onChange={(e) => updateDraft(e.target.value)}
+                    placeholder={`Message ${activeThread.name}…`}
+                    aria-label="Reply"
+                    rows={1}
+                    style={{ flex: 1, padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.45, resize: "none", maxHeight: 140, overflowY: "auto", outline: "none" }}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !isTouch) { e.preventDefault(); sendMessage(); } }}
+                  />
                   <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ width: 44, height: 44, borderRadius: RADIUS.md, background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="send" size={16} />
                   </button>
                 </div>
-                {!isMobile && (
+                {!isMobile && !isTouch && (
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 52 }}>Enter to send · Shift + Enter for a new line · Drafts are kept per conversation</div>
+                )}
+                {(isMobile || isTouch) && (
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 52 }}>Return starts a new line. Tap Send to send.</div>
                 )}
               </>)}
             </div>
