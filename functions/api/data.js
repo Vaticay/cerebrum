@@ -332,6 +332,71 @@ function escapeLikeWildcards(s) {
   return s.replace(/[\\%_]/g, (c) => "\\" + c);
 }
 
+// People search helpers (2026-10-23, huge audit bugs 1, 9, 10 and the
+// interest matching redo item). Pure functions so the ranking can be
+// pinned in tests without a database.
+//
+// Usernames are stored with no leading at sign (update profile strips
+// it), so a search typed the way the UI invites, with the sign, has to
+// be stripped the same way here or it can never match anything.
+export function normalizePeopleQuery(raw) {
+  return String(raw || "").trim().replace(/^@+/, "").trim();
+}
+
+function peopleTokens(text) {
+  return String(text || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+// Does one query token match a person? A token matches when it equals a
+// name or handle token, is a prefix of one, or is a single letter that
+// is the initial of a name token. That is what lets a first name plus a
+// surname initial, in either order, find the same account.
+function peopleTokenMatches(token, nameTokens, usernameLc) {
+  if (!token) return false;
+  if (usernameLc && (usernameLc === token || usernameLc.startsWith(token))) return true;
+  return nameTokens.some((t) => t === token || t.startsWith(token) || (token.length === 1 && t.charAt(0) === token));
+}
+
+// Rank one candidate row for a normalized query. Lower is better:
+//   0 exact handle
+//   1 handle or name prefix
+//   2 whole word in the name or handle
+//   3 token match across the name (any order, initials allowed)
+//   4 research interest match
+//   5 plain substring
+// Returns null when the row does not match at all. Follower count plays
+// no part in the ordering.
+export function peopleSearchRank(row, rawQuery) {
+  const q = normalizePeopleQuery(rawQuery).toLowerCase();
+  if (!q) return null;
+  const usernameLc = String(row.username || "").toLowerCase();
+  const nameLc = String(row.name || "").toLowerCase();
+  const nameTokens = peopleTokens(row.name || "");
+  const interestText = (Array.isArray(row.interests) ? row.interests : [])
+    .map((v) => String(v).toLowerCase()).join(" ");
+  const nameOrHandleHit = (usernameLc && (usernameLc.includes(q) || nameLc.includes(q))) || nameLc.includes(q);
+  if (usernameLc && usernameLc === q) return { rank: 0, matchedInterest: false };
+  if ((usernameLc && usernameLc.startsWith(q)) || nameLc.startsWith(q)) return { rank: 1, matchedInterest: false };
+  const qTokens = peopleTokens(q);
+  if (qTokens.length === 1 && (nameTokens.includes(q) || usernameLc === q)) {
+    return { rank: 2, matchedInterest: false };
+  }
+  if (nameOrHandleHit && qTokens.length === 1 && (nameTokens.includes(q) || peopleTokens(usernameLc).includes(q))) {
+    return { rank: 2, matchedInterest: false };
+  }
+  if (qTokens.length >= 2 && qTokens.every((t) => peopleTokenMatches(t, nameTokens, usernameLc))) {
+    return { rank: 3, matchedInterest: false };
+  }
+  if (qTokens.length === 1 && peopleTokenMatches(q, nameTokens, usernameLc) && !nameOrHandleHit) {
+    return { rank: 3, matchedInterest: false };
+  }
+  if (interestText && (interestText.includes(q) || qTokens.every((t) => interestText.includes(t)))) {
+    return { rank: 4, matchedInterest: !nameOrHandleHit };
+  }
+  if (nameOrHandleHit) return { rank: 5, matchedInterest: false };
+  return null;
+}
+
 // isBlockedPair now lives in functions/lib/authHelpers.js (Commit 50) — it
 // gained a second caller (call-signal.js) and a duplicated copy of a
 // security-relevant check is exactly the kind of thing that quietly drifts.
@@ -609,17 +674,37 @@ export async function onRequest(context) {
     // Ids are opaque values we generated (newId) — safeId rejects anything
     // else outright, so junk never reaches a query bind and "missing" and
     // "malformed" share one clear 400.
-    const targetId = safeId(url.searchParams.get("id"));
-    if (!targetId) return errRes("Missing id.", 400, "missing_id", cors);
+    let targetId = safeId(url.searchParams.get("id"));
+    // A shared profile link carries the handle (/people/<handle>), so the
+    // link form resolves an exact handle to its account here. This is
+    // still an exact identifier lookup, never a search: a handle that
+    // matches nobody gets the same 404 as a junk id, and the
+    // discoverable check below applies unchanged.
+    const handleParam = normalizePeopleQuery(url.searchParams.get("username") || "").slice(0, MAX_USERNAME_LEN);
+    if (!targetId && !handleParam) return errRes("Missing id.", 400, "missing_id", cors);
     try {
       await ensureUserProfileColumns(env);
+      if (!targetId && handleParam) {
+        const byHandle = await env.DB.prepare(
+          "SELECT id FROM users WHERE LOWER(username) = LOWER(?)"
+        ).bind(handleParam).first();
+        if (!byHandle) return errRes("Profile not found.", 404, "not_found", cors);
+        targetId = byHandle.id;
+      }
       const row = await env.DB.prepare(
-        "SELECT id, username, name, avatar_base64, bio, discoverable FROM users WHERE id = ?"
+        "SELECT id, username, name, avatar_base64, bio, discoverable, interests FROM users WHERE id = ?"
       ).bind(targetId).first();
       // Same 404 for "no such account" and "opted out", so this cannot be
       // used to confirm that a hidden account exists.
       if (!row || row.discoverable === 0) {
         return errRes("Profile not found.", 404, "not_found", cors);
+      }
+      let anonInterests = [];
+      if (row.interests) {
+        try {
+          const parsed = JSON.parse(row.interests);
+          if (Array.isArray(parsed)) anonInterests = parsed.filter((v) => typeof v === "string").slice(0, 8);
+        } catch { /* keep the empty list */ }
       }
       return new Response(JSON.stringify({
         ok: true,
@@ -630,6 +715,7 @@ export async function onRequest(context) {
           name: row.name || row.username || "Researcher",
           avatar_base64: row.avatar_base64 || null,
           bio: row.bio || null,
+          interests: anonInterests,
         },
       }), { status: 200, headers: cors });
     } catch {
@@ -807,18 +893,36 @@ export async function onRequest(context) {
          person" from "hidden" from "they blocked you."
          ══════════════════════════════════════════════════════════════ */
       if (resource === "public-profile") {
-        const targetId = safeId(url.searchParams.get("id"));
+        let targetId = safeId(url.searchParams.get("id"));
+        // The shared link form carries the handle instead of the id;
+        // resolve an exact handle the same way the signed out branch
+        // does. An unknown handle shares the not found response below.
+        const handleParam = normalizePeopleQuery(url.searchParams.get("username") || "").slice(0, MAX_USERNAME_LEN);
+        if (!targetId && handleParam) {
+          const byHandle = await env.DB.prepare(
+            "SELECT id FROM users WHERE LOWER(username) = LOWER(?)"
+          ).bind(handleParam).first();
+          if (byHandle) targetId = byHandle.id;
+        }
         if (!targetId) return errRes("Missing id.", 400, "missing_id", cors);
         if (targetId === user.id) {
           return errRes("Use resource=profile for your own account.", 400, "self", cors);
         }
         const row = await env.DB.prepare(
           `SELECT id, username, name, affiliation, show_affiliation, degree, grad_year,
-                  avatar_base64, bio, cover, link_site, link_orcid, link_scholar, discoverable, dm_policy, plan
+                  avatar_base64, bio, link_site, link_orcid, link_scholar, discoverable, dm_policy, plan, interests
            FROM users WHERE id = ?`
         ).bind(targetId).first();
         const blocked = row ? await isBlockedPair(env, user.id, targetId) : false;
-        if (!row || row.discoverable === 0 || blocked) {
+        const iFollow = row ? await env.DB.prepare(
+          "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
+        ).bind(user.id, targetId).first() : null;
+        // Huge audit bug 7: the settings copy has always said people who
+        // already follow you keep seeing you when you opt out of search.
+        // An existing follower is the one exception to the not found
+        // response for a hidden account. Everyone else, and blocked
+        // pairs in either direction, still get the shared 404.
+        if (!row || blocked || (row.discoverable === 0 && !iFollow)) {
           return errRes("Profile not found.", 404, "not_found", cors);
         }
         const followers = await env.DB.prepare(
@@ -827,12 +931,16 @@ export async function onRequest(context) {
         const following = await env.DB.prepare(
           "SELECT COUNT(*) AS n FROM follows WHERE follower_id = ?"
         ).bind(targetId).first();
-        const iFollow = await env.DB.prepare(
-          "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
-        ).bind(user.id, targetId).first();
         const followsMe = await env.DB.prepare(
           "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
         ).bind(targetId, user.id).first();
+        let publicInterests = [];
+        if (row.interests) {
+          try {
+            const parsed = JSON.parse(row.interests);
+            if (Array.isArray(parsed)) publicInterests = parsed.filter((v) => typeof v === "string").slice(0, 8);
+          } catch { /* keep the empty list */ }
+        }
         let badges = [];
         try {
           const badgeRows = await env.DB.prepare(
@@ -855,7 +963,7 @@ export async function onRequest(context) {
             grad_year: row.grad_year || null,
             avatar_base64: row.avatar_base64 || null,
             bio: row.bio || null,
-            cover: row.cover || null,
+            interests: publicInterests,
             link_site: row.link_site || null,
             link_orcid: row.link_orcid || null,
             link_scholar: row.link_scholar || null,
@@ -1463,12 +1571,16 @@ export async function onRequest(context) {
             That is not safe." It is not. An institution is not a profile and
             it is not a place you can browse.
 
-         What remains: a match on name or username only, from accounts that
-         have not opted out, rate limited so the remaining surface cannot be
-         walked at speed.
+         What remains: a match on name, username, or the research
+         interests a member chose to publish, from accounts that have not
+         opted out, rate limited so the remaining surface cannot be walked
+         at speed. Email and affiliation are still never search keys.
          ══════════════════════════════════════════════════════════════ */
       if (resource === "search-users") {
-        const q = (url.searchParams.get("q") || "").trim();
+        // Huge audit bug 1: the UI tells people to search with the at
+        // sign, and usernames are stored without one, so the sign is
+        // stripped here the same way update profile strips it.
+        const q = normalizePeopleQuery(url.searchParams.get("q") || "");
 
         // No query, no people. This endpoint has no browse mode. The founder
         // card is still assembled below, because it is one named account
@@ -1488,29 +1600,67 @@ export async function onRequest(context) {
           return errRes("You're searching very quickly. Give it a few seconds.", 429, "rate_limited", { ...cors, "Retry-After": "20" });
         }
 
-        const like = "%" + escapeLikeWildcards(q) + "%";
+        // Candidate pass, deliberately wider than the old single
+        // substring: the full query, or any one query token, may hit the
+        // handle, the name, or the published research interests. The
+        // ranking pass below (peopleSearchRank) then decides which of
+        // these candidates truly match and in what order, so a reversed
+        // name or a surname initial can match without the loose
+        // candidates crowding out the person who was meant. The privacy
+        // shape is unchanged: opted out accounts and blocked pairs are
+        // excluded in the query, and email and affiliation are never
+        // matched against.
+        const qTokens = [...new Set(peopleTokens(q.toLowerCase()))].slice(0, 4);
+        const likeTerms = [...new Set([q, ...qTokens])].filter((t) => t.length >= 1);
+        const likeClauses = [];
+        const likeBinds = [];
+        for (const term of likeTerms) {
+          const lk = "%" + escapeLikeWildcards(term) + "%";
+          likeClauses.push("(u.username LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.interests LIKE ? ESCAPE '\\')");
+          likeBinds.push(lk, lk, lk);
+        }
         const rows = await env.DB.prepare(
           `SELECT u.id, u.username, u.name, u.affiliation, u.show_affiliation, u.degree, u.grad_year, u.plan,
+                  u.avatar_base64, u.interests,
                   (SELECT COUNT(*) FROM follows f2 WHERE f2.following_id = u.id) AS followers,
                   EXISTS(SELECT 1 FROM follows f3 WHERE f3.follower_id = ? AND f3.following_id = u.id) AS is_following
            FROM users u
            WHERE u.id != ?
              AND COALESCE(u.discoverable, 1) = 1
-             AND (u.username LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\')
+             AND (${likeClauses.join(" OR ")})
              AND NOT EXISTS (
                SELECT 1 FROM user_blocks b
                WHERE (b.blocker_id = u.id AND b.blocked_id = ?)
                   OR (b.blocker_id = ? AND b.blocked_id = u.id)
              )
-           ORDER BY followers DESC, u.name ASC
-           LIMIT 20`
-        ).bind(user.id, user.id, like, like, user.id, user.id).all();
+           LIMIT 200`
+        ).bind(user.id, user.id, ...likeBinds, user.id, user.id).all();
+
+        const ranked = [];
+        for (const r of (rows.results || [])) {
+          let interestList = [];
+          if (r.interests) {
+            try {
+              const parsed = JSON.parse(r.interests);
+              if (Array.isArray(parsed)) interestList = parsed.filter((v) => typeof v === "string").slice(0, 8);
+            } catch { /* keep the empty list */ }
+          }
+          const verdict = peopleSearchRank({ username: r.username, name: r.name, interests: interestList }, q);
+          if (verdict) ranked.push({ row: r, interestList, rank: verdict.rank, matchedInterest: verdict.matchedInterest });
+        }
+        // Huge audit bug 10: relevance first. Exact handle, then prefix,
+        // then whole word, then token match, then interest, then plain
+        // substring. Name breaks ties. Follower count no longer orders
+        // the results at all.
+        ranked.sort((a, b) => (a.rank - b.rank)
+          || String(a.row.name || a.row.username || "").localeCompare(String(b.row.name || b.row.username || "")));
+        const top = ranked.slice(0, 20);
 
         // Verification badges ride along on search results (one query for
         // all rows, not N+1): a checkmark that only appears on the profile
         // teaches people that search results cannot be trusted.
         const badgeMap = {};
-        const foundIds = (rows.results || []).map((r) => r.id);
+        const foundIds = top.map((x) => x.row.id);
         if (foundIds.length) {
           const badgeRows = await env.DB.prepare(
             `SELECT user_id, badge_type FROM accolades WHERE user_id IN (${foundIds.map(() => "?").join(",")})`
@@ -1520,21 +1670,35 @@ export async function onRequest(context) {
           }
         }
 
-        const items = (rows.results || []).map((r) => ({
-          id: r.id,
-          username: r.username,
-          name: r.name || r.username || "Researcher",
-          // Honoured here as well as on the profile: a search result that
-          // shows the institution of someone who hid it would hand back
-          // exactly the field they chose to withhold.
-          affiliation: (r.show_affiliation === 0 ? "" : (r.affiliation || "")),
-          degree: r.degree || null,
-          gradYear: r.grad_year || null,
-          followers: r.followers || 0,
-          following: !!r.is_following,
-          isPro: r.plan === "pro",
-          badges: badgeMap[r.id] || [],
-        }));
+        const items = [];
+        for (const x of top) {
+          const r = x.row;
+          items.push({
+            id: r.id,
+            username: r.username,
+            name: r.name || r.username || "Researcher",
+            // Honoured here as well as on the profile: a search result that
+            // shows the institution of someone who hid it would hand back
+            // exactly the field they chose to withhold.
+            affiliation: (r.show_affiliation === 0 ? "" : (r.affiliation || "")),
+            degree: r.degree || null,
+            gradYear: r.grad_year || null,
+            // Huge audit bug 9: rows carry the real avatar and the
+            // published interests, so a person can be recognised in the
+            // surface built for recognising them.
+            avatar_base64: r.avatar_base64 || null,
+            interests: x.interestList,
+            matchedInterest: x.matchedInterest,
+            followers: r.followers || 0,
+            following: !!r.is_following,
+            isPro: r.plan === "pro",
+            badges: badgeMap[r.id] || [],
+            // Huge audit bug 11: the row carries the same server side
+            // message permission the public profile uses, so the Message
+            // button can be honest before it is clicked.
+            canMessage: await mayStartConversation(env, user.id, r.id),
+          });
+        }
 
         return okRes({ items, founder: await founderCard(env, user) }, 200, cors);
       }
@@ -2192,12 +2356,17 @@ export async function onRequest(context) {
        * the three states cannot be told apart from outside. */
       const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
       const blockedPair = target ? await isBlockedPair(env, user.id, targetId) : false;
-      if (!target || target.discoverable === 0 || blockedPair) {
-        return errRes("That account isn't available.", 404, "not_available", cors);
-      }
       const existing = await env.DB.prepare(
         "SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?"
       ).bind(user.id, targetId).first();
+      // Huge audit bug 7: the discoverable check used to run before the
+      // existing follow was ever looked at, so a follower of an account
+      // that later opted out could never unfollow it. An existing follow
+      // may always be removed. Starting a new follow of a hidden account
+      // still gets the shared not available response.
+      if (!target || blockedPair || (target.discoverable === 0 && !existing)) {
+        return errRes("That account isn't available.", 404, "not_available", cors);
+      }
       if (existing) {
         await env.DB.prepare("DELETE FROM follows WHERE follower_id = ? AND following_id = ?").bind(user.id, targetId).run();
       } else {
@@ -2994,7 +3163,7 @@ export async function onRequest(context) {
       if (!targetId) return errRes("Missing target_id.", 400, "missing_id", cors);
       if (targetId === user.id) return errRes("You can't message yourself.", 400, "bad_request", cors);
       const target = await env.DB.prepare("SELECT id, discoverable FROM users WHERE id = ?").bind(targetId).first();
-      if (!target || target.discoverable === 0) return errRes("That account isn't available.", 404, "not_available", cors);
+      if (!target) return errRes("That account isn't available.", 404, "not_available", cors);
       // Commit 48 enforcement: blocked in either direction means no new
       // conversation gets started or reopened via this path — including
       // finding-and-returning an existing thread just below, since that
@@ -3016,6 +3185,12 @@ export async function onRequest(context) {
       if (existing) {
         return okRes({ thread_id: existing.id, created: false }, 200, cors);
       }
+      // Huge audit bug 7: opting out of search closes new contact, not a
+      // conversation that already exists. The discoverable check sits
+      // after the existing thread lookup for that reason; a hidden
+      // account with no existing thread still shares the not available
+      // response, so this cannot be used to confirm a hidden account.
+      if (target.discoverable === 0) return errRes("That account isn't available.", 404, "not_available", cors);
       /* Commit 100 — the recipient's DM policy gates NEW conversations. This
          check sits after the find-existing lookup on purpose: an open thread
          stays open regardless of what the policy says today, so tightening
