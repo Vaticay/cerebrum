@@ -15882,9 +15882,18 @@ const POPULATION_FACETS = [
 ];
 
 function directionSide(text, stemA, stemB) {
-  const low = " " + String(text || "").toLowerCase() + " ";
-  const hasA = low.includes(stemA);
-  const hasB = low.includes(stemB);
+  // Stems match at token starts, never as raw substrings
+  // (2026-10-23, Wave 3 S4 landing fix): the substring form read
+  // the "gain" inside "against" (as in "against placebo", a
+  // phrase in a large share of trial abstracts) as the gain
+  // side, so a claim mentioning loss was judged direction
+  // contradicted by a paper that merely ran against placebo,
+  // and the claim was deleted under L4-13. A stem now matches
+  // only a token that starts with it (gain, gains, gained),
+  // which is what a stem means.
+  const tokens = String(text || "").toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const hasA = tokens.some((t) => t.startsWith(stemA));
+  const hasB = tokens.some((t) => t.startsWith(stemB));
   if (hasA && !hasB) return "a";
   if (hasB && !hasA) return "b";
   return null;
@@ -16146,9 +16155,11 @@ export function applyIndictedClaimTreatment(answer, strippedRecords) {
  * because one paper is not a literature. The retry that tries
  * to recover a second source runs first; this binds whatever
  * still ships single. */
+export const SINGLE_SOURCE_SCOPE_LINE =
+  "One retrieved study is the only source cited for this answer, and no second retrieved source addresses this question.";
 export function scopeSingleSourceAnswer(answer) {
   let text = String(answer || "");
-  const SCOPE_LINE = "One retrieved study is the only source cited for this answer, and no second retrieved source addresses this question.";
+  const SCOPE_LINE = SINGLE_SOURCE_SCOPE_LINE;
   const blocks = sectionizeAnswer(text);
   if (!blocks.length) return text;
   const FIELD_NOUN_RES = [
@@ -36787,12 +36798,20 @@ async function runSearchPipeline(pctx) {
             // post removal center is then still a refused
             // claim, which is the same gut with the husk on.
             if (!isFollowupMode) {
-              const centralAfterRemoval = shortAnswerCentralClaim(answer);
+              // The gut test judges the answer's own claims, so
+              // the single source scope line is removed from the
+              // judged copy first (2026-10-23, Wave 3 S4 landing
+              // fix): scoping runs before this removal, and its
+              // mechanical label otherwise reads as a surviving
+              // central claim, so a body the removal emptied
+              // shipped as a one line husk instead of degrading.
+              const judgedAnswer = answer.split(SINGLE_SOURCE_SCOPE_LINE).join("").replace(/\n{3,}/g, "\n\n");
+              const centralAfterRemoval = shortAnswerCentralClaim(judgedAnswer);
               let centralGutted = false;
               let supportedStands = false;
               try {
                 const sentencesNow = [];
-                for (const b of sectionizeAnswer(answerBodyBeforeBibliography(answer))) {
+                for (const b of sectionizeAnswer(answerBodyBeforeBibliography(judgedAnswer))) {
                   for (const ln of (b.lines || [])) sentencesNow.push(...splitBodySentences(ln));
                 }
                 centralGutted = centralAfterRemoval === null
