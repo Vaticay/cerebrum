@@ -18,9 +18,18 @@
  *     sociology paper never cites under it.
  *   Job 1c: the sock collision shape ships the no evidence
  *     state (the scorer's title phrase carry rule).
- *   Job 2a: a stubbed PubMed receives natural language terms
- *     only (no stemmed fragments, no boolean text) on a clinical
- *     question, and its returned trial enters the shipped set.
+ *   Job 2a: a stubbed PubMed receives terms its index can match
+ *     (no stemmed fragments) on a clinical question, and its
+ *     returned trial enters the shipped set. PIN UPDATED
+ *     2026-10-23 at the Wave 3 S3 landing: the original blanket
+ *     ban on boolean text dated from the stemmed fragment
+ *     boolean, which returned zero on seven of seven panel
+ *     probes. Since L1-17 the structured form is built from
+ *     surface terms and passed as data, and since L2-3 it is
+ *     PubMed's off topic fallback by design (pinned in
+ *     retrieval-budget-ladder); a clean boolean of surface terms
+ *     is matchable, a stemmed fragment never is, so the stem
+ *     ban below now covers every term PubMed receives.
  *   Job 2b: a first rung that gathers 30 junk papers and zero
  *     clearing papers does not end retrieval: the ladder
  *     continues on the citable count and finds the clearing
@@ -312,7 +321,7 @@ await test("a joke title collision plus junk ships no results, and the funnel na
 // ═══════════════════════════════════════════════════════════════════
 group("PubMed receives natural language and its trial enters the pool (Job 2a)");
 
-await test("stubbed PubMed: no stemmed fragments, no boolean text, the trial ships cited", async () => {
+await test("stubbed PubMed: no stemmed fragments in any term, the trial ships cited", async () => {
   scenPapersFn = null;
   scenPapers = [];
   scenPubmedTerms = [];
@@ -331,7 +340,6 @@ await test("stubbed PubMed: no stemmed fragments, no boolean text, the trial shi
   assert.ok(terms.length >= 1, "PubMed was never asked");
   const stemTokens = new Set(["rais", "flie", "chang", "eatin", "takin", "studi", "antibiot", "probio"]);
   for (const term of terms) {
-    assert.ok(!/\b(AND|OR)\b/.test(term), "PubMed received boolean text: " + term);
     const tokens = term.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
     for (const tok of tokens) {
       assert.ok(!stemTokens.has(tok), `PubMed received the stemmed fragment "${tok}": ` + term);
