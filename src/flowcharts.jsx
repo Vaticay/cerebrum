@@ -382,7 +382,11 @@ function fcDraftFromAnswer(text, sources) {
   const start = addStep("start", "Start");
   let prev = start;
   rawSteps.forEach((st, i) => {
+    // L7-13 (2026-10-23): an empty label means the sentence was unsafe
+    // to compress (contrast, negation or comparator qualifier); the
+    // step is skipped, not shortened.
     const label = fcCompressStep(st.text);
+    if (!label) return;
     const isDecision = /^(if|when|whether)\b/i.test(st.text) || /\bdepends on\b/i.test(st.text);
     // A step that cited a paper is evidence, not prose: ground the node to
     // the real source. Citation indices are 1-based; anything out of range
@@ -729,13 +733,14 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
 
   const loadPaper = (paper) => {
     const text = dsPaperText(paper);
+    // L7-13 (2026-10-23): steps whose label compresses to empty are skipped.
     const next = fcExtractSteps(text, 7).map((st) => ({
       id: fcId("s"),
       label: fcCompressStep(st.text),
       type: "process",
       detail: st.text,
       sourceIdx: 0,
-    }));
+    })).filter((st) => st.label);
     loadSteps(next, paper.title || "", [paper], null, "paper");
   };
 

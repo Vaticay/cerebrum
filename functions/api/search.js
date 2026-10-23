@@ -14504,6 +14504,42 @@ function claimNamesSentence(claim, sentence, sourceIndex) {
 // bibliography boundary (answerBodyBeforeBibliography) is
 // preserved by the callers passing the body only; the tail after
 // the last section is just the last block.
+/* L7-4 (2026-10-23): one shared sectioniser. The section labels below
+ * mirror the client's SECTION_LABELS in src/CerebrumApp.jsx and
+ * src/answerPresentation.js. A heading line that glues body text onto
+ * a known label is split here, before any binding, stripping or
+ * checking pass reads the sections, so every pass sees the same
+ * sections the renderer sees: the label alone as the heading, and
+ * the glued remainder as the section's first body line. Before this,
+ * a glued confidence essay lived in the heading, where
+ * bindProseConfidenceToLevel never looked, and shipped beside the
+ * computed line it contradicted. */
+const SERVER_SECTION_LABELS = [
+  "Summary", "The short answer", "What the research shows", "Where researchers disagree",
+  "Where the studies disagree", "How solid is this", "What this does not establish",
+  "What would change this", "Core synthesis", "Evidence and mechanisms", "Divergent findings and gaps",
+  "Methodological confidence", "Key evidence", "What we know", "Bottom line",
+  "What changed", "Limitations", "Methods",
+];
+
+export function splitGluedServerHeading(headingText) {
+  const t = String(headingText || "").trim();
+  if (!t || t.length <= 70) return { head: t, body: "" };
+  for (const label of SERVER_SECTION_LABELS) {
+    const re = new RegExp("^" + label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b[\\s:.?\u2014-]*", "i");
+    const m = t.match(re);
+    if (m) {
+      const body = t.slice(m[0].length).trim();
+      if (body) {
+        const q = /\?$/.test(m[0].trim()) || label === "How solid is this" ? "?" : "";
+        const canonical = label === "How solid is this" ? label + q : label;
+        return { head: canonical, body };
+      }
+    }
+  }
+  return { head: t, body: "" };
+}
+
 function sectionizeAnswer(text) {
   const blocks = [];
   let cur = { heading: null, lines: [] };
@@ -14511,7 +14547,15 @@ function sectionizeAnswer(text) {
     const m = rawLine.match(/^\s{0,3}(#{2,6})\s+(.+?)\s*$/);
     if (m) {
       blocks.push(cur);
-      cur = { heading: rawLine, headingText: m[2], lines: [] };
+      // L7-4 (2026-10-23): split a glued heading before the block is
+      // stored; the glued body becomes the block's first line.
+      const split = splitGluedServerHeading(m[2]);
+      if (split.body) {
+        const hashes = m[1];
+        cur = { heading: hashes + " " + split.head, headingText: split.head, lines: [split.body] };
+      } else {
+        cur = { heading: rawLine, headingText: m[2], lines: [] };
+      }
     } else {
       cur.lines.push(rawLine);
     }
@@ -14730,6 +14774,120 @@ export function stripInventedDisagreementSections(answer) {
   if (stripped === 0) return text;
   const joined = joinAnswerSections(out);
   if (!joined) return text; // the floor: never empty the answer
+  return joined + tail;
+}
+
+/* L7-5 (2026-10-23): section bound to verdict as a class, not by
+ * naming patterns. When the shipped verdict reports zero conflicts,
+ * any disagreement shaped section is replaced by the verdict summary
+ * itself, whatever attribution form its prose used: unnamed some
+ * studies framing and complementary endpoint contrasts go the same
+ * way as named inventions. When the verdict reports conflicts, the
+ * section may only cite papers that appear in the conflict pairs;
+ * citation markers pointing anywhere else are removed from that
+ * section. The floor holds: a pass that would empty the answer
+ * returns the original. */
+export function bindDisagreementSectionToVerdict(answer, verdict, conflictPairs) {
+  const text = String(answer || "");
+  if (!text || !verdict || typeof verdict.conflictCount !== "number") return text;
+  const boundary = answerBodyBeforeBibliography(text);
+  const tail = text.slice(boundary.length);
+  const blocks = sectionizeAnswer(boundary);
+  const pairIdx = new Set();
+  for (const c of Array.isArray(conflictPairs) ? conflictPairs : []) {
+    if (!c) continue;
+    if (Number.isFinite(Number(c.idxA))) pairIdx.add(Number(c.idxA));
+    if (Number.isFinite(Number(c.idxB))) pairIdx.add(Number(c.idxB));
+  }
+  let changed = false;
+  const out = [];
+  for (const block of blocks) {
+    if (block.heading && DISAGREEMENT_HEADING_RE.test(block.headingText || "")) {
+      if (verdict.conflictCount === 0) {
+        const summary = String(verdict.summary || "").trim();
+        if (summary) {
+          out.push({ heading: block.heading, lines: [summary] });
+          changed = true;
+          continue;
+        }
+      } else if (pairIdx.size > 0) {
+        const lines = block.lines.map((ln) =>
+          ln.replace(/\[(\d{1,3})\]/g, (mm, n) => (pairIdx.has(Number(n)) ? mm : "")));
+        out.push({ heading: block.heading, lines });
+        changed = true;
+        continue;
+      }
+    }
+    out.push(block);
+  }
+  if (!changed) return text;
+  const joined = joinAnswerSections(out);
+  if (!joined) return text;
+  return joined + tail;
+}
+
+/* L7-12 (2026-10-23): provenance for quantities in falsification
+ * bullets. A number in a What would change this bullet must appear
+ * in a cited source or in the answer outside that section, or be
+ * mechanically derived from one of those numbers (a multiple or a
+ * simple sum is not assumed; only the number itself and its plain
+ * decimal forms count). A bullet whose numbers fail is rewritten to
+ * its quantity free form: digit bearing parentheticals and numeric
+ * unit phrases are removed. A bullet left too short to mean anything
+ * is dropped. */
+function numbersInText(text) {
+  const out = new Set();
+  for (const m of String(text || "").matchAll(/\d+(?:[.,]\d+)?/g)) {
+    out.add(m[0].replace(",", "."));
+    out.add(String(Number(m[0].replace(",", "."))));
+  }
+  return out;
+}
+
+export function quantityFreeForm(bullet) {
+  let s = String(bullet || "");
+  s = s.replace(/\([^()]*\d[^()]*\)/g, " ");
+  s = s.replace(/[<>]\s*\d+(?:[.,]\d+)?/g, " ");
+  s = s.replace(/\b\d+(?:[.,]\d+)?\s*(?:mL|ml|mg|g|kg|%|percent|weeks?|days?|months?|years?|per\s+100\s*g(?:\s+feed)?|per\s+100g)\b/gi, " ");
+  s = s.replace(/\b\d+(?:[.,]\d+)?\b/g, " ");
+  s = s.replace(/\s+([.,;:])/g, "$1").replace(/\s{2,}/g, " ").trim();
+  return s;
+}
+
+export function sanitizeFalsificationQuantities(answer, evidenceText) {
+  const text = String(answer || "");
+  if (!text) return text;
+  const blocks = sectionizeAnswer(answerBodyBeforeBibliography(text));
+  const tail = text.slice(answerBodyBeforeBibliography(text).length);
+  const outside = blocks
+    .filter((b) => !(b.headingText && /what would change this/i.test(b.headingText)))
+    .map((b) => b.lines.join("\n"))
+    .join("\n");
+  const allowed = numbersInText(String(evidenceText || "") + "\n" + outside);
+  let changed = false;
+  const out = [];
+  for (const block of blocks) {
+    if (!(block.headingText && /what would change this/i.test(block.headingText))) {
+      out.push(block);
+      continue;
+    }
+    const lines = [];
+    for (const ln of block.lines) {
+      const trimmed = ln.trim();
+      const bm = trimmed.match(/^[-*•]\s+(.*)$/);
+      if (!bm) { lines.push(ln); continue; }
+      const nums = numbersInText(bm[1]);
+      const bad = [...nums].some((n) => !allowed.has(n));
+      if (!bad) { lines.push(ln); continue; }
+      changed = true;
+      const free = quantityFreeForm(bm[1]);
+      if (free.replace(/\*\*/g, "").trim().length >= 30) lines.push("- " + free);
+    }
+    out.push({ heading: block.heading, lines });
+  }
+  if (!changed) return text;
+  const joined = joinAnswerSections(out);
+  if (!joined) return text;
   return joined + tail;
 }
 
@@ -20132,6 +20290,18 @@ export async function detectSemanticDivergence(papers, env, ledger = null) {
 // retrieval record), the most likely reasons (ranked by signal), and
 // concrete reformulations derived from the question itself. It never
 // guesses at the science . only reports the search.
+/* L7-17 (2026-10-23): the shared title renderer for user facing
+ * lists, mirrored in src/answerPresentation.js as renderTitleText.
+ * Full title, or word boundary truncation with an ellipsis marker. */
+export function renderExampleTitle(title, max = 120) {
+  const s = String(title || "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > 40 ? cut.slice(0, sp) : cut).trim() + "\u2026";
+}
+
 export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gatedOut, gatedExamples, errored, filteredOut, filterLabel, gatheredCount, exclusionReasonCounts }) {
   const q = String(query || "").trim();
   const list = Array.isArray(sourcesQueried) ? sourcesQueried : [];
@@ -20188,8 +20358,21 @@ export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gated
         (gatedOut === 1 ? "it" : "them") + " would have been misleading.";
     }
     if (Array.isArray(gatedExamples) && gatedExamples.length > 0) {
-      line += " The closest " + (gatedExamples.length === 1 ? "was" : "were") + " " +
-        gatedExamples.slice(0, 2).map((t) => "\"" + String(t).slice(0, 80) + "\"").join("; ") + ".";
+      // L7-17 (2026-10-23): one title renderer for the closest list.
+      // Examples are deduped by normalised title before the list is
+      // built, and each title prints in full or truncated at a word
+      // boundary with an ellipsis marker, never cut mid word.
+      const seenTitles = new Set();
+      const examples = [];
+      for (const t of gatedExamples) {
+        const key = String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        if (key && seenTitles.has(key)) continue;
+        if (key) seenTitles.add(key);
+        examples.push(t);
+        if (examples.length >= 2) break;
+      }
+      line += " The closest " + (examples.length === 1 ? "was" : "were") + " " +
+        examples.map((t) => "\"" + renderExampleTitle(t) + "\"").join("; ") + ".";
     }
     whatWasTried.push(line);
   }
@@ -33416,10 +33599,20 @@ async function runSearchPipeline(pctx) {
     // goes, the cited sets derived from the prose above are
     // re derived, so a paper cited only inside the invented
     // section is not counted as cited by anything downstream.
-    if (aiOK && disagreementVerdict && disagreementVerdict.conflictCount === 0 &&
-        (!literatureConflicts || literatureConflicts.length === 0)) {
+    if (aiOK && disagreementVerdict) {
       try {
-        const strippedProse = stripInventedDisagreementSections(answer);
+        // L7-5 (2026-10-23): the section is bound to the verdict as a
+        // class. Zero conflicts replaces any disagreement shaped
+        // section with the verdict summary; conflicts above zero
+        // restrict the section to citations inside the conflict
+        // pairs. The older naming pattern strip stays as the fallback
+        // for a verdict with no summary to stand in.
+        let boundProse = bindDisagreementSectionToVerdict(answer, disagreementVerdict, literatureConflicts);
+        if (boundProse === answer && disagreementVerdict.conflictCount === 0 &&
+            (!literatureConflicts || literatureConflicts.length === 0)) {
+          boundProse = stripInventedDisagreementSections(answer);
+        }
+        const strippedProse = boundProse;
         if (strippedProse !== answer) {
           answer = strippedProse;
           const relabeled = labelUncitedSources(sourceList, answer);
@@ -33764,6 +33957,15 @@ async function runSearchPipeline(pctx) {
     // shipped line already contains cannot survive beside it.
     try { answer = dedupeRepeatedSentences(answer); } catch { /* a mechanical pass must never break the answer */ }
     try { answer = ensureFalsificationList(answer); } catch { /* same */ }
+    // L7-12 (2026-10-23): a falsification bullet may only carry
+    // numbers that appear in a cited source or elsewhere in the
+    // answer; invented thresholds are rewritten quantity free.
+    try {
+      const falsEvidence = (Array.isArray(sourceList) ? sourceList : [])
+        .map((s) => [s && s.title, s && s.abstract, s && s.journal, s && s.year].filter(Boolean).join(" "))
+        .join("\n");
+      answer = sanitizeFalsificationQuantities(answer, falsEvidence);
+    } catch { /* same */ }
     // Run last, after every pass above has already read the plain-text
     // `answer` (fact-check, literature-conflict extraction) . see
     // italicizeScientificTerms()'s own comment for why order matters here.

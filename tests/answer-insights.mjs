@@ -13,6 +13,7 @@ import { strict as assert } from "node:assert";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -140,7 +141,8 @@ const arcSources = (years, extra = {}) =>
 await test("groups a real year span into three chronological eras", () => {
   const eras = groupSourcesIntoEras(arcSources([1998, 2001, 2005, 2012, 2018, 2024]));
   assert.ok(eras && eras.length === 3, `expected 3 eras, got ${eras && eras.length}`);
-  assert.deepEqual(eras.map((e) => e.name), ["Foundations", "Building", "Current"]);
+  // Pin updated 2026-10-23 (L7-15): era names are neutral; year alone never makes an era Foundations.
+  assert.deepEqual(eras.map((e) => e.name), ["Earliest", "Middle", "Most recent"]);
   assert.ok(eras[0].papers.every((p) => p.year <= eras[1].papers[0].year), "eras not chronological");
 });
 
@@ -154,7 +156,7 @@ await test("fewer than 2 distinct years hides the toggle (returns null)", () => 
 await test("anchor is the top-cited paper when citation counts exist", () => {
   const srcs = arcSources([2001, 2002, 2003], { citations: [5, 400, 12] });
   const eras = groupSourcesIntoEras(srcs);
-  // 2002 lands in the Building era — its anchor must be the 400-citation paper.
+  // 2002 lands in the Middle era — its anchor must be the 400-citation paper.
   const era2002 = eras.find((e) => e.papers.some((p) => p.year === 2002));
   assert.ok(era2002, "no era contains 2002");
   assert.ok(era2002.anchor.source.title.includes("Paper 1"), `wrong anchor: ${era2002.anchor.source.title}`);
@@ -164,9 +166,9 @@ await test("anchor is the top-cited paper when citation counts exist", () => {
 await test("anchor falls back to relevance with no citation data", () => {
   const srcs = arcSources([2000, 2001, 2002, 2010, 2011, 2012]);
   srcs.forEach((s) => { s.citations = 0; });
-  srcs[1].relevance = 99; // the 2001 paper, inside Foundations
+  srcs[1].relevance = 99; // the 2001 paper, inside Earliest (pin updated 2026-10-23, L7-15)
   const eras = groupSourcesIntoEras(srcs);
-  const era = eras.find((e) => e.name === "Foundations");
+  const era = eras.find((e) => e.name === "Earliest");
   assert.ok(era && era.papers.length === 3, "test setup wrong");
   assert.ok(era.anchor.source.title.includes("Paper 1"), `anchor is not the most relevant paper: ${era.anchor.source.title}`);
   assert.equal(era.anchorCitations, null);
@@ -235,7 +237,8 @@ await test("convergence read compares the newest era against older work", () => 
   // Pin updated 2026-10-19 (S2 / M19): the convergence line states
   // counts, never a percentage — 2 of 3 printed as 67% was pseudo
   // precision. The supported counts themselves stay pinned above.
-  assert.ok(/^2 of 3 supported claims cite the Current era/.test(line), `unexpected convergence line: ${line}`);
+  // Pin updated 2026-10-23 (L7-15): the newest era is Most recent, not Current.
+  assert.ok(/^2 of 3 supported claims cite the Most recent era/.test(line), `unexpected convergence line: ${line}`);
   assert.ok(!/%/.test(line), "convergence line still carries a percentage");
   assert.ok(/based on cited sources only/.test(line), "convergence line not hedged");
 });
@@ -445,7 +448,12 @@ await test("open-questions button renders only when gaps surface", () => {
   // The entry point moved from the toolbar into the labeled More menu, but
   // the gate is unchanged: the item is only built when gaps surfaced.
   assert.match(appSrc, /openQuestions\.length > 0 \? \[\{\s*\n?\s*id: "openquestions"/, "open-questions menu item not gated on gaps found");
-  assert.match(appSrc, /No open questions surfaced in this literature/, "honest empty state missing");
+  // Pin updated 2026-10-23 (L7-18): the empty state uses the one
+  // approved absence phrasing, held as NO_GAPS_PHRASE in the shared
+  // presentation module and rendered by the empty state.
+  assert.match(appSrc, /NO_GAPS_PHRASE/, "empty state does not use the approved absence phrasing");
+  const presSrc = readFileSync(join(root, "src/answerPresentation.js"), "utf8");
+  assert.match(presSrc, /No gaps were detected by these checks/, "approved absence phrasing missing");
   assert.match(appSrc, /extractOpenQuestions\(t\.answer, t\.factCheck, t\.sources, t\._selfReasoning\)/,
     "gap extraction not fed from the turn");
 });

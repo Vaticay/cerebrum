@@ -85,6 +85,14 @@ import {
   docTitleOf, detectDocHeadings, buildDocSegments, loadDocStore, saveDocStore, deleteDocFromStore, evictOldestDocs, docEvictionNote, DOCMODE_MAX_TEXT,
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
+/* Shared answer presentation rules (2026-10-23, Wave 3 Lane S7, L7-4 to L7-20):
+   one section list, one cited and further partition, one synthesis byline
+   mapping, one coverage count, one title renderer. */
+import {
+  splitGluedHeadingText, answerSectionsInOrder, partitionSources, sourceCountsLabel,
+  synthesisByline, namedSetStats, describeNamedSetStats, indexesAnswered, indexesSentence,
+  NO_GAPS_PHRASE, disagreementKicker,
+} from "./answerPresentation.js";
 import { trendingDoiOf, cleanMediaUrl, cleanMediaText, verifiedMediaOf, trendingMediaOf, normalizeTrendingUrl, normalizeTrendingTitle, dedupeTrendingItems, clusterTrendingItems, trendStoryKey, trendTitleTokens, trendPersistenceLabel, compareByTrend } from "./trendingUtils.js";
 /* Design system primitives (extracted 2026-10-07, monolith split). */
 import {FONT_SIZES, STATUS, PRO, COLOR, LAYOUT, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, TICKS, TickFrame, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
@@ -472,16 +480,12 @@ function pdfSlug(question) {
   return s || "answer";
 }
 // Split answer markdown into sections by ## headings.
+// L7-4 and L7-7 (2026-10-23): this is the shared sectioniser in
+// answerPresentation.js, the same sections in the same order the on
+// screen renderer produces, glued headings split the same way, so
+// the PDF is the answer re typeset and never a second derivation.
 function pdfSplitSections(md) {
-  const sections = [];
-  let cur = { heading: null, lines: [] };
-  for (const ln of String(md || "").split("\n")) {
-    const hm = ln.match(/^#{1,3}\s+(.*)$/);
-    if (hm) { sections.push(cur); cur = { heading: hm[1].trim(), lines: [] }; }
-    else cur.lines.push(ln);
-  }
-  sections.push(cur);
-  return sections;
+  return answerSectionsInOrder(md);
 }
 // Group section lines into paragraph / bullet / numbered blocks.
 function pdfGroupBlocks(lines) {
@@ -642,7 +646,10 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
     doc.text(titleLines, W / 2, y, { align: "center" });
     y += titleLines.length * 26 + 4;
     doc.setFont(PDF_SERIF_FONT, "italic"); doc.setFontSize(10.5); doc.setTextColor(90, 90, 90);
-    const byline = `Generated ${dateStr} · askcerebrum.org`;
+    // L7-8 (2026-10-23): the byline comes from the one synthesisMode
+    // mapping the on screen byline uses; an unrecorded mode claims no
+    // synthesis.
+    const byline = `${synthesisByline(t.synthesisMode).byline} · ${dateStr} · askcerebrum.org`;
     doc.text(byline, (W - doc.getTextWidth(byline)) / 2, y);
     y += 10;
     doc.setDrawColor(30, 30, 30); doc.setLineWidth(1);
@@ -662,15 +669,41 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
       renderBlocks(sec);
       if (y !== before) printedBlocks++;
     }
-    if (!printedBlocks) {
+    // L7-7 (2026-10-23): the no answer text sentence may only print
+    // when the answer itself is empty; a non empty answer whose
+    // sections printed nothing above is a rendering fault, not a
+    // statement about the answer.
+    if (!printedBlocks && !String(answer || "").trim()) {
       richPara([{ t: "No answer text was available for this query." }], { color: [90, 90, 90] });
       y += 5;
     }
 
-    // References.
+    /* Export only additions, appended after the body (L7-7 and
+       L7-11, 2026-10-23): how this answer was produced, and the
+       evidence counts, each computed over a named set with the set
+       named beside it. Nothing here is interleaved with the body. */
+    {
+      const parts = partitionSources(list);
+      const framing = synthesisByline(t.synthesisMode).framing;
+      const idx = indexesSentence(t.sourcesQueried);
+      sectionHeading("About this export");
+      richPara(pdfInlineRuns(framing + (idx ? ` Sources retrieved ${idx}.` : "")));
+      y += 5;
+      richPara(pdfInlineRuns(describeNamedSetStats(namedSetStats(parts.cited, "cited"))));
+      y += 5;
+      if (parts.further.length) {
+        richPara(pdfInlineRuns(describeNamedSetStats(namedSetStats(parts.further, "further reading"))));
+        y += 5;
+      }
+    }
+
+    // References. L7-6 (2026-10-23): further reading prints under its
+    // own heading, never folded into the references the answer cites.
     if (list.length) {
-      sectionHeading("References");
-      list.forEach((s, i) => {
+      const parts = partitionSources(list);
+      const renderRef = (entry) => {
+        const s = entry.source || {};
+        const i = entry.index - 1;
         const bits = [];
         const au = String(s.authors || "").trim().replace(/\s+/g, " ");
         if (au) bits.push(/[.!?]$/.test(au) ? au : au + ".");
@@ -682,7 +715,17 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
         need(16);
         richPara(pdfInlineRuns(`[${i + 1}] ` + bits.join(" ")), { size: 9.5, lineH: 13, color: [50, 50, 50], hanging: 14 });
         y += 5;
-      });
+      };
+      if (parts.cited.length) {
+        sectionHeading("References");
+        parts.cited.forEach(renderRef);
+      }
+      if (parts.further.length) {
+        sectionHeading("Further reading");
+        richPara(pdfInlineRuns("Not cited above. Listed for follow up only."));
+        y += 5;
+        parts.further.forEach(renderRef);
+      }
     }
 
     /* Final pass: footer on every page. The watermark that used to
@@ -4226,21 +4269,16 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
       return ds.length ? ds.map(n => "["+n+"]").join("") : m;
     })
-    .replace(/\(([\d,\s]+)\)/g, (m, nums) => {
-      const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
-      return ds.length ? ds.map(n => "["+n+"]").join("") : m;
-    })
-    .replace(/([a-z])\s+(\d(?:\s*,?\s*\d){0,8})\s*([.;,])(?!\d)/gi, (m, b, nums, p) => {
-      const ds = nums.split(/[,\s]+/).map(n => parseInt(n,10)).filter(n => n > 0 && n <= (sources||[]).length);
-      // v28 fix: this used to glue the repaired citation back on with a
-      // literal " " before the bracket ("word" + " " + "[1]" + "."), which
-      // combined with the citation badge's own visual padding read as a
-      // stray, ungrammatical gap — "word 1 ." instead of "word[1]." No
-      // space belongs here; a citation sits directly against the word it
-      // supports, same as any bracketed citation the model already writes
-      // correctly on its own.
-      return ds.length >= 1 ? b + ds.map(n => "["+n+"]").join("") + p : m;
-    })
+    // L7-14 (2026-10-23): the renderer never creates citations. The two
+    // number to citation conversions that used to run here, a
+    // parenthesised number list becoming bracketed citations and a
+    // bare number between a letter and sentence punctuation becoming
+    // a glued citation, fabricated attribution for group, figure,
+    // dose and year numbers. Both are removed as a class; the server
+    // repairs citation spacing in its own passes, and the spacing
+    // passes below only touch numbers already inside a citation
+    // marker. The grouped bracket split above stays because its
+    // input is already a citation marker.
     // v28 fix: general safety net for citation spacing, independent of
     // which path produced the bracket — whether the model wrote "[1]"
     // correctly on its own, or it came from the bare-number repair just
@@ -4857,7 +4895,9 @@ function stanceCountsFor(t) {
     venn = { agree: [], disagree: [], middle: [], unclear: sources.map((_, i) => i + 1) };
   }
   return {
-    total: sources.length,
+    // L7-6 (2026-10-23): total here is the cited set; further reading
+    // is not part of the stance counts any surface prints.
+    total: sources.filter((x) => !(x && x.uncited)).length,
     support: (venn.agree || []).length,
     qualify: (venn.middle || []).length,
     contest: (venn.disagree || []).length,
@@ -4940,6 +4980,11 @@ function KeyFigures({ t, P }) {
     );
   }
   const sc = stanceCountsFor(t);
+  // L7-6 (2026-10-23): the headline count is the cited set, labelled
+  // as cited; further reading counts separately and never as papers
+  // the answer rests on.
+  const citedTotal = sources.filter((x) => !(x && x.uncited)).length;
+  const furtherTotal = total - citedTotal;
   const clay = stanceInk(P, STANCE_TOKENS.contest);
   const parts = [];
   if (sc.support > 0) parts.push(<span key="sup">{sc.support} support{sc.support === 1 ? "s" : ""} the direction</span>);
@@ -4949,7 +4994,7 @@ function KeyFigures({ t, P }) {
   return (
     <div style={{ maxWidth: "none", margin: "0 0 16px", padding: 0 }}>
       <div style={{ fontSize: 13, color: P.ink2, fontVariantNumeric: "tabular-nums", lineHeight: 1.55 }}>
-        <span>{total} paper{total === 1 ? "" : "s"}</span>
+        <span>{citedTotal} cited paper{citedTotal === 1 ? "" : "s"}{furtherTotal > 0 ? ` · ${furtherTotal} further reading` : ""}</span>
         {parts.map((p) => <span key={p.key}>{sep}{p}</span>)}
       </div>
       {singleSourceLine}
@@ -6128,7 +6173,15 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
     /* 2026-10-19 (S2, tail 13): the clipboard matches the screen, the
        plain text twin of the formatted bibliography, so no literal
        asterisks or underscores reach the paste. */
-    copyToClipboard(plainInlineText(formatBibliography(sources, citationStyle)), "Bibliography copied").then((ok) => {
+    /* L7-6 (2026-10-23): the copy is sectioned. Cited papers print
+       under Cited, further reading under its own heading, each with
+       its answer citation number. */
+    const parts = partitionSources(sources);
+    const sectionText = (entries) => entries.map((e) => plainInlineText(formatCitation(e.source, citationStyle, e.index))).join("\n\n");
+    const chunks = [];
+    if (parts.cited.length) chunks.push("Cited\n\n" + sectionText(parts.cited));
+    if (parts.further.length) chunks.push("Further reading\n\n" + sectionText(parts.further));
+    copyToClipboard(chunks.join("\n\n"), "Bibliography copied").then((ok) => {
       if (ok) { setCopied(true); setTimeout(() => setCopied(false), 1500); }
     });
   };
@@ -6170,7 +6223,8 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
          carry (2026-10-19, S2 / M18), in the ledger's own vocabulary. */
       const relWord = { supports: "Supports", qualifies: "Qualifies", conflicts: "Contests" };
       const stances = relOf ? sources.map((_, i) => relWord[relOf(i + 1)] || "") : undefined;
-      const excelResult = await exportTopPapersExcel(sources, { accent, stances });
+      // L7-6 (2026-10-23): the workbook covers the cited set only.
+      const excelResult = await exportTopPapersExcel(sources.filter((x) => !(x && x.uncited)), { accent, stances });
       logExport("Excel", "cerebrum-papers.xlsx");
       /* Tail 15: the toast always states the exported count, capped
          or not. Silence on an uncapped export read as nothing having
@@ -6196,15 +6250,20 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
     setZMsg("");
     if (!zKey || !zUser) { setZMsg("Enter your Zotero API key and user ID."); return; }
     try {
-      await saveToZotero(sources, zKey.trim(), zUser.trim());
-      setZMsg(`Saved ${sources.length} items.`);
+      // L7-6 (2026-10-23): Zotero receives the cited set only.
+      const citedOnly = sources.filter((x) => !(x && x.uncited));
+      await saveToZotero(citedOnly, zKey.trim(), zUser.trim());
+      setZMsg(`Saved ${citedOnly.length} cited items.`);
     } catch (e) { setZMsg(zoteroErrorMessage(e)); }
   };
   const doExportFmt = (fmt) => {
     if (!sources || !sources.length) return;
-    if (fmt === "bibtex") { download("cerebrum-bibliography.bib", toBibTeX(sources)); logExport("BibTeX", "cerebrum-bibliography.bib"); }
-    else if (fmt === "ris") { download("cerebrum-bibliography.ris", toRIS(sources)); logExport("RIS", "cerebrum-bibliography.ris"); }
-    else if (fmt === "csv") { download("cerebrum-bibliography.csv", toCSV(sources)); logExport("CSV", "cerebrum-bibliography.csv"); }
+    // L7-6 (2026-10-23): structured exports cover the cited set only;
+    // further reading never leaves as a reference.
+    const citedOnly = sources.filter((x) => !(x && x.uncited));
+    if (fmt === "bibtex") { download("cerebrum-bibliography.bib", toBibTeX(citedOnly)); logExport("BibTeX", "cerebrum-bibliography.bib"); }
+    else if (fmt === "ris") { download("cerebrum-bibliography.ris", toRIS(citedOnly)); logExport("RIS", "cerebrum-bibliography.ris"); }
+    else if (fmt === "csv") { download("cerebrum-bibliography.csv", toCSV(citedOnly)); logExport("CSV", "cerebrum-bibliography.csv"); }
     setExportOpen(false);
   };
   // Jump bar: first letters of the author field, for long lists.
@@ -6418,7 +6477,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
       )}
       {bibHidden && (
         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", padding: "6px 2px 2px" }}>
-          {sources.length} sources · {citedIdx.size} cited in this answer. Copy and export still cover the full list.
+          {sources.length} sources · {citedIdx.size} cited in this answer. Copy lists further reading under its own heading; downloads cover the cited papers.
         </div>
       )}
     </div>
@@ -6471,7 +6530,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
     );
   }
   return (
-    <AnswerSection eyebrow={`Bibliography · ${sources.length} source${sources.length === 1 ? "" : "s"}`} P={P} accent={accent}
+    <AnswerSection eyebrow={`Bibliography · ${sourceCountsLabel(sources)}`} P={P} accent={accent}
       right={controls}>
       {ledger}
       {sources.length === 1 && (
@@ -7365,11 +7424,27 @@ function ReportModal({ query, P, accent, at, onClose, answer = "", sources = [] 
 function buildAcademicPaperBlocks(answer) {
   const clean = normalizeSectionHeaders(answer || "").trim();
   const chunks = clean.split(/\n{2,}/).map((c) => c.trim()).filter(Boolean);
-  const blocks = chunks.map((c) => {
+  const blocks = [];
+  for (const c of chunks) {
     const h = c.match(/^#{2,3}\s+(.+)$/);
-    if (h) return { type: "heading", text: h[1] };
-    return { type: "para", text: c.replace(/^[•\-]\s+/gm, "").replace(/^\d+\.\s+/gm, "") };
-  });
+    if (h) {
+      // L7-4 and L7-7 (2026-10-23): a glued heading splits through the
+      // shared sectioniser; its glued body becomes its own block, in
+      // order, instead of being dropped or printed as heading text.
+      const split = splitGluedHeadingText(h[1].trim());
+      if (split.head && split.body) {
+        blocks.push({ type: "heading", text: split.head });
+        blocks.push({ type: "para", text: split.body });
+        continue;
+      }
+      blocks.push({ type: "heading", text: h[1] });
+      continue;
+    }
+    // L7-10 class (2026-10-23): the paper carries the answer's own
+    // text. List markers are part of that text and are no longer
+    // stripped here; the inline renderer resolves style markers.
+    blocks.push({ type: "para", text: c });
+  }
   return { blocks };
 }
 
@@ -8031,8 +8106,8 @@ function OpenQuestions({ cards, P, accent }) {
   if (!cards || cards.length === 0) {
     return (
       <div style={{ marginTop: 20, padding: "16px 24px", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, background: P.dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)" }}>
-        <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6 }}>No open questions surfaced in this literature.</div>
-        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.6 }}>The answer, its fact-check, and the query plan gave the gap finder nothing to work with, which is itself a signal about how settled this ground is.</div>
+        <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6 }}>{NO_GAPS_PHRASE}</div>
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.6 }}>The gap finder read the answer, its fact check, and the query plan and found nothing to flag.</div>
       </div>
     );
   }
@@ -8089,7 +8164,7 @@ function OpenQuestions({ cards, P, accent }) {
             </div>
           ))}
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
-            Gaps are read from the answer's own hedging, its fact-check, and the query plan. Never invented. An absence of gaps means the literature, as cited, looks settled.
+            Gaps are read from the answer's own hedging, its fact-check, and the query plan. Never invented.
           </div>
         </div>
       )}
@@ -8543,7 +8618,7 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
       /* Pass 6: the evidence header is a quiet instrument kicker, not the
          letterspaced caps eyebrow. */
       quiet
-      eyebrow={`Evidence · ${sources.length} source${sources.length === 1 ? "" : "s"} · ${videos.length} video${videos.length === 1 ? "" : "s"}`}
+      eyebrow={`Evidence · ${sourceCountsLabel(sources)} · ${videos.length} video${videos.length === 1 ? "" : "s"}`}
       P={P} accent={accent}
       right={(
         /* Pass 2: underlined editorial tabs, not the segmented pill
@@ -8554,7 +8629,7 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
           <button type="button" role="tab" className="cb-tab" data-active={tab === "biblio" ? "true" : undefined}
             id={tabUid + "-tab-biblio"} aria-controls={tabUid + "-panel"} tabIndex={tab === "biblio" ? 0 : -1}
             aria-selected={tab === "biblio"} onClick={() => setTab("biblio")}>
-            Bibliography · {sources.length}
+            Bibliography · {partitionSources(sources).cited.length} cited{partitionSources(sources).further.length > 0 ? ` · ${partitionSources(sources).further.length} further reading` : ""}
           </button>
           <button type="button" role="tab" className="cb-tab" data-active={tab === "videos" ? "true" : undefined}
             id={tabUid + "-tab-videos"} aria-controls={tabUid + "-panel"} tabIndex={tab === "videos" ? 0 : -1}
@@ -9335,7 +9410,7 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
         padding: "16px 8px 12px 16px", borderBottom: `1px solid ${P.line}`, flexShrink: 0,
       }}>
-        <span className="cb-kicker">Sources · {sources.length}</span>
+        <span className="cb-kicker">Sources · {sourceCountsLabel(sources)}</span>
         <button ref={closeRef} type="button" onClick={onClose} aria-label="Close sources"
           style={{
             minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -9519,10 +9594,12 @@ function ZeroResultsRecovery({ t, P, accent, evidenceFilter, onClearFilterAndRet
    claims work that didn't happen (the stance-label clause ships with the
    per-paper stance layer in blueprint items 1-2). */
 function ProvenanceColophon({ t, P }) {
-  const dbCount = Array.isArray(t.sourcesQueried) ? t.sourcesQueried.length : 0;
+  // L7-19 (2026-10-23): the count comes from the one coverage helper;
+  // only indexes that answered count, never every index attempted.
+  const { attempted, answered } = indexesAnswered(t.sourcesQueried);
   const dateStr = new Date(t.ts || Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const text = dbCount > 0
-    ? `Sources retrieved ${dateStr} from ${dbCount} indexes.`
+  const text = attempted > 0
+    ? `Sources retrieved ${dateStr} from ${answered} of ${attempted} indexes.`
     : `Sources retrieved ${dateStr}.`;
   return (
     <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6, margin: "18px 0 0" }}>
@@ -9547,7 +9624,7 @@ function AnswerSourcesPanel({ t, P, accent, onJumpToBibliography }) {
   return (
     <div style={{ marginTop: 22, paddingTop: 14, borderTop: `1px solid ${P.line}`, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} className="cb-fade">
       <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)" }}>
-        {sources.length} source{sources.length === 1 ? "" : "s"} for this answer
+        {sourceCountsLabel(sources)} for this answer
       </span>
       <button type="button" onClick={onJumpToBibliography}
         style={{ minHeight: 44, padding: "6px 4px", fontSize: FONT_SIZES.label, fontWeight: 500, background: "none", border: "none", color: accentInk(P, accent), cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline", textUnderlineOffset: 4 }}>
@@ -9927,7 +10004,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
     : `AI answers are used up. ${quotaRefillSentence()} Searching and reading papers keep working.`;
   const onActivateCite = (n) => { setActiveCite(n); setEvidenceOpen(true); };
   return (
-    <div style={S.turn} className="cb-rise">
+    <div style={S.turn} className="cb-rise cb-turn">
       {/* The query strip: the question as an instrument label, not a magazine
           headline. Mono QUERY tag, the question in strong sans, one mono
           metadata line. No film, no gradient, no rounded card — the
@@ -9982,7 +10059,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           <div style={{ fontSize: 13, lineHeight: 1.55, color: P.ink2, fontFamily: "var(--cb-font)", borderLeft: `2px solid ${COLOR.caution}`, paddingLeft: 12, margin: "0 0 16px" }}>{t.confidence.line}</div>
         )}
         <div className="cb-answer-enter">
-        <article style={{ ...S.answerCard, border: "none", borderRadius: 2 }} className="cb-article">
+        <article style={{ ...S.answerCard, border: "none", borderRadius: 2 }} className="cb-article" data-settled={last && done ? "true" : undefined}>
         {/* v34: the metadata badge and the action toolbar used to be two
             independent siblings — the badge in normal flow, the toolbar
             docked via `position: absolute; top; right`. On a narrow mobile
@@ -10006,7 +10083,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                     and pipeline honesty now live in the Answer diagnostics
                     disclosure below the toolbar; they are no longer a badge
                     row. */}
-                <span className="cb-readout-label" style={{ color: P.faint }}>{t.sources.length} {t.sources.length === 1 ? "paper" : "papers"}{minRead > 0 ? ` · ${minRead} min read` : ""}</span>
+                <span className="cb-readout-label" style={{ color: P.faint }}>{sourceCountsLabel(t.sources)}{minRead > 0 ? ` · ${minRead} min read` : ""}</span>
               </div>
             ) : <span />}
             {/* Pass 2: the toolbar is a quiet strip of text actions — Copy
@@ -10408,10 +10485,9 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   is instead of defaulting to "no clear divide". */}
               {(() => {
                 const v = t.disagreementVerdict;
-                const kicker = !v ? "No clear divide"
-                  : v.status === "divided" ? "DIVIDED"
-                  : v.status === "settled" ? "CONSISTENT"
-                  : "Thin evidence";
+                // L7-9 (2026-10-23): the kicker is the status word the
+                // server shipped, nothing locally synonymised.
+                const kicker = disagreementKicker(v);
                 const conflict = Array.isArray(t.literatureConflicts) && t.literatureConflicts.length > 0 ? t.literatureConflicts[0] : null;
                 const disagreeIdx = Array.isArray(venn.disagree) && venn.disagree.length > 0 ? venn.disagree[0] : null;
                 const disputeRaw = conflict
@@ -10427,7 +10503,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 ].filter(Boolean).join(" ");
                 const body = v && v.status === "divided" && dividedBody
                   ? dividedBody
-                  : (v && v.summary) || "The cited claims don't split into two camps. The literature, as cited, reads as settled or too thin to divide.";
+                  : (v && v.summary) || "No disagreement verdict was shipped for this answer.";
                 return (
                   <AnswerStateCard kicker={kicker}
                     title={v && v.status === "divided"
@@ -10435,10 +10511,10 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                         ? `${shortDisputeTitle} disagrees with other cited papers.`
                         : "The sources genuinely split. See the flashpoints below."
                       : v && v.status === "settled"
-                        ? "No clear disagreement surfaced."
+                        ? "No opposing findings were detected."
                         : v && v.status === "thin"
                           ? "Too little evidence to tell whether the sources disagree."
-                          : "No clear disagreement surfaced."}
+                          : "No disagreement verdict was shipped for this answer."}
                     body={body}
                     P={P} accent={accent} />
                 );
@@ -10615,7 +10691,8 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
               <span className="cb-paper-masthead-text">CEREBRUM</span>
             </div>
             <div className="cb-paper-title">{t.q}</div>
-            <div className="cb-paper-byline">Synthesized by Cerebrum · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+            {/* L7-8 (2026-10-23): byline and framing from the one synthesisMode mapping. */}
+            <div className="cb-paper-byline">{synthesisByline(t.synthesisMode).byline} · {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} · {synthesisByline(t.synthesisMode).framing}</div>
 
             {/* 2026-10-19 (S2, H14): the answer's own blocks, in order,
                 through the shared inline renderer, so no markdown
@@ -10629,16 +10706,31 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 : <p key={i} className="cb-paper-para">{renderInlineMdLite(b.text, P)}</p>
             ))}
 
-            {t.sources && t.sources.length > 0 && (
+            {t.sources && t.sources.length > 0 && (() => {
+              // L7-6 (2026-10-23): further reading stays out of
+              // References and prints under its own heading.
+              const parts = partitionSources(t.sources);
+              return (
               <>
-                <div className="cb-paper-section-label">References</div>
-                <div className="cb-paper-references">
-                  {t.sources.map((s, i) => (
-                    <p key={i} className="cb-paper-ref">{renderInlineMdLite(formatCitation(s, citationStyle || "vancouver", i + 1), P)}</p>
-                  ))}
-                </div>
+                {parts.cited.length > 0 && <>
+                  <div className="cb-paper-section-label">References</div>
+                  <div className="cb-paper-references">
+                    {parts.cited.map((e) => (
+                      <p key={e.index} className="cb-paper-ref">{renderInlineMdLite(formatCitation(e.source, citationStyle || "vancouver", e.index), P)}</p>
+                    ))}
+                  </div>
+                </>}
+                {parts.further.length > 0 && <>
+                  <div className="cb-paper-section-label">Further reading</div>
+                  <div className="cb-paper-references">
+                    {parts.further.map((e) => (
+                      <p key={e.index} className="cb-paper-ref">{renderInlineMdLite(formatCitation(e.source, citationStyle || "vancouver", e.index), P)}</p>
+                    ))}
+                  </div>
+                </>}
               </>
-            )}
+              );
+            })()}
           </div>
         </div>,
         document.body
@@ -13517,7 +13609,11 @@ function fcDraftFromAnswer(text, sources) {
   const start = addStep("start", "Start");
   let prev = start;
   rawSteps.forEach((st, i) => {
+    // L7-13 (2026-10-23): an empty label means the sentence was unsafe
+    // to compress (contrast, negation or comparator qualifier); the
+    // step is skipped, not shortened.
     const label = fcCompressStep(st.text);
+    if (!label) return;
     const isDecision = /^(if|when|whether)\b/i.test(st.text) || /\bdepends on\b/i.test(st.text);
     // A step that cited a paper is evidence, not prose: ground the node to
     // the real source. Citation indices are 1-based; anything out of range
@@ -28094,6 +28190,13 @@ html { scroll-behavior: smooth; }
    below) and is unaffected: its document is portaled outside #root. */
 @media print {
   header, footer, nav, aside, [role="dialog"], .cb-grain, .cb-vignette, .cb-fab-pulse, button { display: none !important; }
+  /* One print contract (2026-10-23, L7-20): a plain print carries the
+     settled answer article only. Inputs, toolbars, the composer, the
+     query strip and every other turn are excluded. The designed paper
+     path (body.cb-printing-paper below) is the other way to print and
+     is unaffected. */
+  input, textarea, select, form, [role="toolbar"], .cb-controls, .cb-query { display: none !important; }
+  body:not(.cb-printing-paper) .cb-turn:not(:has(.cb-article[data-settled="true"])) { display: none !important; }
   body, div { background: white !important; color: black !important; }
   * { backdrop-filter: none !important; box-shadow: none; }
   .cb-answer-enter { font-size: 12pt !important; line-height: 1.6 !important; }

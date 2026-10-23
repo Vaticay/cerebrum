@@ -51,7 +51,25 @@ function cap1(s) {
  * Compress one sentence to at most `max` characters by deleting words.
  * Never invents, never cuts mid-word.
  */
+/* Compression safety (2026-10-23, L7-13): a label may not be produced
+   from a sentence carrying a contrast marker, a negation, or a
+   comparator adjunct unless the qualifier would survive compression.
+   Compression here deletes exactly those qualifiers, so it never
+   survives: such a sentence yields no label at all and the step is
+   skipped, not shortened. Returning an empty string is the skip
+   signal; fcExtractSteps drops empty labels. */
+const CONTRAST_MARKER_RE = /\b(while|whereas|but|despite|however|although|though|yet)\b/i;
+const NEGATION_RE = /\b(no|not|never|without|fails? to|failed to|does not|did not|do not|cannot|can't|won't|isn't|aren't|wasn't|weren't)\b/i;
+const COMPARATOR_ADJUNCT_RE = /\b(compared (?:with|to)|relative to|versus|vs\.?)\b/i;
+
+export function fcCompressionUnsafe(raw) {
+  const s = String(raw || "");
+  return CONTRAST_MARKER_RE.test(s) || NEGATION_RE.test(s) || COMPARATOR_ADJUNCT_RE.test(s);
+}
+
 export function fcCompressStep(raw, max = 52) {
+  // L7-13 (2026-10-23): unsafe sentences are skipped, not shortened.
+  if (fcCompressionUnsafe(raw)) return "";
   let s = String(raw || "")
     .replace(/\([^()]*\)/g, " ") // parenthetical asides carry detail, not the point
     .replace(/\s+/g, " ")

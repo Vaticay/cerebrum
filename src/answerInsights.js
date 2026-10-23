@@ -1,3 +1,8 @@
+/* L7-4 (2026-10-23): the glued heading splitter is the shared one in
+   answerPresentation.js, the same list and rule the renderer and the
+   server sectioniser use. */
+import { splitGluedHeadingText } from "./answerPresentation.js";
+
 /**
  * answerInsights.js — deterministic, UI-free helpers behind the answer
  * instruments: QueryAutopsy (how the answer was built), AnswerArc (the
@@ -84,13 +89,24 @@ export function splitAnswerSections(answer) {
   const re = /^##\s+(.+?)\s*$/gm;
   let m;
   let lastHeading = null;
+  let lastPrefix = "";
   let lastIdx = 0;
   while ((m = re.exec(text)) !== null) {
-    if (lastHeading !== null) out.push({ heading: lastHeading, body: text.slice(lastIdx, m.index).trim() });
-    lastHeading = m[1].trim();
+    if (lastHeading !== null) out.push({ heading: lastHeading, body: (lastPrefix + text.slice(lastIdx, m.index)).trim() });
+    // L7-4 (2026-10-23): a glued heading splits here too, so the
+    // disagreement section finder and every other reader of sections
+    // sees the label as the heading and the glued text as body.
+    const split = splitGluedHeadingText(m[1].trim());
+    if (split.head && split.body) {
+      lastHeading = split.head;
+      lastPrefix = split.body + "\n";
+    } else {
+      lastHeading = m[1].trim();
+      lastPrefix = "";
+    }
     lastIdx = m.index + m[0].length;
   }
-  if (lastHeading !== null) out.push({ heading: lastHeading, body: text.slice(lastIdx).trim() });
+  if (lastHeading !== null) out.push({ heading: lastHeading, body: (lastPrefix + text.slice(lastIdx)).trim() });
   return out;
 }
 
@@ -118,7 +134,11 @@ export function splitSentences(body) {
 
 /* ── The Arc: narrative eras ──────────────────────────────────────── */
 
-const ERA_NAMES = ["Foundations", "Building", "Current"];
+/* L7-15 (2026-10-23): era names are neutral. A paper's era is its
+   position in the year span, nothing more; foundational status may
+   only come from a signal other than its year, and no such signal is
+   computed here. */
+const ERA_NAMES = ["Earliest", "Middle", "Most recent"];
 
 const truncateTitle = (t, max = 90) => {
   const s = String(t || "Untitled").replace(/\s+/g, " ").trim() || "Untitled";
@@ -135,6 +155,9 @@ export function groupSourcesIntoEras(sources) {
   const nowYear = new Date().getFullYear();
   const dated = [];
   (Array.isArray(sources) ? sources : []).forEach((s, i) => {
+    // L7-15 (2026-10-23): the Arc's input set is the cited set its
+    // header claims. Further reading never enters an era.
+    if (s && s.uncited) return;
     const year = parseInt(s && s.year, 10);
     if (Number.isFinite(year) && year > 1500 && year <= nowYear + 1) dated.push({ source: s, index: i, year });
   });
@@ -170,6 +193,7 @@ export function groupSourcesIntoEras(sources) {
       anchor,
       anchorCitations: hasCites ? Number(anchor.source.citations) || 0 : null,
       claimCount: 0,
+      tracedCount: 0,
       claimFirstYear: null,
       disagreementCount: 0,
     });
@@ -207,9 +231,17 @@ export function annotateEras(eras, opts = {}) {
   for (const c of claims) {
     const idx = extractCitedIndices(String(c.claim || "") + " " + String(c.note || ""), srcArr.length);
     const erasHit = [...new Set(idx.map(eraOf).filter((v) => v !== undefined))];
+    // L7-15 (2026-10-23): status discipline. A count printed beside
+    // back, support or evidence for may only include supported
+    // claims; traced claims are counted separately under their own
+    // label, and every other status counts toward neither.
+    const countsAsBacking = c.status === "supported";
+    const countsAsTraced = c.status === "traced";
+    if (!countsAsBacking && !countsAsTraced) continue;
     for (const ei of erasHit) {
       const era = eras[ei];
-      era.claimCount += 1;
+      if (countsAsBacking) era.claimCount += 1;
+      if (countsAsTraced) era.tracedCount = (era.tracedCount || 0) + 1;
       for (const n of idx) {
         if (eraOf(n) !== ei) continue;
         const y = parseInt(srcArr[n - 1] && srcArr[n - 1].year, 10);
@@ -219,8 +251,8 @@ export function annotateEras(eras, opts = {}) {
     // Only a verification's "supported" counts toward the
     // convergence read. A provenance claim's "traced" status (the
     // extractive wording trace) is not support and never feeds
-    // this total — the era claimCount above counts claims of any
-    // status, but the share below is supported claims only.
+    // this total. Since 2026-10-23 (L7-15) the era claimCount is
+    // supported only too; traced claims carry their own count.
     if (c.status === "supported" && erasHit.length > 0) {
       supportedTotal += 1;
       if (erasHit.includes(newest)) supportedRecent += 1;
@@ -252,7 +284,10 @@ export function describeEra(era, hasFactCheck) {
       : `anchored by ${title} (${era.anchorCitations} citation${era.anchorCitations === 1 ? "" : "s"})`
   );
   if (hasFactCheck) bits.push(`${era.claimCount} back core claim${era.claimCount === 1 ? "" : "s"}`);
-  if (era.claimFirstYear !== null) bits.push(`first evidence for a core claim appears in ${era.claimFirstYear}`);
+  // L7-15 (2026-10-23): traced claims print under their own label,
+  // never folded into the backing count.
+  if (hasFactCheck && era.tracedCount > 0) bits.push(`${era.tracedCount} traced core claim${era.tracedCount === 1 ? "" : "s"}`);
+  if (era.claimFirstYear !== null && (era.claimCount > 0 || era.tracedCount > 0)) bits.push(`first evidence for a core claim appears in ${era.claimFirstYear}`);
   if (era.disagreementCount > 0) bits.push(`${era.disagreementCount} cited in disagreements`);
   return bits.join(" · ") + `, ${HEDGE}.`;
 }
