@@ -1398,8 +1398,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // row lives only as long as this tab does, and the composer
     // warning (outboxSaveFailed) tells the reader that plainly
     // instead of letting them trust a queue that is not there.
-    // Encrypted threads skip the probe entirely: their outbox entry
-    // lives in memory only and is never written to storage.
+    // Encrypted threads skip the probe: memory only, never storage.
     if (!isEncrypted) {
       try {
         const probeEntry = {
@@ -1414,10 +1413,8 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       }
     }
     // The outbox entry is written BEFORE the send is attempted:
-    // for a plain thread the send exists durably from this moment,
-    // so a crash, a reload, or a closed tab mid send leaves a
-    // restorable row instead of a message that silently never
-    // existed. An encrypted entry exists in memory only. It starts
+    // for a plain thread the send exists durably from this moment
+    // (an encrypted entry exists in memory only). It starts
     // life as "sending"; if the app dies before the outcome is
     // known, the restore presents it as failed, because failed is
     // the honest state when nobody can prove it landed, and the

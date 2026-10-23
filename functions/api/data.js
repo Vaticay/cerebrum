@@ -3365,6 +3365,13 @@ export async function onRequest(context) {
       const rawIds = Array.isArray(body.member_ids) ? body.member_ids : [];
       const memberIds = [...new Set(rawIds.map((x) => safeId(x)).filter(Boolean))].filter((id) => id !== user.id);
       if (memberIds.length === 0) return errRes("Pick at least one person to add.", 400, "missing_ids", cors);
+      // Same 50-person cap as creation, checked before the pairwise
+      // validation below.
+      const countRow = await env.DB.prepare("SELECT COUNT(*) AS cnt FROM thread_participants WHERE thread_id = ?").bind(threadId).first();
+      const currentCount = countRow?.cnt || 0;
+      if (currentCount + memberIds.length > 50) {
+        return errRes("Groups are capped at 50 people.", 400, "too_many_members", cors);
+      }
       // Validate every invitee before adding anyone: same rules as
       // start-group-thread — real account, discoverable, no block in
       // either direction with the adder, and not already in the group.
@@ -3437,12 +3444,6 @@ export async function onRequest(context) {
             return errRes("One of the people you added only accepts messages from people they follow.", 403, "dm_not_allowed", cors);
           }
         }
-      }
-      // Same 50-person cap as creation.
-      const countRow = await env.DB.prepare("SELECT COUNT(*) AS cnt FROM thread_participants WHERE thread_id = ?").bind(threadId).first();
-      const currentCount = countRow?.cnt || 0;
-      if (currentCount + memberIds.length > 50) {
-        return errRes("Groups are capped at 50 people.", 400, "too_many_members", cors);
       }
       const now = Date.now();
       await env.DB.batch(memberIds.map((mid) =>

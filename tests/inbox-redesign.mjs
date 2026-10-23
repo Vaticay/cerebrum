@@ -484,20 +484,19 @@ await test("the push wake-up event has a real consumer: the inbox refreshes its 
   assert.ok(block.includes("listRefreshRef.current()"), "the push wake-up handler does not refresh the thread list");
 });
 
-await test("group threads show both call buttons, both disabled with the same explanation", () => {
-  // The group header used to render only a disabled camera button:
-  // video looked unavailable while audio looked merely absent. Both
-  // buttons render now, matching the DM header's shape, and both
-  // carry the same honest explanation.
-  const start = inboxSrc.indexOf('activeThread.kind === "group" ? (<>');
-  assert.ok(start > -1, "group call button branch not found");
-  const block = inboxSrc.slice(start, inboxSrc.indexOf("</>) : (<>", start));
-  assert.ok(block.includes('<Icon name="phone"'), "group threads lost the audio call button entirely");
-  assert.ok(block.includes('<Icon name="camera"'), "group threads lost the video call button");
-  const explanations = block.split("Group calls aren't supported yet. Calls work in direct messages").length - 1;
-  assert.equal(explanations, 2, "both group call buttons must carry the same explanation");
-  assert.equal((block.match(/<button/g) || []).length, 2, "the group header must render exactly the two call buttons");
-  assert.equal((block.match(/<button\s+disabled/g) || []).length, 2, "both group call buttons must be disabled");
+await test("calling is removed from the client end to end", () => {
+  // The October 2026 redo removed calling from the client: no call
+  // buttons in any thread header, no huddle surface, no incoming
+  // call card, no ring poll, no ringtone hook. The server signaling
+  // endpoints stay in place, dormant: nothing in the client may
+  // reference them.
+  assert.ok(!inboxSrc.includes("onStartHuddle"), "the inbox still offers a call start");
+  assert.ok(!inboxSrc.includes('<Icon name="phone"'), "a call button is still rendered in the inbox");
+  assert.ok(!appSrc.includes("function VideoHuddle"), "VideoHuddle still exists in the app shell");
+  assert.ok(!appSrc.includes("function IncomingCall"), "IncomingCall still exists in the app shell");
+  assert.ok(!appSrc.includes("function useCallTone"), "the ringtone hook still exists");
+  assert.ok(!appSrc.includes('apiDataGet("incoming-calls")'), "the incoming call poll still runs");
+  assert.ok(!appSrc.includes("postCallSignal("), "the client still posts call signals");
 });
 
 await test("message content search exists and its encryption boundary is absolute", () => {
@@ -514,13 +513,16 @@ await test("message content search exists and its encryption boundary is absolut
   assert.ok(inboxSrc.includes("localMsgResults"), "the open encrypted thread is not searched on device");
 });
 
-await test("presence is a heartbeat: ping action, column, and honest copy", () => {
-  assert.ok(dataSrc.includes('action === "presence-ping"'), "presence-ping action missing");
-  assert.ok(dataSrc.includes("ALTER TABLE users ADD COLUMN last_active_at INTEGER"), "last_active_at column is not self healed in");
-  assert.ok(inboxSrc.includes('apiDataAction("presence-ping"'), "the client never heartbeats");
-  assert.ok(inboxSrc.includes('"Active now"'), "no Active now copy");
-  assert.ok(inboxSrc.includes('"Active " + relativeTime'), "no last active copy");
-  assert.ok(!inboxSrc.includes('"Online"') && !inboxSrc.includes(">Online<"), "presence copy must never claim online");
+await test("presence is removed from the client: no dots, no Active labels, no heartbeat", () => {
+  // The October 2026 redo removed presence from the messaging
+  // surface: no heartbeat from the client, no presence dot in the
+  // list, no Active label anywhere it renders. The server action
+  // and column stay in place, dormant, like the call signaling.
+  assert.ok(dataSrc.includes('action === "presence-ping"'), "presence-ping action was deleted instead of left dormant");
+  assert.ok(!inboxSrc.includes('apiDataAction("presence-ping"'), "the client still heartbeats presence");
+  assert.ok(!inboxSrc.includes('"Active now"'), "an Active now label still renders");
+  assert.ok(!inboxSrc.includes('"Active " + relativeTime'), "a last active label still renders");
+  assert.ok(!inboxSrc.includes("otherLastActiveAt"), "the client still reads presence state");
 });
 
 await test("a failed outbox write is surfaced at the composer and checked at send time", () => {
@@ -536,6 +538,114 @@ await test("a failed outbox write is surfaced at the composer and checked at sen
 await test("the inbox root fills its parent instead of hardcoding the viewport", () => {
   assert.ok(!inboxSrc.includes('height: "100dvh"'), "the inbox root still hardcodes the viewport height");
   assert.ok(inboxSrc.includes('height: "100%", maxHeight: "100%"'), "the inbox root does not fill its parent");
+});
+
+await test("the app wide notifier writes the thread state it fetched, so badges stay live", () => {
+  // Bug 1: the shell poll used to fetch the inbox list, notify from
+  // it, and throw it away, so every unread badge was a photograph
+  // of the last Inbox visit. The notifier now writes the fetched
+  // list into the same threads state the badges read.
+  const shellAt = appSrc.indexOf('"cb-inbox-" + t.id');
+  assert.ok(shellAt > 0, "the app shell inbox poll is gone");
+  const windowSrc = appSrc.slice(Math.max(0, shellAt - 4000), shellAt + 500);
+  assert.ok(windowSrc.includes("setThreads(data.items)"), "the app shell notifier does not write the fetched threads into state");
+});
+
+await test("the desktop sidebar inbox row carries the unread badge", () => {
+  // Bug 4: the badge style exists in makeStyles and the Sidebar
+  // receives the threads; the row now renders the count with it.
+  assert.ok(appSrc.includes("S.sidebarItemBadge"), "the sidebar badge style is not used");
+  const navAt = appSrc.indexOf("NAV_ITEMS.map");
+  assert.ok(navAt > 0, "the sidebar nav rendering is gone");
+  const navBlock = appSrc.slice(navAt, navAt + 2600);
+  assert.ok(navBlock.includes('key === "inbox"'), "the nav rendering never special cases the inbox row");
+  assert.ok(navBlock.includes("unreadCount"), "the inbox badge is not computed from the thread unread counts");
+  assert.ok(navBlock.includes("sidebarItemBadge"), "the inbox badge does not use the existing badge style");
+});
+
+await test("papers can be shared into a conversation from answers and saved sources", () => {
+  // Bug 2: the picker and the attachment builder live in the inbox
+  // module, the app renders the picker, and Share actions sit on
+  // the answer source cards, the bibliography entries, and the
+  // Library saved rows.
+  assert.ok(inboxSrc.includes("function PaperSharePicker"), "the paper share picker is missing");
+  assert.ok(inboxSrc.includes("paperAttachmentFromSource"), "the paper attachment builder is missing");
+  assert.ok(inboxSrc.includes('kind: "paper"'), "the picker does not build a paper attachment");
+  assert.ok(inboxSrc.includes('apiDataAction("send-message"'), "the picker does not send through the send path");
+  assert.ok(inboxSrc.includes('apiDataAction("start-thread"'), "the picker cannot start a conversation under the consent policy");
+  assert.ok(appSrc.includes("<PaperSharePicker"), "the app never renders the share picker");
+  assert.ok(appSrc.includes("setSharePaper(paperAttachmentFromSource(s))"), "answer source cards have no Share action");
+  assert.ok(appSrc.includes("onSharePaper"), "bibliography entries have no Share path");
+  assert.ok(appSrc.includes("setSharePaper(paperAttachmentFromSource(sv))"), "saved sources have no Share action");
+});
+
+await test("the redo removals hold: no Nova in messaging, no safety ceremony, no voice recording", () => {
+  assert.ok(!inboxSrc.includes("NovaLive"), "the Nova figure is back in the messaging header");
+  assert.ok(!inboxSrc.includes("getSafetyNumber"), "the safety number ceremony is back in the thread view");
+  assert.ok(!inboxSrc.includes("upgradeThread("), "the encryption upgrade banner flow is back");
+  assert.ok(!inboxSrc.includes("Verify encryption"), "the verify encryption menu item is back");
+  assert.ok(!inboxSrc.includes("MediaRecorder"), "voice note recording is back in the composer");
+  assert.ok(!inboxSrc.includes("startRecording"), "the record control is back");
+  assert.ok(inboxSrc.includes("<audio controls"), "existing voice messages no longer render a player");
+});
+
+await test("opening the inbox does not auto open or auto read a conversation", () => {
+  // Bug 5: the desktop auto open effect is gone. Nothing is opened,
+  // and nothing is acknowledged read, until the reader picks a
+  // conversation.
+  assert.ok(!inboxSrc.includes("setActiveId(threads[0].id)"), "the inbox still auto opens the newest conversation");
+});
+
+await test("encrypted threads keep drafts and outbox entries in memory only", () => {
+  // Bug 12: both persistence effects filter encrypted threads out
+  // before anything reaches localStorage, and the send time probe
+  // is skipped for encrypted sends.
+  assert.ok(inboxSrc.includes("withoutEncrypted(draftsByThread, encryptedThreadIds)"), "drafts still persist encrypted plaintext");
+  assert.ok(inboxSrc.includes("withoutEncrypted(outboxByThread, encryptedThreadIds)"), "the outbox still persists encrypted plaintext");
+  assert.ok(inboxSrc.includes("if (!isEncrypted) {"), "the send time storage probe still runs for encrypted sends");
+});
+
+await test("list rows carry actions that never open the thread, and search lands on the message", () => {
+  // Bugs 14 and 8: the row menu calls the same pin, mute, archive,
+  // and delete handlers with the row's own id, and search results
+  // open the thread at the message, which carries a scroll anchor
+  // and a highlight.
+  assert.ok(inboxSrc.includes("toggleThreadPinned(t.id)"), "the row menu cannot pin without opening");
+  assert.ok(inboxSrc.includes("toggleThreadMuted(t.id)"), "the row menu cannot mute without opening");
+  assert.ok(inboxSrc.includes("toggleThreadArchived(t.id, true)"), "the row menu cannot archive without opening");
+  assert.ok(inboxSrc.includes("setPendingDeleteThreadId(t.id)"), "the row menu cannot delete without opening");
+  assert.ok(inboxSrc.includes("openThreadAtMessage(r.threadId, r.messageId)"), "search results do not open at the message");
+  assert.ok(inboxSrc.includes('"cb-msg-" + m.id'), "message bubbles carry no scroll anchor");
+  assert.ok(inboxSrc.includes("scrollIntoView"), "nothing scrolls the found message into view");
+  assert.ok(inboxSrc.includes("setHighlightMessageId"), "the found message is never highlighted");
+});
+
+await test("thread polls fetch metadata only and the first load asks for full payloads", () => {
+  // Bug 7, client half: the refresh call asks for full payloads on
+  // the first load only; polls go without the flag, and a payload
+  // is fetched on demand through the attachment resource.
+  assert.ok(inboxSrc.includes('isFirst ? { thread_id: activeId, full: 1 } : { thread_id: activeId }'), "the thread fetch does not split first load from polls");
+  assert.ok(inboxSrc.includes('apiDataGet("attachment"'), "the client never fetches a payload on demand");
+  assert.ok(dataSrc.includes('searchParams.get("full")'), "the server does not gate payloads on the full parameter");
+  assert.ok(dataSrc.includes('resource === "attachment"'), "the attachment resource is missing");
+});
+
+await test("mobile: the inbox tracks the visual viewport and pauses polls while hidden", () => {
+  assert.ok(inboxSrc.includes("window.visualViewport"), "nothing reads the visual viewport, so the keyboard can cover the composer");
+  assert.ok(inboxSrc.includes("kbInset"), "the keyboard inset never reaches the layout");
+  const hiddenChecks = inboxSrc.split("document.hidden").length - 1;
+  assert.ok(hiddenChecks >= 2, "the thread or list poll still runs at full rhythm in a hidden page");
+});
+
+await test("mobile: on touch the return key makes a new line and the hint says so", () => {
+  assert.ok(inboxSrc.includes("!e.shiftKey && !isTouch"), "the composer still sends on return for touch devices");
+  assert.ok(inboxSrc.includes("Return starts a new line. Tap Send to send."), "no mobile hint explains the return key");
+});
+
+await test("mobile: a long press reveals the per message actions", () => {
+  assert.ok(inboxSrc.includes("onTouchStart"), "messages have no touch handler");
+  assert.ok(inboxSrc.includes("setActionMsgId(m.id || key)"), "a long press does not reveal the message actions");
+  assert.ok(inboxSrc.includes("Report this message"), "the touch action row has no report action");
 });
 
 // Functional: the real handler against a real SQLite database.
@@ -561,7 +671,7 @@ await test("the inbox root fills its parent instead of hardcoding the viewport",
     batch: async (stmts) => { const out = []; for (const s of stmts) out.push(await s.run()); return out; },
   };
   const env = { DB: db };
-  const tokenFor = { usr_a: "token-alpha", usr_b: "token-bravo" };
+  const tokenFor = { usr_a: "token-alpha", usr_b: "token-bravo", usr_c: "token-charlie" };
   const call = async (userId, method, path, body) => {
     const headers = { Cookie: "cb_sess=" + tokenFor[userId] };
     if (method === "POST") { headers["Content-Type"] = "application/json"; headers.Origin = "https://askcerebrum.org"; }
@@ -682,6 +792,113 @@ await test("the inbox root fills its parent instead of hardcoding the viewport",
     const other = await call("usr_b", "GET", "?resource=search-messages&q=lunch");
     assert.equal(other.json.results.length, 0, "search reached a conversation the caller is not part of");
   });
+
+  await test("functional: polls carry attachment metadata only, full load and the endpoint carry the payload", async () => {
+    ins("UPDATE messages SET attachment_data = ? WHERE id = 'm2'", "data:audio/webm;base64,QUJD");
+    const poll = await call("usr_a", "GET", "?resource=thread&thread_id=th_dm_b");
+    const polled = poll.json.messages.find((m) => m.id === "m2");
+    assert.ok(polled, "the voice note row vanished from the poll payload");
+    assert.equal(polled.attachmentData, null, "the poll still inlines the attachment payload");
+    assert.equal(polled.attachmentHasData, true, "the poll does not say a payload exists to fetch");
+    const full = await call("usr_a", "GET", "?resource=thread&thread_id=th_dm_b&full=1");
+    assert.equal(full.json.messages.find((m) => m.id === "m2").attachmentData, "data:audio/webm;base64,QUJD", "the full load lost the payload");
+    const one = await call("usr_a", "GET", "?resource=attachment&thread_id=th_dm_b&message_id=m2");
+    assert.equal(one.json.attachmentData, "data:audio/webm;base64,QUJD", "the attachment endpoint did not return the payload");
+    const stranger = await call("usr_c", "GET", "?resource=attachment&thread_id=th_dm_b&message_id=m2");
+    assert.equal(stranger.status, 403, "a non member fetched an attachment payload");
+  });
+
+  await test("functional: a paper sent into a conversation feeds the shared shelf", async () => {
+    const send = await call("usr_b", "POST", "", {
+      action: "send-message", thread_id: "th_dm_b", text: "",
+      attachment_kind: "paper", attachment_title: "Mitochondria paper",
+      attachment_url: "https://doi.org/10.1000/xyz",
+      attachment_meta: { journal: "Cell", year: 2024, doi: "10.1000/xyz" },
+    });
+    assert.equal(send.status, 200, "the paper send was refused");
+    const thread = await call("usr_a", "GET", "?resource=thread&thread_id=th_dm_b&full=1");
+    const paper = thread.json.messages.find((m) => m.attachmentKind === "paper");
+    assert.ok(paper, "the paper message is missing from the thread");
+    assert.equal(paper.attachmentTitle, "Mitochondria paper");
+    assert.equal(thread.json.sharedCounts.paper, 1, "the shared shelf does not count the sent paper");
+  });
+
+  await test("functional: archiving hides a conversation, unarchiving returns it, members only", async () => {
+    const arch = await call("usr_a", "POST", "", { action: "set-thread-archived", thread_id: "th_dm_c", archived: true });
+    assert.equal(arch.status, 200);
+    assert.equal(arch.json.archived, true);
+    const inbox = await call("usr_a", "GET", "?resource=inbox");
+    assert.ok(!inbox.json.items.some((t) => t.id === "th_dm_c"), "the archived conversation is still listed");
+    const archivedList = await call("usr_a", "GET", "?resource=inbox&archived=1");
+    assert.ok(archivedList.json.items.some((t) => t.id === "th_dm_c"), "the archived conversation has no way back");
+    const nonMember = await call("usr_b", "POST", "", { action: "set-thread-archived", thread_id: "th_dm_c", archived: true });
+    assert.equal(nonMember.status, 403, "a non member archived someone else's conversation");
+    const back = await call("usr_a", "POST", "", { action: "set-thread-archived", thread_id: "th_dm_c", archived: false });
+    assert.equal(back.json.archived, false);
+    const inbox2 = await call("usr_a", "GET", "?resource=inbox");
+    assert.ok(inbox2.json.items.some((t) => t.id === "th_dm_c"), "the unarchived conversation did not return");
+  });
+
+  await test("functional: delete removes the conversation for that reader only, and only their own messages", async () => {
+    const notMine = await call("usr_a", "POST", "", { action: "delete-message", thread_id: "th_dm_b", message_id: "m1" });
+    assert.equal(notMine.status, 403, "deleting someone else's message was allowed");
+    const mine = await call("usr_a", "POST", "", { action: "delete-message", thread_id: "th_dm_b", message_id: "m2" });
+    assert.equal(mine.status, 200);
+    assert.equal(mine.json.deleted, true);
+    const del = await call("usr_a", "POST", "", { action: "delete-thread", thread_id: "th_dm_c" });
+    assert.equal(del.status, 200);
+    assert.equal(del.json.deleted, true);
+    const inboxA = await call("usr_a", "GET", "?resource=inbox");
+    assert.ok(!inboxA.json.items.some((t) => t.id === "th_dm_c"), "the deleted conversation is still listed for the deleter");
+    const inboxC = await call("usr_c", "GET", "?resource=inbox");
+    assert.ok(inboxC.json.items.some((t) => t.id === "th_dm_c"), "the delete removed the conversation for the other person too");
+  });
+
+  await test("functional: group creation and adds enforce the consent policy between the people added", async () => {
+    ins("INSERT INTO users (id, email, email_lower, username, name, show_affiliation) VALUES ('usr_d', 'dan@example.com', 'dan@example.com', 'dan', 'Dan', 1)");
+    const follow = (a, b) => ins("INSERT OR IGNORE INTO follows (follower_id, following_id) VALUES (?, ?)", a, b);
+    // The creator may reach both invitees: each follows the creator.
+    follow("usr_b", "usr_a"); follow("usr_c", "usr_a");
+    // The invitees do not follow each other, so the pairing between
+    // them fails the policy even though the creator checks pass.
+    const refused = await call("usr_a", "POST", "", { action: "start-group-thread", name: "Gel club", member_ids: ["usr_b", "usr_c"] });
+    assert.equal(refused.status, 403, "a group was created across a consent refusal between its members");
+    assert.equal(refused.json.code, "dm_not_allowed");
+    follow("usr_c", "usr_b"); follow("usr_b", "usr_c");
+    const made = await call("usr_a", "POST", "", { action: "start-group-thread", name: "Gel club", member_ids: ["usr_b", "usr_c"] });
+    assert.equal(made.status, 200, "a fully consented group was refused");
+    const gid = made.json.thread_id;
+    assert.ok(gid, "group creation returned no thread id");
+    // Adding Dan with the full follow matrix in both directions
+    // against every existing member passes.
+    follow("usr_d", "usr_a"); follow("usr_a", "usr_d");
+    follow("usr_d", "usr_b"); follow("usr_b", "usr_d");
+    follow("usr_d", "usr_c"); follow("usr_c", "usr_d");
+    const added = await call("usr_a", "POST", "", { action: "add-group-members", thread_id: gid, member_ids: ["usr_d"] });
+    assert.equal(added.status, 200, "a fully consented add was refused");
+  });
+
+  await test("functional: an add is refused when one existing member pairing fails the policy", async () => {
+    ins("INSERT INTO users (id, email, email_lower, username, name, show_affiliation) VALUES ('usr_e', 'eve@example.com', 'eve@example.com', 'eve', 'Eve', 1)");
+    const follow = (a, b) => ins("INSERT OR IGNORE INTO follows (follower_id, following_id) VALUES (?, ?)", a, b);
+    const groups = await call("usr_a", "GET", "?resource=inbox");
+    const gid = groups.json.items.find((t) => t.kind === "group").id;
+    // Eve follows the adder (so the adder check passes) and follows
+    // Bob and Dan, who follow her back. She does not follow Carol:
+    // mayStart(Eve, Carol) needs Carol to follow Eve, which is set,
+    // and mayStart(Carol, Eve) needs Eve to follow Carol, which is
+    // deliberately missing, so the add must refuse.
+    follow("usr_e", "usr_a"); follow("usr_a", "usr_e");
+    follow("usr_e", "usr_b"); follow("usr_b", "usr_e");
+    follow("usr_e", "usr_d"); follow("usr_d", "usr_e");
+    follow("usr_c", "usr_e");
+    const refused = await call("usr_a", "POST", "", { action: "add-group-members", thread_id: gid, member_ids: ["usr_e"] });
+    assert.equal(refused.status, 403, "an add went through across a member pairing refusal");
+    assert.equal(refused.json.code, "dm_not_allowed");
+    follow("usr_e", "usr_c");
+    const added = await call("usr_a", "POST", "", { action: "add-group-members", thread_id: gid, member_ids: ["usr_e"] });
+    assert.equal(added.status, 200, "the add stayed refused after consent was complete");
+  });
 }
 
 /* ── Every notify path, enumerated (wave seven) ─────────────────
@@ -727,16 +944,17 @@ await test("every cbNotify call site in src is enumerated and classified", async
   //     open thread poll (thread mute guarded).
   //   src/CerebrumApp.jsx — the watchlist digest (a subscribed
   //     alert: it names a topic, not a thread, so no thread mute
-  //     exists to apply), the app shell inbox poll (thread mute
-  //     guarded, wave seven), and the incoming call ring (call
-  //     ringing: whether per thread Mute silences ringing is the
-  //     owner's open ruling, intentionally unchanged until he
-  //     rules).
+  //     exists to apply) and the app shell inbox poll (thread mute
+  //     guarded, wave seven). The incoming call ring site is gone:
+  //     calling was removed from the client in the October 2026
+  //     redo, and the owner's ruling stands in the code that
+  //     remains, since a muted thread neither rings (no ringing
+  //     exists) nor notifies here.
   //   src/settings.jsx — the test notification button (the user's
   //     own action feedback).
   const registry = new Map([
     ["src/inbox.jsx", 2],
-    ["src/CerebrumApp.jsx", 3],
+    ["src/CerebrumApp.jsx", 2],
     ["src/settings.jsx", 1],
   ]);
   const found = new Map();
