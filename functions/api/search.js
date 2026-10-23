@@ -30345,16 +30345,16 @@ async function runSearchPipeline(pctx) {
               openAlex(q, 6, env.OPENALEX_KEY || "", ledger).catch(() => []),
             ]);
             let returned = 0;
-            const candidates = [];
+            const rescueCandidates = [];
             for (const r of perQuery) {
               if (r.status !== "fulfilled" || !Array.isArray(r.value)) continue;
               returned += r.value.length;
               for (const p of r.value) {
                 try { if (p && typeof p === "object" && !p._fromSource) p._fromSource = "llmRescue"; } catch { /* best effort */ }
-                candidates.push(p);
+                rescueCandidates.push(p);
               }
             }
-            const admission = admitLatePapers(gResult.papers || [], candidates, query, null);
+            const admission = admitLatePapers(gResult.papers || [], rescueCandidates, query, null);
             for (const p of admission.admitted) gResult.papers.push(p);
             rescueAddedTotal += admission.admitted.length;
             for (const f of admission.failures) rescueFailures.push(f);
