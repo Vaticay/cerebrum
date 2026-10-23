@@ -518,7 +518,7 @@ await test("exceptionally high prose beside level thin is replaced by the comput
   assert.ok(out.includes(THIN_LINE), "the computed line did not replace the assertion");
 });
 
-await test("a moderate assertion beside moderate ships verbatim", () => {
+await test("a moderate assertion beside moderate keeps its limitations and gains the computed line", () => {
   // PIN UPDATED (2026-10-14, wave ten, brief item 6): this pin
   // codified the old conditional contract, under which model
   // authored solidity prose shipped as the section whenever it
@@ -530,16 +530,26 @@ await test("a moderate assertion beside moderate ships verbatim", () => {
   // DERIVES from the confidence object at every level, so the
   // section body is the computed line and the model's own
   // solidity sentence does not ship, within level or not.
+  // PIN UPDATED AGAIN (2026-10-23, Wave 3 S4 landing, audit
+  // L4-12): the logic audit found the replace contract itself
+  // defective, because replacing the section deleted the
+  // model's specific limitations (sample sizes, tangential
+  // papers, unreplicated results) that the section exists to
+  // carry. The catalog's repair: the binder APPENDS the
+  // computed line to the model's section instead of replacing
+  // it. Overclaiming prose beside a lower level is still
+  // replaced (the pins above stand); within level, the model's
+  // limitations ship and the computed line stands with them.
   const answer =
     "## Summary\n\n" +
     "Creatine did not increase hair shedding in the trial that measured it [1].\n\n" +
     "## How solid is this?\n\n" +
     "Confidence is moderate: the trials agree, but the samples are small and the follow up short [1].";
   const out = bindProseConfidenceToLevel(answer, "moderate", MODERATE_LINE);
-  assert.ok(out.includes("## How solid is this?\n\n" + MODERATE_LINE),
-    "the section did not derive from the computed line: " + out);
-  assert.ok(!out.includes("the trials agree, but the samples are small"),
-    "model authored solidity prose shipped as the section");
+  assert.ok(out.includes(MODERATE_LINE),
+    "the computed line was not appended to the section: " + out);
+  assert.ok(out.includes("the trials agree, but the samples are small"),
+    "the model's stated limitations were deleted by the binder");
   assert.ok(out.includes("did not increase hair shedding"), "the answer body was harmed");
 });
 

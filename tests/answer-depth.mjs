@@ -161,9 +161,29 @@ group("handler level — Brief and Detailed send different budgets and ship diff
 // to the depth it was asked for.
 const QUERY = "Do the germs in a baby belly change how well the baby grows";
 const queryWords = QUERY.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter((w) => w.length > 3);
+// FIXTURE REBUILT 2026-10-23 at the Wave 3 S4 landing (audit
+// L4-3): the old abstract was keyword filler ("examines X in
+// detail; findings show clear effects") that entailed none of
+// the drafts' claims, which was fine when the strip standard
+// only checked citation presence. The per claim entailment
+// binder deletes claims the cited paper does not entail, so
+// the fixture abstracts now state the shared fact base the
+// Brief, Standard, and Detailed drafts assert, in the drafts'
+// own vocabulary. The depth contracts this suite pins
+// (budgets, length ratios, failover, cache separation) are
+// unchanged.
 const richAbstract = (n) =>
   ("Study " + n + " on " + queryWords.join(" ") + ". " +
    "This paper examines " + queryWords.join(", ") + " in detail. " +
+   "The infant gut is seeded during and just after birth, and the early microbial community is dominated by organisms that thrive on milk. " +
+   "These first colonists set the conditions every later microbe lives with, so the order of arrival shapes the community that follows. " +
+   "Gut microbes break down parts of the diet the baby cannot digest alone, releasing energy the gut lining can absorb, and a community with the right fermenters extracts more from the same feed, so babies whose communities lack them gain weight more slowly on identical diets. " +
+   "Microbial signals teach the gut immune tissue to tolerate food and harmless organisms while still reacting to pathogens, and babies whose early communities are disrupted show more gut inflammation, and an inflamed gut absorbs nutrients poorly, which shows up as slower growth. " +
+   "Antibiotics and early illness thin the community and slow weight gain in the weeks that follow, and as the community rebuilds, growth usually resumes its earlier trajectory, so the timing of a disturbance matters as much as its size. " +
+   "Babies fed differently carry measurably different communities from the first weeks, and those differences track with different growth patterns across the first year of life. " +
+   "Babies born by caesarean section start with a community that resembles skin and the birth environment more than the gut, and the difference from vaginally born babies is measurable for months. " +
+   "Diversity climbs month by month: the early community is a handful of kinds, and across the first year it steadily gains kinds as the diet widens and the gut matures, and babies whose communities diversify on schedule gain steadily. " +
+   "Which organisms arrive first changes which can establish later: early colonists alter the gut lining, the local acidity, and the immune tone, and those changes select for some later arrivals and against others. " +
    "The findings show clear effects for " + queryWords.slice(0, 4).join(" and ") + " across the first year of life. ").repeat(2);
 
 const BRIEF_ANSWER = [
@@ -190,7 +210,13 @@ const MEDIUM_ANSWER = [
   "",
   "**The first colonists arrive at birth.** The gut is seeded during and just after birth, and the early community is dominated by organisms that thrive on milk [1]. These first colonists set the conditions every later microbe lives with, so the order of arrival shapes the community that follows and the growth that comes with it [2].",
   "",
-  "**Microbes help the baby use food.** Gut microbes break down parts of the diet the baby cannot digest alone, releasing energy the gut lining can absorb [1]. Studies show that **gut microbes** influence how nutrients are absorbed and how weight is gained over time [2]. A community with the right fermenters extracts more from the same feed, and babies whose communities lack them gain weight more slowly on identical diets [1].",
+  // The "Studies show" sentence cites both papers since the
+  // Wave 3 S4 landing (2026-10-23): a field level generalization
+  // resting on a single cited paper is scoped by the L6-8
+  // headline gate by design (and the Brief draft of the same
+  // claim already cited both). The depth contracts are
+  // unchanged.
+  "**Microbes help the baby use food.** Gut microbes break down parts of the diet the baby cannot digest alone, releasing energy the gut lining can absorb [1]. Studies show that **gut microbes** influence how nutrients are absorbed and how weight is gained over time [1][2]. A community with the right fermenters extracts more from the same feed, and babies whose communities lack them gain weight more slowly on identical diets [1].",
   "",
   "**Disturbance has a cost.** Antibiotics and early illness thin the community and slow weight gain in the weeks that follow [1]. As the community rebuilds, growth usually resumes its earlier trajectory, which is why the timing of a disturbance matters as much as its size [2].",
   "",

@@ -75,23 +75,35 @@ test("flags thin evidence base", () => {
 });
 
 // ── Quantitative agreement ──
-test("detects consistent percentages", () => {
+// PIN UPDATED (2026-10-23, Wave 3 S4 landing, audit L4-20):
+// the old pins asserted agreement verdicts computed from the
+// FIRST percentage in each abstract, any percentage at all,
+// which the audit catalogued as asserting agreement from
+// statistics that do not measure it. The function now extracts
+// and ranges the values but renders no verdict: consistent
+// stays null and no summary claims the sources agree or
+// disagree, because the values are not keyed to a shared
+// outcome.
+test("extracts percentages and renders no agreement verdict", () => {
   const papers = [
     { abstract: "Risk reduced by 15% compared to control." },
     { abstract: "We observed an 18% reduction in risk." },
   ];
   const r = checkQuantitativeAgreement(papers);
-  assert(r.consistent === true, "should be consistent");
+  assert(JSON.stringify(r.range) === "[15,18]", "the extracted values were not ranged");
+  assert(r.consistent === null, "an agreement verdict was rendered from unkeyed percentages");
+  assert(r.summary === null, "an agreement summary was rendered from unkeyed percentages");
 });
 
-test("detects quantitative disagreement", () => {
+test("extracts a wide percentage range and still renders no verdict", () => {
   const papers = [
     { abstract: "Risk reduced by 15% compared to control." },
     { abstract: "We observed an 82% reduction in risk." },
   ];
   const r = checkQuantitativeAgreement(papers);
-  assert(r.consistent === false, "should detect disagreement");
-  assert(r.summary.includes("82%"), "summary should mention the range");
+  assert(JSON.stringify(r.range) === "[15,82]", "the extracted values were not ranged");
+  assert(r.consistent === null, "a disagreement verdict was rendered from unkeyed percentages");
+  assert(r.summary === null, "a disagreement summary was rendered from unkeyed percentages");
 });
 
 // ── Contradiction explanation ──

@@ -331,7 +331,12 @@ test("the lede is real prose, not glued keywords", () => {
   const md = buildExtractiveSynthesis([soilPaper()], []);
   assert.ok(md, "expected a synthesis");
   assert.doesNotMatch(md, /converge on/i, "keyword-soup lede survived");
-  const firstLine = md.split("\n").find((l) => l.trim() && !l.startsWith("#"));
+  // The lede is the first prose line after the extractive
+  // tier's own top label (2026-10-23, audit L4-6, Wave 3 S4
+  // landing): the assembled label now sits ahead of the lede
+  // by design, so the locator skips it.
+  const firstLine = md.split("\n").find((l) => l.trim() && !l.startsWith("#") &&
+    !/Assembled directly from the papers below/.test(l));
   assert.ok(firstLine && /\[\d+\]/.test(firstLine), "lede carries no citation: " + firstLine);
   assert.ok(!/ and .* and /.test(firstLine.split(".")[0]), "lede still glues terms with 'and'");
 });
