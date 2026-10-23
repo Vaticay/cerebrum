@@ -1337,7 +1337,10 @@ await test("fact check stage records skips with reasons and real elapsed time", 
   // skipReason is now a three way choice . a budget skip (the
   // invocation subrequest allowance was spent) takes precedence over
   // the two pre existing reasons, which are unchanged.
-  assert.ok(src.includes('"nothing to verify"'), "the nothing to verify skip is not recorded");
+  // PIN UPDATED (2026-10-23, logic audit L5-10): the stage
+  // outcome is a closed enum now; the ran and found nothing
+  // countable state is one of its values, recorded verbatim.
+  assert.ok(src.includes('"ran-no-countable"'), "the ran and found nothing countable outcome is not recorded");
   // PIN UPDATED (2026-10-14, wave thirteen): the skip reason is
   // built from the claim check's tier trace and its named non
   // attempt causes. The distinction this pin protected survives
@@ -1347,10 +1350,10 @@ await test("fact check stage records skips with reasons and real elapsed time", 
   // (now with its cause: toggle off, no time, or budget) — but
   // the old literal ternary is gone, replaced by the trace
   // driven computation.
-  assert.ok(src.includes('"nothing to verify — deep tiers: " + fcTierSummary'),
-    "an attempted run's skip does not name the failed deep tiers");
-  assert.ok(src.includes('factCheckSkipCause || "fact check did not run"'),
-    "the did not run skip is not distinguished from nothing to verify");
+  assert.ok(src.includes("deriveFactCheckStageOutcome"),
+    "the stage outcome is not derived by the one enum rule");
+  assert.ok(src.includes('skipReason: factCheckStageOutcome'),
+    "the did not run skip is not distinguished by its enum value");
   assert.ok(src.includes("factCheckBudgetSkipped") && src.includes("SUBREQUEST_EXHAUSTED_REASON"),
     "the budget skip reason is not recorded for the fact check stage");
   assert.equal((src.match(/Date\.now\(\) - factCheckT0/g) || []).length, 4,

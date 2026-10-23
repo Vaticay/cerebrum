@@ -425,7 +425,7 @@ await test("the exact case: one non systematic source cannot support the univers
   const ruled = applyUniversalClaimRule(panel, [xiaLike]);
   assert.equal(ruled.claims[0].status, "unsupported");
   assert.equal(ruled.overall, "unsupported");
-  assert.equal(ruled.summary, "Checked 1 claim against the cited sources: 0 supported, 0 thin, 1 unsupported.");
+  assert.equal(ruled.summary, "Checked 1 claim against the abstracts of the cited sources: 0 supported, 0 thin, 1 unsupported.");
   assert.deepEqual(factCheckSupport(ruled), { checked: 1, supported: 0 });
 });
 

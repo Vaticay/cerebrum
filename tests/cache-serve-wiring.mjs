@@ -397,7 +397,18 @@ await test("the write stores the envelope and the early serve ships the stored c
   assert.equal(served.stageHealth.length, 1);
   assert.equal(served.stageHealth[0].name, "cache",
     "the serve did not come through the early cache path: " + JSON.stringify(served.stageHealth));
-  assert.deepEqual(served.factCheck, fresh.factCheck,
+  // Stored label (2026-10-23, logic audit L5-12): the served
+  // object is the stored run's check plus its stored label, its
+  // original run date, and its shipped counts, so parity is
+  // asserted on the check itself and the label is asserted too.
+  assert.equal(served.factCheck.stored, true, "the cached serve's check is not labelled stored");
+  assert.ok(typeof served.factCheck.storedAt === "string" && served.factCheck.storedAt,
+    "the cached serve's check carries no original run date");
+  assert.ok(served.factCheck.counts && served.factCheck.counts.checked === (fresh.factCheck.claims || []).filter((c) => c.status === "supported" || c.status === "thin" || c.status === "unsupported").length,
+    "the cached serve's check carries no shipped counts");
+  assert.deepEqual(
+    { ...served.factCheck, stored: undefined, storedAt: undefined, counts: undefined },
+    { ...fresh.factCheck, stored: undefined, storedAt: undefined, counts: undefined },
     "the cached serve's fact check is not the stored run's check");
   assert.deepEqual(served.disagreementVerdict, fresh.disagreementVerdict,
     "the cached serve's verdict is not the stored run's verdict");
@@ -485,7 +496,11 @@ await test("the provenance cap caps the level and the baked line is bound on a r
     "the section's gap bullets were removed: " + served.answer.slice(0, 500));
   // The stored signals ship at parity, in the corrected
   // vocabulary: the trace's claims are "traced", none "supported".
-  assert.deepEqual(served.factCheck, B_TRACE,
+  // Stored label (2026-10-23, logic audit L5-12), as above.
+  assert.equal(served.factCheck.stored, true, "the cached serve's trace is not labelled stored");
+  assert.deepEqual(
+    { ...served.factCheck, stored: undefined, storedAt: undefined, counts: undefined },
+    { ...B_TRACE, stored: undefined, storedAt: undefined, counts: undefined },
     "the cached serve's fact check is not the stored trace");
   assert.ok(served.factCheck.claims.every((c) => c.status !== "supported"),
     "a provenance claim shipped as supported from the cache");
@@ -663,7 +678,9 @@ await test("the late serve ships the stored list its markers were written agains
   };
   const served = await runLateSearch({ row, body: { query: "does magnesium help you sleep better at night", settings: { factCheck: true } } });
   assert.equal(served._cached, true, "the run was not a cache serve: " + JSON.stringify(served).slice(0, 200));
-  assert.equal(served.source, "Cached (verified)");
+  // No stored check on this fixture, so no verified wording
+  // and no stored check tag (2026-10-23, logic audit L5-12).
+  assert.equal(served.source, "Cached");
   // The stage health proves this was the LATE serve (retrieval ran),
   // not the early one (whose only stage is the cache stage).
   assert.ok(Array.isArray(served.stageHealth) && served.stageHealth.length > 1,

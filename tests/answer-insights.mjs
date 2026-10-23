@@ -850,9 +850,13 @@ await test("fact check alignment covers Summary and reports zero checked claims 
     "expected exactly two fact check ok pushes, one per path");
   assert.match(searchSrc, /if \(aligned\.checked\) \{\s*factCheckResult = aligned;\s*stageHealth\.push\(\{ name: "fact-check", ok: true,/,
     "the extractive fact check push is not guarded by aligned.checked");
-  assert.match(searchSrc, /if \(fcChecked\) \{\s*stageHealth\.push\(\{ name: "fact-check", ok: true,/,
+  // PIN UPDATED (2026-10-23, logic audit L5-10): the ok push
+  // is now guarded by the stage outcome enum as well as
+  // fcChecked, and the skip records the enum value itself
+  // instead of the free text nothing to verify.
+  assert.match(searchSrc, /factCheckStageOutcome === "ran-with-verdicts" && fcChecked\) \{\s*stageHealth\.push\(\{ name: "fact-check", ok: true,/,
     "the AI fact check push is not guarded by fcChecked");
-  assert.match(searchSrc, /name: "fact-check", ok: null, skipReason: "nothing to verify"/,
+  assert.match(searchSrc, /name: "fact-check", ok: null, (ms: [^,]+, )?skipReason: (factCheckStageOutcome|"ran-no-countable")/,
     "an unchecked fact check must record a skip, never a healthy or failed stage");
 });
 
@@ -935,7 +939,10 @@ await test("cached serves resolve an unrecorded mode to extractive, never AI", (
 await test("a null fact check renders as did not run, never as nothing to verify", () => {
   assert.ok(appSrc.includes('"Check did not run"'),
     "the did not run kicker is missing from the fact check section");
-  assert.ok(appSrc.includes('state === "empty" ? "Nothing to verify"'),
+  // PIN UPDATED (2026-10-23, logic audit L5-10): the ran
+  // empty kicker now names that nothing countable was found;
+  // it stays gated to the ran-empty state only.
+  assert.ok(appSrc.includes('state === "empty" ? "Ran and found nothing countable"'),
     "Nothing to verify must be gated to the ran-empty state");
   assert.ok(!appSrc.includes('kicker={t.factCheck && t.factCheck.error ? "Check failed" : "Nothing to verify"}'),
     "the old unconditional Nothing to verify kicker must stay gone");

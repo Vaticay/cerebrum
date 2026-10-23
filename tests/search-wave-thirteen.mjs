@@ -100,7 +100,7 @@ const search = await import(join(root, "functions/api/search.js"));
 
 const {
   onRequest, createSubrequestLedger,
-  factCheckSupport, factCheckTraceSummary,
+  factCheckSupport, factCheckTraceSummary, deepFactCheck,
   paperTitleEngagesConcepts, buildFurtherReadingTail,
   buildDeterministicFallbackGroups, buildDynLookup, centralContentTerms,
   questionCentralConcepts,
@@ -489,7 +489,10 @@ await test("a request with no factCheck setting names that cause in the stage re
   const stage = (data.stageHealth || []).find((s) => s.name === "fact-check");
   assert.ok(stage, "the fact check stage record is missing");
   assert.equal(stage.ok, null, "a stage that never attempted is recorded as something other than a skip");
-  assert.equal(stage.skipReason, "fact check off for this request",
+  // Stage outcome enum (2026-10-23, logic audit L5-10): the
+  // record renders the enum value; the named cause still rides
+  // the record's trace entry asserted below.
+  assert.equal(stage.skipReason, "off",
     "the stage does not name the toggle cause: " + JSON.stringify(stage));
   const trace = (data._record && data._record.factCheckTrace) || [];
   assert.ok(trace.some((t) => t.tier === "stage" && t.outcome === "off"),
@@ -497,45 +500,51 @@ await test("a request with no factCheck setting names that cause in the stage re
 });
 
 await test("when the validate model is rate limited, the fallback model lands the check and the trace says so", async () => {
-  scenPapers = SKY_POOL_13;
-  scenLaneEpmc = []; scenLaneOpenAlex = []; scenLaneS2 = [];
-  scenAnswer = SKY_ANSWER_13;
-  scenFactCheck = SKY_FACTCHECK_13;
-  scenFactCheckMode = "429-primary";
-  scenRetryAnswer = null;
-  const { data, fetchLog } = await runScenario("why is the sky blue", { settings: { factCheck: true } });
-  assert.ok(data.factCheck && data.factCheck.mode === "claims",
-    "no claims mode fact check shipped under saturation: " + JSON.stringify(data.factCheck && data.factCheck.mode));
-  // EXPECTATION CORRECTED (2026-10-22, Wave 1-C landing, audit
-  // L5-3): this used to expect { supported: 1, checked: 2 }. The
-  // aerosol verdict cannot count under quote verification: in
-  // the shipped shape the checker is shown the evidence set in
-  // shipped order (sky1, sky4, sky2), so its index 2 names the
-  // aerosol paper, whose abstract does not contain the quote
-  // "aerosol load", and the claim's own sentence reaches the
-  // check carrying only the marker [1]. The verdict stays in the
-  // panel as unattributed and leaves the denominator, so the
-  // honest counts are { supported: 1, checked: 1 }. The test's
-  // subject, the fallback tier landing the check and the trace
-  // naming both tiers, is unchanged.
-  assert.deepEqual(factCheckSupport(data.factCheck), { supported: 1, checked: 1 },
-    "the fallback model's verdicts are not the shipped counts: " + JSON.stringify(factCheckSupport(data.factCheck)));
-  const fallbackCall = fetchLog.some((f) => f.body.includes("rigorous scientific fact-checker") && f.body.includes("gemma-4-26b-a4b-it"));
-  assert.ok(fallbackCall, "the fallback validate model was never called after the primary's 429");
-  const trace = (data._record && data._record.factCheckTrace) || [];
-  const orEntry = trace.findIndex((t) => t.tier === "openrouter");
-  const fbEntry = trace.findIndex((t) => t.tier === "openrouter-fallback");
-  assert.ok(orEntry >= 0 && trace[orEntry].outcome === "http-429",
-    "the trace does not record the primary tier's 429: " + JSON.stringify(trace));
-  assert.ok(fbEntry > orEntry && trace[fbEntry].outcome === "ok",
-    "the trace does not record the fallback tier's success after the 429: " + JSON.stringify(trace));
-  assert.ok(trace.some((t) => t.tier === "workers-ai" && t.outcome === "no-binding"),
-    "the trace does not record the missing Workers AI binding: " + JSON.stringify(trace));
-  const stage = (data.stageHealth || []).find((s) => s.name === "fact-check");
-  assert.ok(stage && stage.ok === true, "the fact check stage is not ok after the fallback landed");
-  assert.ok(data._ledger && data._ledger.used <= 50 &&
-    data._ledger.used + data._ledger.remaining === data._ledger.limit,
-    "the ledger does not close at its limit on the saturation run");
+  // PIN MOVED (2026-10-23, logic audit L5-6): this cascade used
+  // to be pinned through a handler scenario. In that scenario
+  // the synthesis winner is the fastpath gemma leg, which is
+  // the primary validate model itself, so under winner
+  // exclusion both OpenRouter tiers are now honestly out and
+  // the handler run lands no OR verdict at all (the lane test
+  // in claimcheck-stage5-repair.mjs pins that shape). The
+  // cascade mechanism itself, primary 429 then fallback lands,
+  // is pinned here at the deepFactCheck level, with no synthesis
+  // winner passed, which is the shape the cascade serves when
+  // some other family wrote the answer.
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts2 = {}) => {
+    const u = String(url);
+    const body = typeof opts2.body === "string" ? opts2.body : "";
+    calls.push({ url: u, body });
+    if (u.includes("openrouter.ai") && body.includes("rigorous scientific fact-checker")) {
+      if (body.includes("gemma-4-31b-it")) return new Response("rate limited", { status: 429 });
+      return chatRes(SKY_FACTCHECK_13);
+    }
+    return jsonRes({});
+  };
+  try {
+    const trace = [];
+    const papers = SKY_POOL_13.map((pp) => ({ title: pp.title, abstract: pp.abstractText }));
+    const claims = await deepFactCheck(SKY_ANSWER_13, papers,
+      { OPENROUTER_KEY: "w13-test-key" }, createSubrequestLedger(), trace, null, {});
+    assert.ok(claims && claims.length >= 1,
+      "no claims landed under saturation: " + JSON.stringify(trace));
+    assert.equal(claims.checkingModel, "google/gemma-4-26b-a4b-it:free",
+      "the fallback model did not land the check: " + JSON.stringify(trace));
+    assert.ok(calls.some((f) => f.body.includes("gemma-4-26b-a4b-it")),
+      "the fallback validate model was never called after the primary's 429");
+    const orEntry = trace.findIndex((t) => t.tier === "openrouter");
+    const fbEntry = trace.findIndex((t) => t.tier === "openrouter-fallback");
+    assert.ok(orEntry >= 0 && trace[orEntry].outcome === "http-429",
+      "the trace does not record the primary tier's 429: " + JSON.stringify(trace));
+    assert.ok(fbEntry > orEntry && trace[fbEntry].outcome === "ok",
+      "the trace does not record the fallback tier's success after the 429: " + JSON.stringify(trace));
+    assert.ok(trace.some((t) => t.tier === "workers-ai" && t.outcome === "no-binding"),
+      "the trace does not record the missing Workers AI binding: " + JSON.stringify(trace));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 await test("when every tier is rate limited, the stage and the record name each failure", async () => {
@@ -549,15 +558,19 @@ await test("when every tier is rate limited, the stage and the record name each 
   const trace = (data._record && data._record.factCheckTrace) || [];
   assert.ok(trace.some((t) => t.tier === "workers-ai" && t.outcome === "no-binding"),
     "the trace omits the Workers AI outcome: " + JSON.stringify(trace));
-  assert.ok(trace.some((t) => t.tier === "openrouter" && t.outcome === "http-429"),
-    "the trace omits the primary validate model's 429: " + JSON.stringify(trace));
-  assert.ok(trace.some((t) => t.tier === "openrouter-fallback" && t.outcome === "http-429"),
-    "the trace omits the fallback model's 429 — the cheapest tier was not attempted: " + JSON.stringify(trace));
+  // EXPECTATION CORRECTED (2026-10-23, logic audit L5-6 and
+  // L5-10): the scenario's synthesis winner is the fastpath
+  // gemma leg, the primary validate model itself, so both
+  // OpenRouter tiers are excluded before they can be rate
+  // limited, and the stage record renders the enum value only.
+  // Each tier's actual outcome still rides the trace.
+  assert.ok(trace.some((t) => t.tier === "openrouter" && t.outcome === "excluded"),
+    "the trace omits the primary validate model's exclusion: " + JSON.stringify(trace));
   const stage = (data.stageHealth || []).find((s) => s.name === "fact-check");
   assert.ok(stage && stage.ok === null,
     "a fully saturated check is recorded as something other than a named skip: " + JSON.stringify(stage));
-  assert.ok(stage.skipReason && stage.skipReason.includes("openrouter http-429"),
-    "the stage skip reason does not name the tier failures: " + JSON.stringify(stage));
+  assert.equal(stage.skipReason, "tiers-failed",
+    "the stage outcome is not the tiers-failed enum value: " + JSON.stringify(stage));
   assert.ok(data._ledger && data._ledger.used <= 50 &&
     data._ledger.used + data._ledger.remaining === data._ledger.limit,
     "the ledger does not close at its limit on the fully saturated run");
@@ -585,7 +598,9 @@ await test("the fallback tier keys on the rate limit outcome and the trace outco
   // tier's 429 outcome) is unchanged.
   assert.ok(src.includes('orTierOutcome === "http-429"'),
     "the fallback tier does not key on the rate limit outcome");
-  assert.ok(src.includes('note("openrouter-fallback", "ok")'),
+  // PIN UPDATED (2026-10-23, logic audit L5-6): landed tiers
+  // record ok through finishClaims, which stamps the model.
+  assert.ok(src.includes('finishClaims(claims3, "openrouter-fallback", OR_VALIDATE_FALLBACK)'),
     "the fallback tier does not record its outcome in the trace");
 });
 
@@ -628,7 +643,10 @@ await test("the literature denying sentence is caught by the checker and does no
   scenFactCheck = DENIAL_FACTCHECK_13;
   scenFactCheckMode = "ok";
   scenRetryAnswer = null;
-  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true } });
+  // Independent checker tier (2026-10-23, logic audit L5-6),
+  // as in the wave sixteen scenarios: a Gemini key, so the
+  // verdict lands on a family that did not write the answer.
+  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true }, envExtra: { GEMINI_KEY: "w13-test-gemini-key" } });
   assert.ok(data.factCheck && data.factCheck.mode === "claims",
     "no claims mode fact check shipped on the denial run: " + JSON.stringify(data.factCheck && data.factCheck.mode));
   assert.deepEqual(factCheckSupport(data.factCheck), { supported: 1, checked: 2 },

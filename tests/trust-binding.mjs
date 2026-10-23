@@ -725,7 +725,7 @@ await test("a duplicated claim counts once in the checked total (Job 1c)", () =>
   assert.deepEqual(factCheckSupport(out), { supported: 1, checked: 2 },
     "the support total still counts the duplicate");
   assert.equal(out.summary,
-    "Checked 2 claims against the cited sources: 1 supported, 1 thin, 0 unsupported.",
+    "Checked 2 claims against the abstracts of the cited sources: 1 supported, 1 thin, 0 unsupported.",
     "the summary was not recounted from the folded claims");
   // The extractive trace folds too, and its summary recounts in
   // provenance wording. The folded object's claims carry the

@@ -611,7 +611,12 @@ await test("the panel probe shape: two unsupported claims in the short answer do
       justification: "The second source states the aerosol claim directly in its abstract, so the claim is backed by the cited source." },
   ] });
   scenFactCheckMode = "ok";
-  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true } });
+  // Independent checker tier (2026-10-23, logic audit L5-6):
+  // the scenario's synthesis winner is the fastpath gemma leg,
+  // which is the OpenRouter checker model itself, so that tier
+  // is now excluded as a self check. A Gemini key gives the
+  // stage an independent family tier to land the verdict on.
+  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true }, envExtra: { GEMINI_KEY: "w16-test-gemini-key" } });
   assert.notEqual(data.responseKind, "no-results",
     "the run degraded although a supported teaching claim stands: " + String(data.answer || "").slice(0, 200));
   assert.ok(!/glows with blue light/.test(data.answer || ""),
@@ -647,7 +652,7 @@ await test("a stripped kind claim leaves the body under the soft rule", async ()
       justification: "The first source states that scattered sunlight reaches the eye from every direction and the sky appears blue, supporting the claim as written." },
   ] });
   scenFactCheckMode = "ok";
-  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true } });
+  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true }, envExtra: { GEMINI_KEY: "w16-test-gemini-key" } });
   assert.ok(!/wellbeing/.test(data.answer || ""),
     "the stripped claim's sentence shipped: " + String(data.answer || "").slice(0, 240));
   assert.ok(/scatter short wavelength blue light/.test(String(data.answer || "").replace(/\*\*/g, "")),
@@ -674,7 +679,7 @@ await test("when removal guts the answer (the central claim goes, nothing suppor
       justification: "The cited source does not characterise any picture as the basic one taught for the colour of the sky, so the claim is not supported by the cited source." },
   ] });
   scenFactCheckMode = "ok";
-  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true } });
+  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true }, envExtra: { GEMINI_KEY: "w16-test-gemini-key" } });
   assert.ok(!/like a mirror/.test(data.answer || ""),
     "the unsupported central claim shipped: " + String(data.answer || "").slice(0, 240));
   assert.ok(data.responseKind === "no-results" || /Rayleigh/.test(data.answer || ""),
@@ -777,15 +782,21 @@ await test("flags only panel, every deep tier failed: the stage reports its name
   scenRetryAnswer = null;
   scenFactCheck = null;
   scenFactCheckMode = "429-all";
-  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true } });
+  // A Gemini key as well (2026-10-23, L5-6): the OpenRouter
+  // tier is excluded as the winner's family in this scenario,
+  // so the tier that fires and fails with 429 is the Gemini one.
+  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true }, envExtra: { GEMINI_KEY: "w16-test-gemini-key" } });
   const stage = (data.stageHealth || []).find((s) => s.name === "fact-check");
   assert.ok(stage, "no fact check stage record shipped");
   assert.equal(stage.ok, null,
     "the stage called itself ok although its trace shows no verdict landed: " + JSON.stringify(stage));
-  assert.ok(/deep tiers/.test(stage.skipReason || "") && /http-429/.test(stage.skipReason || ""),
-    "the skip reason does not name the trace's cause: " + (stage.skipReason || ""));
+  // Stage outcome enum (2026-10-23, logic audit L5-10): the
+  // record renders the enum value only; the tier by tier cause
+  // still rides the record's trace, asserted just below.
+  assert.equal(stage.skipReason, "tiers-failed",
+    "the stage outcome is not the tiers-failed enum value: " + (stage.skipReason || ""));
   const trace = (data._record && data._record.factCheckTrace) || [];
-  assert.ok(trace.some((t) => t.tier === "openrouter" && t.outcome === "http-429"),
+  assert.ok(trace.some((t) => t.outcome === "http-429"),
     "the record's trace lost the failed tiers: " + JSON.stringify(trace));
   assert.ok(data.factCheck && (data.factCheck.claims || []).some((c) => c.kind === "stripped"),
     "the flags panel itself did not ship (the fixture's premise): " + JSON.stringify(data.factCheck && data.factCheck.claims));
@@ -808,7 +819,7 @@ await test("a landed deep verdict still reports the stage ok", async () => {
       justification: "The first source states that scattered sunlight reaches the eye from every direction, supporting the claim as written." },
   ] });
   scenFactCheckMode = "ok";
-  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true } });
+  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true }, envExtra: { GEMINI_KEY: "w16-test-gemini-key" } });
   const stage = (data.stageHealth || []).find((s) => s.name === "fact-check");
   assert.ok(stage && stage.ok === true,
     "a landed verdict no longer reports ok: " + JSON.stringify(stage || null));
@@ -958,7 +969,10 @@ await test("an expired stage deadline skips every deep check tier without firing
 await test("the handler admits the fact check on the reserve constant, the same number it reserves (2026-10-16, finding 11)", () => {
   assert.ok(src.includes("msLeft() > FACT_CHECK_RESERVE_MS && !factCheckBudgetSkipped"),
     "the admission gate does not read the reserve constant");
-  assert.ok(src.includes("deepFactCheck(answer, evidencePapers, env, ledger, factCheckTrace, Date.now() + FACT_CHECK_RESERVE_MS)"),
+  // PIN UPDATED (2026-10-23, logic audit L5-5 and L5-6): the
+  // call now also hands over the claim inventory and the
+  // synthesis winner, after the same reserve sized deadline.
+  assert.ok(src.includes("deepFactCheck(answer, evidencePapers, env, ledger, factCheckTrace, Date.now() + FACT_CHECK_RESERVE_MS, {"),
     "the handler does not hand deepFactCheck a deadline sized from the reserve");
 });
 
@@ -1004,7 +1018,10 @@ await test("the retry race closes on its window: slow legs close, fast legs land
 });
 
 await test("the trace summary and stage wiring name the new tier (source pins)", () => {
-  assert.ok(src.includes('note("gemini", "ok")'), "the Gemini tier does not record its outcome in the trace");
+  // PIN UPDATED (2026-10-23, logic audit L5-6): a landed tier
+  // records its ok through finishClaims, which also stamps the
+  // checking model on the verdicts.
+  assert.ok(src.includes('finishClaims(claimsG, "gemini", GEMINI_CHECK_MODEL)'), "the Gemini tier does not record its outcome in the trace");
   assert.equal(factCheckTraceSummary([{ tier: "gemini", outcome: "ok" }]), "gemini ok");
   assert.ok(/\/\/ v51 \(2026-10-14, wave sixteen\)/.test(src), "the v51 chain entry is missing");
   // PIN UPDATED (2026-10-15, wave seventeen): the constant

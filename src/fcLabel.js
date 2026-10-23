@@ -11,11 +11,19 @@
  *     can ground nodes to real papers.
  *
  *   fcCompressStep(sentence, maxChars) -> string
- *     Shrinks one step to a few words. Compression ONLY deletes words —
- *     leading filler phrases, parenthetical asides, trailing adjuncts —
- *     so the label can never say something the sentence didn't. The last
- *     resort is a word-boundary cut (never mid-word, never mid-thought
- *     by slicing characters); truncation with "…" is gone.
+ *     Shrinks one step to a few words by deleting words: leading
+ *     filler phrases, parenthetical asides, trailing adjuncts.
+ *     Deletion is NOT meaning preserving in general (corrected
+ *     2026-10-23, logic audit L5-15): a deleted parenthetical or
+ *     trailing clause can carry a negation, a qualifier, or a
+ *     contrast that limits the claim, and deleting it would
+ *     widen what the label asserts. So any sentence carrying a
+ *     negation, a qualifier, or a contrast marker is refused:
+ *     it passes through whole, uncompressed, however long it
+ *     is. Only marker free sentences take the deletion path
+ *     below, and for them the last resort is a word-boundary
+ *     cut (never mid-word, never mid-thought by slicing
+ *     characters); truncation with "…" is gone.
  *
  * No network, no model, no randomness: the same answer always drafts the
  * same chart.
@@ -45,6 +53,24 @@ const STRONG_BREAK_RES = [/[;—–]/, /,\s*which\s+/i, /,\s*that\s+/i, /\s+whil
 
 function cap1(s) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+/* Scope markers (2026-10-23, logic audit L5-15): a sentence
+ * carrying any of these is incompressible. Negations and
+ * contrast markers are where scope limits live ("no benefit
+ * in children", "while raising risk in older adults"), and
+ * qualifiers bound how far the claim reaches; deleting words
+ * around any of them can assert more than the sentence did. */
+const FC_NEGATION_RE =
+  /\b(no|not|never|none|neither|nor|without|cannot|can't|doesn't|didn't|isn't|aren't|won't|don't|hardly|rarely|no longer)\b/i;
+const FC_QUALIFIER_RE =
+  /\b(only|just|may|might|could|possibly|probably|likely|unlikely|almost|nearly|sometimes|in some|in certain|at least|at most|up to)\b/i;
+const FC_CONTRAST_RE =
+  /\b(but|however|although|though|whereas|while|yet|despite|in contrast|on the other hand|versus|vs\.)\b/i;
+
+export function fcSentenceIncompressible(sentence) {
+  const t = String(sentence || "");
+  return FC_NEGATION_RE.test(t) || FC_QUALIFIER_RE.test(t) || FC_CONTRAST_RE.test(t);
 }
 
 /**

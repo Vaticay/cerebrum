@@ -218,7 +218,9 @@ await test("no call site passes a literal zero flag count anymore", () => {
     "a calibration call site still passes integrityFlags: 0");
   assert.ok(/integrityFlags: integrityFlagCount\(factCheckResult\)/.test(src),
     "the main assembly does not wire the finished fact check object into calibration");
-  assert.ok(/integrityFlags: integrityFlagCount\(input && input\.factCheck\)/.test(src),
+  // 2026-10-23 (L5-12): the cached serve wires the corrected
+  // stored object it ships (correctedFactCheck), not the raw input.
+  assert.ok(/integrityFlags: integrityFlagCount\(correctedFactCheck\)/.test(src),
     "the cached serve does not wire its stored fact check into calibration");
   assert.ok(!/applied on next pass/.test(src),
     "the dead next pass comment is still standing");

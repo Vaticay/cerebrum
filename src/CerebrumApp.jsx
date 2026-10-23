@@ -4682,8 +4682,29 @@ function FactCheck({ fc, P, accent }) {
   // overlap check, not quote matching — the copy must say exactly that
   // rather than borrowing the stronger claim.
   const isExtractive = fc.mode === "extractive";
-  const nThin = claims.filter((c) => c.status === "thin").length;
-  const nUns = claims.filter((c) => c.status === "unsupported").length;
+  // Counts ship on the object (2026-10-23, logic audit L5-11):
+  // the backend computes supported, thin, unsupported, and
+  // countable checked at the dedupe point under the one
+  // countable rule, and this panel renders those fields
+  // verbatim. Claims under a mechanical flag kind (alignment,
+  // stripped, demoted, unattributed) enter no total; they are
+  // shown in their own labelled group below. Objects stored
+  // before the counts shipped fall back to the same rule
+  // applied locally, so an old panel still separates its flags
+  // from its totals.
+  const FLAG_KINDS = new Set(["alignment", "stripped", "demoted", "unattributed"]);
+  const flagClaims = claims.filter((c) => c && FLAG_KINDS.has(c.kind));
+  const countableClaims = claims.filter((c) => !(c && FLAG_KINDS.has(c.kind)));
+  const counts = (fc.counts && typeof fc.counts === "object") ? fc.counts : {
+    supported: countableClaims.filter((c) => c.status === "supported").length,
+    thin: countableClaims.filter((c) => c.status === "thin").length,
+    unsupported: countableClaims.filter((c) => c.status === "unsupported").length,
+    traced: countableClaims.filter((c) => c.status === "traced").length,
+    checked: isExtractive ? claims.length : countableClaims.length,
+    flags: flagClaims.length,
+  };
+  const nThin = counts.thin;
+  const nUns = counts.unsupported;
   // The pass status follows the check's kind (2026-10-14, seventh
   // panel, wave eight round two): a verification passes a claim as
   // "supported"; the extractive wording trace passes it as
@@ -4692,10 +4713,16 @@ function FactCheck({ fc, P, accent }) {
   // failure; counting it as supported would present a trace as
   // verification. nPass counts whichever word this check passes by.
   const passStatus = isExtractive ? "traced" : "supported";
-  const nPass = claims.filter((c) => c.status === passStatus).length;
-  const total = claims.length;
-  const flagged = claims.filter((c) => c.status !== passStatus);
+  const nPass = isExtractive ? counts.traced : counts.supported;
+  const total = counts.checked;
+  const flagged = countableClaims.filter((c) => c.status !== passStatus);
   const allClear = flagged.length === 0;
+  // A stored check is labelled as stored (2026-10-23, logic
+  // audit L5-12): it ran on the original run, on the date the
+  // object carries, and was not rerun for this view.
+  const storedLine = fc.stored
+    ? `This check ran on the original run${fc.storedAt ? " on " + new Date(fc.storedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : ""} and was stored with this answer. It was not rerun for this view.`
+    : null;
   const [open, setOpen] = useState(false);
 
   /* Scope in the line, as a class: every receipt states its
@@ -4711,14 +4738,62 @@ function FactCheck({ fc, P, accent }) {
   const summaryHasScopeCaveat = /not a check|not a verification|does not check|does not verify|did not check|not claim checked|cannot tell|can not tell/i.test(summaryText);
   const showPassDot = !summaryHasScopeCaveat;
   const receiptNoun = isTerms ? "name" : "claim";
-  const receiptScope = `Checked ${total} extracted ${receiptNoun}${total === 1 ? "" : "s"} against ${total === 1 ? "its paper" : "their papers"}. The rest of the answer was not claim checked.`;
-  const checkedLine = isExtractive
+  // Coverage names the selection when it is partial
+  // (2026-10-23, logic audit L5-5, coordinating with the
+  // receipt wording shipped in Wave 1): when the object
+  // carries coverage (checked over the answer's claim
+  // inventory), the line states both numbers and names the
+  // unchecked rest; at full coverage it says all of them.
+  // The evidence unit is stated in the sentence itself
+  // (L5-13): the abstracts of the cited sources.
+  const coverage = (fc.coverage && typeof fc.coverage === "object" && typeof fc.coverage.inventory === "number")
+    ? fc.coverage : null;
+  const receiptScope = coverage
+    ? (coverage.checked < coverage.inventory
+        ? `Checked ${coverage.checked} of ${coverage.inventory} claims in this answer against the abstracts of the cited sources. The rest of the answer was not claim checked.`
+        : `Checked all ${coverage.inventory} claims in this answer against the abstracts of the cited sources.`)
+    : `Checked ${total} extracted ${receiptNoun}${total === 1 ? "" : "s"} against ${total === 1 ? "its paper" : "their papers"}. The rest of the answer was not claim checked.`;
+  const checkedLine = coverage && !isExtractive && !isTerms
+    ? receiptScope
+    : isExtractive
     ? `Checked ${total} extracted claim${total === 1 ? "" : "s"} against ${total === 1 ? "its paper" : "their papers"} for shared wording and ${total === 1 ? "it matched" : "each one matched"}. The rest of the answer was not claim checked.`
     : isTerms
     ? `Checked ${total} extracted name${total === 1 ? "" : "s"} against ${total === 1 ? "its paper" : "their papers"} and ${total === 1 ? "it turned up" : "each one turned up"}. The rest of the answer was not claim checked.`
-    : `Checked ${total} extracted claim${total === 1 ? "" : "s"} against ${total === 1 ? "its paper" : "their papers"} and ${total === 1 ? "it held up" : "each one held up"}. The rest of the answer was not claim checked.`;
+    : `Checked ${total} extracted claim${total === 1 ? "" : "s"} against the abstracts of the cited sources and ${total === 1 ? "it held up" : "each one held up"}. The rest of the answer was not claim checked.`;
 
-  if (total === 0) return null;
+  /* Flags in their own labelled group (2026-10-23, logic
+     audit L5-11): mechanical flags and unattributed verdicts
+     are shown, never hidden, and they enter no total, so they
+     render apart from the counted claims under their own
+     heading in both panel shapes. */
+  const flagsGroup = flagClaims.length > 0 ? (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)", marginBottom: 4 }}>Flags from other checks</div>
+      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, marginBottom: 4 }}>These items were flagged by other passes over the answer. They do not count in the claim check totals above.</div>
+      {flagClaims.map((c, i) => (
+        <div key={i} style={{ display: "flex", gap: 12, padding: "10px 0 0", marginTop: 10, borderTop: `1px solid ${P.line}` }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.5, fontFamily: "var(--cb-font)", fontWeight: 500, overflowWrap: "anywhere" }}>{c.claim}</div>
+            {c.note && <div style={{ fontSize: FONT_SIZES.label, color: P.faint, marginTop: 3, lineHeight: 1.55, overflowWrap: "anywhere" }}>{c.note}</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  ) : null;
+  const storedNote = storedLine ? (
+    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, marginTop: 8 }}>{storedLine}</div>
+  ) : null;
+
+  if (total === 0 && flagClaims.length === 0) return null;
+  if (total === 0) {
+    return (
+      <div style={{ marginTop: 16 }}>
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>No claims were counted in the claim check totals for this answer.</div>
+        {storedNote}
+        {flagsGroup}
+      </div>
+    );
+  }
 
   /* ── Clean: one line, and it stays one line unless asked ──
      This is the case that was a full bordered card with a hero percentage.
@@ -4741,6 +4816,8 @@ function FactCheck({ fc, P, accent }) {
           <span>{checkedLine}</span>
           <span style={{ color: P.ink2, fontWeight: 500, flexShrink: 0 }}>{open ? "Hide" : "What this means"}</span>
         </button>
+        {storedNote}
+        {flagsGroup}
 
         {open && (
           /* Pass 2 (instrument): the explanation is a ruled block, not a
@@ -4832,6 +4909,7 @@ function FactCheck({ fc, P, accent }) {
       </div>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.6, marginBottom: 4 }}>{why}</div>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, marginBottom: 4 }}>{receiptScope}</div>
+      {storedNote}
       {nPass > 0 && (
         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
           {/* "The other 1 claim" reads like a typo. English wants the bare
@@ -4863,6 +4941,7 @@ function FactCheck({ fc, P, accent }) {
           </div>
         );
       })}
+      {flagsGroup}
     </div>
   );
 }
@@ -10427,11 +10506,15 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       )}
       {/* Fact-check — always a section, never a silent gap. The states
           are kept distinct because they mean different things: a null
-          factCheck means the check DID NOT RUN (a cached serve ships
-          null), a present check with no claims means it ran and found
-          nothing checkable, and an errored check failed. A null must
-          never render under "Nothing to verify" . that heading claims
-          a check ran and came back empty (2026-10-14). */}
+          factCheck means the check DID NOT RUN for this serve, a
+          present check with no counted claims means it ran and found
+          nothing countable, and an errored check failed. A cached
+          serve ships the original run's stored check object when one
+          was stored (labelled as stored inside the panel, with its
+          original date, 2026-10-23, logic audit L5-12), and null only
+          when no check was stored. The failed state is never
+          rendered as an empty answer (2026-10-14; the stage outcome
+          enum of 2026-10-23, L5-10, names these states). */}
       {done && (
         <div ref={fcSectionRef} style={{ scrollMarginTop: 130 }}>
           {t.factCheck && !t.factCheck.error && (t.factCheck.claims || []).length > 0 ? (
@@ -10442,12 +10525,19 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 const fcError = !!(t.factCheck && t.factCheck.error);
                 const fcRanEmpty = !!t.factCheck && !t.factCheck.error;
                 const noClaimsPossible = t.responseKind === "no-results" || (t.sources || []).length === 0;
-                const state = fcError ? "failed"
-                  : fcRanEmpty || noClaimsPossible ? "empty"
+                // Stage outcome enum (2026-10-23, logic audit
+                // L5-10): when the shipped object carries its
+                // outcome, the card renders from it. A tiers
+                // failed outcome is the failed state, never the
+                // empty one; ran and found nothing countable is
+                // the empty state.
+                const fcOutcome = t.factCheck && typeof t.factCheck.stageOutcome === "string" ? t.factCheck.stageOutcome : null;
+                const state = fcError || fcOutcome === "tiers-failed" ? "failed"
+                  : fcOutcome === "ran-no-countable" || fcRanEmpty || noClaimsPossible ? "empty"
                   : "notrun";
                 return (
                   <AnswerStateCard
-                    kicker={state === "failed" ? "Check failed" : state === "empty" ? "Nothing to verify" : "Check did not run"}
+                    kicker={state === "failed" ? "Check failed" : state === "empty" ? "Ran and found nothing countable" : "Check did not run"}
                     tone={state === "failed" ? "bad" : "neutral"}
                     title={state === "failed"
                       ? "The verification pass didn't complete."

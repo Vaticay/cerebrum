@@ -201,7 +201,11 @@ try {
     assert.equal(res.status, 200, "cache serve returns 200");
     const data = await res.json();
     assert.equal(data._cached, true, "response is the cache serve");
-    assert.equal(data.source, "Cached (verified)");
+    // PIN UPDATED (2026-10-23, logic audit L5-12): the word
+    // verified left the source tag. This stored row carries no
+    // fact check object, so the honest tag is the plain one; a
+    // row with a stored check ships "Cached (stored check)".
+    assert.equal(data.source, "Cached");
     assert.equal(data.answer, storedAnswer, "the answer text itself is served unchanged");
     // Cited set recovered from the stored answer's markers.
     // Shipped source split (2026-10-21, answer integrity lane):

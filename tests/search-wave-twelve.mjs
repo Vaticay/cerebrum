@@ -336,7 +336,7 @@ await test("the dedupe recount restates the check's own counts, flags still list
   const out = dedupeFactCheckClaims(fc);
   assert.equal(out.claims.length, 3, "the fold did not happen or ate the flag: " + out.claims.length);
   assert.equal(out.summary,
-    "Checked 2 claims against the cited sources: 1 supported, 0 thin, 1 unsupported.",
+    "Checked 2 claims against the abstracts of the cited sources: 1 supported, 0 thin, 1 unsupported.",
     "the recounted summary is not the check's own counts: " + out.summary);
   assert.equal(out.overall, "partly", "the recounted overall does not follow the check's own verdicts");
   assert.ok(out.claims.some((c) => c.kind === "alignment"),
@@ -532,13 +532,16 @@ await test("the correct sky answer scores 1 of 2, the wrong claim counts, the un
   scenRetryAnswer = null;
   // The fact check stage gates on the request's settings, the
   // way the production client sends it.
-  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true } });
+  // Independent checker tier (2026-10-23, logic audit L5-6),
+  // as in the wave sixteen scenarios: a Gemini key, so the
+  // verdict lands on a family that did not write the answer.
+  const { data } = await runScenario("why is the sky blue", { settings: { factCheck: true }, envExtra: { GEMINI_KEY: "w12-test-gemini-key" } });
   assert.ok(data.factCheck && data.factCheck.mode === "claims",
     "no claims mode fact check shipped: " + JSON.stringify(data.factCheck && data.factCheck.mode));
   assert.deepEqual(factCheckSupport(data.factCheck), { supported: 1, checked: 2 },
     "the shipped support count is not the check's own verdicts: " + JSON.stringify(factCheckSupport(data.factCheck)));
   assert.equal(data.factCheck.summary,
-    "Checked 2 claims against the cited sources: 1 supported, 0 thin, 1 unsupported.",
+    "Checked 2 claims against the abstracts of the cited sources: 1 supported, 0 thin, 1 unsupported.",
     "the panel summary does not state the check's own counts: " + data.factCheck.summary);
   assert.equal(data.factCheck.claims.filter((c) => factCheckClaimCountable(c)).length, 2,
     "the panel's countable claims are not the check's own two");

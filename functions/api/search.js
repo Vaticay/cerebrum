@@ -502,6 +502,26 @@ export const FACT_CHECK_RESERVE_MS = 8000;
  * tiers' own larger caps. */
 export const FACT_CHECK_TIER_CAP_MS = 2500;
 
+/* ONE DEADLINE, PER TIER FRACTIONS (2026-10-23, logic audit
+ * L5-9): the reserve above is the stage's one budget and its
+ * one owner. The handler's admission gate floors on it, the
+ * synthesis deadline holds it back, and deepFactCheck receives
+ * it as the stage deadline. Inside the check, a tier no longer
+ * gets a fixed slice sized against the whole budget: each tier
+ * is capped at a fraction of what REMAINs at its turn (the
+ * tier's own cap and FACT_CHECK_TIER_CAP_MS still bind), so
+ * the cascade always leaves room for the tiers behind it and
+ * stops at the deadline instead of at the sum of four
+ * independent timeouts, which at 3,000 + 3,500 + 4,000 + 4,000
+ * came to roughly 14,500 ms against an 8,000 ms reserve. */
+export function factCheckTierBudgetMs(remainingMs, tiersRemaining, ownCapMs) {
+  const own = typeof ownCapMs === "number" ? ownCapMs : FACT_CHECK_TIER_CAP_MS;
+  if (remainingMs == null || !Number.isFinite(remainingMs)) return own;
+  const left = Math.max(0, remainingMs);
+  const tiers = Math.max(1, Math.floor(tiersRemaining) || 1);
+  return Math.max(0, Math.min(own, FACT_CHECK_TIER_CAP_MS, Math.ceil(left / tiers)));
+}
+
 /* synthesisDeadlineFor(nowMs, requestDeadlineMs, factCheckOn):
  * the synthesis stage's deadline — the request deadline less
  * the 2,500 ms assembly reserve and, when the request carries
@@ -11967,9 +11987,22 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
 // {"claims":[...]} can be well under that floor and would be thrown away as
 // "too short" before this function ever saw it.
 const DEEP_FACT_CHECK_SYSTEM_PROMPT =
-  "You are a rigorous scientific fact-checker. You will be given an AI-generated answer and the numbered " +
-  "sources it was supposed to be grounded in. Your job: extract 3 to 5 of the answer's most specific, checkable " +
-  "claims and verify each one directly against the source text.\n\n" +
+  // CLAIM INVENTORY (2026-10-23, logic audit L5-5): the checker
+  // no longer selects its own sample. Code builds the claim
+  // inventory deterministically from the answer (every
+  // substantive cited sentence, the short answer's central
+  // claim included as a mandatory member) and hands it over
+  // as a fixed numbered list; the checker's job is to verdict
+  // THAT list, so coverage can be reported as checked over
+  // inventory instead of checked over whatever the checker
+  // felt like reading.
+  "You are a rigorous scientific fact-checker. You will be given an AI-generated answer, a fixed numbered " +
+  "list of the answer's claims built by code (the CLAIM INVENTORY), and the numbered " +
+  "sources it was supposed to be grounded in. Your job: verify EVERY claim on that inventory list " +
+  "directly against the source text. Do not substitute claims of your own, do not skip an inventory " +
+  "claim, and return exactly one entry per inventory claim you verdict. When an inventory claim is " +
+  "compound (it joins two findings with 'and' or a semicolon), return one entry PER CLAUSE, each " +
+  "carrying the same sentence_index, so the sentence can take its worst clause's verdict.\n\n" +
   "For EACH claim:\n" +
   "1. Quote the claim (or paraphrase tightly) as the answer states it.\n" +
   "2. Identify which numbered source it's supposed to come from. The source_index MUST be one of the [N] " +
@@ -12028,7 +12061,15 @@ const DEEP_FACT_CHECK_SYSTEM_PROMPT =
   "a caveat that a retrieval result is not proof of absence): those are process " +
   "statements, not claims a source can verify.\n\n" +
   "Output ONLY this JSON shape . no markdown fences, no commentary before or after:\n" +
-  '{"claims": [{"claim": "...", "source_index": 1, "quote": "...", "status": "supported", "justification": "..."}]}';
+  '{"claims": [{"claim": "...", "sentence_index": 1, "source_index": 1, "quote": "...", "status": "supported", "justification": "..."}]}';
+
+/* The set actually shown to the checker (2026-10-23, logic
+ * audit L5-13): the first FACT_CHECK_SHOWN_SOURCES papers,
+ * abstracts truncated. The countable test in
+ * deepClaimEvidenceVerified reads this same constant, so a
+ * verdict can never count as checked against a paper the
+ * checker never saw. */
+export const FACT_CHECK_SHOWN_SOURCES = 20;
 
 function buildFactCheckSourceBlock(papers) {
   // WAVE THIRTEEN (2026-10-14, brief item 4): fuller source text
@@ -12045,7 +12086,7 @@ function buildFactCheckSourceBlock(papers) {
   // into its timeout, the wave thirteen trace names that
   // outcome instead of hiding it.
   return papers
-    .slice(0, 20)
+    .slice(0, FACT_CHECK_SHOWN_SOURCES)
     .map((p, i) => `[${i + 1}] ${p.title || "Untitled"}\nAbstract: ${(p.abstract || "(no abstract available)").slice(0, i < 8 ? 1000 : 600)}`)
     .join("\n\n");
 }
@@ -12073,6 +12114,11 @@ export function parseDeepFactCheckJSON(raw) {
       const justification = String((c && c.justification) || "").trim().slice(0, 900);
       const quote = String((c && c.quote) || "").trim().slice(0, 400);
       const sourceIndex = Number.isFinite(c && c.source_index) ? c.source_index : null;
+      // Inventory binding (2026-10-23, logic audit L5-5 and
+      // L5-7): the inventory position this verdict belongs to,
+      // when the checker returned one. The handler merges
+      // verdicts by this sentence, worst status wins.
+      const answerSentenceIndex = Number.isFinite(c && c.sentence_index) ? c.sentence_index : null;
       if (!claim || !status || !justification) return null;
       // CLAIM TYPING (2026-10-22, logic audit L5-2): claim type
       // is a first class field from extraction, assigned by code,
@@ -12088,13 +12134,15 @@ export function parseDeepFactCheckJSON(raw) {
       // model returned. Silence across the shown abstracts can
       // never ratify a claim about the whole literature.
       const universal = isUniversalClaimText(claim);
-      return { claim, status, justification, quote, sourceIndex, ...(universal ? { kind: "universal" } : {}) };
+      return { claim, status, justification, quote, sourceIndex, ...(answerSentenceIndex != null ? { answerSentenceIndex } : {}), ...(universal ? { kind: "universal" } : {}) };
     })
     .filter(Boolean);
-  // Fewer than 2 usable claims isn't the "3-5 rigorous claims" this is meant
-  // to produce . treat it as a failed attempt so the caller falls back to
-  // the deterministic heuristic instead of showing a near-empty panel.
-  if (claims.length < 2) return null;
+  // One usable verdict is a real verdict (2026-10-23, logic
+  // audit L5-7): the old floor of two discarded a single claim
+  // result entirely, after which the terms fallback could mint
+  // a denominator of exactly one name. Zero usable claims is
+  // still a failed attempt, and the caller falls back.
+  if (claims.length < 1) return null;
   return claims;
 }
 
@@ -12148,8 +12196,62 @@ export function factCheckTraceSummary(trace) {
     .slice(0, 160);
 }
 
-export async function deepFactCheck(answer, papers, env, ledger = null, trace = null, stageDeadlineMs = null) {
+/* Model family for checker exclusion (2026-10-23, logic audit
+ * L5-6): labels arrive as bare OpenRouter names, as Workers AI
+ * names, or as provider prefixed compat labels. The family is
+ * the model line the writer and a checker would share (gemma,
+ * gemini, llama, gpt oss, nemotron), falling back to the full
+ * normalized name, so excluding the synthesis winner excludes
+ * its whole family, not just its exact seat. */
+export function factCheckModelFamily(label) {
+  let m = String(label || "").trim().toLowerCase();
+  if (!m) return "";
+  const sep = m.indexOf(":");
+  if (sep > 0 && ["groq", "gemini", "mistral", "nvidia", "cerebras", "github", "pollinations"].includes(m.slice(0, sep))) {
+    m = m.slice(sep + 1);
+  }
+  if (m.includes("gemma")) return "gemma";
+  if (m.includes("gemini")) return "gemini";
+  if (m.includes("llama")) return "llama";
+  if (m.includes("gpt-oss")) return "gpt-oss";
+  if (m.includes("nemotron")) return "nemotron";
+  if (m.includes("mistral")) return "mistral";
+  return m;
+}
+
+export function factCheckTierExcluded(model, synthesisModel) {
+  if (!synthesisModel) return false;
+  const a = String(model || "").trim().toLowerCase();
+  const b = String(synthesisModel || "").trim().toLowerCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const fa = factCheckModelFamily(a);
+  return !!fa && fa === factCheckModelFamily(b);
+}
+
+export async function deepFactCheck(answer, papers, env, ledger = null, trace = null, stageDeadlineMs = null, opts = {}) {
   if (!answer || !papers || papers.length === 0) return null;
+  // Synthesis winner exclusion (2026-10-23, logic audit L5-6):
+  // the winner is passed in by the handler and that model and
+  // its family are excluded from the tier list for this
+  // request, in code. Where exclusion plus availability leaves
+  // no tier, every tier below notes its own skip and this
+  // function returns null: the honest result is did not run,
+  // never a self check.
+  const synthesisModel = (opts && (opts.synthesisModel || opts.winnerModel)) || null;
+  const inventory = (opts && Array.isArray(opts.inventory) && opts.inventory.length > 0)
+    ? opts.inventory
+    : buildClaimCheckInventory(answer);
+  const finishClaims = (claims, tier, model) => {
+    if (!claims) return null;
+    try {
+      claims.checkingModel = model;
+      claims.checkTier = tier;
+      claims.inventoryTotal = inventory.length;
+    } catch { /* a verdict array that refuses props still ships */ }
+    note(tier, "ok");
+    return claims;
+  };
   const note = (tier, outcome, detail) => {
     if (!Array.isArray(trace)) return;
     const entry = { tier, outcome };
@@ -12164,23 +12266,32 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   // the deadline has already passed is skipped with a named
   // trace outcome, exactly like a budget spent tier.
   const stageLeftMs = () => (stageDeadlineMs == null ? Infinity : stageDeadlineMs - Date.now());
-  // Per tier slice (2026-10-21, see FACT_CHECK_TIER_CAP_MS):
-  // under a stage deadline a tier may not spend more than its
-  // slice, however large its own cap is, so the later tiers
-  // still fire inside the stage budget.
-  const tierCapMs = (cap) => Math.max(0, Math.min(
-    cap,
-    stageDeadlineMs == null ? cap : FACT_CHECK_TIER_CAP_MS,
-    stageLeftMs()
-  ));
+  // Per tier fraction of what remains (2026-10-23, logic audit
+  // L5-9, replacing the 2026-10-21 fixed slice): under a stage
+  // deadline a tier is capped at factCheckTierBudgetMs, its
+  // share of the time left when its turn comes, so the first
+  // slow tier can no longer decide the stage and the cascade
+  // still stops at the one stage deadline.
+  const tierCapMs = (cap, tiersRemaining) => stageDeadlineMs == null
+    ? cap
+    : factCheckTierBudgetMs(stageLeftMs(), tiersRemaining, cap);
   const stageExpired = (tier) => {
     if (stageLeftMs() > 0) return false;
     note(tier, "no-time", "the fact check stage deadline passed before this tier could fire");
     return true;
   };
   const sourceBlock = buildFactCheckSourceBlock(papers);
+  // The fixed inventory rides in the prompt (2026-10-23, L5-5):
+  // claims past the answer slice below are still available for
+  // verdicts because the inventory lists every one of them.
+  const inventoryBlock = inventory.length > 0
+    ? "\n\nCLAIM INVENTORY (built by code from the answer; verdict every entry, " +
+      "returning its number as sentence_index):\n" +
+      inventory.map((e) => "[" + e.index + "] " + e.sentence).join("\n")
+    : "";
   const userContent =
     "ANSWER TO FACT-CHECK:\n" + answer.slice(0, 4000) +
+    inventoryBlock +
     "\n\nSOURCES (numbered to match any [N] citation markers in the answer above):\n" + sourceBlock;
   const messages = [
     { role: "system", content: DEEP_FACT_CHECK_SYSTEM_PROMPT },
@@ -12208,7 +12319,10 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   // cap for this model (the validation Gemini leg's
   // timeoutCapMs, and its COMPAT_LEG_TIMEOUT_OVERRIDES entry).
   const geminiKey = env ? (env.GEMINI_KEY || "") : "";
-  if (geminiKey) {
+  const GEMINI_CHECK_MODEL = "gemini-3.5-flash-lite";
+  if (factCheckTierExcluded(GEMINI_CHECK_MODEL, synthesisModel)) {
+    note("gemini", "excluded", "this tier is the synthesis winner or its family, so it may not check its own answer (2026-10-23, L5-6)");
+  } else if (geminiKey) {
     if (ledger && ledger.remaining() <= 0) {
       note("gemini", "budget", "the subrequest ledger was spent before this tier");
     } else if (stageExpired("gemini")) {
@@ -12217,19 +12331,19 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
       const cg = new AbortController();
       let tg = null;
       try {
-        tg = setTimeout(() => cg.abort(), tierCapMs(3000));
+        tg = setTimeout(() => cg.abort(), tierCapMs(3000, 4));
         if (ledger) ledger.spend();
         const rg = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + geminiKey },
-          body: JSON.stringify({ model: "gemini-3.5-flash-lite", temperature: 0, max_tokens: 1900, messages }),
+          body: JSON.stringify({ model: GEMINI_CHECK_MODEL, temperature: 0, max_tokens: 1900, messages }),
           signal: cg.signal,
         });
         if (rg.ok) {
           const jg = await rg.json();
           const claimsG = parseDeepFactCheckJSON(jg?.choices?.[0]?.message?.content || "");
-          if (claimsG) { note("gemini", "ok"); return claimsG; }
-          note("gemini", "unparseable", "the response did not yield two or more usable claims");
+          if (claimsG) return finishClaims(claimsG, "gemini", GEMINI_CHECK_MODEL);
+          note("gemini", "unparseable", "the response did not yield a usable claim");
         } else {
           note("gemini", "http-" + rg.status, "the Gemini validate model answered HTTP " + rg.status);
           await rg.text().catch(() => {});
@@ -12258,7 +12372,10 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   // OR_VALIDATE model (4s cap). Worst case ~7.5s, typical ~2-3s; a miss
   // still falls back to the free zero-network verifyAnswerAgainstSources()
   // heuristic, so a faster miss costs nuance, not correctness.
-  if (env.AI && typeof env.AI.run === "function") {
+  const WORKERS_CHECK_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+  if (factCheckTierExcluded(WORKERS_CHECK_MODEL, synthesisModel)) {
+    note("workers-ai", "excluded", "this tier is the synthesis winner or its family, so it may not check its own answer (2026-10-23, L5-6)");
+  } else if (env.AI && typeof env.AI.run === "function") {
     if (stageExpired("workers-ai")) {
       // Skipped: the stage deadline passed (noted in the trace).
     } else try {
@@ -12266,12 +12383,12 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
       // call; the first version of the ledger left this one free.
       if (ledger) ledger.spendBinding("factcheck", 1);
       const out = await Promise.race([
-        env.AI.run("@cf/meta/llama-3.3-70b-instruct-fp8-fast", { messages, max_tokens: 1900 }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), tierCapMs(3500))),
+        env.AI.run(WORKERS_CHECK_MODEL, { messages, max_tokens: 1900 }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), tierCapMs(3500, 3))),
       ]);
       const claims = parseDeepFactCheckJSON((out && out.response) || "");
-      if (claims) { note("workers-ai", "ok"); return claims; }
-      note("workers-ai", "unparseable", "the response did not yield two or more usable claims");
+      if (claims) return finishClaims(claims, "workers-ai", WORKERS_CHECK_MODEL);
+      note("workers-ai", "unparseable", "the response did not yield a usable claim");
     } catch (tierErr) {
       // WAVE THIRTEEN: the failure is named in the trace instead
       // of swallowed — a timeout under fleet saturation and a
@@ -12294,7 +12411,10 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   // spent it is skipped, not fired to die at the runtime . the
   // caller falls back to the zero network heuristic either way.
   let orTierOutcome = null;
-  if (!openRouterKey(env)) {
+  if (factCheckTierExcluded(OR_VALIDATE, synthesisModel)) {
+    note("openrouter", "excluded", "this tier is the synthesis winner or its family, so it may not check its own answer (2026-10-23, L5-6)");
+    orTierOutcome = "excluded";
+  } else if (!openRouterKey(env)) {
     note("openrouter", "no-key", "no OpenRouter key is configured");
     orTierOutcome = "no-key";
   } else if (ledger && ledger.remaining() <= 0) {
@@ -12316,7 +12436,7 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
     // live "claim check supports 0 of 5" on a correct answer.
     let t = null;
     try {
-      t = setTimeout(() => c.abort(), tierCapMs(4000));
+      t = setTimeout(() => c.abort(), tierCapMs(4000, 2));
       if (ledger) ledger.spend();
       const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
@@ -12329,8 +12449,8 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
       if (r.ok) {
         const j = await r.json();
         const claims = parseDeepFactCheckJSON(j?.choices?.[0]?.message?.content || "");
-        if (claims) { note("openrouter", "ok"); return claims; }
-        note("openrouter", "unparseable", "the response did not yield two or more usable claims");
+        if (claims) return finishClaims(claims, "openrouter", OR_VALIDATE);
+        note("openrouter", "unparseable", "the response did not yield a usable claim");
         orTierOutcome = "unparseable";
       } else {
         // WAVE THIRTEEN: the status is the diagnosis. It used to
@@ -12371,12 +12491,16 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   // a partial check (two or more usable claims of the three to
   // five asked) is labeled by its actual counts downstream, and
   // anything under two usable claims is no check, as before.
+  if (orTierOutcome === "http-429" && factCheckTierExcluded(OR_VALIDATE_FALLBACK, synthesisModel)) {
+    note("openrouter-fallback", "excluded", "this tier is the synthesis winner or its family, so it may not check its own answer (2026-10-23, L5-6)");
+  }
   if (orTierOutcome === "http-429" && openRouterKey(env) &&
+      !factCheckTierExcluded(OR_VALIDATE_FALLBACK, synthesisModel) &&
       !(ledger && ledger.remaining() <= 0) && !stageExpired("openrouter-fallback")) {
     const c3 = new AbortController();
     let t3 = null;
     try {
-      t3 = setTimeout(() => c3.abort(), tierCapMs(4000));
+      t3 = setTimeout(() => c3.abort(), tierCapMs(4000, 1));
       if (ledger) ledger.spend();
       const r3 = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
@@ -12387,8 +12511,8 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
       if (r3.ok) {
         const j3 = await r3.json();
         const claims3 = parseDeepFactCheckJSON(j3?.choices?.[0]?.message?.content || "");
-        if (claims3) { note("openrouter-fallback", "ok"); return claims3; }
-        note("openrouter-fallback", "unparseable", "the response did not yield two or more usable claims");
+        if (claims3) return finishClaims(claims3, "openrouter-fallback", OR_VALIDATE_FALLBACK);
+        note("openrouter-fallback", "unparseable", "the response did not yield a usable claim");
       } else {
         note("openrouter-fallback", "http-" + r3.status, "the fallback validate model answered HTTP " + r3.status);
         await r3.text().catch(() => {});
@@ -19785,13 +19909,178 @@ export function factCheckSupport(factCheck) {
   // answer. (The zero support serve reads a terms panel only
   // through factCheckNamePresence for its degrade trigger; the
   // support ledger itself stays closed to terms.)
-  if (factCheckKind(factCheck) !== "verification") return null;
-  const claims = factCheck && Array.isArray(factCheck.claims) ? factCheck.claims : null;
-  if (!claims || claims.length === 0) return null;
+  const record = factCheckSupportRecord(factCheck);
+  return record ? { supported: record.supported, checked: record.checked } : null;
+}
+
+/* ── Claim inventory, counts, overall, stage outcome
+ * (2026-10-23, logic audit L5-5, L5-7, L5-10, L5-11, L5-14) ──
+ * The repairs in this block share one idea: the numbers a
+ * reader sees are computed by code from the answer and from
+ * the finished fact check object, in one place, and every
+ * surface reads that computation. The checker model selects
+ * nothing, counts nothing, and derives no overall. */
+
+/* buildClaimCheckInventory(answer): the answer's claims, built
+ * deterministically for the claim check. (Named apart from
+ * Lane S4's binding inventory, buildClaimInventory(answer,
+ * papers), at the Wave 3 S5 landing, 2026-10-23: the two lanes
+ * built two inventories under one name; the checker's is the
+ * sentence level list the checker verdicts, S4's is the atomic
+ * binding inventory. Both ship on the fact check object.)
+ * Every substantive sentence that carries
+ * a citation marker is a member, in answer order, and the
+ * short answer's central claim is a mandatory member even
+ * when it carries no marker, because an answer whose center
+ * was never checked must not report full coverage. Confidence
+ * prose and source list blocks are not claims and are skipped.
+ * Each entry: { index (1 based), sentence, citations, central }. */
+export function buildClaimCheckInventory(answer) {
+  const entries = [];
+  const seen = new Set();
+  const norm = (t) => String(t || "").replace(/\s+/g, " ").trim().toLowerCase();
+  let central = null;
+  try { central = shortAnswerCentralClaim(answer); } catch { central = null; }
+  const push = (sentence) => {
+    const text = String(sentence || "").replace(/\s+/g, " ").trim();
+    if (text.length < 20 || !/[a-z]/i.test(text)) return null;
+    if (/^#{1,6}\s/.test(text)) return null;
+    if (/the fact check did not run/i.test(text)) return null;
+    if (/^the claim check supports/i.test(text)) return null;
+    const key = norm(text);
+    if (seen.has(key)) return null;
+    seen.add(key);
+    const citations = [...text.matchAll(/\[(\d{1,3})\]/g)].map((m) => parseInt(m[1], 10));
+    const entry = {
+      index: entries.length + 1,
+      sentence: text,
+      citations,
+      central: !!central && norm(central) === key,
+    };
+    entries.push(entry);
+    return entry;
+  };
+  try {
+    const body = answerBodyBeforeBibliography(String(answer || ""));
+    for (const block of sectionizeAnswer(body)) {
+      if (block.headingText && /how solid|confidence|sources|references|bibliography/i.test(block.headingText)) continue;
+      for (const line of block.lines || []) {
+        for (const sentence of splitBodySentences(line)) {
+          if (!/\[\d{1,3}\]/.test(sentence)) continue;
+          push(sentence);
+        }
+      }
+    }
+  } catch { /* an unparseable answer has an empty inventory, never an error */ }
+  if (central && !entries.some((e) => e.central)) {
+    const entry = push(central);
+    if (entry) {
+      entry.central = true;
+      entries.splice(entries.indexOf(entry), 1);
+      entries.unshift(entry);
+      entries.forEach((e, i) => { e.index = i + 1; });
+    }
+  }
+  return entries;
+}
+
+/* factCheckCounts(factCheck): the one count object for a fact
+ * check (2026-10-23, logic audit L5-11). Supported, thin, and
+ * unsupported count COUNTABLE claims only, under the same
+ * factCheckClaimCountable rule the support ledger uses;
+ * checked is the countable total; flags counts the claims
+ * that ride in the panel under an uncountable kind (the
+ * mechanical flags and unattributed verdicts), which enter
+ * no total. A provenance trace counts its traced claims in
+ * its own field and its checked total is its claim count,
+ * the trace's established denominator. The object is shipped
+ * on the fact check at the dedupe point and the client
+ * renders these fields verbatim. */
+export function factCheckCounts(factCheck) {
+  if (!factCheck || typeof factCheck !== "object") return null;
+  const claims = Array.isArray(factCheck.claims) ? factCheck.claims : null;
+  if (!claims) return null;
+  if (factCheckKind(factCheck) === "provenance") {
+    return {
+      supported: 0,
+      thin: claims.filter((c) => c && c.status === "thin").length,
+      unsupported: claims.filter((c) => c && c.status === "unsupported").length,
+      traced: claims.filter((c) => c && c.status === "traced").length,
+      checked: claims.length,
+      flags: 0,
+    };
+  }
   const countable = claims.filter((c) => c && factCheckClaimCountable(c));
-  if (countable.length === 0) return null;
-  const supported = countable.filter((c) => c.status === "supported").length;
-  return { supported, checked: countable.length };
+  return {
+    supported: countable.filter((c) => c.status === "supported").length,
+    thin: countable.filter((c) => c.status === "thin").length,
+    unsupported: countable.filter((c) => c.status === "unsupported").length,
+    traced: 0,
+    checked: countable.length,
+    flags: claims.length - countable.length,
+  };
+}
+
+/* factCheckOverallFromCounts(counts): the one overall rule
+ * (2026-10-23, logic audit L5-14), shared by every site that
+ * constructs an overall: the deep construction in the
+ * handler, the dedupe recount, the universal rule recount,
+ * and the terms constructions. Supported requires at least
+ * one supported claim and no unsupported ones; an all thin
+ * result is partly; a result with zero countable claims has
+ * overall null, because no verdict exists. */
+export function factCheckOverallFromCounts(counts) {
+  if (!counts || typeof counts.checked !== "number" || counts.checked === 0) return null;
+  if (counts.unsupported === 0 && counts.supported >= 1) return "supported";
+  if (counts.supported === 0 && counts.thin === 0 && counts.unsupported > 0) return "unsupported";
+  return "partly";
+}
+
+/* factCheckSupportRecord(factCheck): the support record as a
+ * single computed object (2026-10-23, logic audit L5-8, this
+ * lane's half). Level and ratio travel together because the
+ * confidence builder receives THIS object whole as its
+ * support input: the counts, the supported total, the checked
+ * total, and the ratio are one computation from the finished
+ * fact check object, never assembled from separate reads at
+ * separate call sites. Null exactly where factCheckSupport
+ * is null (no verification, or a verification that checked
+ * nothing). */
+export function factCheckSupportRecord(factCheck) {
+  if (factCheckKind(factCheck) !== "verification") return null;
+  const counts = factCheckCounts(factCheck);
+  if (!counts || counts.checked === 0) return null;
+  return { ...counts, supported: counts.supported, checked: counts.checked, ratio: counts.supported / counts.checked };
+}
+
+/* withFactCheckCounts(factCheck): attach the counts object at
+ * the dedupe point (2026-10-23, logic audit L5-11), so the
+ * shipped object carries the totals the client renders. */
+export function withFactCheckCounts(factCheck) {
+  if (!factCheck || typeof factCheck !== "object" || !Array.isArray(factCheck.claims)) return factCheck;
+  const counts = factCheckCounts(factCheck);
+  if (!counts) return factCheck;
+  return { ...factCheck, counts };
+}
+
+/* The stage outcome is a closed enum (2026-10-23, logic audit
+ * L5-10): exactly one value per real state of the stage, and
+ * every surface, the stage record included, renders from this
+ * enum only. A failed check is tiers-failed; it is never
+ * described as the answer having nothing to verify, which is
+ * the separate ran-no-countable state. */
+export const FACT_CHECK_STAGE_OUTCOMES = [
+  "off", "no-time", "budget-spent", "tiers-failed", "ran-no-countable", "ran-with-verdicts",
+];
+
+export function deriveFactCheckStageOutcome(state = {}) {
+  if (state.settingOff) return "off";
+  if (state.budgetSkipped) return "budget-spent";
+  const countable = typeof state.countable === "number" ? state.countable : 0;
+  if (state.attempted && countable > 0) return "ran-with-verdicts";
+  if (!state.attempted) return "no-time";
+  if (state.ranCheck) return "ran-no-countable";
+  return "tiers-failed";
 }
 
 /* zeroSupportCheckMode(factCheck): which check produced this
@@ -19935,7 +20224,17 @@ export function deepClaimEvidenceVerified(claim, answer, papers) {
   if (!claim || typeof claim !== "object") return false;
   const idx = claim.sourceIndex != null ? claim.sourceIndex : claim.source_index;
   if (!Number.isInteger(idx) || idx < 1) return false;
-  if (!Array.isArray(papers) || idx > papers.length) return false;
+  if (!Array.isArray(papers)) return false;
+  // The countable test reads the set actually shown to the
+  // checker and the evidence unit actually judged
+  // (2026-10-23, logic audit L5-13): the index must sit inside
+  // the shown set (the first FACT_CHECK_SHOWN_SOURCES papers),
+  // not merely inside the full evidence set, and the paper at
+  // that index must carry an abstract. A cited paper with no
+  // abstract makes its claims uncountable; they are never
+  // checkable on title alone.
+  if (idx > Math.min(papers.length, FACT_CHECK_SHOWN_SOURCES)) return false;
+  if (!String(usableAbstract(papers[idx - 1]) || "").trim()) return false;
   const markers = claimSentenceCitationMarkers(claim.claim, answer);
   // The binding is contradicted only when the claim's sentence
   // carries citation markers and the index is not among them.
@@ -19970,40 +20269,81 @@ export function attributeDeepFactCheckClaims(claims, answer, papers) {
   return (Array.isArray(claims) ? claims : []).map((c) => ({
     ...c,
     unattributed: c && c.kind === "universal"
-      ? typeof c.sourceIndex === "number" && (c.sourceIndex < 1 || c.sourceIndex > pool.length)
+      ? typeof c.sourceIndex === "number" && (c.sourceIndex < 1 || c.sourceIndex > Math.min(pool.length, FACT_CHECK_SHOWN_SOURCES))
       : !deepClaimEvidenceVerified(c, answer, pool),
   }));
 }
 
-/* dedupeFactCheckClaims(factCheck): the same claim text checked
- * against two citations is ONE checked claim (sixth panel, Job
- * 1c). The deep check can emit a claim twice with different
- * source indices; the panel then counted it twice in every total
- * downstream — the checked count, the support count, the body
- * sentence. Folding happens here, once, on the finished object,
- * so every consumer (support totals, confidence, the panel, the
- * record, telemetry) reads the same deduped claims. The first
- * occurrence stands (its status and note, quote included);
- * summaries that state counts are recounted from the folded list,
- * and the overall is recomputed wherever the summary is. A
- * narrative summary (the integrity flags object's) states no
- * counts and is left exactly as written. */
+/* dedupeFactCheckClaims(factCheck): the finished panel is
+ * folded to answer sentence units and recounted, once, here
+ * (2026-10-23, logic audit L5-7 and L5-11; the fold itself
+ * dates to the sixth panel, Job 1c). The unit is the ANSWER
+ * SENTENCE, not a checker string: countable claims that carry
+ * a sentence position (stamped by the handler from the claim
+ * inventory, or returned by the checker as sentence_index)
+ * group by that position, and countable claims without one
+ * group by their normalized claim text. Verdicts for the same
+ * unit merge with WORST STATUS WINS (unsupported over thin
+ * over supported): the old first occurrence rule let a
+ * supported verdict folded in first silently drop a later
+ * unsupported one for the same sentence, and a compound
+ * sentence verdicted per clause takes its worst clause here
+ * because its clause verdicts share one sentence position and
+ * the merged unit is labelled with the sentence itself.
+ * Uncountable claims (the mechanical flags, unattributed
+ * verdicts) never merge into a unit and never enter a total:
+ * they pass through for the panel, and factCheckCounts, which
+ * this function attaches to the shipped object at this dedupe
+ * point, counts them separately as flags. Summaries that
+ * state counts are recounted from the folded list, in the
+ * evidence unit's own words (against the abstracts of the
+ * cited sources, 2026-10-23, L5-13), and the overall is
+ * recomputed by the one rule (factCheckOverallFromCounts,
+ * L5-14) wherever the summary is. A narrative summary (the
+ * integrity flags object's) states no counts and is left
+ * exactly as written. */
+const FACT_CHECK_STATUS_RANK = { unsupported: 3, thin: 2, supported: 1, traced: 1 };
+
 export function dedupeFactCheckClaims(factCheck) {
-  if (!factCheck || !Array.isArray(factCheck.claims) || factCheck.claims.length < 2) return factCheck;
-  const seen = new Set();
+  if (!factCheck || !Array.isArray(factCheck.claims)) return factCheck;
   const claims = [];
+  const groupPos = new Map();
   for (const c of factCheck.claims) {
-    const key = String((c && c.claim) || "").trim().toLowerCase().replace(/\s+/g, " ");
-    if (key) {
-      if (seen.has(key)) continue;
-      seen.add(key);
+    const countable = !!(c && factCheckClaimCountable(c));
+    const sentenceIdx = c && Number.isInteger(c.sentenceIndex)
+      ? c.sentenceIndex
+      : (c && Number.isInteger(c.answerSentenceIndex) ? c.answerSentenceIndex : null);
+    const textKey = c && typeof c.claim === "string"
+      ? c.claim.trim().toLowerCase().replace(/\s+/g, " ")
+      : "";
+    const key = countable
+      ? (sentenceIdx != null ? "s:" + sentenceIdx : (textKey ? "t:" + textKey : null))
+      : null;
+    if (key && groupPos.has(key)) {
+      const pos = groupPos.get(key);
+      const existing = claims[pos];
+      const rankNew = FACT_CHECK_STATUS_RANK[c.status] || 0;
+      const rankOld = FACT_CHECK_STATUS_RANK[existing && existing.status] || 0;
+      if (rankNew > rankOld) {
+        const merged = { ...c };
+        const sentenceText = (typeof c.sentence === "string" && c.sentence)
+          || (existing && typeof existing.sentence === "string" && existing.sentence)
+          || null;
+        if (sentenceText) merged.claim = sentenceText;
+        claims[pos] = merged;
+      }
+      continue;
     }
-    claims.push(c);
+    if (key) groupPos.set(key, claims.length);
+    if (key && key.startsWith("s:") && c && typeof c.sentence === "string" && c.sentence) {
+      claims.push({ ...c, claim: c.sentence });
+    } else {
+      claims.push(c);
+    }
   }
-  if (claims.length === factCheck.claims.length) return factCheck;
   const out = { ...factCheck, claims };
   const recountsSummary = factCheck.mode === "extractive" ||
-    (factCheck.mode === "claims" && /^Checked \d+ claims? against the cited sources:/.test(String(factCheck.summary || "")));
+    (factCheck.mode === "claims" && /^Checked \d+ claims? against the (?:abstracts of the )?cited sources:/.test(String(factCheck.summary || "")));
   if (recountsSummary) {
     // The counted tier's word follows the check's kind (seventh
     // panel, wave eight round two): a verification recounts its
@@ -20030,14 +20370,21 @@ export function dedupeFactCheckClaims(factCheck) {
       out.summary = extractiveTraceSummary(claims);
       out.checked = claims.length > 0;
     } else if (counted.length > 0) {
-      out.overall = nUns === 0
-        ? "supported"
-        : (nSup > 0 || nThin > 0) ? "partly" : "unsupported";
+      out.overall = factCheckOverallFromCounts({
+        supported: nSup, thin: nThin, unsupported: nUns, checked: counted.length,
+      });
       out.summary = "Checked " + counted.length + " claim" + (counted.length === 1 ? "" : "s") +
-        " against the cited sources: " +
+        " against the abstracts of the cited sources: " +
         nSup + " supported, " + nThin + " thin, " + nUns + " unsupported.";
+    } else {
+      // Zero countable claims: no verdict exists (L5-14).
+      out.overall = null;
     }
   }
+  // The counts ship on the object at this dedupe point
+  // (2026-10-23, logic audit L5-11).
+  const counts = factCheckCounts(out);
+  if (counts) out.counts = counts;
   return out;
 }
 
@@ -20253,16 +20600,24 @@ export function applyUniversalClaimRule(factCheck, papers) {
   if (claims === factCheck.claims) return factCheck;
   const out = { ...factCheck, claims };
   if (factCheck.mode === "claims" && typeof factCheck.summary === "string" &&
-      /^Checked \d+ claims? against the cited sources:/.test(factCheck.summary)) {
+      /^Checked \d+ claims? against the (?:abstracts of the )?cited sources:/.test(factCheck.summary)) {
     const counted = claims.filter((c) => c && factCheckClaimCountable(c));
     if (counted.length > 0) {
       const nSup = counted.filter((c) => c.status === "supported").length;
       const nThin = counted.filter((c) => c.status === "thin").length;
       const nUns = counted.filter((c) => c.status === "unsupported").length;
-      out.overall = nUns === 0 ? "supported" : (nSup > 0 || nThin > 0) ? "partly" : "unsupported";
+      // One overall rule and the evidence unit in the sentence
+      // (2026-10-23, logic audit L5-14 and L5-13).
+      out.overall = factCheckOverallFromCounts({
+        supported: nSup, thin: nThin, unsupported: nUns, checked: counted.length,
+      });
       out.summary = "Checked " + counted.length + " claim" + (counted.length === 1 ? "" : "s") +
-        " against the cited sources: " + nSup + " supported, " + nThin + " thin, " + nUns + " unsupported.";
+        " against the abstracts of the cited sources: " + nSup + " supported, " + nThin + " thin, " + nUns + " unsupported.";
+    } else {
+      out.overall = null;
     }
+    const counts = factCheckCounts(out);
+    if (counts) out.counts = counts;
   }
   return out;
 }
@@ -20961,7 +21316,8 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   // readings of a single computation.
   const supClause = sup
     ? " The claim check supports " + sup.supported + " of " + sup.checked +
-      " checked claim" + (sup.checked === 1 ? "" : "s") + "."
+      " checked claim" + (sup.checked === 1 ? "" : "s") +
+      " against the abstracts of the cited sources."
     : "";
   // The line is rendered by confidenceLineText from these parts,
   // and the parts ride the object (internal, like the score) so
@@ -22294,6 +22650,7 @@ export function packAnswerCachePayload(sources, trust) {
     sources: Array.isArray(sources) ? sources : [],
     trust: {
       factCheck: t.factCheck && typeof t.factCheck === "object" ? t.factCheck : null,
+      ...(typeof t.factCheckStoredAt === "number" ? { factCheckStoredAt: t.factCheckStoredAt } : {}),
       synthesisMode: typeof t.synthesisMode === "string" && t.synthesisMode ? t.synthesisMode : null,
       disagreementVerdict: t.disagreementVerdict && typeof t.disagreementVerdict === "object"
         ? t.disagreementVerdict : null,
@@ -22314,6 +22671,7 @@ export function unpackAnswerCachePayload(raw) {
       sources: parsed.sources,
       trust: {
         factCheck: t.factCheck && typeof t.factCheck === "object" ? t.factCheck : null,
+        ...(typeof t.factCheckStoredAt === "number" ? { factCheckStoredAt: t.factCheckStoredAt } : {}),
         synthesisMode: typeof t.synthesisMode === "string" && t.synthesisMode ? t.synthesisMode : null,
         disagreementVerdict: t.disagreementVerdict && typeof t.disagreementVerdict === "object"
           ? t.disagreementVerdict : null,
@@ -22396,7 +22754,13 @@ export function unpackAnswerCachePayload(raw) {
  * still derives factCheckChecked false and the unchecked cap
  * applies, exactly as a live answer whose check checked
  * nothing; a pre envelope payload stored nothing and derives
- * the same honest absences. */
+ * the same honest absences.
+ * path feeds it. The confidence recompute consumes the stored
+ * fact check object the serve ships (2026-10-23, logic audit
+ * L5-12): factCheckActuallyChecked and factCheckSupport read
+ * that object, so a serve whose stored check really checked
+ * claims is not recomputed as unchecked, and a serve with no
+ * stored check still recomputes as unchecked. */
 export function buildCachedServeTrust(input) {
   const answer = input && typeof input.answer === "string" ? input.answer : "";
   const labeledSources = labelUncitedSources(
@@ -22445,6 +22809,23 @@ export function buildCachedServeTrust(input) {
   // answer would. Before this pass the cached path never asked
   // factCheckKind at all, so such a payload recomputed under
   // only the unchecked cap.
+  // The stored check is corrected and labelled BEFORE the
+  // confidence recompute (2026-10-23, logic audit L5-12): the
+  // recompute consumes the same stored object this serve ships
+  // (below), never a blank unchecked input beside a shipped
+  // panel, and the shipped object is labelled as stored, with
+  // its original run date, everywhere it appears.
+  if (correctedFactCheck) {
+    const storedAtMs = typeof (input && input.factCheckStoredAt) === "number"
+      ? input.factCheckStoredAt
+      : (input && input.askedAt != null ? new Date(input.askedAt).getTime() : NaN);
+    correctedFactCheck = {
+      ...correctedFactCheck,
+      stored: true,
+      ...(Number.isFinite(storedAtMs) ? { storedAt: new Date(storedAtMs).toISOString() } : {}),
+    };
+    correctedFactCheck = withFactCheckCounts(correctedFactCheck);
+  }
   let confidence = buildConfidenceLine(citedPapers,
     (input && input.disagreementVerdict && typeof input.disagreementVerdict === "object")
       ? input.disagreementVerdict : null, {
@@ -22471,7 +22852,7 @@ export function buildCachedServeTrust(input) {
     // The stored payload carries its original fact check; its
     // flag count is the real input to the calibration penalty
     // (L6-11), not the literal zero this call used to pass.
-    integrityFlags: integrityFlagCount(input && input.factCheck),
+    integrityFlags: integrityFlagCount(correctedFactCheck),
   });
   // BAKED LINE BINDING, cached serve parity (2026-10-14, sixth
   // panel follow up): the ship gate binds a fresh extractive
@@ -22542,6 +22923,13 @@ export function buildCachedServeTrust(input) {
   // correctedFactCheck was computed at the top of this builder
   // (see the parity note there): the corrected object is what
   // the serve ships after the split remap.
+  // UNIVERSAL CLAIM RULE, cached serve parity (2026-10-22,
+  // labelled 2026-10-23 under L5-12): the corrected, stored
+  // labelled object computed above, against the stored
+  // payload's own source list, is what the serve ships after
+  // the split remap. A stored "supported" verdict on a
+  // universal negative from a non systematic source never
+  // reaches a reader from a cache hit either.
   return { answer: servedAnswer, labeledSources, funnel, coverage, record, confidence, factCheck: correctedFactCheck };
 }
 
@@ -30716,6 +31104,7 @@ async function runSearchPipeline(pctx) {
             // builder and its fixtures, but neither live caller
             // passed them, so the binding was inert in production.
             factCheck: earlyTrustSignals ? earlyTrustSignals.factCheck : undefined,
+            factCheckStoredAt: earlyTrustSignals ? earlyTrustSignals.factCheckStoredAt : undefined,
             synthesisMode: earlyTrustSignals ? earlyTrustSignals.synthesisMode : undefined,
             // The stored verdict reaches the trust builder too
             // (2026-10-23, logic audit L6-9): without it a stored
@@ -30742,7 +31131,10 @@ async function runSearchPipeline(pctx) {
               factCheck: earlyTrust.factCheck ? remapFactCheckIndices(earlyTrust.factCheck, earlySplit.indexMap) : null,
               disagreementVerdict: earlyTrustSignals ? earlyTrustSignals.disagreementVerdict : null,
               related: [],
-              source: "Cached (verified)",
+              // Stored, not verified (2026-10-23, logic audit
+              // L5-12): the tag names a stored check only when a
+              // check object actually ships, labelled as stored.
+              source: earlyTrust.factCheck ? "Cached (stored check)" : "Cached",
               aiQuota: aiQuotaPayload(),
               answerLength,
               // When the payload records the mode that produced the
@@ -33542,7 +33934,10 @@ async function runSearchPipeline(pctx) {
         answer: cachedAnswer.answer,
         sources: storedLateSources,
         question: query,
-        askedAt: new Date(),
+        // The original run's own time (2026-10-23, logic audit
+        // L5-12), not this serve's: the record and the stored
+        // check label describe the run that produced them.
+        askedAt: cachedAnswer.created_at != null ? cachedAnswer.created_at : new Date(),
         diag: gResult && gResult._diag,
         databases: publicSourcesQueried(),
         funnel: laterF && typeof laterF.gathered === "number" ? {
@@ -33559,6 +33954,7 @@ async function runSearchPipeline(pctx) {
         degraded: stageHealthDegraded(stageHealth),
         answerLength,
         factCheck: laterTrustSignals ? laterTrustSignals.factCheck : undefined,
+        factCheckStoredAt: laterTrustSignals ? laterTrustSignals.factCheckStoredAt : undefined,
         synthesisMode: laterTrustSignals ? laterTrustSignals.synthesisMode : undefined,
         // The stored verdict reaches the trust builder too
         // (2026-10-23, logic audit L6-9), as on the early path.
@@ -33580,7 +33976,8 @@ async function runSearchPipeline(pctx) {
           factCheck: laterTrust.factCheck ? remapFactCheckIndices(laterTrust.factCheck, laterSplit.indexMap) : null,
           disagreementVerdict: laterTrustSignals ? laterTrustSignals.disagreementVerdict : null,
           related: [],
-          source: "Cached (verified)",
+          // Stored, not verified (2026-10-23, logic audit L5-12).
+          source: laterTrust.factCheck ? "Cached (stored check)" : "Cached",
           aiQuota: aiQuotaPayload(),
           answerLength,
           // The recorded mode ships when the payload carries one;
@@ -36391,7 +36788,17 @@ async function runSearchPipeline(pctx) {
       // from the specific source it's supposed to come from and a real
       // methodological justification, which is what the FactCheck panel's
       // copy ("relevance/fact-check") always implied it was doing.
-      const deepClaims = await deepFactCheck(answer, evidencePapers, env, ledger, factCheckTrace, Date.now() + FACT_CHECK_RESERVE_MS).catch(() => null);
+      // Claim inventory and winner exclusion (2026-10-23, logic
+      // audit L5-5 and L5-6): the inventory is built here, from
+      // the answer as it stands, and handed to the check as its
+      // fixed list; the synthesis winner recorded by the race
+      // is handed over too, so the check can exclude that model
+      // and its family from its tiers in code.
+      const claimInventory = buildClaimCheckInventory(answer);
+      const deepClaims = await deepFactCheck(answer, evidencePapers, env, ledger, factCheckTrace, Date.now() + FACT_CHECK_RESERVE_MS, {
+        inventory: claimInventory,
+        synthesisModel: synthWinner ? String(synthWinner.model) : null,
+      }).catch(() => null);
       if (deepClaims) {
         // Wave twelve (item 1): a verdict is a check only when it
         // is bound to a source in the set the checker was given.
@@ -36424,20 +36831,45 @@ async function runSearchPipeline(pctx) {
         // verdict. One paper not doing X cannot support "no paper
         // does X" (see applyUniversalClaimRuleToClaims).
         const ruledClaims = applyUniversalClaimRuleToClaims(attributed, evidencePapers);
+        // Sentence stamps (2026-10-23, logic audit L5-7): each
+        // verdict is bound to its answer sentence, by the
+        // inventory position the checker returned when it
+        // returned one, and otherwise by matching the claim
+        // against the inventory's sentences. The dedupe point
+        // merges verdicts by this stamp, worst status wins, so
+        // the countable unit is the sentence, never a checker
+        // string, and a compound sentence verdicted per clause
+        // takes its worst clause.
+        for (const c of ruledClaims) {
+          if (!c || typeof c.claim !== "string") continue;
+          let idx = Number.isInteger(c.answerSentenceIndex) ? c.answerSentenceIndex : null;
+          if (idx == null || idx < 1 || idx > claimInventory.length) {
+            const hit = claimInventory.find((e) => claimNamesSentence(c.claim, e.sentence));
+            idx = hit ? hit.index : null;
+          }
+          if (idx != null && claimInventory[idx - 1]) {
+            c.sentenceIndex = claimInventory[idx - 1].index;
+            c.sentence = claimInventory[idx - 1].sentence;
+          }
+        }
         const checkedClaims = ruledClaims.filter((c) => !c.unattributed);
         const unsupportedCount = checkedClaims.filter((c) => c.status === "unsupported").length;
         const supportedCount = checkedClaims.filter((c) => c.status === "supported").length;
         const thinCount = checkedClaims.filter((c) => c.status === "thin").length;
-        let overall = checkedClaims.length === 0
-          ? "partly"
-          : unsupportedCount === 0
-          ? "supported"
-          : (supportedCount > 0 || thinCount > 0)
-          ? "partly"
-          : "unsupported";
+        // One overall rule (2026-10-23, logic audit L5-14):
+        // zero countable claims has overall null, all thin is
+        // partly, supported needs a supported claim and no
+        // unsupported ones. Declared with let because the
+        // coverage accounting below can still demote a
+        // supported overall to partly (audit L4-4).
+        let overall = factCheckOverallFromCounts({
+          supported: supportedCount, thin: thinCount,
+          unsupported: unsupportedCount, checked: checkedClaims.length,
+        });
         const claims = ruledClaims.map((c) => ({
           claim: c.claim,
           status: c.status,
+          ...(c.sentenceIndex ? { sentenceIndex: c.sentenceIndex, sentence: c.sentence } : {}),
           ...(c.unattributed ? { kind: "unattributed" } : (c.kind ? { kind: c.kind } : {})),
           // Same shape the frontend has always rendered . {claim, status,
           // note} . so this richer backend needed zero FactCheck component
@@ -36447,7 +36879,7 @@ async function runSearchPipeline(pctx) {
             ? `"${c.quote}"${c.sourceIndex ? ` [${c.sourceIndex}]` : ""} . ${c.justification}`
             : c.justification,
         }));
-        let summary = `Checked ${checkedClaims.length} claim${checkedClaims.length === 1 ? "" : "s"} against the cited sources: ` +
+        let summary = `Checked ${checkedClaims.length} claim${checkedClaims.length === 1 ? "" : "s"} against the abstracts of the cited sources: ` +
           `${supportedCount} supported, ${thinCount} thin, ${unsupportedCount} unsupported.`;
         // Claim coverage against the answer's own inventory
         // (2026-10-23, audit L4-4): the checker model selects the
@@ -36484,7 +36916,17 @@ async function runSearchPipeline(pctx) {
         // under the same "Supported by sources" heading and the same big
         // percentage, which let a name-spelling check present itself as a
         // verified answer. Reported by a reader: "this doesn't make sense."
-        factCheckResult = { overall, summary, claims, mode: "claims", ...(claimCoverage ? { claimCoverage } : {}) };
+        factCheckResult = {
+          overall, summary, claims, mode: "claims",
+          ...(claimCoverage ? { claimCoverage } : {}),
+          // The checking model rides the object (2026-10-23,
+          // logic audit L5-6), so any surface can show the check
+          // was independent of the model that wrote the answer.
+          ...(deepClaims && deepClaims.checkingModel ? { checkingModel: deepClaims.checkingModel } : {}),
+          // Coverage ships as checked over the answer's own
+          // inventory (2026-10-23, logic audit L5-5).
+          inventoryTotal: claimInventory.length,
+        };
         // Removal keys on the check's own verdicts against real
         // sources (wave twelve, item 1): an unattributed verdict
         // names no source in the set, so it removes nothing.
@@ -36511,11 +36953,11 @@ async function runSearchPipeline(pctx) {
           // "unsupported", same as a solid match would, just rendered with its
           // own lighter-weight status in the UI rather than collapsed into
           // "supported" and losing that nuance.
-          const overall = fc.unsupported.length === 0
-            ? "supported"
-            : (fc.supported.length > 0 || fc.thin.length > 0)
-            ? "partly"
-            : "unsupported";
+          const overall = factCheckOverallFromCounts({
+            supported: fc.supported.length, thin: fc.thin.length,
+            unsupported: fc.unsupported.length,
+            checked: fc.supported.length + fc.thin.length + fc.unsupported.length,
+          });
           // Commit 99 . the note on a clean term used to read "Appears in at
           // least one cited source", repeated verbatim once per term. Three
           // identical rows saying nothing a reader could act on, under a
@@ -36555,11 +36997,11 @@ async function runSearchPipeline(pctx) {
       try {
         const fcLight = verifyAnswerAgainstSources(answer, evidencePapers);
         if (fcLight.checked) {
-          const overallLight = fcLight.unsupported.length === 0
-            ? "supported"
-            : (fcLight.supported.length > 0 || fcLight.thin.length > 0)
-            ? "partly"
-            : "unsupported";
+          const overallLight = factCheckOverallFromCounts({
+            supported: fcLight.supported.length, thin: fcLight.thin.length,
+            unsupported: fcLight.unsupported.length,
+            checked: fcLight.supported.length + fcLight.thin.length + fcLight.unsupported.length,
+          });
           const claimsLight = [
             ...fcLight.supported.map((term) => ({ claim: term, status: "supported", note: "" })),
             ...fcLight.thin.map((term) => ({ claim: term, status: "thin", note: "The answer spells this one out, and that longer phrase is in a source. The short form itself is not." })),
@@ -36596,7 +37038,9 @@ async function runSearchPipeline(pctx) {
         // The checker ran and found no checkable claims . a skip,
         // not a failure. Recording ok false here degraded every
         // healthy answer whose claims the checker could not read.
-        stageHealth.push({ name: "fact-check", ok: null, skipReason: "nothing to verify", ms: Date.now() - factCheckT0 });
+        // Stage outcome enum (2026-10-23, logic audit L5-10):
+        // the trace ran and found nothing countable.
+        stageHealth.push({ name: "fact-check", ok: null, skipReason: "ran-no-countable", ms: Date.now() - factCheckT0 });
       }
     }
     // (b) AI PATH . conservative mechanical post-check: flag claims with
@@ -36625,6 +37069,17 @@ async function runSearchPipeline(pctx) {
         factCheckResult && Array.isArray(factCheckResult.claims) && factCheckResult.claims.length > 0
       );
       const factCheckStageCheckedFlag = factCheckResult ? factCheckResult.checked : undefined;
+      // Stage outcome inputs (2026-10-23, logic audit L5-10),
+      // captured at the same point for the same reason: the
+      // stage's own countable total before the flags merge, and
+      // whether any check actually ran (a tier landed a verdict
+      // or the light terms tier ran), which separates
+      // tiers-failed from ran-no-countable below.
+      const factCheckStageCountable = factCheckResult
+        ? (factCheckCounts(factCheckResult) || { checked: 0 }).checked
+        : 0;
+      const factCheckStageRanCheck = factCheckStageProducedResult ||
+        factCheckTrace.some((t) => t && (t.outcome === "ok" || t.outcome === "nothing-to-verify"));
       try {
         aiAlignmentIssues = postCheckAIAlignment(answer, evidencePapers).issues;
       } catch { aiAlignmentIssues = []; }
@@ -36853,33 +37308,32 @@ async function runSearchPipeline(pctx) {
       // proves never landed a verdict, and the stage reported
       // ok true with a panel of flags for company.
       const fcChecked = factCheckStageProducedResult && factCheckStageCheckedFlag !== false;
-      if (fcChecked) {
+      // STAGE OUTCOME (2026-10-23, logic audit L5-10): the
+      // stage record renders from the closed outcome enum
+      // only, derived from the stage's own captured inputs.
+      // A run whose tiers all failed is tiers-failed; the old
+      // wording called that nothing to verify, which conflated
+      // a failed check with an answer that contained nothing
+      // checkable, and the free text reason built from tier
+      // parts is gone from this record. The tier by tier detail
+      // still rides the search record's fact check trace.
+      const factCheckStageOutcome = deriveFactCheckStageOutcome({
+        settingOff: !settings.factCheck,
+        budgetSkipped: factCheckBudgetSkipped,
+        attempted: factCheckAttempted,
+        ranCheck: factCheckStageRanCheck,
+        countable: factCheckStageCountable,
+      });
+      if (factCheckResult) {
+        try { factCheckResult.stageOutcome = factCheckStageOutcome; } catch { /* the record must never break the serve */ }
+      }
+      if (factCheckStageOutcome === "ran-with-verdicts" && fcChecked) {
         stageHealth.push({ name: "fact-check", ok: true, ms: Date.now() - factCheckT0 });
       } else {
-        // WAVE THIRTEEN (2026-10-14, brief item 3): the skip
-        // reason names the cause in the trace's own terms. An
-        // attempt whose tiers all failed says so, tier by tier
-        // ("nothing to verify — deep tiers: workers-ai timeout;
-        // openrouter http-429"), which is a different diagnosis
-        // from a checker that answered and found nothing, and
-        // both differ from a stage that never attempted, whose
-        // cause (toggle off, no time, budget) is named by
-        // factCheckSkipCause and the budget constant as before.
-        // The attempted / not attempted distinction the older
-        // pins protected survives: attempted runs still lead
-        // with "nothing to verify", non attempts still say the
-        // check did not run — now with the reason attached.
-        const fcTierSummary = factCheckAttempted ? factCheckTraceSummary(factCheckTrace) : "";
         stageHealth.push({
           name: "fact-check",
           ok: null,
-          skipReason: factCheckBudgetSkipped
-            ? SUBREQUEST_EXHAUSTED_REASON
-            : factCheckAttempted
-              ? (fcTierSummary
-                  ? "nothing to verify — deep tiers: " + fcTierSummary
-                  : "nothing to verify")
-              : (factCheckSkipCause || "fact check did not run"),
+          skipReason: factCheckStageOutcome,
           ms: Date.now() - factCheckT0,
         });
       }
@@ -36891,6 +37345,39 @@ async function runSearchPipeline(pctx) {
     // citations is one checked claim in the panel, the support
     // totals, the body sentence, and the record alike.
     if (factCheckResult) factCheckResult = dedupeFactCheckClaims(factCheckResult);
+
+    // COUNTS AND COVERAGE ON THE SHIPPED OBJECT (2026-10-23,
+    // logic audit L5-11 and L5-5): dedupe attached the counts;
+    // this pass makes sure every shipped object carries them,
+    // states coverage as checked over inventory for the deep
+    // check, and gives objects formed outside the AI stage
+    // record (the extractive trace, the terms light tier) a
+    // stage outcome from the same enum.
+    if (factCheckResult) {
+      factCheckResult = withFactCheckCounts(factCheckResult);
+      if (factCheckResult.mode === "claims" && typeof factCheckResult.inventoryTotal === "number") {
+        const countsNow = factCheckCounts(factCheckResult);
+        factCheckResult = {
+          ...factCheckResult,
+          coverage: {
+            checked: countsNow ? countsNow.checked : 0,
+            inventory: factCheckResult.inventoryTotal,
+          },
+        };
+      }
+      if (!factCheckResult.stageOutcome) {
+        factCheckResult = {
+          ...factCheckResult,
+          stageOutcome: deriveFactCheckStageOutcome({
+            settingOff: !settings.factCheck,
+            budgetSkipped: factCheckBudgetSkipped,
+            attempted: factCheckAttempted || factCheckActuallyChecked(factCheckResult),
+            ranCheck: true,
+            countable: (factCheckCounts(factCheckResult) || { checked: 0 }).checked,
+          }),
+        };
+      }
+    }
 
     // UNIVERSAL CLAIM RULE, PANEL BACKSTOP (2026-10-22, answer
     // integrity repair): the deep construction applies the rule
@@ -37140,12 +37627,22 @@ async function runSearchPipeline(pctx) {
     // states the trace as a trace instead — the sentence names
     // what was actually established, in the same slot, from the
     // same deduped object.
+    // THE SUPPORT RECORD, COMPUTED ONCE (2026-10-23, logic
+    // audit L5-8, this lane's half): every remaining consumer
+    // of support on this serve (the body sentence below, the
+    // cache write's clean run test, and the confidence builder)
+    // reads this one object, computed from the finished fact
+    // check object the response ships, so the level and the
+    // ratio a reader sees can never be assembled from separate
+    // reads of separate shapes.
+    const supportRecord = factCheckSupportRecord(factCheckResult);
     if (extractiveOK && factCheckResult && Array.isArray(factCheckResult.claims) && factCheckResult.claims.length > 0) {
-      const bodySupport = factCheckSupport(factCheckResult);
+      const bodySupport = supportRecord;
       if (bodySupport && bodySupport.checked > 0) {
         answer = appendClaimCheckSentence(answer,
           "The claim check supports " + bodySupport.supported + " of " + bodySupport.checked +
-          " checked claim" + (bodySupport.checked === 1 ? "" : "s") + ".");
+          " checked claim" + (bodySupport.checked === 1 ? "" : "s") +
+          " against the abstracts of the cited sources.");
       } else {
         const prov = factCheckProvenance(factCheckResult);
         if (prov && prov.checked > 0) {
@@ -37467,7 +37964,7 @@ async function runSearchPipeline(pctx) {
       // else writes 0, exactly as before, and votes keep their
       // meaning on top.
       const citedAtWrite = distinctCitedCount(answer, sourceList.length);
-      const supportAtWrite = factCheckResult ? factCheckSupport(factCheckResult) : null;
+      const supportAtWrite = supportRecord;
       const cleanFullAi = !extractiveOK && citedAtWrite >= 2 &&
         !(supportAtWrite && supportAtWrite.checked > 0 && supportAtWrite.supported === 0) &&
         !stageHealthDegraded(stageHealth);
@@ -37487,6 +37984,10 @@ async function runSearchPipeline(pctx) {
         // of null and absent.
         packAnswerCachePayload(sourceList.slice(0, 10), {
           factCheck: factCheckResult,
+          // The stored check's original run date (2026-10-23,
+          // logic audit L5-12), so a later cache serve can label
+          // the check with when it actually ran.
+          factCheckStoredAt: Date.now(),
           synthesisMode: extractiveOK ? "extractive" : aiOK ? "ai" : "none",
           disagreementVerdict,
         }),
@@ -37533,9 +38034,12 @@ async function runSearchPipeline(pctx) {
           // check, which is how a budget skipped stage shipped
           // beside an uncapped confidence level.
           factCheckChecked: factCheckActuallyChecked(factCheckResult),
-          // Support is the fact check's own count of claims it marked
-          // supported, never the citation count (see factCheckSupport).
-          support: factCheckSupport(factCheckResult),
+          // Support is the one support record computed from
+          // the finished fact check object above (2026-10-23,
+          // L5-8): the builder receives the record whole, so
+          // its level and its support clause come from the same
+          // object. Never the citation count.
+          support: supportRecord,
           // The refused count of the same record (2026-10-23,
           // logic audit L6-2): the builder caps below strong on
           // any countable refused claim, and this helper is the
