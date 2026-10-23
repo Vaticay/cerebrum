@@ -380,14 +380,22 @@ await test("a live marked lookup is recomputed deterministically at the gate; an
 group("L3-14 — missing relevance is a typed absence everywhere");
 
 await test("the confidence line names the absence instead of averaging in a 50", () => {
+  // Composed at the Wave 3 S3 landing (2026-10-23): L6-5, landed
+  // first, moved relevance out of the evidence score into the
+  // separately reported retrieval record, where a missing input
+  // neither earns nor costs points. L3-14's substance stands in
+  // that shape: the absence is named in the shipped record, no
+  // 50 is substituted, and the scored mean is still reported.
   const papers = [{ title: "a" }, { title: "b" }, { title: "c" }];
   const out = buildConfidenceLine(papers, { status: "supported", conflictCount: 0 }, {});
-  assert.ok(out.factors.some((f) => /no relevance scores available/.test(f)),
-    "the absence was not named: " + JSON.stringify(out.factors));
-  assert.ok(!out.factors.some((f) => /mean relevance 50\/100/.test(f)), "a 50 was substituted for missing relevance");
+  const record = [...(out.factors || []), ...(out.retrievalFactors || [])];
+  assert.ok(record.some((f) => /no relevance scores were recorded/.test(f)),
+    "the absence was not named: " + JSON.stringify(record));
+  assert.ok(!record.some((f) => /mean relevance 50\/100/.test(f)), "a 50 was substituted for missing relevance");
   const scored = [{ title: "a", relevance: 80 }, { title: "b", relevance: 80 }, { title: "c", relevance: 80 }];
   const out2 = buildConfidenceLine(scored, { status: "supported", conflictCount: 0 }, {});
-  assert.ok(out2.factors.some((f) => /mean relevance 80\/100/.test(f)), "the scored mean changed: " + JSON.stringify(out2.factors));
+  const record2 = [...(out2.factors || []), ...(out2.retrievalFactors || [])];
+  assert.ok(record2.some((f) => /mean relevance 80\/100/.test(f)), "the scored mean changed: " + JSON.stringify(record2));
 });
 
 await test("the verdict guard names the absence instead of reading it as zero", () => {

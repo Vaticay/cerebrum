@@ -20023,6 +20023,7 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   };
   retrievalFactors.push(n + " cited source" + (n === 1 ? "" : "s") + ", " + studies.length + " independent stud" + (studies.length === 1 ? "y" : "ies"));
   if (avgRelevance !== null) retrievalFactors.push("mean relevance " + Math.round(avgRelevance) + "/100 (retrieval quality, not evidence)");
+  else retrievalFactors.push("no relevance scores were recorded for the cited sources (retrieval quality, not evidence)");
   if (retrieval.newestYear !== null) retrievalFactors.push("newest source from " + retrieval.newestYear + " (retrieval quality, not evidence)");
   retrievalFactors.push(withAbs + "/" + n + " cited sources with accessible abstracts (retrieval quality, not evidence)");
   if (retrieval.semanticAvg !== null) retrievalFactors.push("mean semantic match " + retrieval.semanticAvg + "/100 (retrieval quality, not evidence)");
@@ -20085,12 +20086,6 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   if (status === "divided") applyCap(70, null);
   if (avgRelevance !== null && avgRelevance < 40) applyCap(45, "the cited papers have low mean relevance");
 
-  // No relevance scores at all (2026-10-23, L3-14, composed at
-  // the Wave 3 landing with L6-5): the absence is handled in the
-  // open, capped and named, never averaged away. The mean here
-  // is the retrieval mean, from which missing values are absent
-  // rather than defaulted.
-  if (avgRelevance === null) applyCap(45, "no relevance scores were available for the cited sources");
   const tier = String((context && context.tier) || "");
   if (THIN_CAPPED_TIERS.has(tier)) {
     applyCap(45, tier === "definition"
