@@ -679,7 +679,14 @@ await test("confidence rests on cited papers (never calls them support) and caps
   // count and claims support only from fact check claim verdicts.
   const clean = backendConfidence(strongCitedPapers, { status: "settled" }, { factCheckChecked: true });
   assert.equal(clean.level, "strong");
-  assert.equal(clean.score, 100);
+  // Pin change (2026-10-23, logic audit L6-5): the score used to
+  // read 100 here because most of its points paid for retrieval
+  // and packaging (count, relevance, venue type, recency,
+  // abstracts, semantic match). The evidence only score reads
+  // this set as class rank 2 of 4 with full study breadth and a
+  // settled verdict: 84, still the strong band. The level
+  // contract below is unchanged.
+  assert.equal(clean.score, 84);
   assert.match(clean.line, /this answer rests on 12 cited sources/);
   assert.ok(!/cited sources? support this answer/.test(clean.line),
     "line must not call cited papers supporting");

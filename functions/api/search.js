@@ -11964,8 +11964,36 @@ export const RETRIEVAL_NEGATIVE_STATEMENT =
   "I could not find one in the papers retrieved here. That is not proof that none exists.";
 export const RETRIEVAL_SCOPE_SENTENCE =
   "That result is limited to the papers retrieved here.";
+/* Headline gate sentences (2026-10-23, logic audit L6-8): the
+ * downgrades the ship gate substitutes when a headline shaped
+ * claim has neither a supporting checked claim nor a systematic
+ * source covering it. Plain words, no dash characters. */
+export const SINGLE_SOURCE_SCOPE_SENTENCE =
+  "That claim rests on a single cited paper, and that paper speaks only to its own scope.";
+export const UNIVERSAL_SCOPE_SENTENCE =
+  "That claim is broader than the papers retrieved here can establish.";
+export const HEADLINE_YES_DOWNGRADE =
+  "The cited evidence points to yes, but it does not settle the question on its own.";
+export const HEADLINE_NO_DOWNGRADE =
+  "The cited evidence points to no, but it does not settle the question on its own.";
 
-export function scopeExistenceAnswer(answer, query, papers) {
+const HEADLINE_QUALIFIER_RE =
+  /\b(may|might|could|generally|typically|often|usually|suggests?|appears?|seems?|in the cited|among the cited|retrieved here|points to)\b/i;
+
+/* checkedClaimSupportsSentence(factCheck, sentence): a real
+ * claim check marked a claim naming this sentence supported
+ * (2026-10-23, logic audit L6-8). Countable verification claims
+ * only: terms presence marks and provenance trace marks are
+ * not support anywhere in this pipeline, and they are not
+ * support for a headline either. */
+export function checkedClaimSupportsSentence(factCheck, sentence) {
+  if (!factCheck || factCheckKind(factCheck) !== "verification" || !Array.isArray(factCheck.claims)) return false;
+  return factCheck.claims.some((c) => c && factCheckClaimCountable(c) && c.status === "supported" &&
+    typeof c.claim === "string" &&
+    claimNamesSentence(c.claim, sentence, c.sourceIndex != null ? c.sourceIndex : c.source_index));
+}
+
+export function scopeExistenceAnswer(answer, query, papers, opts = {}) {
   const text = String(answer || "");
   if (!text) return text;
   // The gate is not limited to existence shaped questions
@@ -11983,6 +12011,31 @@ export function scopeExistenceAnswer(answer, query, papers) {
   const tail = text.slice(boundary.length);
   const blocks = sectionizeAnswer(boundary);
   let replaced = false;
+  let changedAny = false;
+  // Headline gate inputs (2026-10-23, logic audit L6-8). The
+  // caps and prose binders govern only the confidence line and
+  // confidence shaped prose, so a false or unhedged headline
+  // used to ship untouched at any label level: the trigger
+  // case's headline asserted a false universal negative beside
+  // a correct Low confidence line. The negative pass below
+  // already gates universal negatives in every run. The wider
+  // headline shapes (field level generalizations resting on one
+  // paper, universal affirmatives, bare yes or no leads) are
+  // gated on the ship time run, where the caller passes the
+  // finished fact check (opts.factCheck): such a claim stands
+  // only with a supporting checked claim or a systematic source
+  // covering it, and is otherwise downgraded in wording. The
+  // pre check run (no fact check passed) keeps its established
+  // negative only scope, so the check still reads the same text
+  // the first gate produced.
+  const shipFactCheck = opts && typeof opts === "object" ? opts.factCheck : null;
+  const headlineSentence = shipFactCheck ? shortAnswerCentralClaim(text) : null;
+  const headlineSupported = (s) => {
+    const citedIdx = [...new Set([...String(s).matchAll(/\[(\d{1,3})\]/g)].map((m) => parseInt(m[1], 10)))];
+    const cited = citedIdx.map((n) => pool[n - 1]).filter(Boolean);
+    if (cited.some((p) => systematicSourceCoversClaim(p, s))) return true;
+    return checkedClaimSupportsSentence(shipFactCheck, s);
+  };
   const outBlocks = blocks.map((block) => {
     const outLines = block.lines.map((line) => {
       const trimmed = line.trim();
@@ -11991,21 +12044,57 @@ export function scopeExistenceAnswer(answer, query, papers) {
       if (sentences.length === 0) return line;
       let changedLine = false;
       const kept = sentences.map((s) => {
-        if (!isUniversalNegativeText(s)) return s;
-        if (pool.some((p) => systematicSourceCoversClaim(p, s))) return s;
-        changedLine = true;
-        const cites = (s.match(/\[\d{1,3}\]/g) || []).join("");
-        if (!replaced) {
-          replaced = true;
-          return RETRIEVAL_NEGATIVE_STATEMENT + (cites ? " " + cites : "");
+        if (isUniversalNegativeText(s)) {
+          if (pool.some((p) => systematicSourceCoversClaim(p, s))) return s;
+          changedLine = true;
+          changedAny = true;
+          const cites = (s.match(/\[\d{1,3}\]/g) || []).join("");
+          if (!replaced) {
+            replaced = true;
+            return RETRIEVAL_NEGATIVE_STATEMENT + (cites ? " " + cites : "");
+          }
+          return RETRIEVAL_SCOPE_SENTENCE + (cites ? " " + cites : "");
         }
-        return RETRIEVAL_SCOPE_SENTENCE + (cites ? " " + cites : "");
+        if (shipFactCheck) {
+          const cites = (s.match(/\[\d{1,3}\]/g) || []).join("");
+          const citeSuffix = cites ? " " + cites : "";
+          // Field level generalization on a single cited paper:
+          // the claim rule corrects the checker's verdict on this
+          // shape; the gate corrects the shipped wording, so the
+          // reader never meets the unscoped form.
+          if (isFieldLevelGeneralizationText(s)) {
+            const distinct = [...new Set([...String(s).matchAll(/\[(\d{1,3})\]/g)].map((m) => parseInt(m[1], 10)))];
+            if (distinct.length === 1 && !headlineSupported(s)) {
+              changedLine = true;
+              changedAny = true;
+              return SINGLE_SOURCE_SCOPE_SENTENCE + citeSuffix;
+            }
+            return s;
+          }
+          // Headline shapes on the claim the answer leads with:
+          // a bare yes or no lead, or an unqualified universal
+          // affirmative, needs a supporting checked claim (or a
+          // covering systematic source) or it is downgraded.
+          if (headlineSentence && s === headlineSentence && !HEADLINE_QUALIFIER_RE.test(s)) {
+            const bareYesNo = /^\s*(yes|no)\b/i.exec(s);
+            const universalAffirmative = /\b(all|every|always)\b/i.test(s);
+            if ((bareYesNo || universalAffirmative) && !headlineSupported(s)) {
+              changedLine = true;
+              changedAny = true;
+              if (bareYesNo) {
+                return (bareYesNo[1].toLowerCase() === "yes" ? HEADLINE_YES_DOWNGRADE : HEADLINE_NO_DOWNGRADE) + citeSuffix;
+              }
+              return UNIVERSAL_SCOPE_SENTENCE + citeSuffix;
+            }
+          }
+        }
+        return s;
       });
       return changedLine ? kept.join(" ") : line;
     });
     return { heading: block.heading, lines: outLines };
   });
-  if (!replaced) return text;
+  if (!changedAny) return text;
   const joined = joinAnswerSections(outBlocks);
   if (!joined) return text;
   return joined + tail;
@@ -14482,6 +14571,71 @@ export function shortAnswerCentralClaim(answer) {
   return null;
 }
 
+/* centralClaimBacking(answer, factCheck, papersInOrder): what
+ * backs the claim the answer leads with (2026-10-23, logic
+ * audit L6-7 and L6-16). The central claim is the existing
+ * machinery's own reading (shortAnswerCentralClaim). Its
+ * backing is read two ways, in order: the fact check's own
+ * countable claims that name the central claim (their verdicts
+ * and the papers at their source indices), and, when no checked
+ * claim names it, the citation markers the central sentence
+ * itself carries. papersInOrder is the list those indices and
+ * markers number into (the shipped source list's order, never
+ * a remapped cited subset). The result names the backing
+ * papers, their best ladder class and their best PROVEN class
+ * (evidenceClassCapping: unclassified counts as bottom for
+ * capping), and whether a checked claim refused the central
+ * claim. Returns null when the answer has no central claim at
+ * all: there is nothing to cap by, and no cap is invented. */
+export function centralClaimBacking(answer, factCheck, papersInOrder) {
+  const claim = shortAnswerCentralClaim(answer);
+  if (!claim) return null;
+  const pool = Array.isArray(papersInOrder) ? papersInOrder : [];
+  const indices = new Set();
+  let checked = false;
+  let refused = false;
+  let supportedBacking = false;
+  if (factCheck && factCheckKind(factCheck) === "verification" && Array.isArray(factCheck.claims)) {
+    for (const c of factCheck.claims) {
+      if (!c || !factCheckClaimCountable(c) || typeof c.claim !== "string") continue;
+      const idx = c.sourceIndex != null ? c.sourceIndex : c.source_index;
+      if (!claimNamesSentence(c.claim, claim, idx)) continue;
+      checked = true;
+      if (c.status === "unsupported") refused = true;
+      if (c.status === "supported" || c.status === "thin") {
+        supportedBacking = true;
+        if (Number.isInteger(idx) && idx >= 1 && idx <= pool.length) indices.add(idx);
+      }
+    }
+  }
+  if (!supportedBacking && !refused) {
+    for (const m of String(claim).matchAll(/\[(\d{1,3})\]/g)) {
+      const n = parseInt(m[1], 10);
+      if (Number.isInteger(n) && n >= 1 && n <= pool.length) indices.add(n);
+    }
+  }
+  const backing = [...indices].map((n) => pool[n - 1]).filter(Boolean);
+  let bestRank = 0;
+  let bestCapping = null;
+  for (const p of backing) {
+    const rank = evidenceClassOfPaper(p).rank;
+    if (rank > bestRank) bestRank = rank;
+    const cap = evidenceClassCapping(p);
+    if (!bestCapping || cap.rank > bestCapping.rank) bestCapping = cap;
+  }
+  return {
+    claim,
+    checked,
+    refused,
+    supportedBacking,
+    paperCount: backing.length,
+    bestRank,
+    bestCappingRank: bestCapping ? bestCapping.rank : 0,
+    bestCappingClassified: !!(bestCapping && bestCapping.classified),
+    bestCappingLabel: bestCapping ? bestCapping.label : null,
+  };
+}
+
 /* JOB 3(b): a claim the fact check marks unsupported leaves the
  * shipped text, not just its citation. Targets come in two
  * strengths. HARD targets are the deep check's own unsupported
@@ -16906,6 +17060,27 @@ export function factCheckClaimCountable(claim) {
   return !(claim && typeof claim.kind === "string" && FACT_CHECK_UNCHECKABLE_KINDS.has(claim.kind));
 }
 
+/* factCheckUnsupportedCount(factCheck): how many countable
+ * claims the check marked unsupported (2026-10-23, logic audit
+ * L6-2). factCheckSupport's return shape is pinned by many
+ * suites at exactly { supported, checked }, so the unsupported
+ * count travels through this separate helper: the confidence
+ * builder needs it because a checked claim that is not
+ * "supported" may be thin rather than refused, and only a
+ * refused claim caps the label below strong. Returns null for
+ * every non verification kind, the same ledger separation
+ * factCheckSupport keeps: terms mode name presence marks and
+ * provenance trace marks are never claim verdicts and never
+ * enter any support count here either (Wave 1, audit L5-1). */
+export function factCheckUnsupportedCount(factCheck) {
+  if (factCheckKind(factCheck) !== "verification") return null;
+  const claims = factCheck && Array.isArray(factCheck.claims) ? factCheck.claims : null;
+  if (!claims || claims.length === 0) return null;
+  const countable = claims.filter((c) => c && factCheckClaimCountable(c));
+  if (countable.length === 0) return null;
+  return countable.filter((c) => c.status === "unsupported").length;
+}
+
 export function factCheckSupport(factCheck) {
   // Provenance is not support (Job 1): a wording trace's marks are
   // excluded from every support total, so a run whose only check
@@ -17526,10 +17701,24 @@ const EVIDENCE_CLASS_BY_STUDY_KEY = {
 };
 const EVIDENCE_CLASS_UNCLASSIFIED = { rank: 2, key: "observational", label: "an observational or primary study" };
 
-export function evidenceClassOfPaper(paper) {
+/* evidenceClassInfo(paper): the ladder class plus whether the
+ * class was actually determined (2026-10-23, logic audit L6-16).
+ * Every return path above the fallback positively places the
+ * paper (a study type key, the classifier, or the text scan);
+ * the fallback places nothing, it merely defaults. The ladder
+ * keeps calling that default rank 2, an ordinary primary study,
+ * because most unplaced papers ARE ordinary primary studies and
+ * the integrity lane pins that reading. Capping is a different
+ * question from scoring: a cap asks what class the evidence is
+ * PROVEN to reach, and an unproven paper cannot lift a set out
+ * of a bottom class cap. evidenceClassCapping below is the
+ * capping reading; evidenceClassOfPaper keeps the ladder
+ * reading, and both read this one classification so the two can
+ * never disagree about what was determined. */
+export function evidenceClassInfo(paper) {
   const p = paper || {};
   const keyed = typeof p.studyTypeKey === "string" ? EVIDENCE_CLASS_BY_STUDY_KEY[p.studyTypeKey] : null;
-  if (keyed) return keyed;
+  if (keyed) return { cls: keyed, classified: true };
   if (typeof p.studyType === "string" && p.studyType) {
     // The stored label is the classifier's own label text
     // ("Systematic review / meta-analysis", "Case report /
@@ -17537,13 +17726,13 @@ export function evidenceClassOfPaper(paper) {
     // classifier recovers its key.
     try {
       const byLabel = classifyStudyType(p.studyType, "");
-      if (byLabel && EVIDENCE_CLASS_BY_STUDY_KEY[byLabel.key]) return EVIDENCE_CLASS_BY_STUDY_KEY[byLabel.key];
+      if (byLabel && EVIDENCE_CLASS_BY_STUDY_KEY[byLabel.key]) return { cls: EVIDENCE_CLASS_BY_STUDY_KEY[byLabel.key], classified: true };
     } catch { /* fall through to the text scan */ }
   }
   try {
     const classified = classifyStudyType(p.title || "", usableAbstract(p) || p.abstract || "");
     if (classified && EVIDENCE_CLASS_BY_STUDY_KEY[classified.key]) {
-      return EVIDENCE_CLASS_BY_STUDY_KEY[classified.key];
+      return { cls: EVIDENCE_CLASS_BY_STUDY_KEY[classified.key], classified: true };
     }
   } catch { /* the text scan below is the fallback, never a failure */ }
   const pubTypes = Array.isArray(p.publicationTypes)
@@ -17551,21 +17740,81 @@ export function evidenceClassOfPaper(paper) {
     : String(p.publicationType || p._rawType || "");
   const hay = (String(p.title || "") + " " + pubTypes + " " + String(p.type || "")).toLowerCase();
   if (/\b(systematic review|meta[-\s]?analysis|meta[-\s]?analyses|umbrella review|cochrane)\b/.test(hay)) {
-    return EVIDENCE_CLASS_BY_STUDY_KEY.SYSTEMATIC_REVIEW;
+    return { cls: EVIDENCE_CLASS_BY_STUDY_KEY.SYSTEMATIC_REVIEW, classified: true };
   }
   if (/\b(randomi[sz]ed|controlled trial|clinical trial)\b/.test(hay)) {
-    return EVIDENCE_CLASS_BY_STUDY_KEY.RCT;
+    return { cls: EVIDENCE_CLASS_BY_STUDY_KEY.RCT, classified: true };
   }
   if (/\b(cohort|case[-\s]control|cross[-\s]sectional|observational|prospective stud|retrospective stud)\b/.test(hay)) {
-    return EVIDENCE_CLASS_BY_STUDY_KEY.COHORT;
+    return { cls: EVIDENCE_CLASS_BY_STUDY_KEY.COHORT, classified: true };
   }
   if (/\b(case report|case series|narrative review|scoping review|editorial|commentary)\b/.test(hay) ||
       /^\s*(a\s+)?review\s*[:.]/.test(hay) ||
       /\bwe (report|present) a case\b/.test(String(p.abstract || "").toLowerCase()) ||
       /\bsingle patient\b/.test(String(p.abstract || "").toLowerCase())) {
-    return EVIDENCE_CLASS_BY_STUDY_KEY.CASE_REPORT;
+    return { cls: EVIDENCE_CLASS_BY_STUDY_KEY.CASE_REPORT, classified: true };
   }
-  return EVIDENCE_CLASS_UNCLASSIFIED;
+  return { cls: EVIDENCE_CLASS_UNCLASSIFIED, classified: false };
+}
+
+export function evidenceClassOfPaper(paper) {
+  return evidenceClassInfo(paper).cls;
+}
+
+/* evidenceClassCapping(paper): the class a paper may lift a
+ * confidence cap by (2026-10-23, logic audit L6-16). A paper
+ * the ladder positively placed caps at its own rank. A paper
+ * nothing placed counts as the BOTTOM class for capping, rank
+ * 1, never rank 2: on origin/main one unclassified paper
+ * anywhere in a set of case reports defeated the class cap
+ * completely, because the fallback read as ordinary primary
+ * evidence. The scoring ladder is untouched; only caps read
+ * this harsher, proven class. */
+export function evidenceClassCapping(paper) {
+  const info = evidenceClassInfo(paper);
+  if (!info.classified) return { rank: 1, key: "unclassified", label: "an unclassified paper", classified: false };
+  return { rank: info.cls.rank, key: info.cls.key, label: info.cls.label, classified: true };
+}
+
+/* studyIdentityKey(paper, indexHint): the study level identity
+ * of a cited record (2026-10-23, logic audit L6-6). Two records
+ * are one study only on positive identity evidence: the same
+ * normalized title carried by the same first author (the
+ * preprint and journal versions of one work, whose DOIs differ
+ * by design), or the same strong identifier (DOI, PMID, PMC,
+ * arXiv) when no title and author pair exists. A record with
+ * neither is its own study: title alone never merges, because
+ * distinct papers share titles and dropping a real study is
+ * worse than keeping a possible duplicate unmerged. */
+export function studyIdentityKey(paper, indexHint = 0) {
+  const p = paper || {};
+  const title = normalizePaperTitle(p.title || "");
+  const surname = firstAuthorSurname(p);
+  if (title && surname) return "study:" + title + "|" + surname;
+  let ids = [];
+  try { ids = paperDedupeKeys(p).filter((k) => /^(doi|pmid|pmc|arxiv):/.test(k)); } catch { ids = []; }
+  if (ids.length > 0) return "study:" + ids[0];
+  return "study:unique:" + indexHint;
+}
+
+/* dedupeToStudies(papers): the cited set folded to the study
+ * level (2026-10-23, logic audit L6-6). The first record of each
+ * study stands. Confidence breadth and composition read this
+ * list, never the raw record count, so citing one study twice
+ * (or padding a set with reports of studies already in it)
+ * cannot raise the label: only a new independent study can. */
+export function dedupeToStudies(papers) {
+  const list = Array.isArray(papers) ? papers : [];
+  const seen = new Set();
+  const out = [];
+  list.forEach((p, i) => {
+    if (!p) return;
+    const key = studyIdentityKey(p, i);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(p);
+  });
+  return out;
 }
 
 /* bestEvidenceClass(papers): the strongest class in a cited
@@ -17635,91 +17884,135 @@ export function confidenceCapOneBandLower(cap) {
   return cap;
 }
 
-// 0-100 confidence score built from observable evidence signals . source
-// count, mean relevance, disagreement verdict, citation quality
-// (peer-reviewed vs preprint), recency, and abstract coverage . plus a
-// human-readable list of the factors behind it. Levels come from
-// CONFIDENCE_BANDS above (strong 75 and up, moderate 50 to 74,
-// thin under 50), the one table both this builder and
-// calibrateConfidenceScore read. The `line` copy is kept short
-// for the UI; `factors` explains the number for anyone who asks "why".
-// The score and factors are INTERNAL: calibration and telemetry read
-// them, and publicConfidence (below) is the only shape a response or
-// record may ship . the numeric score must never reach a reader
-// (Dusty's 2026-10-08 rule against pseudo precise confidence scores).
+/* The fallback tiers the confidence builder caps at thin
+ * (2026-10-23, logic audit L6-14). The list is closed against
+ * the full set of answerTier values the pipeline produces
+ * (research, background, limited, weak, definition, named at
+ * the response assembly): research is the ordinary AI tier and
+ * carries no tier cap; every fallback tier is capped, definition
+ * included. A definition answer is quoted abstract sentences,
+ * and it used to escape through the generic extractive cap to
+ * Moderate because its tier was missing from the list. */
+export const THIN_CAPPED_TIERS = new Set(["limited", "weak", "background", "definition"]);
+
+// 0-100 confidence score. Rebuilt 2026-10-23 (logic audit L6-5
+// and L6-6): the score is an EVIDENCE score, driven only by the
+// design class of the cited studies, the breadth of independent
+// studies at citable class, the claim check's support record,
+// and the disagreement verdict. It no longer pays points for
+// how the search went: raw source count, mean relevance to the
+// query, venue type, recency, abstract availability, and
+// semantic match are retrieval and packaging signals, and they
+// are reported separately on the return value as `retrieval`
+// (with `retrievalFactors`), never summed into the level. No
+// component defaults upward: a missing input (no verdict, no
+// support record) is EXCLUDED and the score renormalizes over
+// the components that are present, instead of the old shape
+// where an unknown verdict earned 10 of 15, a missing relevance
+// field earned 50, and no semantic scores still earned 5.
+// Levels come from CONFIDENCE_BANDS above (strong 75 and up,
+// moderate 50 to 74, thin under 50), the one table both this
+// builder and calibrateConfidenceScore read. The `line` copy is
+// kept short for the UI; `factors` explains the number for
+// anyone who asks "why". The score and factors are INTERNAL:
+// calibration and telemetry read them, and publicConfidence
+// (below) is the only shape a response or record may ship . the
+// numeric score must never reach a reader (Dusty's 2026-10-08
+// rule against pseudo precise confidence scores). The level
+// word and its stated basis in the line are the reader surface.
 export function buildConfidenceLine(papers, verdict, context = {}) {
   const n = (papers || []).length;
   const status = verdict && verdict.status;
   if (n === 0) return { level: "thin", score: 0, line: "No cited evidence to check.", factors: [], verdictStatus: status || null };
   const factors = [];
-  let score = 0;
+  const retrievalFactors = [];
 
-  // 1. Source count (0-20): more independent sources = more confidence.
-  let countPts = 0;
-  if (n >= 8) countPts = 20; else if (n >= 5) countPts = 15; else if (n >= 3) countPts = 10; else countPts = 5;
-  score += countPts;
-  factors.push(n + " cited source" + (n === 1 ? "" : "s") + " (+" + countPts + ")");
+  // The one support record every support driven decision below
+  // reads (2026-10-23, logic audit L6-2): the level caps and the
+  // line's support clause are computed from this same object,
+  // so the level and the stated ratio can never be assembled
+  // independently. It is the caller's factCheckSupport result;
+  // terms mode presence checks and provenance trace marks never
+  // reach it, because factCheckSupport returns null for those
+  // kinds and every caller passes that result through (the Wave
+  // 1 ledger separation, audit L5-1, verified at both call
+  // sites again for this repair).
+  const sup = context && context.support && typeof context.support.checked === "number" && context.support.checked > 0
+    ? context.support : null;
+  const supUnsupported = sup && typeof context.supportUnsupported === "number"
+    ? context.supportUnsupported : null;
 
-  // 2. Mean relevance (0-20): tangential papers are not evidence.
-  const rels = (papers || []).map((p) => Number(p.relevance) || Number(p.relevanceScore) || Number(p.blendedScore) || 50);
-  const avgRelevance = rels.reduce((s, r) => s + r, 0) / Math.max(1, rels.length);
-  let relPts = 3;
-  if (avgRelevance >= 70) relPts = 20; else if (avgRelevance >= 55) relPts = 14; else if (avgRelevance >= 40) relPts = 8;
-  score += relPts;
-  factors.push("mean relevance " + Math.round(avgRelevance) + "/100 (+" + relPts + ")");
+  // The cited set folded to the study level (L6-6): breadth and
+  // composition read independent studies, not records, so a
+  // duplicated study cannot raise the score and padding a set
+  // with bottom class records cannot raise it either (bottom
+  // class studies earn no breadth, and the composition caps
+  // below read the same folded list).
+  const studies = dedupeToStudies(papers);
+  const studyRanks = studies.map((p) => evidenceClassOfPaper(p).rank);
+  const bestRank = studyRanks.length > 0 ? Math.max(...studyRanks) : 0;
+  const breadthStudies = studyRanks.filter((r) => r >= 2).length;
 
-  // 3. Disagreement verdict (0-15): divided evidence caps confidence.
-  let verdictPts = 10;
-  if (status === "settled") verdictPts = 15;
-  else if (status === "divided") verdictPts = 5;
-  else if (status === "thin") verdictPts = 5;
-  score += verdictPts;
-  factors.push("evidence verdict: " + (status || "unknown") + " (+" + verdictPts + ")");
-
-  // 4. Citation quality (0-15): peer-reviewed > preprint > reference/dataset.
-  let qSum = 0;
-  for (const p of (papers || [])) {
-    const t = String(p.type || "").toLowerCase();
-    if (/journal/.test(t)) qSum += 1;
-    else if (/preprint/.test(t)) qSum += 0.5;
-    else if (/reference|dataset/.test(t)) qSum += 0.6;
-    else qSum += 0.7; // unknown: neutral
-  }
-  const qualPts = Math.round(15 * (qSum / Math.max(1, n)));
-  score += qualPts;
-  factors.push("citation quality (peer reviewed weight) (+" + qualPts + ")");
-
-  // 5. Recency (0-10): stale evidence is weaker evidence.
+  // Retrieval quality, reported separately (L6-5). Missing
+  // fields are absent from the means, never defaulted: a paper
+  // with no relevance field contributes nothing to the mean
+  // instead of the old invented 50.
+  const relVals = (papers || []).map((p) => {
+    const v = Number(p && (p.relevance ?? p.relevanceScore ?? p.blendedScore));
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }).filter((v) => v !== null);
+  const avgRelevance = relVals.length > 0 ? relVals.reduce((s, r) => s + r, 0) / relVals.length : null;
   const years = (papers || []).map((p) => Number(p.year)).filter((y) => y > 1900 && y <= new Date().getFullYear() + 1);
-  let recPts = 4;
-  if (years.length > 0) {
-    const newest = Math.max(...years);
-    const age = new Date().getFullYear() - newest;
-    if (age <= 2) recPts = 10; else if (age <= 5) recPts = 7; else if (age <= 10) recPts = 4; else recPts = 2;
-    factors.push("newest source from " + newest + " (+" + recPts + ")");
-  } else {
-    factors.push("no publication years available (+" + recPts + ")");
-  }
-  score += recPts;
-
-  // 6. Abstract coverage (0-10): titles alone are thin support.
   const withAbs = (papers || []).filter((p) => usableAbstract(p)).length;
-  const absPts = Math.round(10 * (withAbs / Math.max(1, n)));
-  score += absPts;
-  factors.push(withAbs + "/" + n + " cited sources with accessible abstracts (+" + absPts + ")");
+  const semVals = (papers || []).map((p) => Number(p.semanticScore)).filter((s) => s > 0);
+  const retrieval = {
+    citedCount: n,
+    studyCount: studies.length,
+    avgRelevance: avgRelevance !== null ? Math.round(avgRelevance) : null,
+    newestYear: years.length > 0 ? Math.max(...years) : null,
+    abstractShare: n > 0 ? withAbs / n : 0,
+    semanticAvg: semVals.length > 0 ? Math.round(semVals.reduce((s, v) => s + v, 0) / semVals.length) : null,
+  };
+  retrievalFactors.push(n + " cited source" + (n === 1 ? "" : "s") + ", " + studies.length + " independent stud" + (studies.length === 1 ? "y" : "ies"));
+  if (avgRelevance !== null) retrievalFactors.push("mean relevance " + Math.round(avgRelevance) + "/100 (retrieval quality, not evidence)");
+  if (retrieval.newestYear !== null) retrievalFactors.push("newest source from " + retrieval.newestYear + " (retrieval quality, not evidence)");
+  retrievalFactors.push(withAbs + "/" + n + " cited sources with accessible abstracts (retrieval quality, not evidence)");
+  if (retrieval.semanticAvg !== null) retrievalFactors.push("mean semantic match " + retrieval.semanticAvg + "/100 (retrieval quality, not evidence)");
 
-  // 7. Semantic agreement (0-10): when the reranker scored papers, high
-  // mean semantic similarity to the query means the set is on-topic.
-  const sems = (papers || []).map((p) => Number(p.semanticScore)).filter((s) => s > 0);
-  let semPts = 5;
-  if (sems.length > 0) {
-    const avgSem = sems.reduce((s, v) => s + v, 0) / sems.length;
-    if (avgSem >= 60) semPts = 10; else if (avgSem >= 45) semPts = 6; else semPts = 3;
-    factors.push("mean semantic match " + Math.round(avgSem) + "/100 (+" + semPts + ")");
+  // Evidence components. Each present component contributes its
+  // points over its weight; the score renormalizes over the
+  // weights present, so an absent verdict or support record
+  // neither earns nor costs points.
+  let earned = 0;
+  let weightPresent = 0;
+  // 1. Design class of the best cited study (weight 40).
+  const classPts = bestRank >= 4 ? 40 : bestRank === 3 ? 33 : bestRank === 2 ? 28 : 6;
+  earned += classPts; weightPresent += 40;
+  factors.push("strongest cited study class rank " + bestRank + " of 4 (+" + classPts + " of 40)");
+  // 2. Breadth of independent studies at citable class (weight
+  // 20): one study earns a little, several earn the full weight,
+  // and records of studies already counted earn nothing.
+  const breadthPts = breadthStudies >= 4 ? 20 : breadthStudies === 3 ? 16 : breadthStudies === 2 ? 12 : breadthStudies === 1 ? 6 : 0;
+  earned += breadthPts; weightPresent += 20;
+  factors.push(breadthStudies + " independent stud" + (breadthStudies === 1 ? "y" : "ies") + " at citable class (+" + breadthPts + " of 20)");
+  // 3. Claim check support (weight 25, present only when a real
+  // check produced a support record).
+  if (sup) {
+    const ratio = sup.supported / sup.checked;
+    const supPts = Math.round(25 * ratio);
+    earned += supPts; weightPresent += 25;
+    factors.push("claim check supports " + sup.supported + " of " + sup.checked + " checked claims (+" + supPts + " of 25)");
   }
-  score += semPts;
-
-  score = Math.max(0, Math.min(100, Math.round(score)));
+  // 4. Disagreement verdict (weight 15, present only when a
+  // verdict exists; an unknown verdict used to earn 10 of 15 by
+  // default and now earns nothing because it is absent).
+  if (status === "settled" || status === "divided" || status === "thin") {
+    const verdictPts = status === "settled" ? 15 : 8;
+    earned += verdictPts; weightPresent += 15;
+    factors.push("evidence verdict: " + status + " (+" + verdictPts + " of 15)");
+  }
+  let score = weightPresent > 0 ? Math.round((earned / weightPresent) * 100) : 0;
+  score = Math.max(0, Math.min(100, score));
 
   // Hard caps preserve the honesty guarantees. Divided evidence can
   // never read as strong, tangential cited papers can never read as
@@ -17729,20 +18022,25 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   let cap = 100;
   let capCount = 0;
   const capReasons = [];
-  const applyCap = (limit, reason) => {
+  const applyCap = (limit, reason, opts = {}) => {
     // Every distinct honesty condition counts, even when a
     // lower cap already binds: the count drives the compounding
     // rule below (L6-10), where the minimum alone used to make
     // three stacked defects cost no more than any one of them.
-    capCount += 1;
+    // Facets of ONE input record (the support rules below) pass
+    // count: false: they are one honesty problem read three
+    // ways, not three independent problems.
+    if (opts.count !== false) capCount += 1;
     if (limit < cap) cap = limit;
     if (reason && !capReasons.includes(reason)) capReasons.push(reason);
   };
   if (status === "divided") applyCap(70, null);
-  if (avgRelevance < 40) applyCap(45, "the cited papers have low mean relevance");
+  if (avgRelevance !== null && avgRelevance < 40) applyCap(45, "the cited papers have low mean relevance");
   const tier = String((context && context.tier) || "");
-  if (tier === "limited" || tier === "weak" || tier === "background") {
-    applyCap(45, "the answer came from a limited fallback tier");
+  if (THIN_CAPPED_TIERS.has(tier)) {
+    applyCap(45, tier === "definition"
+      ? "the answer is a definition assembled from source excerpts"
+      : "the answer came from a limited fallback tier");
   } else if (context && context.extractive) {
     applyCap(59, "the answer was assembled from source excerpts");
   }
@@ -17783,8 +18081,34 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   const bestClass = bestEvidenceClass(papers);
   if (bestClass) {
     factors.push("strongest cited evidence class: " + bestClass.label + " (class rank " + bestClass.rank + " of 4)");
-    if (bestClass.rank <= 1) {
-      applyCap(45, "the strongest cited source is " + bestClass.label + ", the weakest evidence class");
+  }
+  // Set composition caps (2026-10-23, logic audit L6-16): the
+  // cap reads the PROVEN class of the folded study set, not the
+  // single best ladder reading. The ladder's first version
+  // capped only when the best paper in the set was bottom class,
+  // and its unclassified fallback read as rank 2, so one
+  // ordinary or unclassified paper anywhere in a set of case
+  // reports defeated the cap completely. Now: when every paper
+  // the ladder positively placed is bottom class, the set is
+  // bottom class however many unclassified papers ride along
+  // (unclassified papers never lift a set, evidenceClassCapping
+  // counts them as bottom), and a set whose folded studies are
+  // mostly positively bottom class caps at moderate unless a
+  // systematic review class study carries it. A purely
+  // unclassified set keeps the ladder's ordinary primary
+  // reading: nothing in it was proven bottom, and the integrity
+  // lane pins ordinary primary sets as cappable by nothing here.
+  const studyCappings = studies.map((p) => evidenceClassCapping(p));
+  const classifiedCappings = studyCappings.filter((c) => c.classified);
+  const bestClassifiedCapping = classifiedCappings.length > 0
+    ? classifiedCappings.reduce((a, b) => (b.rank > a.rank ? b : a))
+    : null;
+  if (bestClassifiedCapping && bestClassifiedCapping.rank <= 1) {
+    applyCap(45, "the strongest cited source is " + bestClassifiedCapping.label + ", the weakest evidence class");
+  } else if (bestClassifiedCapping && bestClassifiedCapping.rank < 4 && studies.length >= 3) {
+    const bottomCount = classifiedCappings.filter((c) => c.rank <= 1).length;
+    if (bottomCount > studies.length / 2) {
+      applyCap(59, "most of the cited studies are case level evidence, the weakest evidence class");
     }
   }
   // factCheckChecked false is an ASSERTION by the caller that the
@@ -17819,6 +18143,35 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
       context.support.checked > 0 && context.support.supported === 0) {
     applyCap(45, "the claim check supports none of the claims it checked");
   }
+  // Support record caps (2026-10-23, logic audit L6-2): the
+  // label is a function of the whole support record, not only
+  // its zero. The shipped builder capped solely at supported
+  // zero, so Oct 21 after/04 shipped Strong beside "supports 1
+  // of 3 checked claims" and after/11 shipped Strong on a one
+  // claim denominator. Three rules, all read from the one sup
+  // object the line's clause is also rendered from, and all
+  // facets of that single record (they do not compound with
+  // each other): any countable claim the check refused caps the
+  // level below strong; a supported share under one half caps
+  // at thin; and a checked count below the minimum of 2 caps
+  // below strong, because one checked claim can never carry a
+  // strong label on its own. The refused count arrives via
+  // context.supportUnsupported (factCheckUnsupportedCount at
+  // the call sites): the support object itself cannot say it,
+  // since a claim that is not supported may be thin rather than
+  // refused, and hand built records without the count assert
+  // nothing about refusals.
+  if (sup && sup.supported > 0) {
+    if (sup.supported / sup.checked < 0.5) {
+      applyCap(45, "the claim check supports fewer than half of the claims it checked", { count: false });
+    }
+    if (supUnsupported !== null && supUnsupported > 0) {
+      applyCap(74, "the claim check left " + supUnsupported + " checked claim" + (supUnsupported === 1 ? "" : "s") + " unsupported", { count: false });
+    }
+    if (sup.checked < 2) {
+      applyCap(74, "the claim check checked only " + sup.checked + " claim" + (sup.checked === 1 ? "" : "s") + ", too few to carry a stronger label", { count: false });
+    }
+  }
   // Provenance only cap (2026-10-14, sixth panel, Job 1b): when
   // the only check that ran on this answer is the extractive
   // wording trace, nothing has verified a single claim — the
@@ -17831,6 +18184,39 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   // reason names the trace for what it is.
   if (context && context.provenanceOnly) {
     applyCap(45, "the only check that ran traced claim wording to the cited papers, which is not a verification");
+  }
+  // Central claim cap (2026-10-23, logic audit L6-7, with the
+  // L6-16 proven class rule): the answer level never exceeds
+  // the label of the claim the answer leads with. The caller
+  // supplies the backing reading (centralClaimBacking, computed
+  // from the existing central claim machinery): a central claim
+  // the check refused caps at thin; a central claim backed by
+  // no cited paper caps at thin; a central claim whose backing
+  // is positively bottom class caps at thin; and a central claim
+  // whose backing is only unclassified papers caps at moderate,
+  // because no paper behind the lead claim was proven to be
+  // anything stronger. A set level label computed from papers
+  // that back only side sentences can no longer certify the
+  // headline.
+  const central = context && context.centralBacking && typeof context.centralBacking === "object"
+    ? context.centralBacking : null;
+  // Only a CHECKED central claim caps (the backing reading's
+  // checked flag): the per claim linkage this rule exists to
+  // read is the checker's, and a central sentence that merely
+  // carries citation markers has no measured backing to cap by.
+  // An unchecked answer is already governed by the unchecked
+  // caps above; inventing a second penalty from markers alone
+  // double counted one defect and broke the cached serve pins.
+  if (central && central.checked) {
+    if (central.refused) {
+      applyCap(45, "the claim the answer leads with was not supported by the claim check");
+    } else if (central.paperCount === 0) {
+      applyCap(45, "the claim the answer leads with is backed by no cited source");
+    } else if (central.bestCappingRank <= 1 && central.bestCappingClassified) {
+      applyCap(45, "the claim the answer leads with rests on " + (central.bestCappingLabel || "case level evidence") + ", the weakest evidence class");
+    } else if (central.bestCappingRank <= 1) {
+      applyCap(59, "the papers backing the claim the answer leads with could not be placed in an evidence class");
+    }
   }
   if (cap < 100) {
     // Compounding (2026-10-22, logic audit L6-10): the caps used
@@ -17869,8 +18255,10 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   // claim verdicts (context.support, from factCheckSupport); when no
   // check ran, the line rests on the citation count and says nothing
   // about support at all.
-  const sup = context && context.support && typeof context.support.checked === "number" && context.support.checked > 0
-    ? context.support : null;
+  // sup is the one support record computed at the top of this
+  // builder (L6-2): the caps above and this clause read the same
+  // object, so the shipped level and the shipped ratio are two
+  // readings of a single computation.
   const supClause = sup
     ? " The claim check supports " + sup.supported + " of " + sup.checked +
       " checked claim" + (sup.checked === 1 ? "" : "s") + "."
@@ -17899,7 +18287,11 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   // used to be absent, so calibration silently re derived the level from
   // the bare score and a divided answer capped here at moderate/70 came
   // out of calibration as strong/70.
-  return { level, score, line, factors, cap: cap < 100 ? cap : null, capReasons, verdictStatus: status || null, lineParts };
+  return {
+    level, score, line, factors, retrievalFactors, retrieval,
+    support: sup || null,
+    cap: cap < 100 ? cap : null, capReasons, verdictStatus: status || null, lineParts,
+  };
 }
 
 // ── CONFIDENCE CALIBRATION (2026-10-07) ───────────────────────────
@@ -19099,8 +19491,8 @@ export function unpackAnswerCachePayload(raw) {
  * either (nothing would be stored under it, so the link would 404).
  * The client panel says as much where the link would sit.
  * Input: { answer, sources, question, askedAt, diag, databases,
- * funnel, degraded, answerLength, factCheck, synthesisMode }. The
- * last two are the stored payload's own signals when the payload
+ * funnel, degraded, answerLength, factCheck, synthesisMode,
+ * disagreementVerdict }. The last three are the stored payload's own signals when the payload
  * carries them: its original fact check (a provenance kind check
  * caps the recomputed level at thin, exactly as on a fresh run)
  * and its recorded mode (a payload recorded as an AI answer is
@@ -19110,15 +19502,50 @@ export function unpackAnswerCachePayload(raw) {
  * `degraded` is the serve's own degraded basis
  * (the later path passes its stage list's verdict; the early path
  * false), fed to the confidence builder exactly the way the live
- * path feeds it. factCheckChecked is false on every cache serve .
- * no fact check ran on the stored answer in this request . so the
- * current 59 cap for unchecked answers applies, same as a live
- * answer whose fact check checked nothing. */
+ * path feeds it.
+ *
+ * Stored signal parity (2026-10-23, logic audit L6-9): every
+ * builder input is derived from the stored payload's own
+ * signals, the same derivations a fresh run makes. The builder
+ * used to be called with verdict null, no support, and no
+ * answer kind, so a stored divided verdict lost its cap, a
+ * stored zero support check lost its thin cap, and a stored
+ * unchecked AI answer took the 59 cap instead of the AI 45 cap:
+ * a cached serve could ship a HIGHER level than the same answer
+ * would earn fresh. Now the stored verdict (input
+ * .disagreementVerdict, from the envelope) is the builder's
+ * verdict, the stored fact check (corrected under the current
+ * universal claim rule first, exactly as the serve ships it)
+ * supplies factCheckChecked through factCheckActuallyChecked,
+ * the support record and refused count through factCheckSupport
+ * and factCheckUnsupportedCount, the provenance flag, and the
+ * central claim backing, and the recorded synthesis mode
+ * supplies the answer kind. A payload that stored no fact check
+ * still derives factCheckChecked false and the unchecked cap
+ * applies, exactly as a live answer whose check checked
+ * nothing; a pre envelope payload stored nothing and derives
+ * the same honest absences. */
 export function buildCachedServeTrust(input) {
   const answer = input && typeof input.answer === "string" ? input.answer : "";
   const labeledSources = labelUncitedSources(
     input && Array.isArray(input.sources) ? input.sources : [], answer);
   const citedPapers = labeledSources.filter((s) => s && !s.uncited);
+  const recordedMode = input && typeof input.synthesisMode === "string" ? input.synthesisMode : null;
+  // UNIVERSAL CLAIM RULE, cached serve parity (2026-10-22): the
+  // stored fact check is corrected under the current rule
+  // against the stored payload's own source list (the list its
+  // source references index into) BEFORE anything derives from
+  // it (2026-10-23, L6-9: the confidence builder now reads the
+  // same corrected object the serve ships, so a verdict the rule
+  // refused cannot certify the cached label either). A stored
+  // "supported" verdict on a universal negative from a non
+  // systematic source never reaches a reader from a cache hit.
+  let correctedFactCheck = null;
+  try {
+    correctedFactCheck = (input && input.factCheck && typeof input.factCheck === "object")
+      ? applyUniversalClaimRule(input.factCheck, labeledSources)
+      : null;
+  } catch { correctedFactCheck = null; }
   // The shipped funnel: the caller's real funnel when retrieval ran
   // for this response (its cited is re-derived from the flags, one
   // definition of cited everywhere), otherwise the honest partial .
@@ -19146,11 +19573,24 @@ export function buildCachedServeTrust(input) {
   // answer would. Before this pass the cached path never asked
   // factCheckKind at all, so such a payload recomputed under
   // only the unchecked cap.
-  let confidence = buildConfidenceLine(citedPapers, null, {
+  let confidence = buildConfidenceLine(citedPapers,
+    (input && input.disagreementVerdict && typeof input.disagreementVerdict === "object")
+      ? input.disagreementVerdict : null, {
     degraded: !!(input && input.degraded),
     extractive: false,
-    factCheckChecked: false,
-    provenanceOnly: factCheckKind(input && input.factCheck) === "provenance",
+    // Derived from the stored signals (L6-9), never hardcoded:
+    // a stored check that ran reads as ran, a stored AI answer
+    // reads as an AI answer, and the stored support record and
+    // refused count reach the builder exactly as a fresh run's
+    // do. Only a payload with no stored fact check derives the
+    // unchecked state.
+    factCheckChecked: correctedFactCheck ? factCheckActuallyChecked(correctedFactCheck) : false,
+    aiAnswer: recordedMode === "ai",
+    support: correctedFactCheck ? factCheckSupport(correctedFactCheck) : null,
+    supportUnsupported: correctedFactCheck ? factCheckUnsupportedCount(correctedFactCheck) : null,
+    provenanceOnly: factCheckKind(correctedFactCheck) === "provenance",
+    existenceNegative: answerAssertsRetrievalNegative(answer, input && input.question),
+    centralBacking: centralClaimBacking(answer, correctedFactCheck, labeledSources),
   });
   const citeMatches = (answer.match(/\[\d+\]/g) || []).length;
   confidence = calibrateConfidenceScore(confidence, {
@@ -19180,7 +19620,6 @@ export function buildCachedServeTrust(input) {
   // extractive shipment for this pass too. A body with no baked
   // span, or whose baked line already asserts at the recomputed
   // level, comes through byte for byte.
-  const recordedMode = input && typeof input.synthesisMode === "string" ? input.synthesisMode : null;
   const extractiveShipment = recordedMode === null || recordedMode === "extractive";
   let servedAnswer = answer;
   // RETRIEVAL SCOPE GUARD, cached serve parity (2026-10-22,
@@ -19191,7 +19630,12 @@ export function buildCachedServeTrust(input) {
   // rewritten to the retrieval statement here rather than served
   // as a field fact under a fresh timestamp.
   if (recordedMode === "ai") {
-    try { servedAnswer = scopeExistenceAnswer(servedAnswer, input && input.question, labeledSources); } catch { /* the guard must never break the serve */ }
+    // The ship time headline gate (L6-8) runs here with the
+    // stored, corrected fact check, exactly as on a fresh
+    // answer's ship gate: a stored headline with no supporting
+    // checked claim is downgraded on serve, not shipped as
+    // stored under older rules.
+    try { servedAnswer = scopeExistenceAnswer(servedAnswer, input && input.question, labeledSources, { factCheck: correctedFactCheck }); } catch { /* the guard must never break the serve */ }
   }
   if (extractiveShipment && confidence && confidence.level && confidence.line) {
     try {
@@ -19223,19 +19667,9 @@ export function buildCachedServeTrust(input) {
     answer: servedAnswer,
     cachedServe: true,
   });
-  // UNIVERSAL CLAIM RULE, cached serve parity (2026-10-22): the
-  // stored fact check is corrected under the current rule against
-  // the stored payload's own source list (the list its source
-  // references index into), and the corrected object is what the
-  // serve ships after the split remap. A stored "supported"
-  // verdict on a universal negative from a non systematic source
-  // never reaches a reader from a cache hit either.
-  let correctedFactCheck = null;
-  try {
-    correctedFactCheck = (input && input.factCheck && typeof input.factCheck === "object")
-      ? applyUniversalClaimRule(input.factCheck, labeledSources)
-      : null;
-  } catch { correctedFactCheck = null; }
+  // correctedFactCheck was computed at the top of this builder
+  // (see the parity note there): the corrected object is what
+  // the serve ships after the split remap.
   return { answer: servedAnswer, labeledSources, funnel, coverage, record, confidence, factCheck: correctedFactCheck };
 }
 
@@ -26645,6 +27079,11 @@ async function runSearchPipeline(pctx) {
             // passed them, so the binding was inert in production.
             factCheck: earlyTrustSignals ? earlyTrustSignals.factCheck : undefined,
             synthesisMode: earlyTrustSignals ? earlyTrustSignals.synthesisMode : undefined,
+            // The stored verdict reaches the trust builder too
+            // (2026-10-23, logic audit L6-9): without it a stored
+            // divided verdict recomputed as no verdict at all,
+            // losing its cap and its points on every early serve.
+            disagreementVerdict: earlyTrustSignals ? earlyTrustSignals.disagreementVerdict : undefined,
           });
           // Shipped source split (2026-10-21, audit M2): the
           // cached serve ships the same contract as a fresh
@@ -29301,6 +29740,9 @@ async function runSearchPipeline(pctx) {
         answerLength,
         factCheck: laterTrustSignals ? laterTrustSignals.factCheck : undefined,
         synthesisMode: laterTrustSignals ? laterTrustSignals.synthesisMode : undefined,
+        // The stored verdict reaches the trust builder too
+        // (2026-10-23, logic audit L6-9), as on the early path.
+        disagreementVerdict: laterTrustSignals ? laterTrustSignals.disagreementVerdict : undefined,
       });
       // Shipped source split (2026-10-21, audit M2): same
       // contract as the fresh path — see the early serve.
@@ -32523,7 +32965,18 @@ async function runSearchPipeline(pctx) {
     // return null from factCheckSupport and never trigger this
     // either — the extractive tiers are judged by their own
     // alignment machinery.
-    if (aiOK && useEvidence && !isFollowupMode && factCheckResult && factCheckAttempted) {
+    // The zero support serve applies by answer content, not
+    // request type (2026-10-23, logic audit L6-13): the followup
+    // exemption is removed. What it was protecting was the
+    // conversational case where a followup's claims rest on the
+    // previous turn's sources, but the check below reads THIS
+    // answer's claims against THIS run's cited set either way,
+    // and a check that supported none of the claims it checked
+    // on the shipped text is the same honesty fact on a followup
+    // as on a fresh question. The narrower condition that
+    // remains is the content one the block already carries: a
+    // real check ran on this answer and supported zero.
+    if (aiOK && useEvidence && factCheckResult && factCheckAttempted) {
       try {
         // A terms panel never counts as claim support anywhere
         // (2026-10-22, audit L5-1): factCheckSupport returns null
@@ -32734,6 +33187,24 @@ async function runSearchPipeline(pctx) {
       }
     }
 
+    // HEADLINE GATE, ship time run (2026-10-23, logic audit
+    // L6-8): the pre check scope gate above rewrote universal
+    // negatives before the fact check read the answer. This
+    // second run of the SAME gate, now carrying the finished
+    // fact check, gates the headline shapes the first run cannot
+    // judge: field level generalizations resting on a single
+    // cited paper, unqualified universal affirmatives, and bare
+    // yes or no leads on the claim the answer leads with. Such a
+    // claim stands only with a supporting checked claim or a
+    // covering systematic source; otherwise its wording is
+    // downgraded here, independent of whatever label the
+    // confidence stage later computes. AI answers only, like
+    // the first run: the deterministic tiers compose their
+    // leads from the retrieved set by construction.
+    if (aiOK && useEvidence && evidencePapers.length > 0 && factCheckResult) {
+      try { answer = scopeExistenceAnswer(answer, query, evidencePapers, { factCheck: factCheckResult }); } catch { /* the gate must never break the serve */ }
+    }
+
     // ════════════════════════════════════════════════════════════════
     // BOOKKEEPING (2026-10-14, answer package defect 9): the paper
     // learning writes, the query intelligence writes, and the answer
@@ -32893,8 +33364,31 @@ async function runSearchPipeline(pctx) {
     // Fresh runs under the wave eight standard rarely reach this
     // (junk is not cited at all); cached and legacy paths can.
     let verdictGuarded = false;
+    // The guard applies by answer content, not request type
+    // (2026-10-23, logic audit L6-13): the path based exemption
+    // for name searches and followups is removed. The narrower
+    // condition each exemption was protecting is that the guard
+    // can only judge a cited set against a citation standard,
+    // and a bare name query or a followup whose subject lives in
+    // the conversation history may resolve no standard from this
+    // question's text at all. So the guard now runs whenever a
+    // standard resolved (the gate context below carries groups,
+    // central terms, central concepts, or a subject group),
+    // whatever the request type, and stands down only when no
+    // standard resolved, because then there is nothing to judge
+    // the set against.
+    const verdictGateStandardResolved = !!(disagreementVerdict && disagreementVerdict.status === "settled" &&
+      citedEvidencePapers.length > 0) && (() => {
+      try {
+        const dyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
+          ? buildDynLookup(gResult._diag.llmExpanded) : null;
+        const ctx = conceptGateContext(citedEvidencePapers, query, dyn);
+        return (ctx.groups || []).length > 0 || (ctx.centralTerms || []).length > 0 ||
+          (Array.isArray(ctx.centralConcepts) && ctx.centralConcepts.length > 0) || !!ctx.subjectGroup;
+      } catch { return false; }
+    })();
     if (useEvidence && disagreementVerdict && disagreementVerdict.status === "settled"
-        && citedEvidencePapers.length > 0 && !isNameSearch && !isFollowupMode) {
+        && citedEvidencePapers.length > 0 && verdictGateStandardResolved) {
       try {
         const verdictGateDyn = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded) && gResult._diag.llmExpanded.length > 0)
           ? buildDynLookup(gResult._diag.llmExpanded)
@@ -33054,6 +33548,19 @@ async function runSearchPipeline(pctx) {
           // Support is the fact check's own count of claims it marked
           // supported, never the citation count (see factCheckSupport).
           support: factCheckSupport(factCheckResult),
+          // The refused count of the same record (2026-10-23,
+          // logic audit L6-2): the builder caps below strong on
+          // any countable refused claim, and this helper is the
+          // only source of that count, read from the same fact
+          // check object as the support record.
+          supportUnsupported: factCheckUnsupportedCount(factCheckResult),
+          // The central claim backing (2026-10-23, logic audit
+          // L6-7): what backs the claim this answer leads with,
+          // read against the full source list's order (the list
+          // the answer's markers and the check's indices number
+          // into), so the shipped level can never exceed the
+          // label of the lead claim.
+          centralBacking: centralClaimBacking(answer, factCheckResult, conflictPool),
           // Provenance only (sixth panel, Job 1b): when the final
           // fact check object is the extractive wording trace, no
           // verification ran on this answer at all, and the level
@@ -33094,6 +33601,13 @@ async function runSearchPipeline(pctx) {
         }
       } catch (cbErr) { console.error("[Cerebrum] search.js confidence calibration:", cbErr); }
     }
+    // The text the confidence above was computed from
+    // (2026-10-23, logic audit L6-12): the binders below rewrite
+    // the answer, and the final recompute after them compares
+    // against this snapshot. Confidence must describe the
+    // shipped text, so any change past this point reopens the
+    // computation at the last assembly step below.
+    const answerAtConfidenceBuild = answer;
     // PROSE BOUND TO THE CONFIDENCE LEVEL (2026-10-14, fifth
     // panel, Job 3a): the computed level above binds the shipped
     // confidence FIELDS; this binds the answer's own prose, which
@@ -33169,6 +33683,67 @@ async function runSearchPipeline(pctx) {
             (tailPart ? "\n\n" + tailPart.replace(/^\s+/, "") : "");
         }
       } catch { /* the statement must never break the answer */ }
+    }
+    // CONFIDENCE LAST (2026-10-23, logic audit L6-12): the
+    // shipped label is computed from the FINAL cited set, as the
+    // last assembly step. The first computation above stood
+    // before the prose binder, the baked line binder, and the
+    // did not run statement, and the old code's own comment
+    // conceded its gaps and level described the pre binding set:
+    // a binder that replaced a section carrying a paper's only
+    // marker left the line claiming that paper. Now, when the
+    // text changed after the first computation, the cited set is
+    // re derived from the frozen text, the level and line are
+    // recomputed and recalibrated from that set with the same
+    // inputs, and the body is bound once more to the recomputed
+    // line. The binders carry no citation markers in the spans
+    // they replace (the baked pass by construction, the prose
+    // pass by its confidence sentence patterns), so one
+    // recompute settles it; the loop bound of two exists only so
+    // a marker carrying replacement still converges or stops.
+    if (confidence && useEvidence && evidencePapers.length > 0 && answer !== answerAtConfidenceBuild) {
+      try {
+        for (let pass = 0; pass < 2; pass++) {
+          const relabeledFinal = labelUncitedSources(sourceList, answer);
+          const finalIndices = [];
+          relabeledFinal.forEach((s, i) => { if (!s.uncited) finalIndices.push(i); });
+          const finalCited = useEvidence
+            ? finalIndices.map((i) => conflictPool[i]).filter(Boolean)
+            : [];
+          citedIndices.length = 0;
+          citedIndices.push(...finalIndices);
+          citedEvidencePapers = finalCited;
+          if (finalCited.length === 0) break;
+          let recomputed = buildConfidenceLine(finalCited, disagreementVerdict, {
+            degraded: !!extractiveOK || stageHealthDegraded(stageHealth),
+            extractive: !!extractiveOK,
+            aiAnswer: !!aiOK,
+            tier: answerTier,
+            factCheckChecked: factCheckActuallyChecked(factCheckResult),
+            support: factCheckSupport(factCheckResult),
+            supportUnsupported: factCheckUnsupportedCount(factCheckResult),
+            centralBacking: centralClaimBacking(answer, factCheckResult, conflictPool),
+            provenanceOnly: factCheckKind(factCheckResult) === "provenance",
+            existenceNegative: answerAssertsRetrievalNegative(answer, query),
+          });
+          const citeMatchesFinal = (answer.match(/\[\d+\]/g) || []).length;
+          recomputed = calibrateConfidenceScore(recomputed, {
+            strippedCitations: (unsupportedStripped || []).length,
+            totalCitations: citeMatchesFinal + (unsupportedStripped || []).length,
+            integrityFlags: integrityFlagCount(factCheckResult),
+          });
+          const lineChanged = recomputed.line !== confidence.line || recomputed.level !== confidence.level;
+          confidence = recomputed;
+          if (!lineChanged) break;
+          const beforeBind = answer;
+          if (aiOK && confidence.level && confidence.line) {
+            answer = bindProseConfidenceToLevel(answer, confidence.level, confidence.line);
+          } else if (!aiOK && extractiveOK && confidence.level && confidence.line) {
+            answer = bindBakedConfidenceLine(answer, confidence.level, confidence.line);
+          }
+          if (answer === beforeBind) break;
+        }
+      } catch { /* the recompute must never break the serve; the first computation stands */ }
     }
     const coverageNote = buildCoverageNote(publicSourcesQueried());
 

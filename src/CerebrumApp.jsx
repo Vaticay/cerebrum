@@ -7868,7 +7868,7 @@ function QueryAutopsy({ turn: t, P, accent, close, onStress = null, busy = false
             )}
             {t.confidence && t.confidence.line && (
               <div style={{ ...monoLine, marginBottom: 8 }}>
-                <span style={{ fontWeight: 500, color: P.ink }}>Confidence · {t.confidence.level}: </span>
+                {/* One vocabulary (2026-10-23, logic audit L6-15): the line alone, exactly as the main answer surface prints it. This panel used to prefix the server's internal level word ("thin") beside the line's own public word ("Low confidence"), so one label read as two different grades. */}
                 {t.confidence.line}
               </div>
             )}
