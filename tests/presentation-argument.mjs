@@ -105,7 +105,12 @@ await test("zero conflicts replaces an unnamed disagreement section with the ver
   const out = server.bindDisagreementSectionToVerdict(answer, verdict, []);
   assert.ok(!out.includes("performance gains"), "manufactured split survived a settled verdict");
   assert.ok(out.includes(verdict.summary), "verdict summary did not stand in for the section");
-  assert.ok(out.includes("## Where researchers disagree"), "heading lost");
+  // Landing reconciliation (2026-10-23): the heading goes with the
+  // section. A "Where researchers disagree" heading over a no
+  // conflicts summary asserts the split the verdict denies, which
+  // is the L7-5 shape itself; the trust-binding ship gate contract
+  // (an invented disagreement section leaves whole) governs.
+  assert.ok(!out.includes("## Where researchers disagree"), "disagreement heading survived a settled verdict");
 });
 
 await test("conflicts above zero restrict the section to conflict pair citations", () => {

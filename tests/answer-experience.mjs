@@ -97,7 +97,10 @@ group("Evidence band — bibliography and videos as tabs, always rendered");
 
 await test("EvidenceBand exists with Bibliography / Videos tabs", () => {
   assert.match(appSrc, /function EvidenceBand/, "EvidenceBand missing");
-  assert.match(appSrc, /Bibliography · \{sources\.length\}/, "bibliography tab missing");
+  // L7-6 (2026-10-23): the bibliography count is labeled by set
+  // (cited, plus further reading when present) instead of one
+  // merged sources.length, so the pin asserts the labeled form.
+  assert.match(appSrc, /Bibliography · \{partitionSources\(sources\)\.cited\.length\} cited/, "bibliography tab missing");
   assert.match(appSrc, /Videos · \{videos\.length\}/, "videos tab missing");
 });
 
@@ -337,7 +340,11 @@ await test("answer surface is one wide article column; evidence is a drawer", ()
   // borderless article (radius 2, no frame) directly over the page
   // background. These pins assert that new contract positively and
   // forbid the frame and the tick-viewport radius from coming back.
-  assert.match(appSrc, /<div className="cb-answer-enter">\s*<article style=\{\{ \.\.\.S\.answerCard, border: "none", borderRadius: 2 \}\} className="cb-article">/, "answer article not on the flat borderless contract");
+  // The flat borderless contract is the border and radius pair on
+  // the cb-article element; additive data attributes after the
+  // class (data-settled, 2026-10-23) do not change it, so the pin
+  // allows attributes between the class and the tag close.
+  assert.match(appSrc, /<div className="cb-answer-enter">\s*<article style=\{\{ \.\.\.S\.answerCard, border: "none", borderRadius: 2 \}\} className="cb-article"[^>]*>/, "answer article not on the flat borderless contract");
   assert.ok(!/<TickFrame[^>]*className="cb-answer-enter"/.test(appSrc), "TickFrame framing returned around the answer");
   assert.ok(!/<article style=\{\{[^}]*borderRadius: RADIUS\.viewport/.test(appSrc), "article regained the tick-viewport radius");
   // Wrap measure (2026-10-14, wave 2): the wrap caps at 1080px (the

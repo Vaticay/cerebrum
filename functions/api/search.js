@@ -14806,7 +14806,16 @@ export function bindDisagreementSectionToVerdict(answer, verdict, conflictPairs)
       if (verdict.conflictCount === 0) {
         const summary = String(verdict.summary || "").trim();
         if (summary) {
-          out.push({ heading: block.heading, lines: [summary] });
+          // The summary stands in WITHOUT the disagreement heading
+          // (landing reconciliation, 2026-10-23): the heading itself
+          // asserts the split the verdict denies, so keeping it over
+          // a no conflicts summary would ship the exact L7-5 shape,
+          // a settled verdict beside a disagreement narrative, and
+          // would break the ship gate contract trust-binding pins
+          // (an invented disagreement section leaves whole). The
+          // section is replaced by the summary, heading included in
+          // the replacement.
+          out.push({ heading: null, lines: [summary] });
           changed = true;
           continue;
         }
