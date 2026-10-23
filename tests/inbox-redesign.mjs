@@ -631,8 +631,15 @@ await test("thread polls fetch metadata only and the first load asks for full pa
 });
 
 await test("mobile: the inbox tracks the visual viewport and pauses polls while hidden", () => {
-  assert.ok(inboxSrc.includes("window.visualViewport"), "nothing reads the visual viewport, so the keyboard can cover the composer");
-  assert.ok(inboxSrc.includes("kbInset"), "the keyboard inset never reaches the layout");
+  // 2026-10-23 (shell landing): the inbox used to read the visual
+  // viewport itself into a local kbInset state. The shell lane
+  // utility in src/keyboardInset.js is now the one reader for the
+  // whole app, and the inbox consumes it through useKeyboardInset,
+  // so these pins assert the consumption wiring instead of the
+  // local read. The inset math itself is pinned in
+  // tests/shell-crosscutting.mjs against the utility module.
+  assert.ok(inboxSrc.includes("useKeyboardInset"), "the inbox does not consume the shared keyboard inset, so the keyboard can cover the composer");
+  assert.ok(inboxSrc.includes("${keyboardInset}px"), "the keyboard inset never reaches the layout");
   const hiddenChecks = inboxSrc.split("document.hidden").length - 1;
   assert.ok(hiddenChecks >= 2, "the thread or list poll still runs at full rhythm in a hidden page");
 });
