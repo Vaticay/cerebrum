@@ -2203,6 +2203,80 @@ function mergeDroppedDuplicates(list, kept) {
  * zero papers matched at all . those records carry no relevance scores, and
  * inventing a floor for them would delete the last-resort path). */
 export const RELEVANCE_FLOOR = 50; // 2026-10-11: lowered from 60 to test multi-concept queries
+/* The gate floor on the TOPICAL scale (2026-10-23, logic audit
+ * L3-3 with L3-4). RELEVANCE_FLOOR above was set against the
+ * blended scale, where quality points did part of the lifting;
+ * read against the topical component alone it is uncalibrated:
+ * labeled on point papers in the suites score topical 25 to 35
+ * while carrying blended relevance 62 to 80 (the vitamin D meta
+ * analysis fixture scores topical 25, the common cold trial 35;
+ * both were cited at the old floor on quality points, which is
+ * the L3-3 defect). Calibration against those labeled sets puts
+ * the topical gate floor at 25, the lowest topical score a
+ * labeled on point paper carries. Papers in the band just
+ * below it (15 to 24) get the second independent topical test
+ * in subjectEngagingRescue instead of a sole point threshold
+ * (L3-4). The blended RELEVANCE_FLOOR keeps governing the
+ * consumers that read blended relevance (thin evidence counts,
+ * caps, the verdict guard's mean). */
+export const TOPICAL_GATE_FLOOR = 25;
+/* SCORE COMPONENT RANGES (2026-10-23, logic audit L3-3). The
+ * ranges live in exactly one place. The scorer builds a topical
+ * component and a quality component; the two phrase bonuses
+ * together form one declared component (each is capped at 30
+ * where computed, so their sum cannot exceed the declared 60),
+ * the summed topical parts cannot exceed topical.max, and the
+ * summed quality parts cannot exceed quality.max. Citation
+ * gating reads the topical component alone (paperGateScore
+ * below); quality may order papers only inside the citable
+ * set, never certify one into it. The header above still
+ * describes the old blended claim (70 topical plus 30
+ * quality); the measured ranges are these. */
+export const SCORE_COMPONENT_RANGES = {
+  topical: {
+    coreCoverage: [0, 42], titleHits: [0, 20], phraseBonusesCombined: [0, 60],
+    peripheral: [0, 4], organism: [-5, 12], max: 138, min: -5,
+  },
+  quality: {
+    abstract: [0, 8], citationsPerYear: [0, 12], recency: [0, 10],
+    journal: [0, 14], predatory: [-18, 0], studyWeight: [-4, 16],
+    intentBonus: [0, 12], rigor: [0, 10], max: 82, min: -22,
+  },
+};
+function clampScorePart(value, range) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(range[0], Math.min(range[1], v));
+}
+/* combineScoreComponents(topicalParts, qualityParts): the one
+ * place the two components are summed (2026-10-23, L3-3). Every
+ * part is clamped to its declared range, and the two phrase
+ * bonuses enter only as their capped sum, so no caller can
+ * stack them past the combined cap by construction. */
+export function combineScoreComponents(topicalParts, qualityParts) {
+  const t = topicalParts || {};
+  const q = qualityParts || {};
+  const R = SCORE_COMPONENT_RANGES;
+  const phraseCombined = clampScorePart(
+    (Number(t.phraseBonus) || 0) + (Number(t.phraseTitleBonus) || 0),
+    R.topical.phraseBonusesCombined);
+  const topicalTotal =
+    clampScorePart(t.coreCoveragePoints, R.topical.coreCoverage) +
+    clampScorePart(t.titleHitsPoints, R.topical.titleHits) +
+    phraseCombined +
+    clampScorePart(t.peripheralPoints, R.topical.peripheral) +
+    clampScorePart(t.organismPoints, R.topical.organism);
+  const qualityTotal =
+    clampScorePart(q.abstractPoints, R.quality.abstract) +
+    clampScorePart(q.citationsPerYearPoints, R.quality.citationsPerYear) +
+    clampScorePart(q.recencyPoints, R.quality.recency) +
+    clampScorePart(q.journalPoints, R.quality.journal) +
+    clampScorePart(q.predatoryPoints, R.quality.predatory) +
+    clampScorePart(q.studyWeightPoints, R.quality.studyWeight) +
+    clampScorePart(q.intentBonusPoints, R.quality.intentBonus) +
+    clampScorePart(q.rigorPoints, R.quality.rigor);
+  return { topical: topicalTotal, quality: qualityTotal, total: topicalTotal + qualityTotal, phraseCombined };
+}
 /* The smallest shelf the answer pipeline can work with (2026
  * 10-14, fifth panel, Job 2b): when the quality floor leaves
  * fewer papers than this, the shelf floor relaxation in
@@ -2219,6 +2293,31 @@ export const SHELF_FLOOR_MINIMUM = 6;
 export function paperRelevance(p) {
   const r = p ? p.relevance : undefined;
   return typeof r === "number" && Number.isFinite(r) ? r : -1;
+}
+/* ONE ACCESSOR, ONE MISSING RULE (2026-10-23, logic audit
+ * L3-14). paperRelevanceValue is the typed reading: a finite
+ * relevance number, or null when the record carries none. Null
+ * is an absence a consumer must handle in the open; no consumer
+ * may substitute 0 or 50 for it. paperRelevance above keeps the
+ * legacy minus one reading for the floor checks that were built
+ * on it, and paperGateScore is the citation reading (L3-3): the
+ * topical component when the scorer produced one, else the
+ * relevance number, else null. */
+export function paperRelevanceValue(p) {
+  const r = p ? p.relevance : undefined;
+  return typeof r === "number" && Number.isFinite(r) ? r : null;
+}
+export function paperTopicalScore(p) {
+  if (!p) return null;
+  for (const v of [p.topicalScore, p.matchScore]) {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+export function paperGateScore(p) {
+  const t = paperTopicalScore(p);
+  if (t !== null) return t;
+  return paperRelevanceValue(p);
 }
 /* Score provenance (2026-10-22, logic audit L3-5). A candidate
  * enters the evidence pipeline in exactly one of two states: it
@@ -2251,7 +2350,11 @@ export function applyRelevanceGate(list) {
   // scores, and the flagged paper has no score to floor. Its
   // topicality judgment happens at the citation binding
   // (paperIsCitable), which runs after every merge.
-  return (list || []).filter((p) => paperRelevance(p) >= RELEVANCE_FLOOR || (p && p._subjectRescued) || paperIsUnscored(p));
+  // The floor reads the gate score (2026-10-23, L3-3): the
+  // topical component when the scorer produced one, else the
+  // relevance number. A record with neither has no score to
+  // floor and stays out unless it carries provenance above.
+  return (list || []).filter((p) => (paperGateScore(p) ?? -1) >= TOPICAL_GATE_FLOOR || (p && p._subjectRescued) || paperIsUnscored(p));
 }
 
 
@@ -4703,6 +4806,17 @@ export function buildDynLookup(groups) {
     if (!g || typeof g.term !== "string" || !Array.isArray(g.alternates)) continue;
     map.set(g.term, new Set([g.term, ...g.alternates]));
   }
+  // Provenance (2026-10-23, logic audit L3-13): a groups array
+  // carrying a live provider via (openrouter, groq, gemini,
+  // workers ai) marks its lookup as live model output. The
+  // deterministic fallback's via ("fallback") and unmarked
+  // caller built lookups carry no mark. gateDynLookup reads
+  // the mark; retrieval consumers ignore it.
+  const via = groups.via;
+  const anyLiveGroup = groups.some((g) => g && g._liveModel === true);
+  if ((typeof via === "string" && via && via !== "fallback") || anyLiveGroup) {
+    try { map._liveModelVia = typeof via === "string" && via ? via : "model"; } catch { /* a frozen map keeps the old behavior */ }
+  }
   return map;
 }
 
@@ -5620,7 +5734,14 @@ export async function llmConceptGroups(query, env, callImpl, ledger = null) {
     // injected calls may return raw text or a parsed value instead.
     const isLegResult = raw && typeof raw === "object" && !Array.isArray(raw) && typeof raw.text === "string";
     const groups = validateExpansionGroups(isLegResult ? raw.text : raw, query);
-    if (groups.length && isLegResult && raw.via) groups.via = raw.via;
+    if (groups.length && isLegResult && raw.via) {
+      groups.via = raw.via;
+      // Per group provenance (2026-10-23, L3-13): the array
+      // level via is lost when a caller spreads the groups
+      // into a new array, so each group carries the mark too,
+      // and buildDynLookup honors either.
+      for (const g of groups) { try { g._liveModel = true; } catch { /* plain objects in practice */ } }
+    }
     return groups;
   } catch {
     return [];
@@ -10947,24 +11068,84 @@ const QUERY_ORGANISM_IDENTIFIERS = {
   "e coli": ["escherichia"],
 };
 
+/* ONE ORGANISM IDENTITY (2026-10-23, logic audit L3-9). The
+ * query organism is resolved once, to a single identity
+ * carrying the binomial, the genus, the species, and every
+ * common name and identifier the tables know for it, whichever
+ * form the user actually typed. Before this, a query naming
+ * the common name built one target set and a query naming the
+ * binomial built a smaller one (genus and binomial only, never
+ * the common name), so an on point paper using the other form
+ * could be deleted for naming a contaminant in comparison.
+ * Every organism test (target, contaminant, anchor, gate)
+ * reads this one identity, and matching is whole token (or a
+ * contiguous token sequence for a multi word name), never a
+ * substring inside an unrelated word. */
+export function resolveQueryOrganism(rawQuery) {
+  const q = String(rawQuery || "");
+  const qLower = q.toLowerCase();
+  const names = new Set();
+  const matchedKeys = new Set();
+  for (const [name, identifiers] of Object.entries(QUERY_ORGANISM_IDENTIFIERS)) {
+    if (qLower.includes(name)) {
+      matchedKeys.add(name);
+      names.add(name.toLowerCase());
+      for (const idf of identifiers || []) names.add(String(idf).toLowerCase());
+    }
+  }
+  const binomial = extractBinomial(q);
+  let genus = null;
+  let species = null;
+  if (binomial) {
+    genus = String(binomial.genus || "").toLowerCase() || null;
+    species = String(binomial.species || "").toLowerCase() || null;
+    if (binomial.full) names.add(String(binomial.full).toLowerCase());
+    if (genus) names.add(genus);
+    if (species) names.add(species);
+  }
+  // Reverse bridge: a binomial whose genus appears in the
+  // identifier table inherits that entry's common names, and a
+  // common name whose identifiers include a genus inherits the
+  // binomial side through the concept table where it exists.
+  if (genus) {
+    for (const [name, identifiers] of Object.entries(QUERY_ORGANISM_IDENTIFIERS)) {
+      if ((identifiers || []).some((idf) => String(idf).toLowerCase() === genus)) {
+        matchedKeys.add(name);
+        names.add(name.toLowerCase());
+        for (const idf of identifiers || []) names.add(String(idf).toLowerCase());
+      }
+    }
+  }
+  if (binomial && binomial.full) {
+    try {
+      const grp = CONCEPT_LOOKUP.get(String(binomial.full).toLowerCase());
+      if (grp) for (const variant of grp) { if (variant && variant.length > 2) names.add(String(variant).toLowerCase()); }
+    } catch { /* the concept bridge is best effort */ }
+  }
+  for (const key of matchedKeys) {
+    try {
+      const grp = CONCEPT_LOOKUP.get(key);
+      if (grp) for (const variant of grp) { if (variant && variant.length > 2) names.add(String(variant).toLowerCase()); }
+    } catch { /* best effort */ }
+  }
+  return {
+    binomial: binomial && binomial.full ? String(binomial.full).toLowerCase() : null,
+    genus, species,
+    names,
+    matchedKeys,
+    isEmpty: names.size === 0,
+  };
+}
+
 function programmaticPaperFilter(rawQuery, papers) {
   if (!papers.length) return papers;
   const qLower = rawQuery.toLowerCase();
 
-  // Step 1: Identify what organism the USER is asking about
-  const queryOrganisms = new Set();
-  for (const [name, identifiers] of Object.entries(QUERY_ORGANISM_IDENTIFIERS)) {
-    if (qLower.includes(name)) {
-      identifiers.forEach(id => queryOrganisms.add(id.toLowerCase()));
-      queryOrganisms.add(name.toLowerCase());
-    }
-  }
-  // Also detect any binomial in the query
+  // Step 1: Identify what organism the USER is asking about,
+  // as the one resolved identity (L3-9 above).
+  const organismIdentity = resolveQueryOrganism(rawQuery);
+  const queryOrganisms = organismIdentity.names;
   const qBinomial = extractBinomial(rawQuery);
-  if (qBinomial) {
-    queryOrganisms.add(qBinomial.genus.toLowerCase());
-    queryOrganisms.add(qBinomial.full.toLowerCase());
-  }
 
   // If we can't identify a specific organism query, skip this filter
   if (queryOrganisms.size === 0) return papers;
@@ -10973,8 +11154,10 @@ function programmaticPaperFilter(rawQuery, papers) {
   return papers.filter(p => {
     const haystack = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
 
-    // First check: does the paper mention the TARGET organism at all?
-    const mentionsTarget = [...queryOrganisms].some(org => haystack.includes(org));
+    // First check: does the paper mention the TARGET organism
+    // at all? Whole token matching (L3-9): an identifier like
+    // "apis" inside an unrelated word is not a mention.
+    const mentionsTarget = textMentionsAnyNeedle(haystack, [...queryOrganisms]);
 
     // If it doesn't even mention the target organism, flag it
     if (!mentionsTarget) {
@@ -11135,10 +11318,14 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
       }
       return true;
     });
-    // Same never zero contract as the singleton path below: if the
-    // accounting would eliminate every paper, fall back to whatever
-    // scored best originally rather than returning zero evidence.
-    if (survivors.length === 0) return papers.slice(0, 3);
+    // Monotone filters (2026-10-23, logic audit L3-7): a filter
+    // may only remove. The old never zero fallback returned the
+    // first three input papers when the accounting emptied the
+    // set, resurrecting exactly the papers the filter had just
+    // rejected, stamped with its verdict, into a set a citation
+    // path could read. An emptied set now stays empty; the
+    // honest no evidence state downstream is the answer to a
+    // pool where every candidate failed.
     return survivors;
   }
 
@@ -11262,10 +11449,8 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
     return true;
   });
 
-  // If this filter would eliminate every paper (e.g. the query's own anchor
-  // extraction was itself off), don't blank the result set . fall back to
-  // whatever scored best originally rather than returning zero evidence.
-  if (survivors.length === 0) return papers.slice(0, 3);
+  // Monotone filters (2026-10-23, L3-7): see the grouped path
+  // above. An emptied set stays empty.
   return survivors;
 }
 
@@ -11489,7 +11674,7 @@ export function finalizeValidationHealth(rec, validationDiag) {
 
 /* The programmatic half of validation, composed exactly as
  * llmValidatePapers has always run it: PASS 1A (the organism hard
- * filter) with its never zero fallback, then PASS 1B (the topic
+ * filter), then PASS 1B (the topic
  * overlap filter). Both passes are per paper predicates over title
  * and abstract text: no network calls, and cost linear in the
  * number of papers times their text length, so the composition is
@@ -11511,10 +11696,10 @@ export function programmaticValidationPasses(rawQuery, papers, dynLookup) {
   // PASS 1A: Organism-specific hard-filter (free, instant)
   let survivors = programmaticPaperFilter(rawQuery, papers);
 
-  // If programmatic filter removed everything, keep at least the top-scored original papers
-  if (survivors.length === 0 && papers.length > 0) {
-    survivors = papers.slice(0, 3);
-  }
+  // Monotone filters (2026-10-23, L3-7): the never zero
+  // fallback that used to restore the top three input papers
+  // here is removed. If PASS 1A empties the set, PASS 1B judges
+  // an empty set and the composition returns empty.
 
   // PASS 1B: General topic-overlap filter (free, instant) . catches
   // off-topic-field contamination that PASS 1A can't see because it only
@@ -11523,6 +11708,19 @@ export function programmaticValidationPasses(rawQuery, papers, dynLookup) {
   return survivors;
 }
 
+/* VALIDATOR AUTHORITY (2026-10-23, logic audit L3-8), stated
+ * once and binding on both call sites: the validator is
+ * ADVISORY over papers that have cleared the citation gate,
+ * and a gate only over papers that never cleared it. Inside
+ * this function, called on an ungated set, its explicit
+ * verdicts filter the set. In the handler, whose evidence set
+ * is citable by construction, a validator verdict may flag a
+ * gate cleared paper (tangential) but never remove it: the
+ * handler restores every gate cleared paper the validator
+ * dropped, not only foundational primaries. One way, both
+ * directions stated: the citation gate never yields to the
+ * validator, and the validator never has to meet the gate's
+ * evidence standard because it cannot override it. */
 export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env, diagOut, callImpl, ledger = null) {
   if (!papers.length) return papers;
 
@@ -11555,7 +11753,13 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
   // A Gemini only environment validates too (2026-10-14, wave
   // eight round three, Job 3): the fourth leg needs GEMINI_KEY.
   const hasGeminiLeg = !!(env && env.GEMINI_KEY);
-  if ((!token && !hasGroqLeg && !hasCfLeg && !hasGeminiLeg) || survivors.length > 20) return survivors;
+  if ((!token && !hasGroqLeg && !hasCfLeg && !hasGeminiLeg) || survivors.length > 20) {
+    // No model judgment happened on this path: the survivors
+    // ship unvalidated, and the diag says so (2026-10-23,
+    // logic audit L3-8).
+    if (diagOut) diagOut.llmUnvalidated = true;
+    return survivors;
+  }
 
   // Subrequest budget: when the invocation allowance is spent, the
   // LLM pass does not fire at all . the programmatic survivors are
@@ -11571,6 +11775,7 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
   if (ledger && (ledger.remaining() <= 0 || phaseSpent)) {
     if (diagOut) {
       diagOut.llmBudgetSkipped = true;
+      diagOut.llmUnvalidated = true;
       if (phaseSpent) diagOut.validationTrimmed = true;
     }
     return survivors;
@@ -11595,8 +11800,13 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
       `Papers about feeding ${targetOrganism} TO other animals (e.g., fish/poultry fed with insect meal) are about the OTHER animal's nutrition, NOT about ${targetOrganism} biology = IRRELEVANT unless the query specifically asks about ${targetOrganism} as feed.`
     : "";
 
+  // Full usable abstract (2026-10-23, L3-8): the validator used
+  // to judge from a 350 character slice, so any paper whose
+  // deciding sentence sat past the slice (a methods paper whose
+  // abstract opens with background) was judged on its
+  // background alone. The whole usable abstract is the input.
   const paperList = survivors.map((p, i) =>
-      `[${i + 1}] "${p.title}" (${p.journal || "unknown"}, ${p.year || "n/a"})\nAbstract: ${(p.abstract || "").slice(0, 350)}`
+      `[${i + 1}] "${p.title}" (${p.journal || "unknown"}, ${p.year || "n/a"})\nAbstract: ${usableAbstract(p) || ""}`
     ).join("\n\n");
     const messages = [{
           role: "system",
@@ -11634,27 +11844,57 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
         diagOut.llmBudgetSkipped = true;
         diagOut.validationTrimmed = true;
       }
+      // Fail open, labeled (2026-10-23, L3-8): these survivors
+      // were not validated, and the record and the answer say so.
+      if (diagOut) diagOut.llmUnvalidated = true;
       return survivors;
     }
     // The default call reports which leg answered as { text, via };
     // injected calls may return raw text instead.
     const isLegResult = legResult && typeof legResult === "object" && typeof legResult.text === "string";
     const txt = (isLegResult ? legResult.text : String(legResult)).trim();
-    if (!txt) return survivors;
+    if (!txt) { if (diagOut) diagOut.llmUnvalidated = true; return survivors; }
     if (isLegResult && legResult.via && diagOut) diagOut.llmValidatedVia = legResult.via;
     try {
       const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
       if (Array.isArray(parsed) && parsed.length > 0) {
         const validIds = new Set();
         const tangentialIds = new Set();
+        const irrelevantIds = new Set();
+        let sawMissingVerdict = false;
         for (const entry of parsed) {
-          const id = typeof entry === "number" ? entry : (entry.id || entry.number || entry.n);
-          const verdict = typeof entry === "string" ? "RELEVANT" : (entry.verdict || entry.score || "RELEVANT");
+          // A bare number is the simple array format: the id
+          // itself is the verdict (listed means relevant).
+          if (typeof entry === "number" && Number.isFinite(entry)) { validIds.add(entry); continue; }
+          const id = entry && (entry.id || entry.number || entry.n);
+          // Explicit verdict required (2026-10-23, L3-8): an
+          // entry with no verdict, or a verdict outside the
+          // three named values, is not a judgment. The old
+          // default read a missing verdict as RELEVANT while a
+          // paper the model omitted entirely was dropped, so
+          // outcomes were decided by the default, not the model.
+          const verdict = typeof entry === "string" ? entry
+            : (entry && typeof entry === "object" ? (entry.verdict || entry.score) : null);
           const idNum = typeof id === "number" ? id : parseInt(id, 10);
-          if (isNaN(idNum)) continue;
-          if (/^relevant$/i.test(verdict)) validIds.add(idNum);
-          else if (/^tangential$/i.test(verdict)) tangentialIds.add(idNum);
-          // IRRELEVANT papers are simply not added
+          if (isNaN(idNum)) { sawMissingVerdict = true; continue; }
+          if (typeof verdict === "string" && /^relevant$/i.test(verdict)) validIds.add(idNum);
+          else if (typeof verdict === "string" && /^tangential$/i.test(verdict)) tangentialIds.add(idNum);
+          else if (typeof verdict === "string" && /^irrelevant$/i.test(verdict)) irrelevantIds.add(idNum);
+          else sawMissingVerdict = true;
+        }
+        // Every paper needs an explicit verdict. A missing
+        // entry is a stage failure: the stage fails open to the
+        // programmatic survivors, labeled unvalidated, rather
+        // than letting omission silently drop papers.
+        let missingEntry = sawMissingVerdict;
+        if (!missingEntry) {
+          for (let n = 1; n <= survivors.length; n++) {
+            if (!validIds.has(n) && !tangentialIds.has(n) && !irrelevantIds.has(n)) { missingEntry = true; break; }
+          }
+        }
+        if (missingEntry) {
+          if (diagOut) { diagOut.llmValidationIncomplete = true; diagOut.llmUnvalidated = true; }
+          return survivors;
         }
         // Keep RELEVANT papers as-is, mark TANGENTIAL ones with a flag
         const filtered = survivors.filter((p, i) => {
@@ -11667,10 +11907,12 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
           }
           return false;
         });
-        // Only use filtered if it kept at least 1 paper
-        if (filtered.length > 0) return filtered;
-        // If LLM rejected everything but we had survivors, keep top 2
-        return survivors.slice(0, 2);
+        // Reject all stands (2026-10-23, L3-8): the override
+        // that used to resurrect the top two papers after a
+        // total rejection is removed. An explicit verdict for
+        // every paper that rejects all of them returns an empty
+        // set, and the handler takes its no evidence path.
+        return filtered;
       }
     } catch (cbErr) { console.error("[Cerebrum] search.js:", cbErr); }
     // If LLM returned something unparseable, still try the simple array format
@@ -11682,8 +11924,11 @@ export async function llmValidatePapers(rawQuery, papers, token, dynLookup, env,
         if (filtered.length > 0) return filtered;
       }
     } catch (cbErr) { console.error("[Cerebrum] search.js: const simple = JSON.parse(txt.replace(/```json|```/g, '').trim());:", cbErr); }
+    // Unparseable output is a fail open, labeled (L3-8).
+    if (diagOut) diagOut.llmUnvalidated = true;
     return survivors;
   } catch {
+    if (diagOut) diagOut.llmUnvalidated = true;
     return survivors;
   }
 }
@@ -15088,11 +15333,17 @@ export function guardSettledVerdict(verdict, citedPapers, gateCtx) {
   try {
     anyCitable = list.some((p, i) => paperIsCitable(p, i + 1, gateCtx));
   } catch { anyCitable = false; }
-  const meanRelevance = list.reduce((s, p) => {
-    const r = Number(p && p.relevance) || Number(p && p.relevanceScore) || Number(p && p.blendedScore) || 0;
-    return s + r;
-  }, 0) / list.length;
-  if (anyCitable && meanRelevance >= RELEVANCE_FLOOR) return { verdict, guarded: false };
+  // Mean relevance over scored papers only (2026-10-23,
+  // L3-14): a missing relevance used to read as 0 here while
+  // the confidence line read the same absence as 50. Missing
+  // is now a typed absence in both places; a cited set with
+  // no scored paper cannot prove a mean at or above the
+  // floor, so the guard fires and names the absence.
+  const scoredRels = list.map((p) => paperRelevanceValue(p)).filter((v) => v !== null);
+  const meanRelevance = scoredRels.length > 0
+    ? scoredRels.reduce((s, r) => s + r, 0) / scoredRels.length
+    : null;
+  if (anyCitable && meanRelevance !== null && meanRelevance >= RELEVANCE_FLOOR) return { verdict, guarded: false };
   return {
     verdict: {
       status: "thin",
@@ -15101,7 +15352,9 @@ export function guardSettledVerdict(verdict, citedPapers, gateCtx) {
         "for this question, so there was no settled evidence to weigh. That is thin evidence, not a consensus.",
     },
     guarded: true,
-    reason: !anyCitable ? "no citable paper in the cited set" : "mean cited relevance below the floor",
+    reason: !anyCitable ? "no citable paper in the cited set"
+      : meanRelevance === null ? "no relevance scores in the cited set"
+      : "mean cited relevance below the floor",
   };
 }
 
@@ -16551,7 +16804,24 @@ export function isQuantityPhraseKey(key) {
 
 export function gateDynLookup(query, dynLookup) {
   if (!dynLookup) return null;
-  return questionConceptGroups(query, null).length >= 2 ? null : dynLookup;
+  if (questionConceptGroups(query, null).length >= 2) return null;
+  // Deterministic gating inputs (2026-10-23, logic audit
+  // L3-13): when the lookup on offer is live model output, the
+  // gate does not judge by it. A live leg's success or failure
+  // on one run must not change the standard a paper is judged
+  // by, so the gating lookup is recomputed from the question
+  // and the shipped tables alone (the deterministic fallback
+  // groups), the same groups on every run of the same
+  // question. Model groups still add retrieval; they never
+  // set the gating standard. Unmarked lookups (hand tables,
+  // fallback groups, caller fixtures) pass through unchanged.
+  if (dynLookup._liveModelVia) {
+    try {
+      const det = buildDynLookup(buildDeterministicFallbackGroups(query, centralContentTerms(query)));
+      return det && det.size > 0 ? det : null;
+    } catch { return null; }
+  }
+  return dynLookup;
 }
 
 // The groups that count for gating, per the precedence rule above.
@@ -17364,7 +17634,7 @@ export function centralConceptHits(paper, concepts) {
 // paperClearsCitationGate judges first whenever they resolve.
 export function citationGateStandard(query, dynLookup) {
   const groups = gateConceptGroups(query, dynLookup);
-  return {
+  const std = {
     groups,
     centralTerms: groups.length >= 2 ? [] : centralContentTerms(query),
     minHits: groups.length >= 2 ? 2 : 1,
@@ -17380,6 +17650,13 @@ export function citationGateStandard(query, dynLookup) {
     // at exactly the layers that bind citations.
     mechanismShape: isMechanismShapeQuery(query),
   };
+  // One judged set per question (2026-10-23, logic audit
+  // L3-11): computed once here and recorded on the standard.
+  // paperClearsCitationGate and every serve side test read
+  // this set; no consumer rebuilds a second set that could
+  // drift from the one the verdict used.
+  try { std.judgedConcepts = gateJudgedConcepts(std); } catch { std.judgedConcepts = std.centralConcepts || []; }
+  return std;
 }
 
 /* gateJudgedConcepts(standard): the concept set the citation
@@ -17390,6 +17667,9 @@ export function citationGateStandard(query, dynLookup) {
  * side subject test below judges on the SAME set the gate
  * judged, never a second reconstruction of it. */
 export function gateJudgedConcepts(std) {
+  // The recorded set wins (2026-10-23, L3-11): a standard built
+  // by citationGateStandard carries its judged set with it.
+  if (std && Array.isArray(std.judgedConcepts)) return std.judgedConcepts;
   const concepts = std && Array.isArray(std.centralConcepts) ? std.centralConcepts : [];
   let judged = concepts;
   if (std && (std.centralTerms || []).length > 0) {
@@ -17445,14 +17725,20 @@ export function paperClearsCitationGate(paper, standard) {
     // The judged set is gateJudgedConcepts' (wave sixteen):
     // the serve side subject test below reads the same set.
     const judged = gateJudgedConcepts(std);
-    // The title exception (Job 1b) reads the FULL judged set:
-    // the subject plus a second central term in the title is
-    // the one title only engagement that clears, and the
-    // second term may be a bare head word (the baby in the
-    // coffee question) — the title is the paper's own claim
-    // about its topic, judged as a whole. The belly collisions
-    // cannot use it: their titles never name the subject.
-    const allHits = centralConceptHits(paper, judged);
+    // The title exception (Job 1b), one set rule (2026-10-23,
+    // logic audit L3-11): the exception reads the question's
+    // central concepts, the same concepts the main verdict
+    // below derives its set from. A bare central term stand in
+    // (a term gateJudgedConcepts added because the standard
+    // carries centralTerms) can no longer complete the
+    // exception: a paper clearing on subject plus a stand in
+    // in its title was judged against a set the main path
+    // would not count. A real central concept that is merely
+    // unbacked (the baby in the coffee question) still counts,
+    // exactly as before.
+    const centralSet = Array.isArray(std.centralConcepts) && std.centralConcepts.length > 0
+      ? std.centralConcepts : judged;
+    const allHits = centralConceptHits(paper, centralSet);
     let verdict;
     if (allHits.subjectInTitle && allHits.inTitle >= 2) {
       verdict = true;
@@ -17501,7 +17787,26 @@ export function paperClearsCitationGate(paper, standard) {
       // exactly as before.
       const hasAbstract = String(usableAbstract(paper) || "").trim().length > 0;
       const depthEngaged = hits.inAbstract >= 1 || (!hasAbstract && hits.inTitle >= 1);
-      if (useSet.length === 1) verdict = hits.total >= 1 && depthEngaged;
+      if (useSet.length === 1) {
+        // Single concept rule (2026-10-23, L3-11): one touch
+        // is not enough on its own. The independent requirement
+        // is the per paper subject serve test in lexical form:
+        // the concept must be engaged in the ABSTRACT through
+        // its own vocabulary (its term or any member wording),
+        // or the subject itself must be named in the title. A
+        // hit that lives only in the title does not complete a
+        // one concept verdict. The word sharing collision (a
+        // mammalian touch review under the mimosa question)
+        // owns none of the concept's vocabulary in its abstract
+        // and still fails; the thigmonasty paper engages the
+        // concept in its abstract (pulvinus, mechanical
+        // stimulation) and still clears.
+        const only = useSet[0];
+        let abstractServe = false;
+        try { abstractServe = centralConceptHits(paper, [only]).inAbstract >= 1; } catch { abstractServe = false; }
+        if (!hasAbstract) abstractServe = hits.total >= 1;
+        verdict = hits.total >= 1 && depthEngaged && (abstractServe || hits.subjectInTitle);
+      }
       else verdict = hits.total >= 2 && depthEngaged;
     }
     // TAIL DISCIPLINE (2026-10-14, wave nine): on a mechanism
@@ -17576,17 +17881,10 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
   }
   if (citedIdx.size === 0) return { text, demoted: [] };
 
-  // Anchor exemptions: the organism or binomial the question itself
-  // resolved. A paper naming it is carried by the anchor.
-  const qLower = String(query || "").toLowerCase();
-  const anchorNeedles = [];
-  const binomial = extractBinomial(String(query || ""));
-  if (binomial && binomial.full) anchorNeedles.push(binomial.full.toLowerCase());
-  for (const [name, identifiers] of Object.entries(QUERY_ORGANISM_IDENTIFIERS)) {
-    if (qLower.includes(name)) {
-      for (const idf of identifiers || []) anchorNeedles.push(String(idf).toLowerCase());
-    }
-  }
+  // Anchor needles: the one resolved organism identity
+  // (2026-10-23, L3-9), binomial, genus, and all common names,
+  // whichever form the question used.
+  const anchorNeedles = [...resolveQueryOrganism(String(query || "")).names];
   // The existence path's own carried paper.
   let existenceIdx = 0;
   if (isExistenceQuestion(query)) {
@@ -17606,10 +17904,10 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
     // No thinEvidence exemption (wave seven): the cascade flag
     // no longer keeps a marker. See the header above.
     if (idx === existenceIdx) { keep.add(idx); continue; }
-    if (anchorNeedles.length > 0) {
-      const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
-      if (anchorNeedles.some((n) => hay.includes(n))) { keep.add(idx); continue; }
-    }
+    // The anchor satisfies one concept only (2026-10-23,
+    // L3-10): a kept marker needs the narrowed carry, a second
+    // judged concept engaged beside the anchored organism.
+    if (anchorNeedles.length > 0 && anchorCarriesPaper(p, { groups, centralTerms: standard.centralTerms || [], subjectGroup: standard.subjectGroup || null, centralConcepts: standard.centralConcepts || [], mechanismShape: !!standard.mechanismShape, anchorNeedles })) { keep.add(idx); continue; }
     const hits = paperConceptGroupHits(p, groups);
     if (paperClearsCitationGate(p, standard)) keep.add(idx);
     else failing.push({ idx, hits, groups: groups.length });
@@ -17713,10 +18011,12 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
  * converts near misses on the subject into false no evidence
  * states. The rescue is the appeal, and it is narrow by
  * construction:
- *   . the score must sit in the near miss band, 40 to 49 (the
- *     caps' resting value 45 is inside it; a paper at 20 or 13,
- *     the relaxation placeholders and weak matches the batch
- *     also measured, is not);
+ *   . the score must sit in the near miss band: since
+ *     2026-10-23 (L3-4) the band is read on the topical scale,
+ *     TOPICAL_GATE_FLOOR minus 10 up to the floor itself (15
+ *     to 24 under the calibrated floor of 25); a paper below
+ *     the band, the relaxation placeholders and weak matches
+ *     the batch also measured, is not rescued;
  *   . the question must yield a gate standard at all, and the
  *     paper must clear it (paperClearsCitationGate), the same
  *     topicality verdict an above floor paper needs;
@@ -17732,11 +18032,19 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
  * the handler builds the citable set, so the floor only
  * rechecks downstream can tell a judged admission from a
  * below floor paper merged in later. */
-export const RELEVANCE_RESCUE_BAND_FLOOR = 40;
+export const RELEVANCE_RESCUE_BAND_FLOOR = TOPICAL_GATE_FLOOR - 10; // the near floor band on the topical scale (2026-10-23, L3-4)
 export function subjectEngagingRescue(paper, gateCtx) {
   const p = paper || {};
-  const rel = paperRelevance(p);
-  if (rel < RELEVANCE_RESCUE_BAND_FLOOR || rel >= RELEVANCE_FLOOR) return false;
+  // The near floor band (2026-10-23, L3-4): until the floor is
+  // calibrated against a labelled set per question shape, a
+  // score inside the band is never the sole authority. The band
+  // gets this second, independent topical test instead: the
+  // citation gate standard itself, plus subject engagement in
+  // the abstract, judged below. The band reads the gate score
+  // (the topical component, L3-3), so quality signals can
+  // neither push a paper into the band nor keep one out of it.
+  const rel = paperGateScore(p) ?? -1;
+  if (rel < RELEVANCE_RESCUE_BAND_FLOOR || rel >= TOPICAL_GATE_FLOOR) return false;
   if (p.unverifiableAbstract || p.roleInverted) return false;
   const ctx = gateCtx || {};
   const groups = ctx.groups || [];
@@ -17749,6 +18057,55 @@ export function subjectEngagingRescue(paper, gateCtx) {
     const hits = centralConceptHits(p, gateJudgedConcepts(std));
     return hits.total >= 2 && hits.inAbstract >= 1;
   } catch { return false; }
+}
+
+/* Whole token needle matching (2026-10-23, logic audit L3-9):
+ * a needle matches as a whole token, or as a contiguous token
+ * sequence for a multi word needle, never as a substring inside
+ * an unrelated word. Used for every organism anchor test. */
+export function textMentionsAnyNeedle(text, needles) {
+  const toks = String(text || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (toks.length === 0) return false;
+  const tokSet = new Set(toks);
+  for (const raw of needles || []) {
+    const nt = String(raw || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    if (nt.length === 0) continue;
+    if (nt.length === 1) { if (tokSet.has(nt[0])) return true; continue; }
+    let found = false;
+    for (let i = 0; i + nt.length <= toks.length && !found; i++) {
+      let ok = true;
+      for (let j = 0; j < nt.length; j++) { if (toks[i + j] !== nt[j]) { ok = false; break; } }
+      if (ok) found = true;
+    }
+    if (found) return true;
+  }
+  return false;
+}
+
+/* The organism anchor, narrowed (2026-10-23, logic audit
+ * L3-10). The anchor used to satisfy the whole citation
+ * standard on a single mention anywhere in the paper. It now
+ * satisfies ONE concept of the standard: a carried paper must
+ * still engage a second judged concept, or, on a single
+ * concept question, engage that concept in its abstract. A
+ * paper that merely names the anchored organism once, the
+ * tilapia fed a soldier fly ingredient shape, is not carried. */
+export function anchorCarriesPaper(paper, gateCtx) {
+  const ctx = gateCtx || {};
+  const needles = Array.isArray(ctx.anchorNeedles) ? ctx.anchorNeedles : [];
+  if (needles.length === 0) return false;
+  const p = paper || {};
+  const hay = ((p.title || "") + " " + (usableAbstract(p) || ""));
+  if (!textMentionsAnyNeedle(hay, needles)) return false;
+  const std = { groups: ctx.groups || [], centralTerms: ctx.centralTerms || [], subjectGroup: ctx.subjectGroup || null, centralConcepts: Array.isArray(ctx.centralConcepts) ? ctx.centralConcepts : [], mechanismShape: !!ctx.mechanismShape };
+  const judged = gateJudgedConcepts(std);
+  if (judged.length > 0) {
+    const hits = centralConceptHits(p, judged);
+    if (hits.total >= 2) return true;
+    if (judged.length === 1) return hits.total >= 1 && hits.inAbstract >= 1;
+    return false;
+  }
+  return paperConceptGroupHits(p, ctx.groups || []) >= 2;
 }
 
 export function paperIsCitable(paper, idx, gateCtx) {
@@ -17767,7 +18124,7 @@ export function paperIsCitable(paper, idx, gateCtx) {
   // else: an unscored paper that engages none of what the
   // standard asks for is out, exactly like a scored one.
   const unscored = paperIsUnscored(p);
-  if (!unscored && paperRelevance(p) < RELEVANCE_FLOOR) {
+  if (!unscored && (paperGateScore(p) ?? -1) < TOPICAL_GATE_FLOOR) {
     // Below the floor the only road in is the subject engaging
     // rescue (see subjectEngagingRescue above): a near miss
     // score on a paper the gate standard itself judges on
@@ -17781,12 +18138,9 @@ export function paperIsCitable(paper, idx, gateCtx) {
   // binds. An unscored paper has no floor reading either, and
   // retrieval rank alone never certifies a citation, so with
   // no standard to judge it by it stays out.
-  if (groups.length === 0 && centralTerms.length === 0 && centralConcepts.length === 0) return unscored ? false : paperRelevance(p) >= RELEVANCE_FLOOR;
+  if (groups.length === 0 && centralTerms.length === 0 && centralConcepts.length === 0) return unscored ? false : (paperGateScore(p) ?? -1) >= TOPICAL_GATE_FLOOR;
   if (idx && ctx.existenceIdx && idx === ctx.existenceIdx) return true;
-  if (Array.isArray(ctx.anchorNeedles) && ctx.anchorNeedles.length > 0) {
-    const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
-    if (ctx.anchorNeedles.some((n) => n && hay.includes(n))) return true;
-  }
+  if (anchorCarriesPaper(p, ctx)) return true;
   return paperClearsCitationGate(p, { groups, centralTerms, subjectGroup: ctx.subjectGroup || null, centralConcepts, mechanismShape: !!ctx.mechanismShape });
 }
 
@@ -17794,15 +18148,8 @@ export function conceptGateContext(papers, query, dynLookup) {
   const list = Array.isArray(papers) ? papers : [];
   const standard = citationGateStandard(query, dynLookup);
   const groups = standard.groups;
-  const qLower = String(query || "").toLowerCase();
-  const anchorNeedles = [];
-  const binomial = extractBinomial(String(query || ""));
-  if (binomial && binomial.full) anchorNeedles.push(binomial.full.toLowerCase());
-  for (const [name, identifiers] of Object.entries(QUERY_ORGANISM_IDENTIFIERS)) {
-    if (qLower.includes(name)) {
-      for (const idf of identifiers || []) anchorNeedles.push(String(idf).toLowerCase());
-    }
-  }
+  // Anchor needles from the one resolved identity (L3-9).
+  const anchorNeedles = [...resolveQueryOrganism(String(query || "")).names];
   let existenceIdx = 0;
   if (isExistenceQuestion(query)) {
     try {
@@ -18364,8 +18711,8 @@ export function citedSetEngagesSubject(evidencePapers, citedIdx, query, dynLooku
         return { judged: true, engaged: true, subjectTerm };
       }
       if (anchorNeedles.length > 0) {
-        const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
-        if (anchorNeedles.some((n) => n && hay.includes(n))) {
+        const hay = ((p.title || "") + " " + (usableAbstract(p) || ""));
+        if (textMentionsAnyNeedle(hay, anchorNeedles)) {
           return { judged: true, engaged: true, subjectTerm };
         }
       }
@@ -18387,8 +18734,8 @@ export function citedSetEngagesSubject(evidencePapers, citedIdx, query, dynLooku
       return { judged: true, engaged: true, subjectTerm };
     }
     if (anchorNeedles.length > 0) {
-      const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
-      if (anchorNeedles.some((n) => n && hay.includes(n))) {
+      const hay = ((p.title || "") + " " + (usableAbstract(p) || ""));
+      if (textMentionsAnyNeedle(hay, anchorNeedles)) {
         return { judged: true, engaged: true, subjectTerm };
       }
     }
@@ -18422,8 +18769,8 @@ export function subjectEngagingEvidence(papers, query, dynLookup) {
   const engages = (p, idx, centralTest) => {
     if (ctx.existenceIdx && idx === ctx.existenceIdx) return true;
     if (anchorNeedles.length > 0) {
-      const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
-      if (anchorNeedles.some((n) => n && hay.includes(n))) return true;
+      const hay = ((p.title || "") + " " + (usableAbstract(p) || ""));
+      if (textMentionsAnyNeedle(hay, anchorNeedles)) return true;
     }
     try { return centralTest(p); } catch { return false; }
   };
@@ -18457,10 +18804,9 @@ export function conceptGateKeeps(paper, idx, gateCtx) {
   // No thinEvidence exemption (wave seven): the cascade flag
   // keeps nothing. See paperIsCitable above.
   if (idx && ctx.existenceIdx && idx === ctx.existenceIdx) return true;
-  if (Array.isArray(ctx.anchorNeedles) && ctx.anchorNeedles.length > 0) {
-    const hay = ((p.title || "") + " " + (usableAbstract(p) || "")).toLowerCase();
-    if (ctx.anchorNeedles.some((n) => n && hay.includes(n))) return true;
-  }
+  // The anchor satisfies one concept only (2026-10-23, L3-10),
+  // the same narrowed carry paperIsCitable applies.
+  if (anchorCarriesPaper(p, ctx)) return true;
   return paperClearsCitationGate(p, { groups: ctx.groups || [], centralTerms: ctx.centralTerms || [], subjectGroup: ctx.subjectGroup || null, centralConcepts: Array.isArray(ctx.centralConcepts) ? ctx.centralConcepts : [], mechanismShape: !!ctx.mechanismShape });
 }
 
@@ -18844,6 +19190,13 @@ export function zeroSupportCheckMode(factCheck) {
  * standing house rule. */
 export const FACT_CHECK_DID_NOT_RUN_STATEMENT =
   "The fact check did not run on this answer, so its claims have not been checked against the cited sources.";
+
+/* The plain statement an answer ships when its sources were
+ * not validated by the validation stage (2026-10-23, logic
+ * audit L3-8): a fail open must be labeled in the answer, not
+ * only in a stage record. Plain wording, no dash characters. */
+export const VALIDATION_DID_NOT_RUN_STATEMENT =
+  "The source validation step did not run on this answer, so its sources were screened by the citation standard only.";
 
 export function factCheckActuallyChecked(factCheck) {
   if (!factCheck || typeof factCheck !== "object") return false;
@@ -19731,6 +20084,13 @@ export function buildConfidenceLine(papers, verdict, context = {}) {
   };
   if (status === "divided") applyCap(70, null);
   if (avgRelevance !== null && avgRelevance < 40) applyCap(45, "the cited papers have low mean relevance");
+
+  // No relevance scores at all (2026-10-23, L3-14, composed at
+  // the Wave 3 landing with L6-5): the absence is handled in the
+  // open, capped and named, never averaged away. The mean here
+  // is the retrieval mean, from which missing values are absent
+  // rather than defaulted.
+  if (avgRelevance === null) applyCap(45, "no relevance scores were available for the cited sources");
   const tier = String((context && context.tier) || "");
   if (THIN_CAPPED_TIERS.has(tier)) {
     applyCap(45, tier === "definition"
@@ -22665,14 +23025,23 @@ export function buildFurtherReadingTail(shelf, evidence, primaryTest) {
     if (!p || !p.title) continue;
     if (hasRetractedTitleMarker(p.title)) continue;
     // A paper a programmatic pass already failed (the verdict is
-    // stamped on the object) never enters through the tail: the
-    // passes' never zero fallbacks can restore such a paper into
-    // the shelf snapshot, and the tail is not a way back in for
+    // stamped on the object) never enters through the tail: a
+    // supplementary merge can restore such a paper into the
+    // shelf snapshot, and the tail is not a way back in for
     // it. Cascade papers are exempt by their flag, as everywhere.
     if (p._filteredReason && !p.thinEvidence) continue;
     const keys = paperDedupeKeys(p);
     if (keys.some((k) => evidenceKeys.has(k) || tailKeys.has(k))) continue;
-    if (!isPrimary(p) && applyRelevanceGate([p]).length === 0) continue;
+    // Sub floor exclusion, on the blended relevance scale the
+    // tail has always used (2026-10-23, L3-3 separation): the
+    // tail borrowed applyRelevanceGate for this check while
+    // the gate read blended relevance; now that the gate reads
+    // the topical component against its own calibrated floor,
+    // the tail states its own rule directly. A scored paper
+    // under RELEVANCE_FLOOR stays out; an unscored paper keeps
+    // the standing admission (the passes judged it, and the
+    // tail never invents a number for it, L3-14).
+    if (!isPrimary(p) && !paperIsUnscored(p) && (paperRelevanceValue(p) ?? -1) < RELEVANCE_FLOOR) continue;
     for (const k of keys) tailKeys.add(k);
     tail.push(p);
   }
@@ -26823,7 +27192,17 @@ async function gatherPapersBody(rawQuery, opts) {
         }
       }
       // Fall back to overall coverage if no constraints (shouldn't happen)
-      const coreCoverage = bestPhraseCoverage > 0 ? bestPhraseCoverage : (gateTerms.length ? coreHitCount / gateTerms.length : 1);
+      // Coverage normalisation (2026-10-23, logic audit L3-4):
+      // the old rule switched scales, best phrase coverage when
+      // any constraint word matched and overall coverage when
+      // none did, so a paper could score LESS for matching a
+      // constraint word than a paper matching none. Coverage is
+      // now the maximum of the two readings: gaining a hit can
+      // never lower a paper's coverage, and a fully matched
+      // constraint phrase reads the same however verbose the
+      // rest of the question is.
+      const overallCoverage = gateTerms.length ? coreHitCount / gateTerms.length : 1;
+      const coreCoverage = Math.max(bestPhraseCoverage, overallCoverage);
       const coreTitleHits = gateTerms.filter(hasTitle).length;
       const periphHits = peripheralTerms.filter(has).length;
 
@@ -26865,7 +27244,9 @@ async function gatherPapersBody(rawQuery, opts) {
         if (best < 2) return 0;
         return Math.min(30, 10 * (best - 1));
       })();
-      match += phraseBonus;
+      // The two phrase bonuses enter match only as their capped
+      // sum (2026-10-23, L3-3): see phraseCombined below, added
+      // where the second bonus is known.
       /* ── QUERY PHRASE TITLE BONUS (2026-10-09) ──
          Additive to the Commit 93 bonus above (gateTerms, specificity
          order). This one checks query-order phrases against the title:
@@ -26886,7 +27267,15 @@ async function gatherPapersBody(rawQuery, opts) {
           }
         }
       }
-      match += phraseTitleBonus;
+      // Combined phrase range (2026-10-23, L3-3): the two
+      // bonuses stack, and their sum is the published combined
+      // component in SCORE_COMPONENT_RANGES (each bonus is
+      // capped at 30 where it is computed, so the sum cannot
+      // exceed the declared 60). Before the ranges were
+      // published, the stack was invisible: the header claimed
+      // a 70 point topical scale the summed parts never fit.
+      const phraseCombined = phraseBonus + phraseTitleBonus;
+      match += phraseCombined;
       /* ── TITLE PHRASE CARRY RULE (2026-10-14, sixth panel, wave
          seven) ──
          The two phrase bonuses above are worth up to 40 of the
@@ -26932,7 +27321,7 @@ async function gatherPapersBody(rawQuery, opts) {
          the product's own admitted class (2026-10-11), and the
          floor, the gates, and synthesis still judge them on
          everything else they carry. */
-      if ((phraseBonus + phraseTitleBonus) > 0) {
+      if (phraseCombined > 0) {
         const phraseTermSet = new Set([...phraseBonusTerms, ...phraseTitleTerms]);
         if (phraseTermSet.size > 0 && gateTerms.length > phraseTermSet.size) {
           const otherCoreHits = gateTerms.filter((t) => !phraseTermSet.has(t) && has(t)).length;
@@ -26942,7 +27331,7 @@ async function gatherPapersBody(rawQuery, opts) {
             if (abstractGateHits <= 1 && abstract.length > 0) {
               const titleComponent = gateTerms.length ? (coreTitleHits / gateTerms.length) * 20 : 0;
               const cappedCoverage = gateTerms.length ? abstractGateHits / gateTerms.length : coreCoverage;
-              match -= (phraseBonus + phraseTitleBonus) + titleComponent
+              match -= phraseCombined + titleComponent
                 + Math.max(0, (coreCoverage - cappedCoverage) * 42);
             }
           }
@@ -26954,9 +27343,13 @@ async function gatherPapersBody(rawQuery, opts) {
       // Penalize papers that MISS the organism when the query clearly names one
       if (!organismPresent && contentTerms.length > 0 && binomial) match -= 5;
 
-      let quality = 0;
-      if (abstract.length > 200) quality += 8;      // has a real abstract
-      else if (abstract.length > 0) quality += 3;
+      // Quality parts (2026-10-23, L3-3): each signal is kept as
+      // a named part and summed once through
+      // combineScoreComponents, which clamps every part to the
+      // range published in SCORE_COMPONENT_RANGES.
+      const qualityParts = { abstractPoints: 0, citationsPerYearPoints: 0, recencyPoints: 0, journalPoints: 0, predatoryPoints: 0, studyWeightPoints: 0, intentBonusPoints: 0, rigorPoints: 0 };
+      if (abstract.length > 200) qualityParts.abstractPoints = 8;      // has a real abstract
+      else if (abstract.length > 0) qualityParts.abstractPoints = 3;
       const yr = parseInt(p.year, 10);
       const nowYear = new Date().getFullYear();
       /* ══════════════════════════════════════════════════════════════
@@ -26977,14 +27370,14 @@ async function gatherPapersBody(rawQuery, opts) {
       if (typeof p.citations === "number" && p.citations > 0) {
         const yearsOut = yr ? Math.max(1, nowYear - yr) : 3;
         const perYear = p.citations / yearsOut;
-        quality += Math.min(Math.log10(Math.max(1, perYear)) * 6, 12);
+        qualityParts.citationsPerYearPoints = Math.min(Math.log10(Math.max(1, perYear)) * 6, 12);
       }
       if (yr) {
         const age = nowYear - yr;
-        if (age <= 2) quality += 10;
-        else if (age <= 5) quality += 7;
-        else if (age <= 10) quality += 4;
-        else if (age <= 20) quality += 1;
+        if (age <= 2) qualityParts.recencyPoints = 10;
+        else if (age <= 5) qualityParts.recencyPoints = 7;
+        else if (age <= 10) qualityParts.recencyPoints = 4;
+        else if (age <= 20) qualityParts.recencyPoints = 1;
       }
 
       // ---- Domain-knowledge signals (functions/lib/knowledge.js) ----
@@ -27006,24 +27399,33 @@ async function gatherPapersBody(rawQuery, opts) {
          pretend otherwise. */
       const isPreprintVenue = /\b(biorxiv|medrxiv|arxiv|chemrxiv|research square|ssrn|preprint)\b/i.test(String(p.journal || ""));
       const journalBonus = scoreJournalTier(p.journal) || (isPreprintVenue ? 3 : 0);
-      quality += journalBonus;
+      qualityParts.journalPoints = journalBonus;
       const predPenalty = predatoryPenalty(p.journal, p.url);
-      quality += predPenalty;
+      qualityParts.predatoryPoints = predPenalty;
       const studyType = classifyStudyType(title, abstract);
       let evidenceBonus = 0;
       if (studyType) {
         evidenceBonus += studyType.weight;
         evidenceBonus += intentEvidenceBonus(studyType.key, researchIntents);
+        qualityParts.studyWeightPoints = studyType.weight;
+        qualityParts.intentBonusPoints = intentEvidenceBonus(studyType.key, researchIntents);
       }
-      quality += evidenceBonus;
       // A result that actually reports its numbers (n=, p=, a confidence
       // interval, an effect size) is more checkable . and in practice
       // usually more careful . than one that only asserts a finding in
       // prose. Small bonus, capped low enough it can never outweigh topical
       // relevance or evidence tier on its own.
       const rigor = detectStatisticalRigor(abstract);
-      quality += rigor.rigorBonus;
+      qualityParts.rigorPoints = rigor.rigorBonus;
 
+      const combinedParts = combineScoreComponents({}, qualityParts);
+      const quality = combinedParts.quality;
+      // The topical component is the match built above (the
+      // title phrase carry rule may have withdrawn parts of
+      // it); it is clamped to its published range as the final
+      // guard, and it is stored on the record as topicalScore.
+      // Citation gating reads this component alone (L3-3).
+      match = Math.max(SCORE_COMPONENT_RANGES.topical.min, Math.min(SCORE_COMPONENT_RANGES.topical.max, match));
       let score = match + quality;
 
       // WAVE EIGHT (2026-10-14, seventh panel, Job 1c): the
@@ -27063,8 +27465,9 @@ async function gatherPapersBody(rawQuery, opts) {
       const scoredObj = {
         ...p,
         score,
-        matchScore: match,       // 0-70, pure topical relevance
-        qualityScore: quality,   // 0-30, source quality signals
+        topicalScore: match,     // 2026-10-23, L3-3: the component citation gating reads
+        matchScore: match,       // topical relevance, range in SCORE_COMPONENT_RANGES
+        qualityScore: quality,   // source quality signals, range in SCORE_COMPONENT_RANGES
         journalTier: journalBonus > 0 ? journalBonus : undefined,
         studyType: studyType ? studyType.label : undefined,
         // Bug 4 fix (2026-10-08): the client evidence filter was a placebo .
@@ -27248,7 +27651,39 @@ async function gatherPapersBody(rawQuery, opts) {
         contentHits: crude.contentHits, contentCoverage: crude.contentCoverage, organismPresent: crude.organismPresent,
         _tierScore: crude._tierScore };
     }
-    return { ...crude, emergencyRelaxed: true };
+    // No captured score (2026-10-23, logic audit L3-1): the
+    // scorer never judged this record, so the tier may admit
+    // it to the shelf but may not manufacture a score for it.
+    // The record carries the unscored provenance flag instead:
+    // its tier number survives only as _tierScore for the
+    // tier's own admission filter, relevance stays null, and
+    // every downstream gate judges the paper on the citation
+    // standard alone, the L3-5 discipline, never on a number
+    // the tier invented.
+    return { ...crude, score: typeof crude._tierScore === "number" ? crude._tierScore : crude.score, relevance: null, _unscored: true, emergencyRelaxed: true };
+  };
+  // Dedupe on paper identity before tiers merge (2026-10-23,
+  // L3-1): the tiers are built from the unscored merged set
+  // while the shelf holds the scorer's copies of the same
+  // papers, so a plain concatenation let one paper occupy the
+  // shelf twice with two relevance values, and downstream
+  // dedupe kept whichever copy sorted first. The first copy
+  // wins: callers pass the scored shelf first, so the scorer's
+  // copy is always the survivor.
+  const dedupeShelfByIdentity = (list) => {
+    const seen = new Set();
+    const out = [];
+    for (const p of list || []) {
+      if (!p) continue;
+      let keys = [];
+      try { keys = paperDedupeKeys(p); } catch { keys = []; }
+      if (keys.length > 0) {
+        if (keys.some((k) => seen.has(k))) continue;
+        for (const k of keys) seen.add(k);
+      }
+      out.push(p);
+    }
+    return out;
   };
   if (scored.length < 3 && merged.length > 0) {
     // Tier 1: drop organism, keep content gate
@@ -27291,31 +27726,36 @@ async function gatherPapersBody(rawQuery, opts) {
       .slice(0, limit);
 
     if (relaxed1.length >= 3) {
-      finalScored = [...scored, ...relaxed1]
+      finalScored = dedupeShelfByIdentity([...scored, ...relaxed1])
         .sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score))
         .slice(0, limit);
     } else {
       // Tier 2: accept anything with a real abstract and at least 1 matching word
       const relaxed2 = merged
         .filter((p) => (p.abstract || "").length > 100)
-        .map((p) => {
+        // Admission is judged on the tier's own hit test,
+        // never on a carried scorer score: a paper with no
+        // matching word stays out of this tier however well
+        // the scorer rated it for other fields. The test runs
+        // before the map (2026-10-23, L3-15): the old shape
+        // assigned a score of 5 to no hit papers and then
+        // filtered score above 5, a branch that existed only
+        // to be discarded.
+        .filter((p) => {
           const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
-          const anyHit = [...contentTerms, ...gateTerms, ...[...neutralWords]].some((t) => hay.indexOf(t) !== -1);
-          const nlGroupHits = p._nlNet ? paperConceptGroupHits(p, nlShelfGroups) : 0;
-          return withScorerScore({ ...p, score: anyHit ? 20 : 5, _tierScore: anyHit ? 20 : 5, contentHits: anyHit ? 1 : 0, contentCoverage: anyHit ? 0.3 : 0, organismPresent: false, relevance: null, nlGroupHits }, p);
+          return [...contentTerms, ...gateTerms, ...[...neutralWords]].some((t) => hay.indexOf(t) !== -1);
         })
-        // Admission is judged on the tier's own score (the
-        // anyHit test above), never on a carried scorer score:
-        // a paper with no matching word stays out of this tier
-        // however well the scorer rated it for other fields.
-        .filter((p) => (typeof p._tierScore === "number" ? p._tierScore : p.score) > 5)
+        .map((p) => {
+          const nlGroupHits = p._nlNet ? paperConceptGroupHits(p, nlShelfGroups) : 0;
+          return withScorerScore({ ...p, score: 20, _tierScore: 20, contentHits: 1, contentCoverage: 0.3, organismPresent: false, relevance: null, nlGroupHits }, p);
+        })
         .sort((a, b) => {
           // Prefer papers with more citations and abstracts
           const ca = (a.citations || 0), cb = (b.citations || 0);
           return cb - ca;
         })
         .slice(0, limit);
-      finalScored = [...scored, ...relaxed1, ...relaxed2]
+      finalScored = dedupeShelfByIdentity([...scored, ...relaxed1, ...relaxed2])
         .sort((a, b) => ((b.nlGroupHits || 0) - (a.nlGroupHits || 0)) || (b.score - a.score))
         .slice(0, limit);
     }
@@ -27574,7 +28014,12 @@ async function gatherPapersBody(rawQuery, opts) {
     // report it directly instead of normalizing against the best result in the
     // set. A weak match now honestly reads as "38% match" rather than being
     // inflated to 100% just because everything else was worse.
-    p.relevance = Math.max(0, Math.min(100, Math.round(p.score)));
+    // A tier admitted record the scorer never judged carries
+    // the unscored flag (2026-10-23, L3-1): no relevance is
+    // derived from its tier number, so the flag keeps applying
+    // at every downstream gate.
+    if (p._unscored === true) { p.relevance = null; }
+    else p.relevance = Math.max(0, Math.min(100, Math.round(p.score)));
     // 2026-10-11: Cap papers with missing/short abstracts AND non-English
     // titles. An uncheckable citation (no abstract to verify claims against)
     // 2026-10-11: Only cap non-English/mistranslated titles, not English papers with missing abstracts.
@@ -27602,7 +28047,7 @@ async function gatherPapersBody(rawQuery, opts) {
       const _hasTranslationSlash = _title.includes(" / ") && _title.length > 50;
       if (_nonLatinRatio > 0.1 || _nonEngRatio > 0.4 || _isLikelyNonEnglish || _hasTranslationSlash) {
         p.score = Math.min(Number(p.score) || 0, 45);
-        p.relevance = Math.min(Number(p.relevance) || 0, 45);
+        if (p._unscored !== true) p.relevance = Math.min(Number(p.relevance) || 0, 45);
         if (p.blendedScore !== undefined) p.blendedScore = Math.min(Number(p.blendedScore) || 0, 45);
         if (p.keywordScore !== undefined) p.keywordScore = Math.min(Number(p.keywordScore) || 0, 45);
         p.unverifiableAbstract = true;
@@ -27646,17 +28091,24 @@ async function gatherPapersBody(rawQuery, opts) {
   // before checkEmbeddingBudget spends anything of its own.
   if (!isNameQuery && scoredFinal.length >= 2 && opts && opts.env && msLeft > 4000 && (!ledger || ledger.retrievalRoom(0))) {
     // Adaptive alpha from keyword score variance (coefficient of variation).
+    // Missing scores are a typed absence (2026-10-23, L3-14):
+    // a paper with no finite score contributes nothing to the
+    // distribution instead of a substituted 50.
     let rerankAlpha = 0.5;
     try {
-      const kScores = scoredFinal.map((p) => Math.max(0, Math.min(100, Number(p.score) || 50)));
-      const kMean = kScores.reduce((s, v) => s + v, 0) / kScores.length;
-      const kVar = kScores.reduce((s, v) => s + (v - kMean) * (v - kMean), 0) / kScores.length;
-      const kStd = Math.sqrt(kVar);
-      const cv = kMean > 0 ? kStd / kMean : 0;
-      // High CV (>0.35): keyword signal is discriminative → trust it more.
-      // Low CV (<0.15): keyword scores are flat → lean on semantics.
-      if (cv > 0.35) rerankAlpha = 0.35;
-      else if (cv < 0.15) rerankAlpha = 0.65;
+      const kScores = scoredFinal
+        .map((p) => { const v = Number(p && p.score); return Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null; })
+        .filter((v) => v !== null);
+      if (kScores.length >= 2) {
+        const kMean = kScores.reduce((s, v) => s + v, 0) / kScores.length;
+        const kVar = kScores.reduce((s, v) => s + (v - kMean) * (v - kMean), 0) / kScores.length;
+        const kStd = Math.sqrt(kVar);
+        const cv = kMean > 0 ? kStd / kMean : 0;
+        // High CV (>0.35): keyword signal is discriminative → trust it more.
+        // Low CV (<0.15): keyword scores are flat → lean on semantics.
+        if (cv > 0.35) rerankAlpha = 0.35;
+        else if (cv < 0.15) rerankAlpha = 0.65;
+      }
     } catch { rerankAlpha = 0.5; }
     try {
       const embBudget = await checkEmbeddingBudget(opts.env, ledger);
@@ -27664,7 +28116,41 @@ async function gatherPapersBody(rawQuery, opts) {
         // Pro depth: rerank twice the candidate pool. The neuron cost is flat
         // (one batched embedding call either way), so this is free depth.
         const rerankTopN = opts && opts.isPro ? 40 : 20;
-        const rr = await semanticRerank(opts.env, query, scoredFinal, { topN: rerankTopN, alpha: rerankAlpha, ledger });
+        // Rerank inside the citable set only (2026-10-23,
+        // logic audit L3-12): the gate has already run on these
+        // scores (relevance assigned above, citable judged
+        // here with the same predicate the handler binds
+        // with), so the blend may reorder citable papers among
+        // the slots citable papers already occupy, and may
+        // never pull a non citable paper into the citable
+        // partition or push one out of it. Its inputs are the
+        // single scorer outputs the gate consumed. Both
+        // orderings are recorded below and on the funnel.
+        let citableFlags = scoredFinal.map(() => true);
+        try {
+          const rctx = conceptGateContext(scoredFinal, rawQuery, dynLookup);
+          citableFlags = scoredFinal.map((p, i) => paperIsCitable(p, i + 1, rctx));
+        } catch { citableFlags = scoredFinal.map(() => true); }
+        const citableSubset = scoredFinal.filter((p, i) => citableFlags[i]);
+        // Fewer than two citable papers: nothing to reorder
+        // inside the citable set, and the blend must not fall
+        // back to reordering the whole shelf across the gate
+        // boundary, so the rerank stands down.
+        const rrRaw = citableSubset.length >= 2
+          ? await semanticRerank(opts.env, query, citableSubset, { topN: rerankTopN, alpha: rerankAlpha, ledger })
+          : { semanticApplied: false, papers: scoredFinal, latencyMs: 0 };
+        let rr = rrRaw;
+        if (rrRaw.semanticApplied) {
+          const queue = rrRaw.papers.slice();
+          const reassembled = scoredFinal.map((p, i) => (citableFlags[i] ? (queue.shift() || p) : p));
+          rr = { ...rrRaw, papers: reassembled };
+          diag.rerankOrderings = {
+            keyword: scoredFinal.map((p) => String((p && p.title) || "")),
+            blended: reassembled.map((p) => String((p && p.title) || "")),
+            citableOnly: true,
+          };
+          try { funnel.rerankOrderings = diag.rerankOrderings; } catch { /* funnel record is best effort */ }
+        }
         if (rr.semanticApplied) {
           await spendEmbeddingNeurons(opts.env, EMBEDDING_NEURON_COST_PER_RERANK, ledger);
           rerankedFinal = rr.papers;
@@ -27733,42 +28219,19 @@ async function gatherPapersBody(rawQuery, opts) {
     );
   }
 
-  // QUERY INTELLIGENCE — constraint cap (2026-10-09): the scorer-level
-  // enforcement of the load-bearing constraints. analyzeQuery extracts
-  // what the query actually demands (e.g. "waste oil" as one concept);
-  // verifyPaperConstraints checks each paper's title+abstract against it.
-  // A paper that misses a key phrase (never mentions "oil") is capped
-  // below RELEVANCE_FLOOR (50) on every score field, so the citation gate
-  // can never cite it as evidence and the semantic rerank cannot rescue
-  // it. The paper stays in the set — the honest weak-evidence answer
-  // lists capped papers as "closest papers to read directly", never as
-  // findings. Name searches are exempt (authorship is the signal there);
-  // queries with no multi-word constraints are unaffected (the old logic
-  // runs untouched).
-  // 2026-10-11: DISABLED hard constraint capping - it causes 0-source results for valid queries.
-  // The specific filters (Indonesian slash titles, biodiesel role inversion) remain active.
-  // Relevance scoring handles ranking; we don't need to require all terms in every paper.
+  // CONSTRAINT ENFORCEMENT lives in the handler (2026-10-23,
+  // logic audit L3-15). The scorer level constraint cap that
+  // used to sit here was disabled in 2026-10-11 behind an
+  // if (false) guard and never ran again, while its header
+  // kept claiming it capped off topic papers below the floor.
+  // The dead block is deleted. The reachable enforcement is
+  // the handler's constraint filter over the shelf
+  // (verifyPaperConstraints with on topic or partial verdicts
+  // kept), exercised through the handler in the test suites,
+  // plus the substrate role check immediately below, which is
+  // live code and stays.
   try {
     const _qa = analyzeQuery(rawQuery);
-    if (false && _qa && _qa.constraints && _qa.constraints.length > 0 && !_qa.isNameSearch && rerankedFinal.length > 0) {
-      let _capped = 0;
-      for (const p of rerankedFinal) {
-        const v = verifyPaperConstraints(p, _qa);
-        p.constraintVerdict = v.verdict;
-        if (v.verdict !== "on-topic") {
-          p.score = Math.min(Number(p.score) || 0, 45);
-          p.relevance = Math.min(Number(p.relevance) || 0, 45);
-          if (p.blendedScore !== undefined) p.blendedScore = Math.min(Number(p.blendedScore) || 0, 45);
-          if (p.keywordScore !== undefined) p.keywordScore = Math.min(Number(p.keywordScore) || 0, 45);
-          p.constraintMissing = v.missing;
-          _capped++;
-        }
-      }
-      // Capped papers sink below on-topic ones in the final order.
-      rerankedFinal.sort((a, b) => (Number(b.relevance) || 0) - (Number(a.relevance) || 0));
-      if (_capped > 0 && diag) diag.constraintCap = { capped: _capped, keyPhrases: _qa.keyPhrases };
-    }
-
     // 2026-10-11: SEMANTIC ROLE CHECK for substrate/feed queries. The lexical
     // constraint check above passes papers where "waste oil" appears anywhere,
     // but for a query like "waste oil substrates" (feeding oil TO larvae), a
@@ -30518,10 +30981,12 @@ async function runSearchPipeline(pctx) {
     // ============ D1 PAPER-LEVEL LEARNING (read) ============
     // Separate from the answer_cache above: this remembers which SPECIFIC
     // papers were actually cited (and ideally upvoted) for this exact query
-    // in the past, and force-includes them at maximum relevance. This is
-    // what makes "the correct papers exist and Cerebrum should find them
-    // every time" actually hold . a proven-correct paper never has to be
-    // rediscovered by the retrieval ladder again.
+    // in the past, and re-includes them at the head of the shelf. Since
+    // 2026-10-23 (L3-6) they carry no invented score: the citation gate
+    // judges them on the current query and text like any other unscored
+    // merge. This is what makes "the correct papers exist and Cerebrum
+    // should find them every time" actually hold . a proven-correct paper
+    // never has to be rediscovered by the retrieval ladder again.
     // Only for questions safe to remember. A sensitive query neither reads
     // from nor contributes to the shared learned-papers pool.
     const learnKey = privacy.persist ? await derivedCacheKey(query, env) : null;
@@ -30533,11 +30998,25 @@ async function runSearchPipeline(pctx) {
           "SELECT title, url, journal, year, authors, abstract, times_confirmed FROM paper_cache WHERE query_key = ? ORDER BY times_confirmed DESC LIMIT 10"
         ).bind(learnKey).all();
         if (rows && rows.results && rows.results.length) {
+          // Rescored, never invented (2026-10-23, logic audit
+          // L3-6): learned records used to be constructed with
+          // score 95, relevance 95, organismPresent true, and
+          // contentHits 99, numbers no scorer computed, which
+          // exempted them from the topicality cap, the quality
+          // floor, and every score ordered consumer's honesty.
+          // A learned record now carries NO score at all. It
+          // enters with the unscored provenance flag, the same
+          // class as every other post scoring merge (L3-5), so
+          // the citation gate judges it on the current query
+          // and its current text under the citation standard
+          // alone, and no gate, cap, or confidence consumer can
+          // read a number for it. Learned status buys retrieval
+          // priority only: the unshift below places the record
+          // at the head of the shelf, and nothing else.
           learnedPapers = rows.results.map((r) => ({
             title: r.title, url: r.url, journal: r.journal, year: r.year,
             authors: r.authors, abstract: r.abstract,
-            score: 95, relevance: 95, organismPresent: true,
-            contentHits: 99, contentCoverage: 1, _learned: true,
+            _learned: true, _unscored: true,
           }));
         }
       } catch (cbErr) { console.error("[Cerebrum] search.js if:", cbErr); }
@@ -30764,8 +31243,19 @@ async function runSearchPipeline(pctx) {
     if (foundationalFates) advanceFoundationalFates(foundationalFates, "filters", papers);
     const foundationalPrePassPapers = foundationalFates ? papers : null;
     let programmaticShelf = null;
+    // Passes emptied state (2026-10-23, L3-7): now that the
+    // programmatic passes are monotone (no never zero
+    // resurrection inside them), a pool every paper of which
+    // fails the passes empties the shelf HERE, one stage
+    // earlier than the citation gate used to empty it. That
+    // is the same honest state (nothing citable, ship the
+    // retrieval state), so it is recorded and fed to the same
+    // serveGateNoEvidence path below instead of drifting into
+    // a research shaped answer over no papers.
+    let passesEmptiedShelf = false;
     if (!isNameSearch && papers.length > 0) {
       papers = programmaticValidationPasses(query, papers, _dynForValidation);
+      if (papers.length === 0) passesEmptiedShelf = true;
       programmaticShelf = papers.slice();
       if (foundationalFates) {
         advanceFoundationalFates(foundationalFates, "passes", programmaticShelf);
@@ -30849,7 +31339,7 @@ async function runSearchPipeline(pctx) {
     // never padded back up to three with papers that failed.
     // Name search and follow up mode are exempt, as they are
     // from both gates themselves.
-    let serveGateNoEvidence = false;
+    let serveGateNoEvidence = passesEmptiedShelf;
     let citablePapers = [];
     // Wave ten (items 1 and 2): the gate audit object, filled
     // when the citation layer empties (or nearly empties) a
@@ -30870,7 +31360,7 @@ async function runSearchPipeline(pctx) {
         // made, and the choke point below re judges the paper
         // with the same predicate and reaches the same verdict.
         for (const p of citablePapers) {
-          if (p && paperRelevance(p) < RELEVANCE_FLOOR) { try { p._subjectRescued = true; } catch { /* tagging is best effort */ } }
+          if (p && (paperGateScore(p) ?? 99) < TOPICAL_GATE_FLOOR) { try { p._subjectRescued = true; } catch { /* tagging is best effort */ } }
         }
         serveGateNoEvidence = citablePapers.length === 0;
       } catch {
@@ -31132,20 +31622,41 @@ async function runSearchPipeline(pctx) {
           }
           const restoreStats = foundationalPoolStats(programmaticShelf || papers);
           const restoreStandard = citationGateStandard(query, _dynForValidation);
+          // Validator authority, generalized (2026-10-23,
+          // L3-8): the wave fourteen restore protected only
+          // foundational primaries, so every other gate cleared
+          // paper the validator dropped was lost with no
+          // appeal, which made the validator a second gate over
+          // exactly the papers the citation gate had cleared.
+          // The restore now covers every paper that is citable
+          // under the one standard (paperIsCitable over the pre
+          // validation set), with the primary property test
+          // kept as a second path for primaries whose citable
+          // reading depends on their lane status. The validator
+          // is advisory over gate cleared papers, full stop.
+          let restoreCtx = null;
+          try { restoreCtx = conceptGateContext(evidenceBeforeValidation, query, _dynForValidation); } catch { restoreCtx = null; }
           let restoredCount = 0;
-          const restoredList = evidenceBeforeValidation.filter((p) => {
+          let restoredGateCount = 0;
+          const restoredList = evidenceBeforeValidation.filter((p, i) => {
             if (!p) return false;
             if (paperDedupeKeys(p).some((k) => postKeys.has(k))) return true;
-            const restorable = paperIsFoundationalPrimary(p, restoreStats)
+            const primaryPath = paperIsFoundationalPrimary(p, restoreStats)
               && paperClearsCitationGate(p, restoreStandard)
               && !p._filteredReason
               && !hasRetractedTitleMarker(p.title);
-            if (restorable) restoredCount++;
+            let gatePath = false;
+            if (!primaryPath && restoreCtx && !p._filteredReason && !hasRetractedTitleMarker(p.title)) {
+              try { gatePath = paperIsCitable(p, i + 1, restoreCtx); } catch { gatePath = false; }
+            }
+            const restorable = primaryPath || gatePath;
+            if (restorable) { restoredCount++; if (gatePath && !primaryPath) restoredGateCount++; }
             return restorable;
           });
           if (restoredCount > 0) {
             evidencePapers = restoredList;
             validationDiag.primaryRestored = restoredCount;
+            if (restoredGateCount > 0) validationDiag.gateClearedRestored = restoredGateCount;
           }
         }
       } catch { /* the restore must never break the run */ }
@@ -31306,17 +31817,19 @@ async function runSearchPipeline(pctx) {
     // PASS FAILED PAPERS LEAVE THE SHIPPED LIST (2026-10-13): a
     // paper a programmatic pass failed carries the pass's verdict
     // stamped on it (_filteredReason). Such a paper can still sit
-    // in the evidence set when a never zero fallback restored it
-    // (the topic filter's or the organism pass's top three) — and
-    // it must not ship as a source in either mode once any
-    // unstamped paper remains. Cascade papers (thinEvidence) are
-    // exempt by flag, and when every paper is stamped the set
-    // stands: zero sources is still unacceptable.
-    if (useEvidence && evidencePapers.length > 1) {
-      const unstamped = evidencePapers.filter((p) => !(p && p._filteredReason && !p.thinEvidence));
-      if (unstamped.length > 0 && unstamped.length < evidencePapers.length) {
-        evidencePapers = unstamped;
-      }
+    // in the evidence set when a supplementary merge brought it
+    // back after the passes ran, and it must not ship as a
+    // source in either mode.
+    // The stamped verdict binds with no all stamped exception
+    // (2026-10-23, logic audit L3-7): the old rule kept the
+    // whole set when every paper was stamped, so the worst
+    // pools, where every candidate failed, shipped the failed
+    // papers anyway. Now stamped papers leave even when that
+    // empties the set, and the run takes the honest no
+    // evidence path. Cascade papers (thinEvidence) remain
+    // exempt by flag, as before.
+    if (useEvidence && evidencePapers.length > 0) {
+      evidencePapers = evidencePapers.filter((p) => !(p && p._filteredReason && !p.thinEvidence));
     }
 
     // CANONICAL BINDING CHOKE POINT (2026-10-14, sixth panel,
@@ -35732,8 +36245,9 @@ async function runSearchPipeline(pctx) {
     // Parse which citation numbers actually appear in the final answer and
     // persist THOSE specific papers as confirmed-correct for this query.
     // Next time this question (or an identically-worded one) is asked,
-    // these papers get force-included at max relevance instead of being
-    // rediscovered . this is the self-improving loop.
+    // these papers are re-included at the head of the shelf and judged
+    // by the citation gate on their current text (2026-10-23, L3-6),
+    // instead of being rediscovered . this is the self-improving loop.
     // Subrequest budget: up to 8 inserts. They run AFTER the fact
     // check now (defect 9): this batch could spend the whole tail
     // in one gulp, because the gate below checks the reserve
@@ -36205,6 +36719,23 @@ async function runSearchPipeline(pctx) {
           const bodyPart = answerBodyBeforeBibliography(answer);
           const tailPart = String(answer || "").slice(bodyPart.length);
           answer = bodyPart.replace(/\s+$/, "") + "\n\n" + FACT_CHECK_DID_NOT_RUN_STATEMENT +
+            (tailPart ? "\n\n" + tailPart.replace(/^\s+/, "") : "");
+        }
+      } catch { /* the statement must never break the answer */ }
+    }
+    // VALIDATION FAIL OPEN, STATED IN THE ANSWER (2026-10-23,
+    // L3-8): when the validation stage failed open on this run
+    // (no leg answered, an incomplete verdict set, a budget
+    // skip), the shipped sources are unvalidated, and the
+    // answer body says so in plain words, at the same body
+    // boundary as the fact check statement above.
+    if (aiOK && useEvidence && evidencePapers.length > 0 &&
+        typeof validationDiag !== "undefined" && validationDiag && validationDiag.llmUnvalidated) {
+      try {
+        if (!String(answer || "").includes(VALIDATION_DID_NOT_RUN_STATEMENT)) {
+          const bodyPart = answerBodyBeforeBibliography(answer);
+          const tailPart = String(answer || "").slice(bodyPart.length);
+          answer = bodyPart.replace(/\s+$/, "") + "\n\n" + VALIDATION_DID_NOT_RUN_STATEMENT +
             (tailPart ? "\n\n" + tailPart.replace(/^\s+/, "") : "");
         }
       } catch { /* the statement must never break the answer */ }

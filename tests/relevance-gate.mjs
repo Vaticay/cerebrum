@@ -903,16 +903,22 @@ await test("a subject engaging paper scored just under the old floor becomes cit
   const paper = {
     title: "Waste oil substrates reshape the black soldier fly larval gut microbiome and biomass composition during bioconversion",
     abstract: "Black soldier fly larvae (BSFL) are generalist decomposers with promise for converting agricultural and food-processing by-products into value-added bioproducts, but BSFL performance on lipid-rich waste oil streams and the role of the gut microbiome in this process remain unclear. Here, we evaluated BSFL bioconversion of a standard chicken feed diet supplemented with three chemically distinct waste oils: acidulated vegetable oil (AVO), pork grease (PG), and used cooking oil (UCO). Larval performance, bioconversion rate, gut microbiome composition, total protein and fat content, and fatty-acid profiles were measured across bioconversion. Larval age was a major driver of gut microbiome structure, but waste oil supplementation further reshaped community membership and structure, with the strongest diet-associated effects occurring during early-to-intermediate bioconversion.",
-    relevance: 45,
+    relevance: 45, topicalScore: 20,
   };
+  // PIN UPDATED (2026-10-23, wave 3 lane S3, L3-4): the gate
+  // now reads the topical component against the calibrated
+  // topical floor (25), so the near miss fixture carries its
+  // near miss on the topical scale (20, inside the 15 to 24
+  // band) instead of a blended 45 under the old floor of 50.
+  // The blended relevance stays 45 to pin that it no longer
+  // governs the gate.
   const ctx = conceptGateContext([paper], q, null);
   assert.equal(subjectEngagingRescue(paper, ctx), true, "the rescue does not see the subject engaging near miss");
   assert.equal(paperIsCitable(paper, 1, ctx), true, "the near miss paper is still not citable");
   // The band is a near miss band, not a second floor at zero:
-  // the relaxation placeholder scores the batch also measured
-  // (20, 24) and anything under 40 stay out.
-  assert.equal(paperIsCitable({ ...paper, relevance: 39 }, 1, ctx), false, "a paper at 39 became citable");
-  assert.equal(paperIsCitable({ ...paper, relevance: 20 }, 1, ctx), false, "a paper at 20 became citable");
+  // anything under the band (15) stays out.
+  assert.equal(paperIsCitable({ ...paper, topicalScore: 14 }, 1, ctx), false, "a paper at topical 14 became citable");
+  assert.equal(paperIsCitable({ ...paper, topicalScore: 5 }, 1, ctx), false, "a paper at topical 5 became citable");
   // A cap verdict about the paper itself (role inverted,
   // unverifiable) is never rescued.
   assert.equal(paperIsCitable({ ...paper, roleInverted: true }, 1, ctx), false, "a role inverted paper was rescued");
@@ -922,9 +928,9 @@ await test("a subject engaging paper scored just under the old floor becomes cit
   const junk = {
     title: "Soil desiccation cracks in ophthalmology patients",
     abstract: "A study of soil desiccation cracks observed in a clinic garden and eye surface dryness in patients attending an ophthalmology service in a dry season.",
-    relevance: 45,
+    relevance: 45, topicalScore: 20,
   };
-  assert.equal(paperIsCitable(junk, 1, ctx), false, "a junk paper at 45 became citable");
+  assert.equal(paperIsCitable(junk, 1, ctx), false, "a junk paper at topical 20 became citable");
 });
 
 await test("the rescue covers the audit's other topics at the same near miss score", () => {
@@ -932,23 +938,28 @@ await test("the rescue covers the audit's other topics at the same near miss sco
   const honeyPaper = {
     title: "Honey: An immunomodulator in wound healing",
     abstract: "Honey has been used in wound care for centuries. This review examines the immunomodulatory properties of honey in wound healing, its antibacterial activity, and clinical evidence for burns, ulcers and other wounds. Honey dressings modulate inflammation and support tissue repair in wound healing.",
-    relevance: 45,
+    relevance: 45, topicalScore: 20,
   };
+  // Topical scale pin (2026-10-23, L3-4): see the waste oil
+  // test above; the near miss now sits at topical 20.
   assert.equal(paperIsCitable(honeyPaper, 1, conceptGateContext([honeyPaper], honeyQ, null)), true,
-    "the honey review at 45 is not citable");
+    "the honey review at topical 20 is not citable");
   const sleepQ = "what happens to your brain if you only sleep six hours every night for two weeks straight";
   const sleepPaper = {
     title: "The cumulative cost of additional wakefulness: dose-response effects on neurobehavioral functions and sleep physiology from chronic sleep restriction and total sleep deprivation",
     abstract: "Chronic sleep restriction to six hours per night for fourteen days produced cumulative deficits in neurobehavioral functions, lapses of attention and working memory equivalent to total sleep deprivation, while subjective sleepiness ratings plateaued.",
-    relevance: 45,
+    relevance: 45, topicalScore: 20,
   };
   assert.equal(paperIsCitable(sleepPaper, 1, conceptGateContext([sleepPaper], sleepQ, null)), true,
-    "the sleep restriction paper at 45 is not citable");
+    "the sleep restriction paper at topical 20 is not citable");
 });
 
 await test("a rescued paper survives the floor only recheck on its tag, and only on its tag", () => {
-  const tagged = { title: "x", relevance: 45, _subjectRescued: true };
-  const untagged = { title: "y", relevance: 45 };
+  // Topical scale pin (2026-10-23, L3-4): both records sit
+  // below the topical gate floor (topicalScore 20 under the
+  // floor of 25), so only the tag can carry one through.
+  const tagged = { title: "x", topicalScore: 20, _subjectRescued: true };
+  const untagged = { title: "y", topicalScore: 20 };
   const kept = applyRelevanceGate([tagged, untagged]);
   assert.deepEqual(kept, [tagged], "the tag discipline is wrong: " + JSON.stringify(kept));
 });

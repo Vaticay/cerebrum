@@ -173,7 +173,12 @@ await test("an unscored on point rescue paper survives the gate to the citable s
   assert.equal(paperIsCitable(unflagged, 1, ctx), false,
     "an unflagged scoreless record became citable");
   // A real score, once present, governs over the flag.
-  const scored = { ...OIL_PAPER, _unscored: true, relevance: 20 };
+  // PIN UPDATED (2026-10-23, wave 3 lane S3, L3-4): the score
+  // sits below the rescue band on the calibrated topical
+  // scale (band 15 to 24 under the topical floor of 25); the
+  // old fixture value 20 was below the old band (40 to 49)
+  // and is inside the new one.
+  const scored = { ...OIL_PAPER, _unscored: true, relevance: 10 };
   assert.equal(paperIsUnscored(scored), false, "a scored paper still reads as unscored");
   assert.equal(paperIsCitable(scored, 1, ctx), false, "a scored paper below the band rode in on its stale flag");
 });

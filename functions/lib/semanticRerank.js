@@ -293,16 +293,33 @@ export async function semanticRerank(env, query, papers, opts = {}) {
   const reranked = list.map((p, i) => {
     const sim = cosineSimilarity(qVec, pVecs[i]); // 0..1
     const semanticScore = Math.max(0, Math.min(100, Math.round(sim * 100)));
-    const keywordScore = Math.max(0, Math.min(100, Math.round(Number(p.score ?? p.relevance ?? 50))));
-    const blendedScore = Math.round(alpha * semanticScore + (1 - alpha) * keywordScore);
+    // Missing keyword score is a typed absence (2026-10-23,
+    // logic audit L3-14): the old default substituted 50,
+    // exactly the citation floor, for a paper nobody scored.
+    // An unscored paper carries keywordScore null and a null
+    // blendedScore, and the sort below keeps it in its
+    // original position relative to the other unscored papers
+    // instead of blending it on an invented number.
+    const rawKw = p.score ?? p.relevance;
+    const keywordScore = typeof rawKw === "number" && Number.isFinite(rawKw)
+      ? Math.max(0, Math.min(100, Math.round(rawKw))) : null;
+    const blendedScore = keywordScore === null
+      ? null
+      : Math.round(alpha * semanticScore + (1 - alpha) * keywordScore);
     // 2026-10-12: Rewrite 5 - reorder only, never overwrite.
     // The original keyword score/relevance is preserved for gating.
     // blendedScore is used for sorting only.
-    return { ...p, keywordScore, semanticScore, blendedScore };
+    return { ...p, keywordScore, semanticScore, blendedScore, _rerankIdx: i };
   });
 
-  reranked.sort((a, b) => b.blendedScore - a.blendedScore);
-  return { papers: [...reranked, ...rest], semanticApplied: true, latencyMs: Date.now() - t0 };
+  reranked.sort((a, b) => {
+    if (a.blendedScore === null && b.blendedScore === null) return a._rerankIdx - b._rerankIdx;
+    if (a.blendedScore === null) return 1;
+    if (b.blendedScore === null) return -1;
+    return b.blendedScore - a.blendedScore;
+  });
+  const cleaned = reranked.map((p) => { const { _rerankIdx, ...rest2 } = p; void _rerankIdx; return rest2; });
+  return { papers: [...cleaned, ...rest], semanticApplied: true, latencyMs: Date.now() - t0 };
 }
 
 /* ---------------------------------------------------------------------------

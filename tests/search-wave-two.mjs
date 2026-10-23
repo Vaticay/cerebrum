@@ -138,6 +138,19 @@ const ROTATION_PHRASINGS = [
   "should i plant a different crop each year or keep growing the same one",
 ];
 
+// PIN UPDATED (2026-10-23, wave 3 lane S3, L3-7): the survival
+// assertions below used to pass for every phrasing because the
+// topic filter's never zero fallback returned its input
+// untouched whenever its test emptied the set (a junk singleton
+// survived it too). Filters are now monotone, remove only, so
+// survival is earned by the overlap test itself. Two phrasings
+// (marked FILTERED below) resolve too little shared vocabulary
+// for this paper to pass on merit; they are pinned as filtered,
+// and the pipeline level never zero policy (an emptied shelf
+// ships the retrieval state) lives in the handler, not here.
+const ROTATION_FILTERED = new Set([
+  "why do farmers rotate crops instead of planting the same thing every year",
+]);
 for (const q of ROTATION_PHRASINGS) {
   await test(`shipped query carries rotation vocabulary: ${q.slice(0, 44)}...`, () => {
     const sq = buildStructuredQuery(q.toLowerCase());
@@ -145,7 +158,11 @@ for (const q of ROTATION_PHRASINGS) {
   });
   await test(`rotation paper survives the filter: ${q.slice(0, 44)}...`, () => {
     const out = topicOverlapFilter(q, [ROTATION_PAPER()]);
-    assert.ok(out.some((p) => p.url.endsWith("rotation-soil")), "rotation paper must survive");
+    if (ROTATION_FILTERED.has(q)) {
+      assert.equal(out.length, 0, "the monotone filter must not resurrect a paper its test rejected");
+    } else {
+      assert.ok(out.some((p) => p.url.endsWith("rotation-soil")), "rotation paper must survive");
+    }
   });
 }
 
@@ -176,6 +193,15 @@ const MIMOSA_PHRASINGS = [
   "why does the touch me not plant fold up at a touch",
 ];
 
+// PIN UPDATED (2026-10-23, wave 3 lane S3, L3-7): same
+// monotone filter change as the rotation loop above. The
+// "sensitive plant" phrasing shares too little vocabulary with
+// the paper for the overlap test itself; it survived only
+// through the removed never zero fallback and is now pinned
+// as filtered.
+const MIMOSA_FILTERED = new Set([
+  "what makes the sensitive plant close up when something brushes against it",
+]);
 for (const q of MIMOSA_PHRASINGS) {
   await test(`shipped query carries the plant's field vocabulary: ${q.slice(0, 44)}...`, () => {
     const sq = buildStructuredQuery(q.toLowerCase());
@@ -186,7 +212,11 @@ for (const q of MIMOSA_PHRASINGS) {
   });
   await test(`on point paper survives the filter: ${q.slice(0, 44)}...`, () => {
     const out = topicOverlapFilter(q, [MIMOSA_PAPER()]);
-    assert.ok(out.some((p) => p.url.endsWith("mimosa")), "the Mimosa paper must survive");
+    if (MIMOSA_FILTERED.has(q)) {
+      assert.equal(out.length, 0, "the monotone filter must not resurrect a paper its test rejected");
+    } else {
+      assert.ok(out.some((p) => p.url.endsWith("mimosa")), "the Mimosa paper must survive");
+    }
   });
 }
 
@@ -916,26 +946,31 @@ await test("the helper drops a contaminant organism paper (PASS 1A) and keeps th
     "the drop must be the organism pass's verdict");
 });
 
-await test("the helper keeps the never zero fallbacks llmValidatePapers always had", () => {
-  // PASS 1A empties the set (every paper a contaminant): the top 3
-  // of the input are restored before PASS 1B judges them.
+await test("the helper's passes are monotone: an emptied pass returns zero, never a restored top 3", () => {
+  // PIN REWRITTEN (2026-10-23, wave 3 lane S3, L3-7): this test
+  // used to pin the never zero fallbacks (an emptied organism
+  // pass restored the input's top 3; an emptied topic pass
+  // floored at its top 3). Those fallbacks are the L3-7 defect:
+  // a filter that resurrects what it rejected is not a filter,
+  // and the resurrected papers reached citation paths. The
+  // passes now remove only; an emptied composition returns
+  // empty, and the handler's own policy for an empty shelf
+  // (ship the retrieval state) applies above this layer.
   const q = "Hermetia illucens gut microbiome";
   const contaminants = ["Mealworm", "Cricket", "Tilapia", "Salmon"].map((name, i) => ({
     title: `${name} gut microbiome survey`,
     abstract: `The gut microbiome of the ${name.toLowerCase()} was profiled. Intestinal bacteria were catalogued across individuals.`,
     url: `https://example.com/reorder-contam-${i}`,
   }));
-  const restored = programmaticValidationPasses(q, contaminants.map((p) => ({ ...p })), null);
-  assert.equal(restored.length, 3, "an emptied organism pass must restore the top 3, not zero");
-  // PASS 1B would empty the set (no shared vocabulary at all): the
-  // topic filter's own fallback returns its input's top 3.
+  const emptied = programmaticValidationPasses(q, contaminants.map((p) => ({ ...p })), null);
+  assert.equal(emptied.length, 0, "an emptied organism pass must return zero, not a restored top 3");
   const noVocab = [CC_NO_VOCAB_PAPER(), CC_GHRELIN(), {
     title: "Quantum dot synthesis in colloidal suspension",
     abstract: "Quantum dots were synthesized in colloidal suspension and their optical spectra recorded across temperatures.",
     url: "https://example.com/reorder-quantum",
   }];
   const floored = programmaticValidationPasses(CC_QUESTION, noVocab.map((p) => ({ ...p })), null);
-  assert.equal(floored.length, 3, "an emptied topic pass must floor at the top 3, not zero");
+  assert.equal(floored.length, 0, "an emptied topic pass must return zero, not a floored top 3");
 });
 
 // The production draw's shape, rebuilt as fixtures: a ranked shelf
