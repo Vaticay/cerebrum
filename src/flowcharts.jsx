@@ -14,7 +14,7 @@ import { createPortal } from "react-dom";
 import { Icon, UIButton, UISelect, SHADOW, withAlpha, FONT_SIZES, STATUS, Z, TRACKING, RADIUS } from "./designSystem.jsx";
 import { getCookie, __cbMotionCache, cbMotionCacheSet, download, toast } from "./appUtils.js";
 import { cbDialogLockScroll, cbDialogUnlockScroll } from "./scrollLock.js";
-import { fcExtractSteps, fcCompressStep } from "./fcLabel.js";
+import { fcExtractSteps, fcCompressStep, fcLabelFromSentence, fcWrapBounded, fcCoerceStepType, fcStepFromNode, fcStepsFromChart, fcChartSources, fcHasLabelledStep, fcMoveStep, fcChartNeedsConversion, fcSplitSentences, fcBuildChain, FC_LABEL_MAX } from "./fcLabel.js";
 import { safeHref } from "./textUtils.js";
 
 
@@ -239,10 +239,28 @@ function fcId(p) { fcSeq += 1; return `fc-${p}-${Date.now().toString(36)}-${fcSe
 function mergeFlowcharts(serverCharts, localCharts) {
   const server = Array.isArray(serverCharts) ? serverCharts : [];
   const local = Array.isArray(localCharts) ? localCharts : [];
+  const localById = new Map(local.filter((c) => c && c.id).map((c) => [c.id, c]));
+  const merged = server.map((c) => {
+    if (!c || !c.id) return c;
+    const alt = localById.get(c.id);
+    if (!alt) return c;
+    /* Grounding preservation (mobile lane item 1, 2026 10 23): a copy
+       with no sources never overwrites a copy that has them. The
+       account copy still wins every other field, but when it carries
+       no source list and the browser copy does, the browser sources
+       ride along instead of being lost. Direction is kept the same
+       way, from whichever copy has it. */
+    let out = c;
+    if (!(Array.isArray(c.sources) && c.sources.length) && Array.isArray(alt.sources) && alt.sources.length) {
+      out = { ...out, sources: alt.sources };
+    }
+    if (!out.direction && alt.direction) out = { ...out, direction: alt.direction };
+    return out;
+  });
   const serverIds = new Set(server.map((c) => c && c.id));
-  const merged = [...server, ...local.filter((c) => c && !serverIds.has(c.id))];
-  merged.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  return merged;
+  const all = [...merged, ...local.filter((c) => c && !serverIds.has(c.id))];
+  all.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  return all;
 }
 
 function fcNewNode(type, x, y, label, extra = {}) {
@@ -385,24 +403,23 @@ function fcDraftFromAnswer(text, sources) {
     // L7-13 (2026-10-23): an empty label means the sentence was unsafe
     // to compress (contrast, negation or comparator qualifier); the
     // step is skipped, not shortened.
-    const label = fcCompressStep(st.text);
+    const label = fcLabelFromSentence(st.text);
     if (!label) return;
-    const isDecision = /^(if|when|whether)\b/i.test(st.text) || /\bdepends on\b/i.test(st.text);
     // A step that cited a paper is evidence, not prose: ground the node to
     // the real source. Citation indices are 1-based; anything out of range
     // is ignored rather than guessed at.
     const citeIdx = st.cites.find((n) => n >= 1 && n <= srcCount);
-    const type = typeof citeIdx === "number" ? "evidence" : isDecision ? "decision" : "process";
+    const type = typeof citeIdx === "number" ? "evidence" : "process";
     const n = addStep(type, label, {
       step: i + 1,
       ...(st.text !== label ? { detail: st.text } : {}),
       ...(typeof citeIdx === "number" ? { sourceIdx: citeIdx - 1 } : {}),
     });
-    edges.push(fcNewEdge(prev.id, n.id, prev.type === "decision" ? "yes" : ""));
+    edges.push(fcNewEdge(prev.id, n.id, ""));
     prev = n;
   });
   const end = addStep("end", "End");
-  edges.push(fcNewEdge(prev.id, end.id, prev.type === "decision" ? "yes" : ""));
+  edges.push(fcNewEdge(prev.id, end.id, ""));
   return { nodes: fcAutoLayout(nodes, edges), edges, isDraft: true };
 }
 
@@ -437,7 +454,7 @@ function fcPaletteColors(P, accent, at) {
 function fcNodeSvg(n, colors) {
   const C = colors || FC_EXPORT_COLORS;
   const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
-  const lines = fcWrap(n.label, Math.max(8, Math.floor((n.w - 30) / 7)));
+  const lines = fcWrapBounded(n.label, Math.max(8, Math.floor((n.w - 30) / 7)), Math.max(1, Math.floor(((n.h || 92) - 18) / 16)));
   const lh = 16;
   const ty = cy - ((lines.length - 1) * lh) / 2 + 5;
   const isAccent = n.type === "start" || n.type === "end";
@@ -571,59 +588,21 @@ function FcNodeShape({ n, P, accent, selected, pending }) {
    and never invent new ones.
    ══════════════════════════════════════════════════════════════════ */
 
+/* The step model itself lives in src/fcLabel.js as pure helpers, so
+   the grounding contract is testable without a browser. These names
+   stay as the studio local spelling of the same functions. */
 function dsCoerceType(t) {
-  return t === "decision" || t === "evidence" ? t : "process";
+  return fcCoerceStepType(t);
 }
 
 function dsStepFromNode(n) {
-  return {
-    id: n.id || fcId("s"),
-    label: n.label || "",
-    type: dsCoerceType(n.type),
-    detail: n.detail || "",
-    sourceIdx: typeof n.sourceIdx === "number" ? n.sourceIdx : undefined,
-  };
+  return fcStepFromNode(n, fcId("s"));
 }
 
-/* Order chart nodes along their edges from a root, a node with no
-   incoming edge. Anything the walk cannot reach falls back to
-   sorting by y then x. Start and end nodes are skipped. */
+/* Order chart nodes along their edges from a root and turn them into
+   steps. The walk lives in fcStepsFromChart (src/fcLabel.js). */
 function dsStepsFromChart(chart) {
-  if (!chart || !Array.isArray(chart.nodes)) return [];
-  const all = chart.nodes.filter((n) => n && n.id);
-  const edges = Array.isArray(chart.edges) ? chart.edges : [];
-  const byId = new Map(all.map((n) => [n.id, n]));
-  const incoming = new Set();
-  const outMap = new Map();
-  for (const e of edges) {
-    if (!e || !byId.has(e.from) || !byId.has(e.to)) continue;
-    incoming.add(e.to);
-    if (!outMap.has(e.from)) outMap.set(e.from, []);
-    outMap.get(e.from).push(e.to);
-  }
-  const byPos = (a, b) => (a.y || 0) - (b.y || 0) || (a.x || 0) - (b.x || 0);
-  const roots = all.filter((n) => !incoming.has(n.id)).sort(byPos);
-  const ordered = [];
-  const visited = new Set();
-  const visit = (startId) => {
-    const stack = [startId];
-    while (stack.length) {
-      const id = stack.shift();
-      if (!id || visited.has(id)) continue;
-      visited.add(id);
-      const node = byId.get(id);
-      if (!node) continue;
-      ordered.push(node);
-      const outs = outMap.get(id) || [];
-      for (const outId of outs) if (!visited.has(outId)) stack.push(outId);
-    }
-  };
-  for (const root of roots) visit(root.id);
-  const rest = all.filter((n) => !visited.has(n.id)).sort(byPos);
-  for (const n of rest) ordered.push(n);
-  return ordered
-    .filter((n) => n.type !== "start" && n.type !== "end")
-    .map(dsStepFromNode);
+  return fcStepsFromChart(chart, () => fcId("s"));
 }
 
 function dsStepsFromDraft(draft) {
@@ -631,28 +610,10 @@ function dsStepsFromDraft(draft) {
   return dsStepsFromChart(draft);
 }
 
-/* Turn steps into the node and edge chain the canvas and the
-   exports share. Node ids and edge ids are built from the step
-   ids and the position in the chain, so they stay steady while
-   the steps stay the same. */
+/* Turn steps into the node and edge chain the canvas and the exports
+   share, through fcBuildChain (src/fcLabel.js). */
 function dsBuild(steps, direction) {
-  const nodes = steps.map((step, i) => {
-    const x = direction === "across" ? 40 + i * 300 : 420;
-    const y = direction === "across" ? 140 : 40 + i * 196;
-    const extra = {};
-    if (step.detail) extra.detail = step.detail;
-    if (typeof step.sourceIdx === "number") extra.sourceIdx = step.sourceIdx;
-    const node = fcNewNode(dsCoerceType(step.type), x, y, step.label || "", extra);
-    node.id = "dsn-" + step.id;
-    return node;
-  });
-  const edges = [];
-  for (let i = 0; i + 1 < nodes.length; i += 1) {
-    const edge = fcNewEdge(nodes[i].id, nodes[i + 1].id, "");
-    edge.id = "dse-" + i;
-    edges.push(edge);
-  }
-  return { nodes, edges };
+  return fcBuildChain(steps, direction, fcNewNode);
 }
 
 function dsPaperText(paper) {
@@ -660,7 +621,7 @@ function dsPaperText(paper) {
   return paper.abstract || paper.summary || paper.snippet || "";
 }
 
-export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial = null, docTitle = "", answerText = "", sources = [], latestAnswer = null, savedPapers = [], diagrams = [], onSave = null, onClose = null }) {
+export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial = null, docTitle = "", answerText = "", sources = [], latestAnswer = null, savedPapers = [], diagrams = [], onSave = null, onClose = null, tier = "free", resetSignal = 0 }) {
   const bootRef = useRef(null);
   if (bootRef.current === null) {
     const propSources = Array.isArray(sources) ? sources : [];
@@ -668,21 +629,29 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
     let bootTitle = "";
     let bootId = null;
     let bootSources = propSources;
-    let bootMode = "write";
+    let bootDirection = "down";
     let bootUsedAnswer = false;
+    let bootReadOnly = false;
+    let bootNote = null;
     if (initial && Array.isArray(initial.nodes)) {
       bootSteps = dsStepsFromChart(initial);
       bootTitle = initial.title || docTitle || "";
       bootId = initial.id || null;
-      bootMode = "saved";
-      if (!propSources.length && Array.isArray(initial.sources)) bootSources = initial.sources;
+      /* A reopened chart loads with exactly the sources stored on its
+         own record. No stored sources means an empty list, never the
+         list that happens to be active (huge audit Bugs 2 and 3). */
+      bootSources = fcChartSources(initial);
+      bootDirection = isMobile ? "down" : (initial.direction === "across" ? "across" : "down");
+      bootReadOnly = fcChartNeedsConversion(initial);
     } else if (answerText) {
       bootSteps = dsStepsFromDraft(fcDraftFromAnswer(answerText, propSources));
       bootTitle = docTitle || "";
-      bootMode = "answer";
       bootUsedAnswer = true;
+      if (bootSteps.length < 2) {
+        bootNote = { text: answerText, sentences: fcSplitSentences(answerText), kind: "answer", sources: propSources, used: [] };
+      }
     }
-    bootRef.current = { steps: bootSteps, title: bootTitle, id: bootId, sources: bootSources, mode: bootMode, usedAnswer: bootUsedAnswer };
+    bootRef.current = { steps: bootSteps, title: bootTitle, id: bootId, sources: bootSources, direction: bootDirection, usedAnswer: bootUsedAnswer, readOnly: bootReadOnly, note: bootNote };
   }
   const boot = bootRef.current;
 
@@ -690,13 +659,63 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
   const [title, setTitle] = useState(boot.title);
   const [currentId, setCurrentId] = useState(boot.id);
   const [activeSources, setActiveSources] = useState(boot.sources);
-  const [mode, setMode] = useState(boot.mode);
-  const [direction, setDirection] = useState("down");
+  const [sourceTab, setSourceTab] = useState(null);
+  const [direction, setDirection] = useState(boot.direction);
   const [selectedId, setSelectedId] = useState(boot.steps.length ? boot.steps[0].id : null);
-  const [writeText, setWriteText] = useState(boot.steps.map((s) => s.label).join("\n"));
   const [paperPick, setPaperPick] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
   const [saveState, setSaveState] = useState("idle");
+  const [saveNote, setSaveNote] = useState("");
+  const [past, setPast] = useState([]);
+  const [future, setFuture] = useState([]);
+  const [pendingLoad, setPendingLoad] = useState(null);
+  const [extractNote, setExtractNote] = useState(boot.note);
+  const [readOnly, setReadOnly] = useState(boot.readOnly);
+  const [zoom, setZoom] = useState(1);
+  const canvasBoxRef = useRef(null);
+  const saveInFlightRef = useRef(false);
+  const exportWrapRef = useRef(null);
+  const topFocusRef = useRef(null);
+  const touchRef = useRef(null);
+
+  const snapOf = (st, ti, so, id, dir, ro) => JSON.stringify({ steps: st, title: ti, sources: so, id, direction: dir, readOnly: ro });
+  const baselineRef = useRef(snapOf(boot.steps, boot.title, boot.sources, boot.id, boot.direction, boot.readOnly));
+  const currentSnap = () => snapOf(steps, title, activeSources, currentId, direction, readOnly);
+  const dirtyRef = useRef(false);
+  dirtyRef.current = currentSnap() !== baselineRef.current;
+  const dirty = dirtyRef.current;
+
+  useEffect(() => {
+    const onBeforeUnload = (e) => {
+      if (dirtyRef.current) { e.preventDefault(); e.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
+  /* The export menu closes when the user taps or clicks anywhere
+     else, not only when Export is tapped again (mobile lane item 7). */
+  useEffect(() => {
+    if (!exportOpen) return;
+    const onDoc = (e) => {
+      if (exportWrapRef.current && !exportWrapRef.current.contains(e.target)) setExportOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("touchstart", onDoc);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("touchstart", onDoc);
+    };
+  }, [exportOpen]);
+
+  /* On a phone the step editor sits above the canvas, so selecting a
+     node brings its own row into view instead of changing a panel far
+     below the picture (mobile Bug 2). */
+  useEffect(() => {
+    if (!isMobile || !selectedId) return;
+    const el = document.getElementById("ds-step-" + selectedId);
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+  }, [selectedId, isMobile]);
 
   const built = dsBuild(steps, direction);
   const nodes = built.nodes;
@@ -708,69 +727,172 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
     : null;
   const eligiblePapers = (Array.isArray(savedPapers) ? savedPapers : []).filter((paper) => dsPaperText(paper));
 
-  const applySteps = (next) => {
-    setSteps(next);
-    setWriteText(next.map((s) => s.label).join("\n"));
-    setSaveState("idle");
+  const pushHistory = () => {
+    setPast((prev) => [...prev.slice(-49), { steps, title, sources: activeSources, id: currentId, direction, readOnly }]);
+    setFuture([]);
   };
 
-  const loadSteps = (next, nextTitle, nextSources, nextId, nextMode) => {
-    applySteps(next);
-    if (typeof nextTitle === "string") setTitle(nextTitle);
-    if (Array.isArray(nextSources)) setActiveSources(nextSources);
-    setCurrentId(nextId || null);
+  const restoreSnap = (snap) => {
+    setSteps(snap.steps);
+    setTitle(snap.title);
+    setActiveSources(snap.sources);
+    setCurrentId(snap.id);
+    setDirection(snap.direction);
+    setReadOnly(snap.readOnly);
+    setSelectedId(snap.steps.length ? snap.steps[0].id : null);
+    setExtractNote(null);
+    setSaveState("idle");
+    setSaveNote("");
+  };
+
+  const undo = () => {
+    if (!past.length) return;
+    const target = past[past.length - 1];
+    setPast(past.slice(0, -1));
+    setFuture((prev) => [...prev, { steps, title, sources: activeSources, id: currentId, direction, readOnly }]);
+    restoreSnap(target);
+  };
+
+  const redo = () => {
+    if (!future.length) return;
+    const target = future[future.length - 1];
+    setFuture(future.slice(0, -1));
+    setPast((prev) => [...prev, { steps, title, sources: activeSources, id: currentId, direction, readOnly }]);
+    restoreSnap(target);
+  };
+
+  const applySteps = (next) => {
+    if (readOnly) return;
+    pushHistory();
+    setSteps(next);
+    setSaveState("idle");
+    setSaveNote("");
+  };
+
+  /* One load path for every source. It always sets the full state,
+     including an empty source list when the thing being loaded has
+     none, and it records the loaded state as the saved baseline. */
+  const doLoadSteps = (next, opts) => {
+    pushHistory();
+    const nextSources = Array.isArray(opts.sources) ? opts.sources : [];
+    const nextDirection = isMobile ? "down" : (opts.direction === "across" ? "across" : "down");
+    const nextReadOnly = !!opts.readOnly;
+    setSteps(next);
+    setTitle(opts.title || "");
+    setActiveSources(nextSources);
+    setCurrentId(opts.id || null);
+    setDirection(nextDirection);
+    setReadOnly(nextReadOnly);
     setSelectedId(next.length ? next[0].id : null);
-    if (nextMode) setMode(nextMode);
     setExportOpen(false);
+    setSaveState("idle");
+    setSaveNote("");
+    setExtractNote(opts.note || null);
+    baselineRef.current = snapOf(next, opts.title || "", nextSources, opts.id || null, nextDirection, nextReadOnly);
+  };
+
+  /* Any load that would replace work that is not saved asks first. */
+  const guardLoad = (label, run) => {
+    if (dirtyRef.current) setPendingLoad({ label, run });
+    else run();
+  };
+  const guardRef = useRef(guardLoad);
+  guardRef.current = guardLoad;
+
+  const noteFor = (text, extracted, kind, srcs) => {
+    if (extracted.length >= 2) return null;
+    return { text, sentences: fcSplitSentences(text), kind, sources: srcs, used: [] };
   };
 
   const loadLatest = () => {
     if (!latestAnswer) return;
-    const latestSources = Array.isArray(latestAnswer.sources) ? latestAnswer.sources : [];
-    const next = dsStepsFromDraft(fcDraftFromAnswer(latestAnswer.answerText || "", latestSources));
-    loadSteps(next, latestAnswer.title || "", latestSources, null, "answer");
+    guardLoad("your last answer", () => {
+      const latestSources = Array.isArray(latestAnswer.sources) ? latestAnswer.sources : [];
+      const next = dsStepsFromDraft(fcDraftFromAnswer(latestAnswer.answerText || "", latestSources));
+      doLoadSteps(next, { title: latestAnswer.title || "", sources: latestSources, id: null, note: noteFor(latestAnswer.answerText || "", next, "answer", latestSources) });
+    });
   };
 
   const loadPaper = (paper) => {
-    const text = dsPaperText(paper);
-    // L7-13 (2026-10-23): steps whose label compresses to empty are skipped.
-    const next = fcExtractSteps(text, 7).map((st) => ({
-      id: fcId("s"),
-      label: fcCompressStep(st.text),
-      type: "process",
-      detail: st.text,
-      sourceIdx: 0,
-    })).filter((st) => st.label);
-    loadSteps(next, paper.title || "", [paper], null, "paper");
+    guardLoad("that paper", () => {
+      const text = dsPaperText(paper);
+      const next = fcExtractSteps(text, 7).map((st) => ({
+        id: fcId("s"),
+        label: fcLabelFromSentence(st.text),
+        type: "process",
+        detail: st.text,
+        sourceIdx: 0,
+      })).filter((st) => st.label);
+      doLoadSteps(next, { title: paper.title || "", sources: [paper], id: null, note: noteFor(text, next, "paper", [paper]) });
+    });
   };
 
   const loadDiagram = (chart) => {
-    const next = dsStepsFromChart(chart);
-    loadSteps(next, chart.title || "", Array.isArray(chart.sources) ? chart.sources : activeSources, chart.id || null, "saved");
+    guardLoad("that saved diagram", () => {
+      const next = dsStepsFromChart(chart);
+      doLoadSteps(next, {
+        title: chart.title || "",
+        sources: fcChartSources(chart),
+        id: chart.id || null,
+        direction: chart.direction,
+        readOnly: fcChartNeedsConversion(chart),
+      });
+    });
   };
 
-  const onWriteChange = (e) => {
-    const raw = e.target.value;
-    setWriteText(raw);
-    const lines = raw.split("\n").filter((line) => line.trim().length > 0);
-    const next = lines.map((line, i) => {
-      if (steps[i]) return { ...steps[i], label: line };
-      return { id: fcId("s"), label: line, type: "process", detail: "", sourceIdx: undefined };
-    });
+  const resetStudio = () => {
+    doLoadSteps([], { title: "", sources: [], id: null, direction: "down" });
+    setSourceTab(null);
+    setPaperPick("");
+  };
+  const resetRef = useRef(resetStudio);
+  resetRef.current = resetStudio;
+
+  /* The command palette New diagram command bumps resetSignal. The
+     studio answers by resetting, through the same unsaved work guard
+     as every other load (huge audit Bug 15). */
+  const resetSeenRef = useRef(resetSignal);
+  useEffect(() => {
+    if (resetSeenRef.current === resetSignal) return;
+    resetSeenRef.current = resetSignal;
+    guardRef.current("a new diagram", () => resetRef.current());
+  }, [resetSignal]);
+
+  const addSentenceStep = (idx) => {
+    if (!extractNote || readOnly) return;
+    const sent = extractNote.sentences[idx];
+    if (!sent) return;
+    const label = fcLabelFromSentence(sent.text);
+    if (!label) return;
+    let sourceIdx;
+    if (extractNote.kind === "paper") sourceIdx = 0;
+    else {
+      const cite = sent.cites.find((n) => n >= 1 && n <= (extractNote.sources || []).length);
+      if (typeof cite === "number") sourceIdx = cite - 1;
+    }
+    const step = { id: fcId("s"), label, type: typeof sourceIdx === "number" ? "evidence" : "process", detail: sent.text, sourceIdx };
+    pushHistory();
+    const next = [...steps, step];
     setSteps(next);
+    setSelectedId(step.id);
     setSaveState("idle");
-    if (selectedId && !next.some((s) => s.id === selectedId)) setSelectedId(next.length ? next[0].id : null);
+    setExtractNote({ ...extractNote, used: [...(extractNote.used || []), idx] });
   };
 
   const updateStep = (id, patch) => {
-    const next = steps.map((s) => (s.id === id ? { ...s, ...patch } : s));
-    applySteps(next);
+    applySteps(steps.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   };
 
   const deleteStep = (id) => {
     const next = steps.filter((s) => s.id !== id);
     applySteps(next);
     if (selectedId === id) setSelectedId(next.length ? next[0].id : null);
+  };
+
+  const moveStep = (id, delta) => {
+    const next = fcMoveStep(steps, id, delta);
+    applySteps(next);
+    setSelectedId(id);
   };
 
   const addStep = () => {
@@ -781,38 +903,77 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
   };
 
   const doSave = async () => {
-    const fresh = dsBuild(steps, direction);
+    /* Synchronous in flight guard: a second activation inside the same
+       render pass never reaches the save handler, so a new diagram can
+       never be metered twice (huge audit Bug 14). */
+    if (saveInFlightRef.current) return;
+    if (readOnly) return;
+    if (!fcHasLabelledStep(steps)) {
+      setSaveState("empty");
+      setSaveNote("");
+      return;
+    }
+    saveInFlightRef.current = true;
     setSaveState("saving");
+    setSaveNote("");
+    const snapAtSave = currentSnap();
     try {
-      let result;
+      const fresh = dsBuild(steps, direction);
+      let result = null;
       if (onSave) {
-        result = await onSave({ id: currentId, title: title.trim() || "Diagram", nodes: fresh.nodes, edges: fresh.edges, sources: activeSources });
+        result = await onSave({ id: currentId, title: title.trim() || "Diagram", nodes: fresh.nodes, edges: fresh.edges, sources: activeSources, direction });
       }
-      if (result === false) {
-        setSaveState("blocked");
+      if (result === false) { setSaveState("blocked"); return; }
+      if (result && typeof result === "object") {
+        if (result.ok === false) {
+          if (result.reason === "network") setSaveState("network");
+          else if (result.reason === "empty") setSaveState("empty");
+          else setSaveState("blocked");
+          return;
+        }
+        if (result.id) setCurrentId(result.id);
+        /* The baseline takes the adopted id, so a first save does not
+           read as unsaved work the moment it lands. */
+        baselineRef.current = snapOf(steps, title, activeSources, result.id || currentId, direction, readOnly);
+        if (result.synced) { setSaveState("saved"); setSaveNote(""); }
+        else if (result.syncError) { setSaveState("savedLocal"); setSaveNote("Saved in this browser. It did not reach your account. Check your connection, then save again."); }
+        else if (result.pending) { setSaveState("savedLocal"); setSaveNote("Saved in this browser. Account sync is not ready yet, so this copy stays local for now."); }
+        else { setSaveState("savedLocal"); setSaveNote("Saved in this browser only."); }
         return;
       }
-      /* The app save handler returns the saved diagram id as a
-         string; an object with an id is adopted the same way, so a
-         second save updates the same record instead of metering a
-         new diagram. */
-      if (typeof result === "string" && result) setCurrentId(result);
-      else if (result && typeof result === "object" && result.id) setCurrentId(result.id);
-      setSaveState("saved");
+      if (typeof result === "string" && result) {
+        setCurrentId(result);
+        baselineRef.current = snapOf(steps, title, activeSources, result, direction, readOnly);
+      } else {
+        baselineRef.current = snapAtSave;
+      }
+      setSaveState("savedLocal");
+      setSaveNote("Saved in this browser.");
     } catch (dsErr) {
-      setSaveState("blocked");
+      setSaveState("network");
+    } finally {
+      saveInFlightRef.current = false;
     }
   };
 
   const exportColors = () => fcPaletteColors(P, accent, at);
 
+  const guardExport = () => {
+    if (fcHasLabelledStep(steps)) return true;
+    setSaveState("empty");
+    setExportOpen(false);
+    return false;
+  };
+
   const doExportSVG = () => {
+    if (!guardExport()) return;
     const fresh = dsBuild(steps, direction);
     download(fcSlug(title) + ".svg", fcSvgString(fresh.nodes, fresh.edges, title, exportColors()));
     setExportOpen(false);
   };
 
   const doExportPNG = () => {
+    if (!guardExport()) return;
     const fresh = dsBuild(steps, direction);
     const svg = fcSvgString(fresh.nodes, fresh.edges, title, exportColors());
     const b = fcBounds(fresh.nodes);
@@ -853,8 +1014,76 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
   };
 
   const doExportText = () => {
+    if (!guardExport()) return;
     const fresh = dsBuild(steps, direction);
     download(fcSlug(title) + ".md", fcToMarkdown(fresh.nodes, fresh.edges, title));
+    setExportOpen(false);
+  };
+
+  const fitZoom = () => {
+    const box = canvasBoxRef.current;
+    const w = box ? box.clientWidth : 0;
+    if (!w || !bounds.w) return;
+    setZoom(Math.min(1.5, Math.max(0.3, (w - 24) / bounds.w)));
+  };
+
+  /* The canvas frame owns its gestures (mobile Bug 1): one finger
+     pans by moving the frame scroll, two fingers pinch to zoom, and
+     the frame never hands the gesture to the page scroll. */
+  const onCanvasTouchStart = (e) => {
+    const box = canvasBoxRef.current;
+    if (!box) return;
+    if (e.touches.length === 1) {
+      const t = e.touches[0];
+      touchRef.current = { mode: "pan", x: t.clientX, y: t.clientY, sl: box.scrollLeft, st: box.scrollTop };
+    } else if (e.touches.length === 2) {
+      const a = e.touches[0], b = e.touches[1];
+      touchRef.current = { mode: "pinch", d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), z: zoom };
+    }
+  };
+  const onCanvasTouchMove = (e) => {
+    const box = canvasBoxRef.current;
+    const tr = touchRef.current;
+    if (!box || !tr) return;
+    if (tr.mode === "pan" && e.touches.length === 1) {
+      const t = e.touches[0];
+      box.scrollLeft = tr.sl - (t.clientX - tr.x);
+      box.scrollTop = tr.st - (t.clientY - tr.y);
+    } else if (tr.mode === "pinch" && e.touches.length === 2) {
+      const a = e.touches[0], b = e.touches[1];
+      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      if (tr.d > 0) setZoom(Math.min(2, Math.max(0.3, tr.z * (d / tr.d))));
+    }
+  };
+
+  /* The rendered canvas never drops under a 640 wide floor, so a wide
+     diagram scrolls and pans at a readable size instead of shrinking
+     to fit a phone (mobile Bug 1). labelPx is the on screen size of
+     the 14 unit node text at the current scale. */
+  const displayW = steps.length ? Math.max(Math.round(bounds.w * zoom), 640) : 0;
+  const displayScale = bounds.w ? displayW / bounds.w : 1;
+  const displayH = Math.round(bounds.h * displayScale);
+  const labelPx = 14 * displayScale;
+  const acrossTooSmall = direction === "across" && steps.length > 0 && labelPx < 10;
+
+  /* Share sits beside the downloads (mobile lane item 7): the SVG
+     file when the platform can share files, the text outline when it
+     can only share text. */
+  const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+  const doShare = async () => {
+    if (!guardExport()) return;
+    const fresh = dsBuild(steps, direction);
+    try {
+      if (typeof navigator.canShare === "function") {
+        const file = new File([fcSvgString(fresh.nodes, fresh.edges, title, exportColors())], fcSlug(title) + ".svg", { type: "image/svg+xml" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: title || "Diagram" });
+          setExportOpen(false);
+          return;
+        }
+      }
+      await navigator.share({ title: title || "Diagram", text: fcToMarkdown(fresh.nodes, fresh.edges, title) });
+    } catch (shareErr) { /* the user closed the share sheet: nothing to report */ }
     setExportOpen(false);
   };
 
@@ -864,6 +1093,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
     fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
     display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, whiteSpace: "nowrap",
   };
+  const smallBtnStyle = { ...btnStyle, minHeight: 36, padding: "0 10px", fontSize: FONT_SIZES.caption };
   const tabStyle = (active) => ({
     ...btnStyle,
     background: active ? withAlpha(accent, 0.14) : "transparent",
@@ -872,14 +1102,25 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
   });
   const fieldStyle = {
     boxSizing: "border-box", background: P.bg, border: `1px solid ${P.line}`,
-    borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px",
+    borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px", minHeight: 44,
     fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)",
   };
+
+  const quotaLine = tier === "pro"
+    ? "Pro accounts save unlimited diagrams."
+    : tier === "lite"
+      ? "Lite accounts can save 10 diagrams every 5 days."
+      : "Free accounts can save 1 diagram every 5 days.";
 
   const selectedDoi = selectedSource ? (selectedSource.doi || "") : "";
   const selectedHref = selectedSource
     ? safeHref(selectedSource.url || (selectedDoi ? (String(selectedDoi).startsWith("http") ? selectedDoi : "https://doi.org/" + selectedDoi) : ""))
     : "#";
+
+  const requestClose = () => {
+    if (!onClose) return;
+    guardLoad("closing", () => onClose());
+  };
 
   const content = (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, fontFamily: "var(--cb-font)", color: P.ink }}>
@@ -894,21 +1135,25 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
             onChange={(e) => { setTitle(e.target.value); setSaveState("idle"); }}
             placeholder="Diagram title"
             aria-label="Diagram title"
+            disabled={readOnly}
             style={{ ...fieldStyle, flex: "1 1 180px", minWidth: 0, background: P.surface }}
           />
           <div role="group" aria-label="Direction" style={{ display: "inline-flex", border: `1px solid ${P.line2}`, borderRadius: RADIUS.sm, padding: 3, gap: 2 }}>
             <button type="button" aria-pressed={direction === "down"}
-              onClick={() => { setDirection("down"); setSaveState("idle"); }}
-              style={{ minHeight: 38, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "down" ? accent : "transparent", color: direction === "down" ? at : P.ink }}>
+              onClick={() => { pushHistory(); setDirection("down"); setSaveState("idle"); }}
+              style={{ minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "down" ? accent : "transparent", color: direction === "down" ? at : P.ink }}>
               Down
             </button>
             <button type="button" aria-pressed={direction === "across"}
-              onClick={() => { setDirection("across"); setSaveState("idle"); }}
-              style={{ minHeight: 38, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "across" ? accent : "transparent", color: direction === "across" ? at : P.ink }}>
+              onClick={() => { pushHistory(); setDirection("across"); setSaveState("idle"); }}
+              style={{ minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "across" ? accent : "transparent", color: direction === "across" ? at : P.ink }}>
               Across
             </button>
           </div>
-          <div style={{ position: "relative" }}>
+          <button type="button" onClick={() => guardLoad("a new diagram", resetStudio)} style={btnStyle}>
+            New diagram
+          </button>
+          <div ref={exportWrapRef} style={{ position: "relative" }}>
             <button type="button" onClick={() => setExportOpen((v) => !v)} aria-expanded={exportOpen} style={btnStyle}>
               Export
             </button>
@@ -917,70 +1162,131 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                 <button type="button" onClick={doExportSVG} style={btnStyle}>SVG</button>
                 <button type="button" onClick={doExportPNG} style={btnStyle}>PNG</button>
                 <button type="button" onClick={doExportText} style={btnStyle}>Text outline</button>
+                {canShare && (
+                  <button type="button" onClick={doShare} style={btnStyle}>Share</button>
+                )}
               </div>
             )}
           </div>
-          <button type="button" onClick={doSave} disabled={saveState === "saving"}
-            style={{ ...btnStyle, background: accent, color: at, border: `1px solid ${accent}`, opacity: saveState === "saving" ? 0.6 : 1 }}>
+          <button type="button" onClick={doSave} disabled={saveState === "saving" || readOnly}
+            style={{ ...btnStyle, background: accent, color: at, border: `1px solid ${accent}`, opacity: saveState === "saving" || readOnly ? 0.6 : 1 }}>
             Save
           </button>
           {dialog && onClose && (
-            <button type="button" onClick={onClose} style={btnStyle}>Close</button>
+            <button type="button" onClick={requestClose} style={btnStyle}>Close</button>
           )}
         </div>
         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.4 }}>
-          Free accounts can save 1 diagram every 5 days.
+          {quotaLine}
         </div>
+        {dirty && saveState !== "saving" && (
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.4 }}>You have work that is not saved yet.</div>
+        )}
         {saveState === "saving" && (
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>Saving</div>
         )}
         {saveState === "saved" && (
-          <div style={{ fontSize: FONT_SIZES.body, color: accent, fontWeight: 500 }}>Saved</div>
+          <div style={{ fontSize: FONT_SIZES.body, color: accent, fontWeight: 500 }}>Saved to your account.</div>
+        )}
+        {saveState === "savedLocal" && (
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>{saveNote || "Saved in this browser."}</div>
+        )}
+        {saveState === "network" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>Save did not go through. The connection failed, so nothing was counted against your plan.</span>
+            <button type="button" onClick={doSave} style={smallBtnStyle}>Try save again</button>
+          </div>
         )}
         {saveState === "blocked" && (
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>
             Save did not go through. Check that you are signed in and that your plan still has room.
           </div>
         )}
+        {saveState === "empty" && (
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>
+            Add at least one step with words first. Empty diagrams are not saved or exported.
+          </div>
+        )}
       </div>
+
+      {/* Unsaved work guard */}
+      {pendingLoad && (
+        <div role="alertdialog" aria-label="Unsaved work" style={{ background: P.surface, border: `1px solid ${accent}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
+            {`Loading ${pendingLoad.label} will replace work that is not saved.`}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" style={{ ...smallBtnStyle, background: accent, color: at, border: `1px solid ${accent}` }}
+              onClick={() => { const run = pendingLoad.run; setPendingLoad(null); run(); }}>
+              Replace my work
+            </button>
+            <button type="button" style={smallBtnStyle} onClick={() => setPendingLoad(null)}>
+              Keep my work
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Older format notice */}
+      {readOnly && (
+        <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
+            This diagram was made in an older format, with branches or labelled arrows this studio cannot hold. It is open read only so nothing is lost by accident.
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" style={{ ...smallBtnStyle, background: accent, color: at, border: `1px solid ${accent}` }}
+              onClick={() => { setReadOnly(false); setSaveState("idle"); }}>
+              Convert to a step list
+            </button>
+          </div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.4 }}>
+            Converting keeps the steps in order as one chain. Branches, arrow labels, and input or output boxes do not carry over. Saving after converting replaces the old format.
+          </div>
+        </div>
+      )}
 
       {/* Source choices */}
       {!dialog && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" aria-pressed={mode === "write"} onClick={() => { setMode("write"); setWriteText(steps.map((s) => s.label).join("\n")); }} style={tabStyle(mode === "write")}>
-              Write it
-            </button>
-            <button type="button" aria-pressed={mode === "answer"} disabled={!latestAnswer}
+            <button type="button" aria-pressed={false} disabled={!latestAnswer}
               onClick={loadLatest}
-              style={{ ...tabStyle(mode === "answer"), opacity: latestAnswer ? 1 : 0.5, cursor: latestAnswer ? "pointer" : "not-allowed" }}>
+              style={{ ...tabStyle(false), opacity: latestAnswer ? 1 : 0.5, cursor: latestAnswer ? "pointer" : "not-allowed" }}>
               From your last answer
             </button>
-            <button type="button" aria-pressed={mode === "paper"} onClick={() => setMode("paper")} style={tabStyle(mode === "paper")}>
+            <button type="button" aria-pressed={sourceTab === "paper"} onClick={() => setSourceTab(sourceTab === "paper" ? null : "paper")} style={tabStyle(sourceTab === "paper")}>
               From a saved paper
             </button>
-            <button type="button" aria-pressed={mode === "saved"} onClick={() => setMode("saved")} style={tabStyle(mode === "saved")}>
+            <button type="button" aria-pressed={sourceTab === "saved"} onClick={() => setSourceTab(sourceTab === "saved" ? null : "saved")} style={tabStyle(sourceTab === "saved")}>
               Saved diagrams
             </button>
           </div>
-          {mode === "paper" && (
-            <select
-              aria-label="Saved paper"
-              value={paperPick}
-              onChange={(e) => {
-                setPaperPick(e.target.value);
-                const paper = eligiblePapers[Number(e.target.value)];
-                if (paper) loadPaper(paper);
-              }}
-              style={{ ...fieldStyle, width: "100%", background: P.surface }}
-            >
-              <option value="">Choose a paper</option>
-              {eligiblePapers.map((paper, i) => (
-                <option key={paper.id || paper.title || i} value={i}>{paper.title || "Untitled"}</option>
-              ))}
-            </select>
+          {sourceTab === "paper" && (
+            eligiblePapers.length === 0 ? (
+              <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.5 }}>
+                You have no saved papers with text yet. Save a paper from an answer first, then pick it here.
+              </div>
+            ) : (
+              <select
+                aria-label="Saved paper"
+                value={paperPick}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setPaperPick(v);
+                  if (v === "") return;
+                  const paper = eligiblePapers[Number(v)];
+                  if (paper) loadPaper(paper);
+                }}
+                style={{ ...fieldStyle, width: "100%", background: P.surface }}
+              >
+                <option value="">Choose a paper</option>
+                {eligiblePapers.map((paper, i) => (
+                  <option key={paper.id || paper.title || i} value={i}>{paper.title || "Untitled"}</option>
+                ))}
+              </select>
+            )
           )}
-          {mode === "saved" && (
+          {sourceTab === "saved" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {diagrams.length === 0 && (
                 <div style={{ fontSize: FONT_SIZES.body, color: P.faint }}>No saved diagrams yet.</div>
@@ -1008,99 +1314,171 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
         </div>
       )}
 
-      {/* Main area */}
-      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 16, alignItems: "stretch" }}>
-        <div style={{ flex: "1 1 auto", minWidth: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12, overflow: "auto" }}>
-          {steps.length === 0 ? (
-            <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.55, padding: 12 }}>
-              Add a step to start the diagram.
-            </div>
-          ) : (
-            <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} width="100%" style={{ display: "block" }} role="img" aria-label={title || "Diagram"}>
-              <defs>
-                <marker id="dsArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                  <path d="M 0 1 L 9 5 L 0 9 z" fill={P.faint} />
-                </marker>
-              </defs>
-              {edges.map((e) => {
-                const a = fcNodeById(nodes, e.from);
-                const b = fcNodeById(nodes, e.to);
-                if (!a || !b) return null;
-                const g = fcEdgeGeom(a, b);
-                return <path key={e.id} d={g.d} fill="none" stroke={P.faint} strokeWidth={1.6} markerEnd="url(#dsArrow)" />;
-              })}
-              {nodes.map((n, i) => {
-                const step = steps[i];
-                if (!step) return null;
-                const lines = fcWrap(n.label || "", 24);
-                const lineHeight = 18;
-                const startY = n.h / 2 - ((lines.length - 1) * lineHeight) / 2 + 5;
-                return (
-                  <g key={n.id} transform={`translate(${n.x} ${n.y})`} onClick={() => setSelectedId(step.id)} style={{ cursor: "pointer" }}>
-                    <FcNodeShape n={n} P={P} accent={accent} selected={selectedId === step.id} />
-                    <text x={n.w / 2} y={startY} textAnchor="middle" fontSize={14} fill={P.ink} fontFamily="var(--cb-font)" fontWeight={500}>
-                      {lines.map((ln, li) => (
-                        <tspan key={li} x={n.w / 2} dy={li === 0 ? 0 : lineHeight}>{ln}</tspan>
-                      ))}
-                    </text>
-                  </g>
-                );
-              })}
-            </svg>
-          )}
-        </div>
-
-        <div style={{ width: isMobile ? "auto" : 340, flexShrink: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14 }}>
-          {mode === "write" ? (
-            <div>
-              <label htmlFor="dsWriteSteps" style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, marginBottom: 8 }}>
-                Your steps, one per line
-              </label>
-              <textarea
-                id="dsWriteSteps"
-                value={writeText}
-                onChange={onWriteChange}
-                rows={10}
-                style={{ ...fieldStyle, width: "100%", resize: "vertical", lineHeight: 1.55 }}
-              />
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {steps.map((step, i) => (
-                <div key={step.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: FONT_SIZES.body, color: P.faint, minWidth: 22, textAlign: "right" }}>{i + 1}</span>
-                  <input
-                    value={step.label}
-                    onChange={(e) => updateStep(step.id, { label: e.target.value })}
-                    aria-label={`Step ${i + 1} label`}
-                    style={{ ...fieldStyle, flex: "1 1 auto", minWidth: 0, fontSize: 16, background: P.surface }}
-                  />
-                  <select
-                    value={step.type}
-                    onChange={(e) => updateStep(step.id, { type: e.target.value })}
-                    aria-label={`Step ${i + 1} kind`}
-                    style={{ ...fieldStyle, flexShrink: 0, fontSize: 16, background: P.surface }}
-                  >
-                    <option value="process">Step</option>
-                    <option value="decision">Decision</option>
-                    <option value="evidence">Evidence</option>
-                  </select>
-                  <button type="button" onClick={() => deleteStep(step.id)} aria-label={`Delete step ${i + 1}`} style={{ ...btnStyle, flexShrink: 0 }}>
-                    Delete
+      {/* Extraction found too little: say so, show the source text, and
+          let the user pick sentences from it as steps. */}
+      {extractNote && (
+        <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
+            {steps.length === 0
+              ? "We could not pull any steps out of this text. It may be written in long sentences with no list. The text is below, and you can pick sentences to use as steps."
+              : "We could only pull one step out of this text. The text it came from is below, and you can pick more sentences to use as steps."}
+          </div>
+          <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.55, maxHeight: 140, overflowY: "auto", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: 10 }}>
+            {extractNote.text}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {extractNote.sentences.map((sent, i) => {
+              const used = (extractNote.used || []).includes(i);
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ flex: "1 1 auto", minWidth: 0, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.45 }}>{sent.text}</span>
+                  <button type="button" disabled={used || readOnly} onClick={() => addSentenceStep(i)}
+                    style={{ ...smallBtnStyle, flexShrink: 0, opacity: used ? 0.5 : 1 }}>
+                    {used ? "Added" : "Add as step"}
                   </button>
                 </div>
-              ))}
-              <button type="button" onClick={addStep} style={{ ...btnStyle, alignSelf: "flex-start" }}>
-                Add step
-              </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Main area */}
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", gap: 16, alignItems: "stretch" }}>
+        <div style={{ order: isMobile ? 3 : 1, flex: "1 1 auto", minWidth: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            <button type="button" onClick={fitZoom} style={smallBtnStyle}>Fit</button>
+            <button type="button" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(0.3, Math.round((z - 0.1) * 100) / 100))} style={smallBtnStyle}>Zoom out</button>
+            <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, minWidth: 44, textAlign: "center" }}>{`${Math.round(zoom * 100)}%`}</span>
+            <button type="button" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(2, Math.round((z + 0.1) * 100) / 100))} style={smallBtnStyle}>Zoom in</button>
+          </div>
+          {acrossTooSmall && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+              <span style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.45 }}>
+                {`This diagram runs across, and at this size its words are about ${Math.max(1, Math.round(labelPx))} px tall, too small to read. Zoom in or switch it to Down.`}
+              </span>
+              <button type="button" onClick={() => setZoom((z) => Math.min(2, z * 1.5))} style={smallBtnStyle}>Zoom in</button>
             </div>
           )}
+          <div ref={canvasBoxRef} onTouchStart={onCanvasTouchStart} onTouchMove={onCanvasTouchMove} style={{ overflow: "auto", overscrollBehavior: "contain", touchAction: "none", maxHeight: isMobile ? "62vh" : "76vh" }}>
+            {steps.length === 0 ? (
+              <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.55, padding: 12 }}>
+                Nothing here yet. Use the Add step button in the steps panel to add your first step, or load a source above.
+              </div>
+            ) : (
+              <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} width={Math.max(1, displayW)} height={Math.max(1, displayH)} style={{ display: "block" }} role="img" aria-label={title || "Diagram"}>
+                <defs>
+                  <marker id="dsArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M 0 1 L 9 5 L 0 9 z" fill={P.faint} />
+                  </marker>
+                </defs>
+                {edges.map((e) => {
+                  const a = fcNodeById(nodes, e.from);
+                  const b = fcNodeById(nodes, e.to);
+                  if (!a || !b) return null;
+                  const g = fcEdgeGeom(a, b);
+                  return <path key={e.id} d={g.d} fill="none" stroke={P.faint} strokeWidth={1.6} markerEnd="url(#dsArrow)" />;
+                })}
+                {nodes.map((n, i) => {
+                  const step = steps[i];
+                  if (!step) return null;
+                  const lines = fcWrapBounded(n.label || "", 24, Math.max(1, Math.floor(((n.h || 92) - 16) / 18)));
+                  const lineHeight = 18;
+                  const startY = n.h / 2 - ((lines.length - 1) * lineHeight) / 2 + 5;
+                  return (
+                    <g key={n.id} transform={`translate(${n.x} ${n.y})`} onClick={() => setSelectedId(step.id)} style={{ cursor: "pointer" }}>
+                      <FcNodeShape n={n} P={P} accent={accent} selected={selectedId === step.id} />
+                      <text x={n.w / 2} y={startY} textAnchor="middle" fontSize={14} fill={P.ink} fontFamily="var(--cb-font)" fontWeight={500}>
+                        {lines.map((ln, li) => (
+                          <tspan key={li} x={n.w / 2} dy={li === 0 ? 0 : lineHeight}>{ln}</tspan>
+                        ))}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Selected step detail */}
+        {/* The one step list, always visible. Each row owns its label,
+            kind, detail, and source as one unit. */}
+        <div style={{ order: isMobile ? 1 : 2, width: isMobile ? "auto" : 360, flexShrink: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+            <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, flex: "1 1 auto" }}>Steps</span>
+            <button type="button" onClick={undo} disabled={!past.length} style={{ ...smallBtnStyle, opacity: past.length ? 1 : 0.5 }}>Undo</button>
+            <button type="button" onClick={redo} disabled={!future.length} style={{ ...smallBtnStyle, opacity: future.length ? 1 : 0.5 }}>Redo</button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {steps.map((step, i) => {
+              const stepSource = typeof step.sourceIdx === "number" && Array.isArray(activeSources) ? activeSources[step.sourceIdx] || null : null;
+              const kindSelect = (
+                <select
+                  value={step.type}
+                  onChange={(e) => updateStep(step.id, { type: e.target.value })}
+                  aria-label={`Step ${i + 1} kind`}
+                  disabled={readOnly}
+                  style={{ ...fieldStyle, flexShrink: 0, fontSize: 16, background: P.surface }}
+                >
+                  <option value="process">Step</option>
+                  <option value="evidence">Evidence</option>
+                </select>
+              );
+              return (
+                <div key={step.id} id={`ds-step-${step.id}`} onClick={() => setSelectedId(step.id)} style={{ display: "flex", flexDirection: "column", gap: 6, border: `1px solid ${selectedId === step.id ? accent : P.line}`, borderRadius: RADIUS.md, padding: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: FONT_SIZES.body, color: P.faint, minWidth: 22, textAlign: "right" }}>{i + 1}</span>
+                    <input
+                      value={step.label}
+                      onChange={(e) => updateStep(step.id, { label: e.target.value })}
+                      aria-label={`Step ${i + 1} label`}
+                      maxLength={FC_LABEL_MAX}
+                      disabled={readOnly}
+                      style={{ ...fieldStyle, flex: "1 1 auto", minWidth: 0, fontSize: 16, background: P.surface }}
+                    />
+                    {!isMobile && kindSelect}
+                  </div>
+                  <input
+                    value={step.detail}
+                    onChange={(e) => updateStep(step.id, { detail: e.target.value })}
+                    aria-label={`Step ${i + 1} detail`}
+                    placeholder="Source sentence or note"
+                    disabled={readOnly}
+                    style={{ ...fieldStyle, width: "100%", fontSize: 16, background: P.surface }}
+                  />
+                  {stepSource && (
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.4 }}>
+                      {`Source: ${stepSource.title || "Untitled"}`}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                    {isMobile && kindSelect}
+                    <button type="button" onClick={() => moveStep(step.id, -1)} disabled={readOnly || i === 0} aria-label={`Move step ${i + 1} up`} style={{ ...smallBtnStyle, opacity: readOnly || i === 0 ? 0.5 : 1 }}>
+                      Move up
+                    </button>
+                    <button type="button" onClick={() => moveStep(step.id, 1)} disabled={readOnly || i === steps.length - 1} aria-label={`Move step ${i + 1} down`} style={{ ...smallBtnStyle, opacity: readOnly || i === steps.length - 1 ? 0.5 : 1 }}>
+                      Move down
+                    </button>
+                    <button type="button" onClick={() => deleteStep(step.id)} disabled={readOnly} aria-label={`Delete step ${i + 1}`} style={{ ...smallBtnStyle, opacity: readOnly ? 0.5 : 1 }}>
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            <button type="button" onClick={addStep} disabled={readOnly} style={{ ...btnStyle, alignSelf: "flex-start", opacity: readOnly ? 0.5 : 1 }}>
+              Add step
+            </button>
+          </div>
+        </div>
+
+      {/* Selected step detail. It lives inside the main flex area: on a
+          phone it orders between the step editor and the canvas, so a
+          tap on a node shows its detail without scrolling past the
+          picture (mobile Bug 2). On a wide screen it wraps onto its
+          own full width row under both. */}
       {selectedStep && (selectedStep.detail || selectedSource) && (
-        <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ order: isMobile ? 2 : 3, flex: isMobile ? undefined : "1 1 100%", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
           {selectedStep.detail && (
             <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55 }}>{selectedStep.detail}</div>
           )}
@@ -1121,13 +1499,14 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
           )}
         </div>
       )}
+      </div>
     </div>
   );
 
   if (dialog) {
     return (
-      <Dialog label="Diagram Studio" onClose={onClose || (() => {})} width={1240} panelStyle={{ background: P.surface, color: P.ink }}>
-        <div style={{ overflowY: "auto", padding: 20, minHeight: 0 }}>
+      <Dialog label="Diagram Studio" onClose={requestClose} width={1240} panelStyle={{ background: P.surface, color: P.ink }} initialFocus={topFocusRef}>
+        <div ref={topFocusRef} tabIndex={-1} style={{ overflowY: "auto", padding: 20, minHeight: 0, outline: "none" }}>
           {content}
         </div>
       </Dialog>
@@ -1140,8 +1519,6 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
     </div>
   );
 }
-
-
 function ChromeHeader({ eyebrow, title, onClose, accent, label, drawer = false, P = null }) {
   // P provided (drawers and themed centered panels) → theme-aware
   // ink; otherwise the dark instrument treatment of media surfaces.
