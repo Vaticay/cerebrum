@@ -308,15 +308,16 @@ function NotFound() {
  * two cannot drift.
  */
 function Root() {
-  const { kind, slug } = classifyRoute(
+  const route = classifyRoute(
     typeof window !== "undefined" ? window.location.pathname : ""
   );
+  const { kind, slug } = route;
   /* "/" and "/index.html" are the application. The app never reads the
      pathname for routing (it only ever clears or rewrites it), so any other
      path that reaches the SPA shell has no static file and no function
      behind it — it is a dead end, not a deep link. Render the 404 view
      instead of the search UI. */
-  const content = kind === "info" ? <InfoPage page={slug} /> : kind === "app" ? <App /> : <NotFound />;
+  const content = kind === "info" ? <InfoPage page={slug} /> : kind === "app" ? <App /> : kind === "profile" ? <App profileHandle={route.handle} /> : <NotFound />;
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />

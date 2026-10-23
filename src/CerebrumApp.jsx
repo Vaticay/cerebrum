@@ -15800,61 +15800,6 @@ const PURSUIT_EXTRA_STOP = new Set(
 // one vote per word per title so a long title can't stuff the ballot.
 
 
-/* Star rating for saved papers (Goodreads/Letterboxd-style, 1-5).
-   Personal, not aggregated — it's your library, your taste.
-   Click a star to set; click the current rating again to clear.
-   Gold fill is the universal rating language; it doesn't compete with
-   the sage accent because ratings are content, not chrome. */
-function StarRating({ P, value, onRate, disabled, size = 16 }) {
-  const [hover, setHover] = React.useState(0);
-  const display = hover || value || 0;
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Rate this paper"
-      style={{ display: "inline-flex", alignItems: "center", gap: 0 }}
-      onMouseLeave={() => setHover(0)}
-    >
-      {[1, 2, 3, 4, 5].map((star) => {
-        const filled = star <= display;
-        const isCurrent = star === value;
-        return (
-          <button
-            key={star}
-            type="button"
-            role="radio"
-            aria-checked={isCurrent}
-            aria-label={`${star} star${star > 1 ? "s" : ""}${isCurrent ? " (click again to clear)" : ""}`}
-            disabled={disabled}
-            onClick={() => onRate(isCurrent ? null : star)}
-            onMouseEnter={() => setHover(star)}
-            onFocus={() => setHover(star)}
-            onBlur={() => setHover(0)}
-            style={{
-              // 2026-09-14: Fixed overlapping hit targets. The old
-              // padding:14/margin:-10 created 42px boxes on a 26px pitch —
-              // adjacent stars overlapped 18px, so a 3-star tap could register
-              // as 4. Now each star gets a clean 44px box with no overlap.
-              background: "none", border: "none", padding: 0,
-              width: 44, height: 44,
-              cursor: disabled ? "default" : "pointer",
-              color: filled ? "#e8b44a" : P.faint,
-              opacity: disabled ? 0.5 : (filled ? 1 : 0.55),
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              transition: "color 150ms ease, transform 150ms ease",
-              transform: hover === star ? "scale(1.15)" : "none",
-            }}
-          >
-            <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth={filled ? 0 : 1.6} aria-hidden="true">
-              <path d="M12 2.6l2.9 6.0 6.6.9-4.8 4.6 1.2 6.5L12 17.5l-5.9 3.1 1.2-6.5L2.5 9.5l6.6-.9L12 2.6z" strokeLinejoin="round" />
-            </svg>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function ProfileMarkers({ P, accent, markers }) {
   if (!markers || markers.length === 0) return null;
   return (
@@ -15981,141 +15926,7 @@ function TemplateGallery({ P, accent, at, isMobile, isPro, onStart, onOpenPro })
   );
 }
 
-/* ── ProfileConstellation ─────────────────────────────────────────────
-   The profile's one visual idea, made of the user's actual data: every
-   saved paper is a star, clustered by collection, sized by the reader's
-   own rating, linked where papers share an author. Pinned papers burn
-   in the accent color. Nothing here is decoration — rearrange the
-   library and the sky rearranges with it.
-
-   Layout is deterministic (seeded by paper id): the same library always
-   draws the same sky. Phyllotaxis spiral keeps nodes from colliding;
-   angular sectors group collections. SVG, static unless the user asked
-   for motion — this is a document, not a screensaver. */
-function ProfileConstellation({ P, accent, papers, pinnedIds, shelfNameOf, height }) {
-  const layout = React.useMemo(() => {
-    const list = (papers || []).slice(0, 64);
-    if (list.length === 0) return { nodes: [], links: [] };
-    // Deterministic hash from a string — stable sky per library.
-    const hash = (s) => {
-      let h = 2166136261;
-      const str = String(s || "");
-      for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
-      return (h >>> 0) / 4294967295;
-    };
-    // Collections become angular sectors so a reader's topics read as
-    // constellations-within-the-constellation.
-    const shelfOf = (p) => shelfNameOf ? (shelfNameOf(p) || "Unfiled") : "Unfiled";
-    const shelves = [];
-    list.forEach((p) => { const s = shelfOf(p); if (!shelves.includes(s)) shelves.push(s); });
-    const W = 100, H = 100;
-    const nodes = list.map((p, i) => {
-      const id = p.id || p.doi || p.title || String(i);
-      const h1 = hash(id + ":a"), h2 = hash(id + ":b");
-      const shelfIdx = Math.max(0, shelves.indexOf(shelfOf(p)));
-      // Golden-angle spiral, rotated per shelf sector; radius grows with
-      // the square root of index so density stays even toward the edge.
-      const golden = Math.PI * (3 - Math.sqrt(5));
-      const sector = shelves.length > 1 ? (shelfIdx / shelves.length) * Math.PI * 2 : 0;
-      const spread = shelves.length > 1 ? (Math.PI * 2) / shelves.length : Math.PI * 2;
-      const t = i * golden + h1 * 0.9;
-      const ang = sector + ((t % spread) - spread / 2) * 0.92 + (h2 - 0.5) * 0.35;
-      const rad = 8 + Math.sqrt((i + 1) / list.length) * 38 + h2 * 4;
-      const r = 1.6 + (Number(p.rating) || 0) * 0.55 + (h1 > 0.93 ? 0.9 : 0);
-      const pinned = (pinnedIds || []).includes(id);
-      return {
-        id, x: 50 + Math.cos(ang) * rad * 1.28, y: 50 + Math.sin(ang) * rad * 0.62,
-        r: pinned ? r + 1.1 : r, pinned,
-        title: p.title || "Untitled", shelf: shelfOf(p),
-        authors: p.authors || "",
-      };
-    });
-    // Link papers that share a first-author surname or a shelf, but only
-    // near neighbors — enough to read as structure, never a hairball.
-    const surname = (a) => String(a || "").split(/[;,]/)[0].trim().split(/\s+/).pop().toLowerCase();
-    const links = [];
-    for (let i = 0; i < nodes.length && links.length < 46; i++) {
-      for (let j = i + 1; j < nodes.length && links.length < 46; j++) {
-        const a = nodes[i], b = nodes[j];
-        const dx = a.x - b.x, dy = a.y - b.y;
-        if (dx * dx + dy * dy > 420) continue;
-        const sameShelf = a.shelf === b.shelf;
-        const sameAuthor = surname(a.authors) && surname(a.authors) === surname(b.authors);
-        if (sameShelf || sameAuthor) links.push([i, j]);
-      }
-    }
-    return { nodes, links };
-  }, [papers, pinnedIds, shelfNameOf]);
-
-  const [tip, setTip] = React.useState(null);
-  const h = height || 240;
-
-  if (layout.nodes.length === 0) {
-    return (
-      <div style={{ position: "relative", height: h, borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.dark ? "#0c0e13" : "#f4f2ec", overflow: "hidden" }} aria-label="Your research sky, uncharted">
-        <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} aria-hidden="true">
-          {Array.from({ length: 36 }).map((_, i) => {
-            const fx = ((i * 37.7) % 100), fy = ((i * 53.3) % 100);
-            return <circle key={i} cx={fx} cy={fy} r={0.35} fill={P.faint} opacity={0.28} />;
-          })}
-        </svg>
-        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: 20, textAlign: "center" }}>
-          <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>Your sky is uncharted</div>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", maxWidth: 340, lineHeight: 1.6 }}>
-            Save papers and they become stars here, clustered by collection, sized by your rating.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ position: "relative", height: h, borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.dark ? "#0b0d12" : "#f5f3ed", overflow: "hidden" }}>
-      <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} role="img" aria-label={`${layout.nodes.length} saved papers drawn as a star chart`}>
-        {layout.links.map(([i, j], k) => (
-          <line key={k} x1={layout.nodes[i].x} y1={layout.nodes[i].y} x2={layout.nodes[j].x} y2={layout.nodes[j].y}
-            stroke={P.faint} strokeWidth={0.14} opacity={0.35} />
-        ))}
-        {layout.nodes.map((n, i) => (
-          <g key={(n.id != null ? n.id : "node") + "-" + i}>
-            {n.pinned && <circle cx={n.x} cy={n.y} r={n.r + 1.6} fill="none" stroke={accent} strokeWidth={0.3} opacity={0.9} />}
-            <circle cx={n.x} cy={n.y} r={n.r * 0.42}
-              fill={n.pinned ? accent : P.ink2} opacity={n.pinned ? 0.95 : 0.75}
-              style={{ cursor: "pointer" }}
-              onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setTip({ x: r.left + r.width / 2, y: r.top, title: n.title, shelf: n.shelf }); }}
-              onMouseLeave={() => setTip(null)}
-              onFocus={(e) => { const r = e.currentTarget.getBoundingClientRect(); setTip({ x: r.left + r.width / 2, y: r.top, title: n.title, shelf: n.shelf }); }}
-              onBlur={() => setTip(null)}
-              tabIndex={0} role="img" aria-label={n.title}>
-            </circle>
-          </g>
-        ))}
-      </svg>
-      <div style={{ position: "absolute", left: 14, bottom: 10, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "normal", textTransform: "none", fontWeight: 500 }}>
-        {layout.nodes.length} {layout.nodes.length === 1 ? "paper" : "papers"} · your sky
-      </div>
-      {/* The clamp reads the live width at paint time: the tip's anchor
-          coordinates were captured at hover or focus, and the tip is
-          dismissed by the same interaction changes a resize causes, so
-          this is a measure at use, not stored layout state. */}
-      {tip && (
-        <div style={{
-          position: "fixed", left: Math.min(Math.max(tip.x - 110, 8), window.innerWidth - 228), top: Math.max(tip.y - 66, 8),
-          width: 220, zIndex: Z.tooltip, pointerEvents: "none",
-          background: P.dark ? "#10121a" : "#ffffff",
-          border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, padding: "8px 12px",
-          boxShadow: "none",
-        }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{tip.title}</div>
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>{tip.shelf}</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profileMeta, history, saved, setSaved, collections, onOpenHistory, onManageAccount, proStatus, onOpenPro, vaultMode, onGoSearch, onGoInvestigations }) {
-  const tabUid = useId().replace(/:/g, "");
   const emailLocal = (user?.email || "").split("@")[0] || "";
 
   // A signed-in account always has a real username by the time this page
@@ -16132,35 +15943,6 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   const [avatarError, setAvatarError] = useState("");
   // A profile is a thing you LOOK at; editing it is a mode you enter.
   const [editing, setEditing] = useState(false);
-  /* Profile tabs: Investigations · Library · Collections, Investigations
-     first — the social grammar. One tab visible at a time; the bar below
-     pins to the viewport top on scroll. */
-  const [tab, setTab] = useState("investigations");
-  const tabSentinelRef = useRef(null);
-  const [tabsStuck, setTabsStuck] = useState(false);
-  useEffect(() => {
-    const s = tabSentinelRef.current;
-    if (!s) return;
-    // Zero-height sentinel exactly where the bar sits in flow: when it
-    // scrolls above the viewport, the sticky bar has pinned to the top.
-    const obs = new IntersectionObserver(([e]) => setTabsStuck(e.boundingClientRect.top < 0), { threshold: 0 });
-    obs.observe(s);
-    return () => obs.disconnect();
-  }, []);
-  /* Collapsing identity header: once the constellation hero scrolls out,
-     a slim bar pins with the face, the name, and the primary action —
-     the reader never loses who this dossier belongs to. Driven by scroll
-     position (transform/opacity only), not animation. */
-  const heroRef = useRef(null);
-  const [heroGone, setHeroGone] = useState(false);
-  useEffect(() => {
-    const el = heroRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(([e]) => setHeroGone(e.boundingClientRect.bottom < 72), { threshold: 0 });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-
   // Center-crops whatever aspect ratio was uploaded to a square, then
   // downsamples it onto a fixed 256x256 canvas and re-encodes as JPEG —
   // a phone photo comes in at several MB; this keeps what actually gets
@@ -16250,8 +16032,6 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   // zoom the page on focus, which breaks the edit layout.
   const inputStyle = { width: "100%", padding: "12px 2px", fontSize: 16, border: "none", borderBottom: `1px solid ${P.line2}`, borderRadius: 0, background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", outline: "none" };
 
-  // The ledger, newest first.
-  const ledger = [...(history || [])].sort((a, b) => (b.ts || 0) - (a.ts || 0));
   /* The pinned shelf: up to 4 landmark papers, pinned in the user's chosen
      order. IDs resolve against the saved list — a stale ID (paper unsaved
      elsewhere) simply drops out of the shelf rather than rendering a hole. */
@@ -16277,36 +16057,47 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
       setPinSaving(false);
     }
   }
-  /* Paper ratings: optimistic update with rollback. The rating lives on
-     the saved-paper row (user_saved_sources.rating), not in source_json,
-     so it survives library re-syncs. */
-  const [ratingSaving, setRatingSaving] = useState(null);
-  async function ratePaper(paperId, rating) {
-    if (ratingSaving) return;
-    // Private Vault: a rating is library content. Unlocked -> it rides
-    // the debounced encrypted library push, never a separate plaintext
-    // write. Locked -> the edit is blocked outright (fail-closed).
-    if (vaultMode === "locked") { toast("Private Vault is locked on this device. Confirm your recovery phrase in Settings to resume syncing.", { tone: "error" }); return; }
-    setRatingSaving(paperId);
-    const prevSaved = saved;
-    // Optimistic: update the rating in the local saved array.
-    // 2026-09-14: Match on savedId (DB row ID) first, then id. The GET returns
-    // savedId separately because the scholarly paper's id can overwrite the
-    // DB row id in the spread.
-    setSaved((prev) => (prev || []).map((sv) =>
-      ((sv.savedId || sv.id) === paperId) ? { ...sv, rating } : sv
-    ));
-    if (vaultMode === "unlocked") { setRatingSaving(null); return; }
+  // Handle check: the debounced sync saves quietly, so a taken handle
+  // is asked about on its own when the field loses focus, and the answer
+  // lands under the field where the person typed it.
+  const [handleError, setHandleError] = useState("");
+  const checkHandle = async () => {
+    const wanted = (profile.username || "").trim().replace(/^@+/, "");
+    if (!wanted) { setHandleError(""); return; }
     try {
-      await apiDataAction("set-rating", { resource: "saved", id: paperId, rating });
+      await apiDataAction("update-profile", { username: wanted });
+      setHandleError("");
     } catch (err) {
-      // Roll back on failure — don't leave a rating the server rejected.
-      setSaved(prevSaved);
-      toast(err.message || "Couldn't save your rating.", { tone: "error" });
-    } finally {
-      setRatingSaving(null);
+      setHandleError(err.message || "That handle could not be saved.");
     }
-  }
+  };
+  // Interests are edited as one comma separated line. The stored shape
+  // stays the array the debounced sync already sends.
+  const [interestsText, setInterestsText] = useState("");
+  useEffect(() => {
+    if (editing) setInterestsText((Array.isArray(profile.interests) ? profile.interests : []).join(", "));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+  const onInterestsText = (v) => {
+    setInterestsText(v);
+    setProfile((p) => ({ ...p, interests: v.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 8) }));
+  };
+  // Your profile link: one real address, built from the stored handle.
+  const ownHandle = (profile.username || emailLocal || "").trim().replace(/^@+/, "");
+  const profileLink = ownHandle ? `${window.location.origin}/people/${ownHandle}` : "";
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyProfileLink = async () => {
+    if (!profileLink) return;
+    try {
+      await navigator.clipboard.writeText(profileLink);
+      setLinkCopied(true);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = profileLink; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); setLinkCopied(true); } catch { toast("Could not copy that link.", { tone: "error" }); }
+      document.body.removeChild(ta);
+    }
+  };
   const paperKey = (sv) => sv.id || sv.doi || sv.title;
   /* Save state for the edit-mode indicator: "saving" while keystrokes are
      still inside the debounce window, "saved" briefly after they settle.
@@ -16325,33 +16116,6 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
      fragments. Auto-derived "pursuits" read like broken keywords. */
   const interests = Array.isArray(profile.interests) ? profile.interests.filter(Boolean) : [];
   const contextLine = [profile.degree, profile.affiliation, profile.grad_year].filter(Boolean).join(" · ");
-  const collectionCounts = (collections || []).map((c) => ({ ...c, count: (saved || []).filter((s) => s.collectionId === c.id).length }));
-  /* Work stats for the header strip: GitHub grammar, not Instagram — what
-     the person produced, not who follows them. Tappable, each jumping to
-     its tab. Naked zeros stay hidden; a brand-new account shows no stats
-     row at all and the empty states carry the invitation instead. */
-  const profileStats = [
-    ledger.length > 0 && { id: "investigations", n: ledger.length, label: ledger.length === 1 ? "Investigation" : "Investigations" },
-    (saved || []).length > 0 && { id: "library", n: (saved || []).length, label: (saved || []).length === 1 ? "Paper saved" : "Papers saved" },
-    collectionCounts.length > 0 && { id: "collections", n: collectionCounts.length, label: collectionCounts.length === 1 ? "Collection" : "Collections" },
-  ].filter(Boolean);
-  const shelfName = (sv) => (collections || []).find((c) => c.id === sv.collectionId)?.name || "";
-
-  // Membership rank for the identity-level membership row below: derived
-  // the same way as the account menu and the Settings card, from
-  // /api/pro's tier with the user flag as the backstop.
-  const pTier = proStatus?.tier || "free";
-  const pRank = pTier === "pro" || user?.isPro ? "pro" : pTier === "lite" || proStatus?.isLite ? "lite" : "free";
-  const pTierName = pRank === "pro" ? "Pro" : pRank === "lite" ? "Pro Lite" : "Free";
-  const pUsage = pRank === "pro"
-    ? (user?.proSource === "lifetime" ? "Lifetime member · no billing, ever" : "Unlimited AI answers, document reads and flowcharts")
-    : (() => {
-        const q = proStatus?.quota;
-        const cap = q?.cap || (pRank === "lite" ? 500 : 50);
-        const used = q?.used || 0;
-        return `${used} of ${cap} AI answers this period`;
-      })();
-
   return (
     <div role="region" aria-label="Your profile" style={{
       flex: 1, minHeight: 0,
@@ -16366,32 +16130,34 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           from the workspace) so the name never slides under the button. */}
       <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "68px 18px 56px" : "18px 28px 72px" }}>
 
-        {/* Cover and avatar: the social layer (2026-10-12 overhaul).
-            2026-10-19 (S7b, M61): the cover is now a flat P.raised panel
-            with a bottom border. The stacked radial and linear gradients
-            and the large arc that sat over them are gone; it was the one
-            gradient surface left in the account territory. */}
-        <div aria-hidden="true" style={{
-          height: isMobile ? 116 : 148, borderRadius: 2, position: "relative", overflow: "hidden",
-          border: "1px solid " + P.line, borderBottom: "1px solid " + P.line2, background: P.raised,
-        }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: -36, marginBottom: 16, paddingLeft: 18, position: "relative" }}>
+        {/* Avatar. In edit mode the photo itself is the upload control:
+            the hidden file input, the compression handler, the saving
+            state, and the error line all live here, where a person
+            expects to change a photo. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16, position: "relative" }}>
+          <input ref={fileInputRef} type="file" accept="image/*" aria-label="Upload a profile photo" style={{ display: "none" }} onChange={handleAvatarFile} />
           {profile.avatar_base64 && !avatarFailed ? (
             <img src={profile.avatar_base64} alt="" onError={() => setAvatarFailed(true)}
-              style={{ width: 74, height: 74, borderRadius: "50%", objectFit: "cover", border: "3px solid " + P.bg, background: P.raised, flexShrink: 0 }} />
+              style={{ width: isMobile ? 56 : 74, height: isMobile ? 56 : 74, borderRadius: "50%", objectFit: "cover", border: "3px solid " + P.bg, background: P.raised, flexShrink: 0 }} />
           ) : (
-            <span aria-hidden="true" style={{ width: 74, height: 74, borderRadius: "50%", border: "3px solid " + P.bg, background: accent, color: at || "#101408", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 30, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>{displayInitial}</span>
+            <span aria-hidden="true" style={{ width: isMobile ? 56 : 74, height: isMobile ? 56 : 74, borderRadius: "50%", border: "3px solid " + P.bg, background: accent, color: at || "#101408", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: isMobile ? 24 : 30, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>{displayInitial}</span>
+          )}
+          {editing && (
+            <div>
+              <button type="button" onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={avatarSaving}
+                style={{ minHeight: 44, background: "none", border: `1px solid ${P.line2}`, borderRadius: RADIUS.viewport, padding: "10px 16px", cursor: avatarSaving ? "default" : "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.ink, opacity: avatarSaving ? 0.6 : 1 }}>
+                {avatarSaving ? "Saving photo…" : "Change photo"}
+              </button>
+              {avatarError && (
+                <div role="alert" style={{ marginTop: 6, fontSize: FONT_SIZES.caption, color: statusBad(P), fontFamily: "var(--cb-font)" }}>{avatarError}</div>
+              )}
+            </div>
           )}
         </div>
 
-        {/* Identity: name, standing, username. The resident
-            header Nova (2026-10-15) stands left of the name, the
-            same figure-left-of-title pattern as the other tabs. */}
+        {/* Identity: name, standing, username. */}
 
         <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
-          <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <NovaLive size={66} />
-          </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             {editing ? (
               <input
@@ -16415,6 +16181,17 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             {!editing && contextLine && (
               <div style={{ marginTop: 6, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6 }}>{contextLine}</div>
             )}
+            {!editing && (
+              <div style={{ marginTop: 6, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
+                {(profileMeta?.followers || 0)} follower{(profileMeta?.followers || 0) === 1 ? "" : "s"} · {(profileMeta?.followingCount || 0)} following
+              </div>
+            )}
+            {!editing && profileLink && (
+              <button type="button" onClick={copyProfileLink}
+                style={{ marginTop: 8, minHeight: 44, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint }}>
+                {linkCopied ? "Link copied" : "Copy profile link"}
+              </button>
+            )}
           </div>
 
           <button
@@ -16427,30 +16204,6 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             }}
           >{editing ? "Done" : "Edit"}</button>
         </div>
-
-        {/* Badge shelf: earned accolades as medallions. Every badge maps
-            to a row in the accolades table or a real count behind it;
-            the Cortex Contributor medallion carries the Cortex mark and
-            is granted by the founder, by email, from Cortex itself. */}
-        {!editing && markers.length > 0 && (
-          <div style={{ marginTop: 22 }}>
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "normal", color: P.faint, marginBottom: 10 }}>Badges</div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {markers.map((m) => {
-                const d = BADGE_DISPLAY[m.key];
-                if (!d) return null;
-                return (
-                  <span key={m.key} title={m.title} style={{ display: "inline-flex", alignItems: "center", gap: 9, background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "7px 15px 7px 8px" }}>
-                    <span style={{ width: 30, height: 30, borderRadius: "50%", background: withAlpha(d.tint, 0.16), color: d.tint, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <Icon name={d.icon} size={16} />
-                    </span>
-                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>{d.label}</span>
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* -- Statement: what they work on, plain. */}
         <div style={{ marginTop: 18 }}>
@@ -16474,6 +16227,83 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                   {(profile.bio || "").length}/400
                 </span>
                 <SaveIndicator state={saveState} P={P} accent={accent} />
+              </div>
+              {/* The complete editor (huge audit bug 2). Every field the
+                  server accepts gets a working control here, bound to
+                  the same profile state the debounced sync sends. */}
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>Handle</div>
+                <input
+                  value={profile.username || ""}
+                  onChange={(e) => { setProfile((p) => ({ ...p, username: e.target.value.replace(/^@+/, "") })); setHandleError(""); }}
+                  onBlur={checkHandle}
+                  placeholder="yourhandle"
+                  aria-label="Your handle"
+                  aria-invalid={!!handleError}
+                  style={inputStyle}
+                />
+                {handleError && (
+                  <div role="alert" style={{ marginTop: 6, fontSize: FONT_SIZES.caption, color: statusBad(P), fontFamily: "var(--cb-font)" }}>{handleError}</div>
+                )}
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>Degree</div>
+                <SuggestInput
+                  value={profile.degree || ""}
+                  onChange={(v) => setProfile((p) => ({ ...p, degree: v }))}
+                  placeholder="Degree, such as PhD or MSc"
+                  ariaLabel="Degree"
+                  matches={degreeMatches}
+                  P={P} accent={accent} inputStyle={inputStyle}
+                />
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>Institution</div>
+                <SuggestInput
+                  value={profile.affiliation || ""}
+                  onChange={(v) => setProfile((p) => ({ ...p, affiliation: v }))}
+                  placeholder="Institution"
+                  ariaLabel="Institution"
+                  matches={affiliationMatches}
+                  P={P} accent={accent} inputStyle={inputStyle}
+                />
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>Graduation year</div>
+                <input
+                  value={profile.grad_year || ""}
+                  onChange={(e) => setProfile((p) => ({ ...p, grad_year: e.target.value }))}
+                  placeholder="2024"
+                  aria-label="Graduation year"
+                  inputMode="numeric"
+                  style={inputStyle}
+                />
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>Website</div>
+                <input
+                  value={profile.link_site || ""}
+                  onChange={(e) => setProfile((p) => ({ ...p, link_site: e.target.value }))}
+                  placeholder="Your website address"
+                  aria-label="Website"
+                  style={inputStyle}
+                />
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>ORCID</div>
+                <input
+                  value={profile.link_orcid || ""}
+                  onChange={(e) => setProfile((p) => ({ ...p, link_orcid: e.target.value }))}
+                  placeholder="Your ORCID address"
+                  aria-label="ORCID link"
+                  style={inputStyle}
+                />
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>Google Scholar</div>
+                <input
+                  value={profile.link_scholar || ""}
+                  onChange={(e) => setProfile((p) => ({ ...p, link_scholar: e.target.value }))}
+                  placeholder="Your Scholar address"
+                  aria-label="Google Scholar link"
+                  style={inputStyle}
+                />
+                <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>Research interests</div>
+                <input
+                  value={interestsText}
+                  onChange={(e) => onInterestsText(e.target.value)}
+                  placeholder="Topics you work on, separated by commas"
+                  aria-label="Research interests"
+                  style={inputStyle}
+                />
               </div>
             </div>
           ) : (
@@ -16520,6 +16350,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                       display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
                       color: P.ink, fontSize: FONT_SIZES.label, fontWeight: 500,
                       borderBottom: `1px solid ${P.line2}`, paddingBottom: 2,
+                      minHeight: 44, padding: "10px 2px",
                     }}><Icon name={icon} size={13} /> {label}</a>
                   </span>
                 ))}
@@ -16527,116 +16358,68 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           )}
         </div>
 
-        {/* -- Sections: investigations, library, collections. Plain text tabs,
-            no sticky bar. */}
-        <nav aria-label="Profile sections" style={{
-          marginTop: 34,
-          borderTop: `1px solid ${P.line}`,
-        }}>
-          <div style={{ display: "flex", gap: isMobile ? 22 : 28 }} role="tablist" aria-label="Profile sections" onKeyDown={tabListKeyDown}>
-            {[
-              { id: "investigations", label: "Investigations", n: ledger.length },
-              { id: "library", label: "Library", n: (saved || []).length },
-              { id: "collections", label: "Collections", n: collectionCounts.length },
-            ].map((c) => {
-              const on = tab === c.id;
-              return (
-                <button key={c.id} role="tab" aria-selected={on} onClick={() => setTab(c.id)}
-                  id={tabUid + "-tab-" + c.id} aria-controls={tabUid + "-panel"} tabIndex={on ? 0 : -1} style={{
-                  background: "none", border: "none", padding: "13px 0 11px", cursor: "pointer",
-                  fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)",
-                  fontWeight: on ? 500 : 500, color: on ? P.ink : P.faint,
-                  borderBottom: `2px solid ${on ? P.ink : "transparent"}`, marginBottom: -1, minHeight: 44,
-                }}>
-                  {c.label} <span style={{ color: P.faint, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{c.n}</span>
-                </button>
-              );
-            })}
-          </div>
-        </nav>
-        <div role="tabpanel" id={tabUid + "-panel"} aria-labelledby={tabUid + "-tab-" + tab} aria-label={tab === "investigations" ? "Investigations" : tab === "library" ? "Saved papers" : "Collections"}>
-        {tab === "library" && (
-        <section aria-label="Saved papers" style={{ marginTop: 18 }}>
-          {(saved || []).length === 0 ? (
-            <div style={{ marginTop: 18 }}>
-              <WorkspaceEmpty P={P} accent={accent} icon="bookmark"
-                title="Nothing on the shelf yet"
-                body="Save a paper from any answer and it lands here, next to the investigation that found it."
-                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={onGoSearch}>Start an investigation</UIButton>}
-                isMobile={isMobile} />
+        {/* The pinned shelf (huge audit bug 4): work the owner chose to
+            show, pinned from the saved papers below. The duplicated
+            workspace tabs that used to sit here are gone. Your library,
+            investigations, and collections live on their own pages. */}
+        <section aria-label="Pinned papers" style={{ marginTop: 34, borderTop: `1px solid ${P.line}`, paddingTop: 20 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Pinned papers</div>
+          {pinnedPapers.length === 0 ? (
+            <div style={{ fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+              Nothing pinned yet. Pin up to four saved papers and they show here as your shelf.
             </div>
           ) : (
             <div>
-              {(saved || []).map((sv, i) => {
+              {pinnedPapers.map((sv, i) => {
                 const key = paperKey(sv);
                 return (
-                  <div key={key || i} style={{ padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
-                    <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
-                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-                      {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
-                      {shelfName(sv) && <span style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption }}> · filed under {shelfName(sv)}</span>}
+                  <div key={key || i} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+                        {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
+                      </div>
                     </div>
+                    <button type="button" onClick={() => togglePin(key)} disabled={pinSaving}
+                      style={{ flexShrink: 0, minHeight: 44, background: "none", border: "none", padding: "10px 4px", cursor: pinSaving ? "default" : "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint, opacity: pinSaving ? 0.6 : 1 }}>
+                      Unpin
+                    </button>
                   </div>
                 );
               })}
             </div>
           )}
         </section>
-        )}
 
-        {tab === "collections" && (
-        <section aria-label="Collections" style={{ marginTop: 18 }}>
-          {collectionCounts.length === 0 ? (
-            <div style={{ marginTop: 18 }}>
-              <WorkspaceEmpty P={P} accent={accent} icon="folder"
-                title="No collections yet"
-                body="Collections group saved papers by question rather than by date. Once you've saved a few papers, file them onto shelves from your library."
-                action={<UIButton P={P} accent={accent} at={at} onClick={() => setTab("library")}>Go to your library</UIButton>}
-                isMobile={isMobile} />
+        <section aria-label="Saved papers" style={{ marginTop: 26 }}>
+          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Saved papers</div>
+          {(saved || []).length === 0 ? (
+            <div style={{ fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+              Save a paper from any answer and it lands in your library. From here you can pin the ones that stand for your work.
             </div>
           ) : (
             <div>
-              {collectionCounts.map((c, i) => (
-                <div key={c.id} style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
-                  <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, display: "inline-flex", alignItems: "center", gap: 9 }}>
-                    <Icon name="folder" size={14} style={{ color: P.faint }} />{c.name}
-                  </span>
-                  <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                    {c.count} paper{c.count === 1 ? "" : "s"}
-                  </span>
-                </div>
-              ))}
+              {(saved || []).map((sv, i) => {
+                const key = paperKey(sv);
+                const isPinned = pinnedIds.includes(key);
+                return (
+                  <div key={key || i} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+                        {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => togglePin(key)} disabled={pinSaving || (!isPinned && pinnedIds.length >= 4)}
+                      style={{ flexShrink: 0, minHeight: 44, background: "none", border: "none", padding: "10px 4px", cursor: pinSaving ? "default" : "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: isPinned ? P.faint : accentInk(P, accent), opacity: pinSaving || (!isPinned && pinnedIds.length >= 4) ? 0.5 : 1 }}>
+                      {isPinned ? "Pinned" : "Pin"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>
-        )}
-
-        {tab === "investigations" && (
-        <section aria-label="Investigations" style={{ marginTop: 6 }}>
-          {/* 2026-10-19 (audit M39, M40): the Profile tab is the record
-              only. The template gallery and the one list design both live
-              on the Investigations page; this tab links into that ledger
-              instead of restyling the same data as a month diary with no
-              status, rename, or delete. */}
-          {ledger.length === 0 ? (
-            <div style={{ marginTop: 18 }}>
-              <WorkspaceEmpty P={P} accent={accent} icon="search"
-                title="No investigations yet"
-                body="Questions you ask are saved as investigations, with their answers and the papers behind them. Ask a question from the search tab to start one."
-                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={onGoSearch}>Ask something</UIButton>}
-                isMobile={isMobile} />
-            </div>
-          ) : (
-            <div style={{ marginTop: 18, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, padding: "16px 18px" }}>
-              <span style={{ flex: 1, minWidth: 200, fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.55 }}>
-                {ledger.length} investigation{ledger.length === 1 ? "" : "s"} on record. Status, rename, export, delete, and template checklists live in the investigations ledger.
-              </span>
-              <UIButton P={P} accent={accent} at={at} variant="primary" onClick={onGoInvestigations}>Open investigations</UIButton>
-            </div>
-          )}
-        </section>
-        )}
-        </div>
 
         {/* Account & security lives at the very bottom, quiet — sensitive
             actions belong beneath everything, not interrupting the profile. */}
@@ -16655,21 +16438,17 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
   );
 }
 
-// A directory of other Cerebrum users to find and message doesn't exist yet
-// — there's no server endpoint backing a real cross-account people search,
-// just the mock roster below. Rather than wire "Follow"/"Message" up to
-// calls that would either 500 against a fake id or silently do nothing,
-// this stays explicitly labeled as a preview: Follow toggles local-only
-// state that resets next time the modal opens, and Message is honest about
-// not being a real conversation before it hands off to the (real) Inbox.
+// Find People, backed by the real search users endpoint in
+// functions/api/data.js. Results are live accounts, ranked by relevance
+// on the server. A row opens the public profile; following lives on the
+// profile itself, not on the row. Message goes through the real start
+// thread action and is disabled when the server says this account may
+// not be messaged. Nothing here is a mock or a preview.
 function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = () => {}, page = false }) {
   /* Escape in modal mode is owned by the Dialog primitive; no hand-rolled listener. */
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
-  // Commit 74 — the founder, pinned. See search-users in data.js.
-  const [founder, setFounder] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [followBusy, setFollowBusy] = useState(() => new Set());
   const [messageBusy, setMessageBusy] = useState(() => new Set());
   const searchTimer = useRef(null);
   /* 2026-10-20, tail items 5 and 15: searchSeq is the sequence guard
@@ -16678,31 +16457,18 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
   const searchSeq = useRef(0);
   const winW = useWindowWidth();
   const narrowPeople = winW <= 560;
-  // The founder card is fetched once, not on every keystroke: clearing the
-  // search box used to re-fire search-users with q:"" per keystroke.
-  const founderFetched = useRef(false);
+  // Mobile audit: the field must not raise the keyboard on arrival on a
+  // phone. Auto focus only above the mobile breakpoint, the same guard
+  // the inbox group search already uses.
+  const peopleIsMobile = winW <= 900;
 
-  // Real accounts, searched live via functions/api/data.js's search-users —
-  // this used to be a hardcoded 4-name MOCK_RESEARCHERS array labeled
-  // "Preview — sample results". Debounced the same 300ms most other
-  // as-you-type lookups in this file use; the 2-character floor mirrors the
-  // one the backend itself enforces, so a single keystroke never fires a
-  // request that would just come back empty anyway. `hubs` rides along in
-  // the same response — a Hub is just a distinct affiliation string at
-  // least one real account has set (see the backend comment on this
-  // endpoint), never an invented institution roster.
-  /* Commit 100 — no query, no request, and no results.
-
-     Commit 57 made an empty box browse the directory, to fix a real problem:
-     "a social network that shows you nobody until you can name somebody has
-     no way in." But the fix was to publish a roster of real accounts to
-     anybody who opened the tab, and the people in that roster never asked to
-     be listed. The cold-start problem is solved instead by the founder card,
-     which is one account volunteering its own contact rather than a sample
-     of everyone else's.
-
-     The 2-character floor mirrors the server's. `hubs` is gone from the
-     response entirely — see the endpoint. */
+  // Real accounts, searched live via functions/api/data.js's search
+  // users endpoint. Debounced the same 300ms most other as you type
+  // lookups in this file use. The 2 character floor mirrors the one the
+  // backend itself enforces, so a single keystroke never fires a request
+  // that would just come back empty anyway.
+  /* No query, no request, and no results. This endpoint has no browse
+     mode, so an empty box shows the empty state copy and nothing else. */
   useEffect(() => {
     clearTimeout(searchTimer.current);
     /* 2026-10-20, tail item 5: every query change takes the next
@@ -16713,17 +16479,13 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
        the debounce timer, which never stopped a fetch that had
        already started. */
     const seq = ++searchSeq.current;
-    const q = query.trim();
+    // Huge audit bug 1, client half: handles are stored with no leading
+    // at sign, so the sign the placeholder invites is stripped before
+    // the query is sent, the same way the server strips it.
+    const q = query.trim().replace(/^@+/, "");
     if (q.length < 2) {
       setResults([]);
       setLoading(false);
-      // The founder card is still worth fetching with an empty box: it is
-      // the one thing this screen shows before you type. Once per mount —
-      // not on every keystroke while clearing.
-      if (!founderFetched.current) {
-        founderFetched.current = true;
-        apiDataGet("search-users", { q: "" }).then((d) => setFounder((d && d.founder) || null)).catch(() => {});
-      }
       return;
     }
     setLoading(true);
@@ -16735,7 +16497,6 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
         const data = await apiDataGet("search-users", { q });
         if (seq !== searchSeq.current) return;
         setResults(data && Array.isArray(data.items) ? data.items : []);
-        setFounder((data && data.founder) || null);
       } catch {
         // Keep the previous results; just stop the spinner.
       } finally {
@@ -16745,34 +16506,6 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
     searchTimer.current = timerId;
     return () => clearTimeout(timerId);
   }, [query]);
-
-  const toggleFollow = async (r) => {
-    if (followBusy.has(r.id)) return;
-    setFollowBusy((prev) => new Set(prev).add(r.id));
-    try {
-      const res = await apiDataAction("toggle-follow", { target_id: r.id });
-      /* ══════════════════════════════════════════════════════════════
-         Commit 97 — the Follow button did nothing on the founder card.
-
-         Two bugs stacked. First, this only ever wrote back into
-         `results`, the searched-researcher list. The founder is rendered
-         from its own `founder` state and is not a member of that array,
-         so pressing Follow there fired the request, the server recorded
-         it, and the UI never changed — the most confusing possible
-         outcome, because it looks like the click was ignored.
-
-         Second, the founder card reads `founder.isFollowing` while every
-         other row derives from `r.following`. One field written, a
-         different field read, so even a correct update would not have
-         shown. Both surfaces now go through the same field. */
-      setResults((prev) => prev.map((x) => (x.id === r.id ? { ...x, following: res.following, followers: res.followers } : x)));
-      setFounder((prev) => (prev && prev.id === r.id ? { ...prev, following: res.following, followers: res.followers } : prev));
-    } catch (e) {
-      toast(e.message || "Couldn't update that follow.", { tone: "error" });
-    } finally {
-      setFollowBusy((prev) => { const next = new Set(prev); next.delete(r.id); return next; });
-    }
-  };
 
   // Find-or-create a real DM thread (start-thread in functions/api/data.js)
   // before ever touching the Inbox — no more "isn't a real account yet"
@@ -16799,7 +16532,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
     // modal immediately after, so there's nothing left to un-disable.
   };
 
-  const trimmed = query.trim();
+  const trimmed = query.trim().replace(/^@+/, "");
 
   /* Commit 88 — dialog when composing a message (that genuinely is an
      interruption), page when Find People is the destination. */
@@ -16823,7 +16556,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
           <div style={{ position: "relative" }}>
             <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: P.faint, display: "inline-flex" }}><Icon name="search" size={15} /></span>
             <input
-              autoFocus
+              autoFocus={!peopleIsMobile}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search a name or @username"
@@ -16837,8 +16570,8 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
           {/* People search is deliberately a lookup, not a directory: you find
               someone by name or @username because you already know who they
               are. The empty state says what you CAN do here instead of
-              apologizing for what it isn't — with the founder as a real
-              first contact and a path to your own visibility setting. */}
+              apologizing for what it isn't, and it points to your own
+              visibility setting. */}
           {trimmed.length < 2 && (
             <div style={{ padding: "16px 16px 8px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.65 }}>
               <div style={{ fontWeight: 500, color: P.ink, marginBottom: 6, fontSize: FONT_SIZES.label }}>Find a researcher you already know</div>
@@ -16853,63 +16586,18 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
               Nobody matches that. They may not be on Cerebrum yet, or they've chosen not to be findable. Double check the spelling, or try their @username.
             </div>
           )}
-          {/* Commit 74 — the founder's card, pinned above everything.
-              A new account lands on an empty social graph with nobody to
-              talk to. The person who built the thing is a genuinely useful
-              first contact, and unlike a suggested-follow algorithm this
-              card is honest about exactly who it is recommending and why. */}
-          {founder && (
-            <div className="cb-founder-card" style={{
-              marginBottom: 10, padding: "16px 15px", borderRadius: RADIUS.lg,
-              background: P.surface,
-              border: `1px solid ${P.line}`,
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <FounderFrame size={42} accent={accent}>
-                  <span style={{
-                    width: 42, height: 42, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                    ...avatarSkin(founder.name || founder.id), fontWeight: 500, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.subhead,
-                  }}>{(founder.name || "?").trim().charAt(0).toUpperCase()}</span>
-                </FounderFrame>
-                <div
-                  role="button" tabIndex={0}
-                  onClick={() => onOpenProfile(founder.id)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenProfile(founder.id); } }}
-                  style={{ minWidth: 0, flex: 1, cursor: "pointer" }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink }}>{founder.name}</span>
-                    <VerifiedCheck size={15} />
-                    {founder.isPro && <ProBadge />}
-                  </div>
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                    @{founder.username} · Founder &amp; Owner
-                  </div>
-                </div>
-              </div>
-              <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "11px 0 12px" }}>
-                {founder.prompt || "Have a question for the owner?"} A message here goes straight to the person who builds this.
-              </div>
-              <div style={{ alignItems: "center", display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button onClick={() => messageResearcher(founder)} disabled={messageBusy.has(founder.id)} className="cb-press" style={{
-                  padding: "12px 16px", minHeight: 44, borderRadius: RADIUS.viewport, border: "none", cursor: "pointer",
-                  background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
-                }}>{messageBusy.has(founder.id) ? "Opening…" : "Ask a question"}</button>
-                <button onClick={() => toggleFollow(founder)} disabled={followBusy.has(founder.id)} className="cb-press" style={{
-                  padding: "12px 16px", minHeight: 44, borderRadius: RADIUS.viewport, cursor: "pointer",
-                  background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`,
-                  fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
-                }}>{founder.following ? "Following" : "Follow"}</button>
-              </div>
-            </div>
-          )}
           {results.map((r) => {
-            const isFollowing = !!r.following;
-            const isFollowBusy = followBusy.has(r.id);
             const isMessageBusy = messageBusy.has(r.id);
+            const canMessage = !!r.canMessage;
             // Degree reads before affiliation: "Ph.D. · University of
-            // Tennessee" is how a researcher introduces themselves.
-            const subtitle = [r.degree, r.affiliation, r.followers ? `${r.followers} follower${r.followers === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ");
+            // Tennessee" is how a researcher introduces themselves. The
+            // line wraps instead of truncating, so the institution, the
+            // recognition cue that matters, survives at phone width.
+            // The follower count is not here; it lives on the profile.
+            const subtitle = [r.degree, r.affiliation].filter(Boolean).join(" · ");
+            const interestLine = (Array.isArray(r.interests) && r.interests.length > 0)
+              ? (r.matchedInterest ? `Research interest match · ${r.interests.join(", ")}` : `Interested in ${r.interests.join(", ")}`)
+              : (r.matchedInterest ? "Research interest match" : null);
             return (
               /* Commit 100 — the row is the way into a profile. Before this
                  a search result was terminal: a name, an institution, and two
@@ -16932,12 +16620,19 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                     needed it: the app already draws initial avatars locally
                     (avatarSkin), which is what the profile page has used
                     since Commit 54 for exactly this reason. */}
-                <div aria-hidden="true" style={{
-                  width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
-                  border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: FONT_SIZES.body, fontWeight: 500, fontFamily: "var(--cb-font)",
-                  ...avatarSkin(r.name || r.username || r.id),
-                }}>{(r.name || r.username || "?").trim().charAt(0).toUpperCase()}</div>
+                {r.avatar_base64 ? (
+                  <img src={r.avatar_base64} alt="" aria-hidden="true" style={{
+                    width: 40, height: 40, borderRadius: "50%", flexShrink: 0, objectFit: "cover",
+                    border: `1px solid ${P.line}`, background: P.raised,
+                  }} />
+                ) : (
+                  <div aria-hidden="true" style={{
+                    width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
+                    border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: FONT_SIZES.body, fontWeight: 500, fontFamily: "var(--cb-font)",
+                    ...avatarSkin(r.name || r.username || r.id),
+                  }}>{(r.name || r.username || "?").trim().charAt(0).toUpperCase()}</div>
+                )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                     <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
@@ -16947,25 +16642,15 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                     {r.isPro && <ProBadge style={{ fontSize: FONT_SIZES.caption, flexShrink: 0 }} />}
                   </div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>@{r.username}</div>
-                  {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>{subtitle}</div>}
+                  {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 1, lineHeight: 1.45, overflowWrap: "anywhere" }}>{subtitle}</div>}
+                  {interestLine && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 1, lineHeight: 1.45, overflowWrap: "anywhere" }}>{interestLine}</div>}
                 </div>
-                <UIButton P={P} variant="ghost"
-                  onClick={(e) => { e.stopPropagation(); toggleFollow(r); }}
-                  disabled={isFollowBusy}
-                  style={{
-                    fontSize: FONT_SIZES.caption, fontWeight: 500, padding: narrowPeople ? "12px 10px" : "12px 16px", minHeight: 44, borderRadius: RADIUS.viewport, cursor: isFollowBusy ? "default" : "pointer", flexShrink: 0,
-                    opacity: isFollowBusy ? 0.6 : 1,
-                    color: isFollowing ? P.ink2 : accentInk(P, accent),
-                    background: isFollowing ? (P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)") : withAlpha(accent, 0.1),
-                    border: isFollowing ? `1px solid ${P.line}` : `1px solid ${withAlpha(accent, 0.3)}`,
-                  }}
-                >{isFollowing ? "Following" : "Follow"}</UIButton>
                 <button
-                  onClick={(e) => { e.stopPropagation(); messageResearcher(r); }}
-                  disabled={isMessageBusy}
-                  aria-label={`Message ${r.name}`}
-                  title={`Message ${r.name}`}
-                  style={{ width: 44, height: 44, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: P.ink2, cursor: isMessageBusy ? "default" : "pointer", opacity: isMessageBusy ? 0.6 : 1 }}
+                  onClick={(e) => { e.stopPropagation(); if (canMessage) messageResearcher(r); }}
+                  disabled={isMessageBusy || !canMessage}
+                  aria-label={canMessage ? `Message ${r.name}` : `You cannot message ${r.name} yet`}
+                  title={canMessage ? `Message ${r.name}` : "This person only accepts messages from people they follow"}
+                  style={{ width: 44, height: 44, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: canMessage ? P.ink2 : P.faint, cursor: canMessage ? (isMessageBusy ? "default" : "pointer") : "not-allowed", opacity: isMessageBusy ? 0.6 : (canMessage ? 1 : 0.55) }}
                 ><Icon name="mail" size={15} /></button>
               </div>
             );
@@ -17068,7 +16753,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
    searches, no saved papers, no collections, no history. A research question
    is often the most sensitive thing anyone types into this product.
    ════════════════════════════════════════════════════════════════════ */
-function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, currentUser }) {
+function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClose, onMessage, currentUser }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -17078,8 +16763,16 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setError("");
-    apiDataGet("public-profile", { id: userId })
-      .then((res) => { if (!cancelled) { setData(res); setLoading(false); } })
+    // One endpoint, two identifiers: search opens a profile by id, a
+    // shared link opens it by handle. Signed out visitors reach the
+    // limited branch of the same endpoint and get the same layout with
+    // the smaller payload.
+    apiDataGet("public-profile", userId ? { id: userId } : { username })
+      .then((res) => {
+        if (cancelled) return;
+        if (!res || !res.user) { setError("This profile isn't available."); setLoading(false); return; }
+        setData(res); setLoading(false);
+      })
       .catch(() => {
         if (cancelled) return;
         // One message for every failure mode, matching the endpoint, which
@@ -17090,7 +16783,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, username]);
 
   const u = data && data.user;
   const displayName = (u && u.name) || (u && u.username ? `@${u.username}` : "Cerebrum member");
@@ -17157,6 +16850,57 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
     }
   };
 
+  // Block and report live on the profile itself (huge audit redo).
+  // Both reuse the inbox plumbing: the same toggle block action and the
+  // same conduct report dialog the thread header uses.
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const toggleBlock = async () => {
+    if (blockBusy || !u) return;
+    setBlockBusy(true);
+    try {
+      const res = await apiDataAction("toggle-block", { target_id: u.id });
+      if (res && res.blocked) {
+        toast("Blocked. They can no longer message or call you.");
+        onClose();
+        return;
+      }
+      toast("Unblocked.");
+    } catch (e) {
+      toast(e.message || "Couldn't update that block.", { tone: "error" });
+    } finally { setBlockBusy(false); }
+  };
+  const signedIn = !!currentUser;
+  const profileLink = u && u.username ? `${window.location.origin}/people/${u.username}` : "";
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyProfileLink = async () => {
+    if (!profileLink) return;
+    try {
+      await navigator.clipboard.writeText(profileLink);
+      setLinkCopied(true);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = profileLink; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); setLinkCopied(true); } catch { toast("Could not copy that link.", { tone: "error" }); }
+      document.body.removeChild(ta);
+    }
+  };
+  const publicInterests = u && Array.isArray(u.interests) ? u.interests.filter(Boolean) : [];
+
+  // Mobile sheet dismissal: a downward swipe that starts with the sheet
+  // scrolled to its top closes it, the gesture a phone user expects
+  // from a bottom sheet. The visible close control below is the other
+  // way out; the scrim strip alone was never enough.
+  const sheetTouch = useRef({ y: 0, atTop: true });
+  const onSheetTouchStart = (e) => {
+    sheetTouch.current = { y: e.touches[0].clientY, atTop: e.currentTarget.scrollTop <= 0 };
+  };
+  const onSheetTouchEnd = (e) => {
+    if (!isMobile || !sheetTouch.current.atTop) return;
+    const dy = e.changedTouches[0].clientY - sheetTouch.current.y;
+    if (dy > 90) onClose();
+  };
+
   const links = u ? [
     u.link_site ? { label: "Website", href: u.link_site, icon: "link" } : null,
     u.link_orcid ? { label: "ORCID", href: u.link_orcid, icon: "check" } : null,
@@ -17174,13 +16918,22 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
       scrimStyle={isMobile ? { alignItems: "flex-end", padding: 0 } : {}}
       panelStyle={{
         background: P.surface, border: `1px solid ${P.line}`,
-        borderRadius: isMobile ? "2px 2px 0 0" : RADIUS.lg,
+        borderRadius: isMobile ? "16px 16px 0 0" : RADIUS.lg,
         maxHeight: isMobile ? "92dvh" : "86dvh",
         display: "flex", flexDirection: "column", overflow: "hidden", outline: "none",
         boxShadow: "none",
       }}
     >
-        <div style={{ flex: 1, overflowY: "auto" }}>
+        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "flex-end", padding: isMobile ? "6px 8px 0" : "8px 12px 0" }}>
+          {isMobile && (
+            <span aria-hidden="true" style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: 12, width: 40, height: 4, borderRadius: 2, background: P.line2 }} />
+          )}
+          <button type="button" onClick={onClose} aria-label="Close profile"
+            style={{ width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", borderRadius: "50%", color: P.faint, cursor: "pointer", flexShrink: 0 }}>
+            <Icon name="close" size={18} />
+          </button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto" }} onTouchStart={onSheetTouchStart} onTouchEnd={onSheetTouchEnd}>
           {loading && (
             <div style={{ padding: "60px 24px", textAlign: "center", fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)" }}>Finding that person…</div>
           )}
@@ -17240,6 +16993,13 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                   <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 12, lineHeight: 1.55 }}>{context}</div>
                 )}
 
+                {publicInterests.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 4 }}>Research interests</div>
+                    <div style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.6 }}>{publicInterests.join(", ")}</div>
+                  </div>
+                )}
+
                 {u.bio && (
                   <blockquote style={{
                     margin: "16px 0 0", padding: "0 0 0 16px",
@@ -17270,12 +17030,15 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                   </div>
                 )}
 
-                <div style={{ marginTop: 20, paddingTop: 14, borderTop: `1px solid ${P.line}`, display: "flex", gap: 22, fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                  <span><span style={{ color: P.ink, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{data.followers || 0}</span> followers</span>
-                  <span><span style={{ color: P.ink, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{data.followingCount || 0}</span> following</span>
-                </div>
+                {!data.limited && (
+                  <div style={{ marginTop: 20, paddingTop: 14, borderTop: `1px solid ${P.line}`, display: "flex", gap: 22, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                    <span><span style={{ color: P.ink, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{data.followers || 0}</span> followers</span>
+                    <span><span style={{ color: P.ink, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{data.followingCount || 0}</span> following</span>
+                  </div>
+                )}
 
-                <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                {signedIn ? (
+                <div style={{ display: "flex", gap: 10, marginTop: 20, flexWrap: "wrap" }}>
                   <button
                     onClick={toggleFollow}
                     disabled={busy}
@@ -17319,7 +17082,51 @@ function PublicProfile({ P, accent, at, isMobile, userId, onClose, onMessage, cu
                       }}
                     >{verifyBusy ? "Saving…" : isVerified ? "✓ Verified" : "Verify account"}</button>
                   )}
+                  <button
+                    onClick={copyProfileLink}
+                    className="cb-press"
+                    style={{
+                      padding: "12px 24px", minHeight: 48, borderRadius: RADIUS.viewport, cursor: "pointer",
+                      fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
+                      background: "transparent", color: P.ink, border: `1px solid ${P.line}`,
+                    }}
+                  >{linkCopied ? "Link copied" : "Copy profile link"}</button>
                 </div>
+                ) : (
+                  <div style={{ marginTop: 20 }}>
+                    <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.6, marginBottom: 12 }}>
+                      Sign in to follow or message this person.
+                    </div>
+                    <button
+                      onClick={copyProfileLink}
+                      className="cb-press"
+                      style={{
+                        padding: "12px 24px", minHeight: 48, borderRadius: RADIUS.viewport, cursor: "pointer",
+                        fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
+                        background: "transparent", color: P.ink, border: `1px solid ${P.line}`,
+                      }}
+                    >{linkCopied ? "Link copied" : "Copy profile link"}</button>
+                  </div>
+                )}
+
+                {signedIn && (
+                  <div style={{ display: "flex", gap: 18, marginTop: 14 }}>
+                    <button type="button" onClick={toggleBlock} disabled={blockBusy}
+                      style={{ minHeight: 44, background: "none", border: "none", padding: "10px 0", cursor: blockBusy ? "default" : "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint, opacity: blockBusy ? 0.6 : 1 }}>
+                      Block this person
+                    </button>
+                    <button type="button" onClick={() => setReportOpen(true)}
+                      style={{ minHeight: 44, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint }}>
+                      Report this person
+                    </button>
+                  </div>
+                )}
+                {reportOpen && (
+                  <ReportConductModal
+                    P={P} accent={accent} at={at} kind="user" targetLabel={displayName}
+                    reportedUserId={u.id} onClose={() => setReportOpen(false)}
+                  />
+                )}
 
                 {/* Saying what a profile does NOT carry is part of the
                     product, not a disclaimer. */}
@@ -21315,7 +21122,7 @@ function useDynamicFavicon({ accent, busy, unread }) {
   }, [accent, busy, unread]);
 }
 
-function App() {
+function App({ profileHandle = null } = {}) {
   const isMobile = useIsMobile();
   /* Shell connection state (2026-10-20, design audit M6): the monitor
      reads navigator.onLine at mount and follows window online and
@@ -21530,6 +21337,11 @@ function App() {
   const [networkSearchOpen, setNetworkSearchOpen] = useState(false);
   // Commit 100 — hubOpen/activeHubName removed with InstitutionModal.
   const [viewingProfileId, setViewingProfileId] = useState(null);
+  // A shared profile link (/people/<handle>, classified in
+  // src/routeClassify.js) opens that profile over whatever form of the
+  // app the visitor lands in, signed in or signed out. Closing it is
+  // local state; the address itself stays shareable.
+  const [profileLinkClosed, setProfileLinkClosed] = useState(false);
   // Which full-page view fills the app shell to the right of the Sidebar.
   // Profile, Settings, and Trending used to be centered modal dialogs
   // (UserProfileModal/Settings/TrendingModal) — each is now a real page
@@ -26167,6 +25979,18 @@ function App() {
           onClose={() => setViewingProfileId(null)}
           onMessage={(researcher, threadId) => {
             setViewingProfileId(null);
+            setPendingThreadId(threadId);
+            setView("inbox");
+          }}
+        />
+      )}
+      {profileHandle && !profileLinkClosed && !viewingProfileId && (
+        <PublicProfile
+          P={P} accent={accent} at={at} isMobile={isMobile}
+          username={profileHandle} currentUser={user}
+          onClose={() => setProfileLinkClosed(true)}
+          onMessage={(researcher, threadId) => {
+            setProfileLinkClosed(true);
             setPendingThreadId(threadId);
             setView("inbox");
           }}

@@ -1568,7 +1568,7 @@ function PrivacySettings({ P, accent, at, sfx, Section, Row, Switch, Picker, use
     >
       <Row
         label="Let people find me in search"
-        desc="When this is off, searching your name or @username returns nothing and your profile link stops working, including for people who already have it. People already following you keep seeing you."
+        desc="When this is off, searching your name or @username returns nothing. Your profile link stops working for anyone who does not already follow you. People already following you keep seeing your profile, and a conversation you already have stays open."
         control={<Switch on={state.discoverable} onChange={(v) => write({ discoverable: v }, "disc")} label="Findable in search" />}
       />
       <Row
