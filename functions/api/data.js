@@ -207,6 +207,7 @@ async function ensureThreadPrefColumns(env) {
   for (const ddl of [
     "ALTER TABLE thread_participants ADD COLUMN pinned_at INTEGER",
     "ALTER TABLE thread_participants ADD COLUMN muted INTEGER",
+    "ALTER TABLE thread_participants ADD COLUMN archived_at INTEGER",
   ]) {
     try {
       await env.DB.exec(ddl);
@@ -998,8 +999,9 @@ export async function onRequest(context) {
         // database nobody has pinned or pinged from since this deployed.
         await ensureThreadPrefColumns(env);
         await ensurePresenceColumn(env);
+        const showArchived = url.searchParams.get("archived") === "1";
         const threadRows = await env.DB.prepare(
-          `SELECT t.id, t.kind, t.name, tp.last_read_at, tp.pinned_at, tp.muted FROM threads t
+          `SELECT t.id, t.kind, t.name, tp.last_read_at, tp.pinned_at, tp.muted, tp.archived_at FROM threads t
            JOIN thread_participants tp ON tp.thread_id = t.id
            WHERE tp.user_id = ?`
         ).bind(user.id).all();
@@ -1019,6 +1021,8 @@ export async function onRequest(context) {
         }
         const items = [];
         for (const t of threadRows.results || []) {
+          const isArchived = !!t.archived_at;
+          if (showArchived ? !isArchived : isArchived) continue;
           const last = await env.DB.prepare(
             "SELECT id, sender_id, text, attachment_title, attachment_kind, created_at FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT 1"
           ).bind(t.id).first();
@@ -1099,6 +1103,8 @@ export async function onRequest(context) {
             pinned: !!t.pinned_at,
             pinnedAt: t.pinned_at ? toEpochMs(t.pinned_at) : null,
             muted: !!t.muted,
+            archived: isArchived,
+            archivedAt: t.archived_at ? toEpochMs(t.archived_at) : null,
             encrypted: isEncrypted,
             lastMessage: last ? (isEncrypted ? {
               id: last.id,
@@ -1237,12 +1243,14 @@ export async function onRequest(context) {
         // open thread's options menu can label its toggles truthfully.
         let myPinned = false;
         let myMuted = false;
+        let myArchived = false;
         try {
-          const rr = await env.DB.prepare("SELECT last_read_at, pinned_at, muted FROM thread_participants WHERE thread_id = ? AND user_id = ?")
+          const rr = await env.DB.prepare("SELECT last_read_at, pinned_at, muted, archived_at FROM thread_participants WHERE thread_id = ? AND user_id = ?")
             .bind(threadId, user.id).first();
           readBefore = rr ? toEpochMs(rr.last_read_at) : null;
           myPinned = !!(rr && rr.pinned_at);
           myMuted = !!(rr && rr.muted);
+          myArchived = !!(rr && rr.archived_at);
         } catch (e) { console.error("Couldn't read thread cursor:", e); }
         // This fetch deliberately does NOT mark the thread read. It
         // used to (Commit 47), as part of this same GET — which meant
@@ -1340,6 +1348,7 @@ export async function onRequest(context) {
             ).bind(threadId, MAX_THREAD_MESSAGES + 1).all();
         const fetchedMessages = messageRows.results || [];
         const truncated = fetchedMessages.length > MAX_THREAD_MESSAGES;
+        const includeAttachmentData = url.searchParams.get("full") === "1";
         // E2EE Phase 1 — the thread's encryption flag rides along so the
         // client knows whether to run the decrypt pipeline. Ciphertext
         // passes through untouched: the server stores and returns it, and
@@ -1354,7 +1363,8 @@ export async function onRequest(context) {
           text: m.text,
           attachmentTitle: m.attachment_title || null,
           attachmentKind: m.attachment_kind || null,
-          attachmentData: m.attachment_data || null,
+          attachmentData: includeAttachmentData ? (m.attachment_data || null) : null,
+          attachmentHasData: !!m.attachment_data,
           attachmentUrl: m.attachment_url || null,
           attachmentMeta: (() => { try { return m.attachment_meta ? JSON.parse(m.attachment_meta) : null; } catch { return null; } })(),
           createdAt: toEpochMs(m.created_at),
@@ -1409,6 +1419,7 @@ export async function onRequest(context) {
           otherLastActiveAt,
           pinned: myPinned,
           muted: myMuted,
+          archived: myArchived,
           blocked,
           encrypted: !!e2eeRow,
           e2eeProtocol: e2eeRow ? e2eeRow.protocol : null,
@@ -1418,6 +1429,20 @@ export async function onRequest(context) {
           readBefore,
           sharedCounts,
         }), { status: 200, headers: cors });
+      }
+      if (resource === "attachment") {
+        const threadId = safeId(url.searchParams.get("thread_id"));
+        const messageId = safeId(url.searchParams.get("message_id"));
+        if (!threadId || !messageId) return errRes("Missing thread or message.", 400, "missing_id", cors);
+        const membership = await env.DB.prepare(
+          "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+        ).bind(threadId, user.id).first();
+        if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+        const row = await env.DB.prepare(
+          "SELECT id, attachment_kind, attachment_data, attachment_title FROM messages WHERE thread_id = ? AND id = ?"
+        ).bind(threadId, messageId).first();
+        if (!row) return errRes("That message no longer exists.", 404, "not_found", cors);
+        return okRes({ id: row.id, attachmentKind: row.attachment_kind || null, attachmentTitle: row.attachment_title || null, attachmentData: row.attachment_data || null }, 200, cors);
       }
       // Message content search across the caller's own conversations.
       //
@@ -3287,6 +3312,23 @@ export async function onRequest(context) {
           }
         }
       }
+      // Huge audit Bug 3: the policy check above covers only the
+      // creator reaching each invitee. A group gives every member
+      // access to every other member, so each invitee is also checked
+      // against the other invitees in both directions. Someone who
+      // would refuse a direct thread from a fellow member must not be
+      // placed in a room with them, and a fellow member must not be
+      // handed access the invitee never granted.
+      for (let i = 0; i < memberIds.length; i++) {
+        for (let j = i + 1; j < memberIds.length; j++) {
+          if (!(await mayStartConversation(env, memberIds[i], memberIds[j]))) {
+            return errRes("One of the people you added only accepts messages from people they follow.", 403, "dm_not_allowed", cors);
+          }
+          if (!(await mayStartConversation(env, memberIds[j], memberIds[i]))) {
+            return errRes("One of the people you added only accepts messages from people they follow.", 403, "dm_not_allowed", cors);
+          }
+        }
+      }
       const threadId = newId("thr");
       const now = Date.now();
       await env.DB.prepare("INSERT INTO threads (id, kind, name, created_at) VALUES (?, 'group', ?, ?)").bind(threadId, name, now).run();
@@ -3366,6 +3408,33 @@ export async function onRequest(context) {
         for (let j = i + 1; j < memberIds.length; j++) {
           if (await isBlockedPair(env, memberIds[i], memberIds[j])) {
             return errRes("One of the people you added can't be messaged.", 403, "forbidden", cors);
+          }
+        }
+      }
+      // Huge audit Bug 3: the same pairings are checked against the
+      // consent policy, not only for blocks. An added person gains
+      // access to every existing member and every existing member
+      // gains access to them, so both directions must pass for every
+      // pairing the add creates, including pairings among the added
+      // people themselves.
+      for (const mid of memberIds) {
+        for (const existingId of existingIds) {
+          if (existingId === mid) continue;
+          if (!(await mayStartConversation(env, existingId, mid))) {
+            return errRes("One of the people you added only accepts messages from people they follow.", 403, "dm_not_allowed", cors);
+          }
+          if (!(await mayStartConversation(env, mid, existingId))) {
+            return errRes("One of the people you added only accepts messages from people they follow.", 403, "dm_not_allowed", cors);
+          }
+        }
+      }
+      for (let i = 0; i < memberIds.length; i++) {
+        for (let j = i + 1; j < memberIds.length; j++) {
+          if (!(await mayStartConversation(env, memberIds[i], memberIds[j]))) {
+            return errRes("One of the people you added only accepts messages from people they follow.", 403, "dm_not_allowed", cors);
+          }
+          if (!(await mayStartConversation(env, memberIds[j], memberIds[i]))) {
+            return errRes("One of the people you added only accepts messages from people they follow.", 403, "dm_not_allowed", cors);
           }
         }
       }
@@ -3554,6 +3623,63 @@ export async function onRequest(context) {
         "UPDATE thread_participants SET muted = ? WHERE thread_id = ? AND user_id = ?"
       ).bind(muted ? 1 : 0, threadId, user.id).run();
       return okRes({ thread_id: threadId, muted }, 200, cors);
+    }
+
+    // Archive a conversation for the caller. The thread leaves the
+    // normal list and can be brought back from the archived list.
+    // Only the caller's participant row changes.
+    if (action === "set-thread-archived") {
+      const threadId = safeId(body.thread_id);
+      if (!threadId) return errRes("Missing thread_id.", 400, "missing_id", cors);
+      await ensureThreadPrefColumns(env);
+      const membership = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+      const archived = !!body.archived;
+      const archivedAt = archived ? Date.now() : null;
+      await env.DB.prepare(
+        "UPDATE thread_participants SET archived_at = ? WHERE thread_id = ? AND user_id = ?"
+      ).bind(archivedAt, threadId, user.id).run();
+      return okRes({ thread_id: threadId, archived, archived_at: archivedAt }, 200, cors);
+    }
+
+    // Delete a conversation for the caller. Their participant row is
+    // removed, so the thread leaves their list and their account no
+    // longer has access to it. Other participants keep their copies
+    // and the messages stay for them.
+    if (action === "delete-thread") {
+      const threadId = safeId(body.thread_id);
+      if (!threadId) return errRes("Missing thread_id.", 400, "missing_id", cors);
+      const membership = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+      await env.DB.prepare(
+        "DELETE FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).run();
+      return okRes({ thread_id: threadId, deleted: true }, 200, cors);
+    }
+
+    // Delete one of the caller's own messages. Nobody can delete a
+    // message someone else sent.
+    if (action === "delete-message") {
+      const threadId = safeId(body.thread_id);
+      const messageId = safeId(body.message_id);
+      if (!threadId || !messageId) return errRes("Missing thread or message.", 400, "missing_id", cors);
+      const membership = await env.DB.prepare(
+        "SELECT 1 FROM thread_participants WHERE thread_id = ? AND user_id = ?"
+      ).bind(threadId, user.id).first();
+      if (!membership) return errRes("You're not part of that conversation.", 403, "forbidden", cors);
+      const row = await env.DB.prepare(
+        "SELECT sender_id FROM messages WHERE thread_id = ? AND id = ?"
+      ).bind(threadId, messageId).first();
+      if (!row) return errRes("That message no longer exists.", 404, "not_found", cors);
+      if (row.sender_id !== user.id) return errRes("You can only delete your own messages.", 403, "forbidden", cors);
+      await env.DB.prepare(
+        "DELETE FROM messages WHERE thread_id = ? AND id = ?"
+      ).bind(threadId, messageId).run();
+      return okRes({ thread_id: threadId, message_id: messageId, deleted: true }, 200, cors);
     }
 
     // Presence heartbeat. The client posts this while the inbox is
