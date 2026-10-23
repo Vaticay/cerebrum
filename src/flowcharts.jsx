@@ -14,6 +14,7 @@ import { createPortal } from "react-dom";
 import { Icon, UIButton, UISelect, SHADOW, withAlpha, FONT_SIZES, STATUS, Z, TRACKING, RADIUS } from "./designSystem.jsx";
 import { getCookie, __cbMotionCache, cbMotionCacheSet, download, toast } from "./appUtils.js";
 import { cbDialogLockScroll, cbDialogUnlockScroll } from "./scrollLock.js";
+import { historyNav } from "./historyNav.js";
 import { fcExtractSteps, fcCompressStep, fcLabelFromSentence, fcWrapBounded, fcCoerceStepType, fcStepFromNode, fcStepsFromChart, fcChartSources, fcHasLabelledStep, fcMoveStep, fcChartNeedsConversion, fcSplitSentences, fcBuildChain, FC_LABEL_MAX } from "./fcLabel.js";
 import { safeHref } from "./textUtils.js";
 
@@ -72,6 +73,18 @@ export function Dialog({
     const prevActive = document.activeElement;
     cbDialogStack.push(record);
     cbDialogLockScroll();
+    /* History: a dismissable dialog is the topmost back layer, so
+       the system back action closes it before anything under it.
+       A dialog that cannot be dismissed pushes nothing, so a
+       consent gate or an import step never gains a back trap.
+       The cleanup below closes the layer on unmount: when the
+       close came from a pop, the layer is already gone and the
+       close is a no op; when it came from the app, closeLayer
+       steps the browser back once and the dead layer makes the
+       resulting pop a no op too, so neither path can loop. */
+    if (dismissable) {
+      historyNav.pushLayer("dialog", id, () => { onCloseRef.current(); });
+    }
 
     // Initial focus into the dialog: an explicit ref wins, then the
     // first focusable control, then the panel itself (tabIndex=-1).
@@ -121,6 +134,7 @@ export function Dialog({
     return () => {
       document.removeEventListener("keydown", onKey);
       cancelAnimationFrame(raf);
+      if (dismissable) historyNav.closeLayer("dialog", id);
       const i = cbDialogStack.findIndex((r) => r.id === id);
       if (i >= 0) cbDialogStack.splice(i, 1);
       cbDialogUnlockScroll();
