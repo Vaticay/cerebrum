@@ -51,24 +51,47 @@ export const PRODUCT = {
  * standard as everything else and this list grows again.
  */
 export const SCHOLARLY_SOURCES = [
-  { id: "europePMC",      name: "Europe PMC",       category: "biomedical",     peerReviewed: "mixed" },
-  { id: "pubmed",         name: "PubMed",           category: "biomedical",     peerReviewed: "mostly" },
-  { id: "openAlex",       name: "OpenAlex",         category: "multi",          peerReviewed: "mixed" },
-  { id: "crossref",       name: "Crossref",         category: "multi",          peerReviewed: "mixed" },
-  { id: "arxiv",          name: "arXiv",            category: "preprint",       peerReviewed: "no" },
-  { id: "semanticScholar",name: "Semantic Scholar", category: "multi",          peerReviewed: "mixed" },
-  { id: "doaj",           name: "DOAJ",             category: "open-access",    peerReviewed: "yes" },
-  { id: "biorxiv",        name: "bioRxiv",          category: "preprint",       peerReviewed: "no" },
-  { id: "plos",           name: "PLOS",             category: "open-access",    peerReviewed: "yes" },
-  { id: "CORE",           name: "CORE",             category: "aggregator",     peerReviewed: "mixed" },
-  { id: "BASE",           name: "BASE",             category: "aggregator",     peerReviewed: "mixed" },
-  { id: "pmcFullText",    name: "PMC Full Text",    category: "biomedical",     peerReviewed: "mostly" },
-  { id: "openAire",       name: "OpenAIRE",         category: "aggregator",     peerReviewed: "mixed" },
-  { id: "preprints",      name: "Preprint index",     category: "preprint",       peerReviewed: "no" },
+  { id: "europePMC",      name: "Europe PMC",       category: "biomedical",     peerReviewed: "mixed", corpus: "Europe PMC" },
+  { id: "pubmed",         name: "PubMed",           category: "biomedical",     peerReviewed: "mostly", corpus: "PubMed" },
+  { id: "openAlex",       name: "OpenAlex",         category: "multi",          peerReviewed: "mixed", corpus: "OpenAlex" },
+  { id: "crossref",       name: "Crossref",         category: "multi",          peerReviewed: "mixed", corpus: "Crossref" },
+  { id: "arxiv",          name: "arXiv",            category: "preprint",       peerReviewed: "no", corpus: "arXiv" },
+  { id: "semanticScholar",name: "Semantic Scholar", category: "multi",          peerReviewed: "mixed", corpus: "Semantic Scholar" },
+  { id: "doaj",           name: "DOAJ",             category: "open-access",    peerReviewed: "yes", corpus: "DOAJ" },
+  { id: "biorxiv",        name: "bioRxiv",          category: "preprint",       peerReviewed: "no", corpus: "OpenAlex" },
+  { id: "plos",           name: "PLOS",             category: "open-access",    peerReviewed: "yes", corpus: "PLOS" },
+  { id: "CORE",           name: "CORE",             category: "aggregator",     peerReviewed: "mixed", corpus: "CORE" },
+  { id: "BASE",           name: "BASE",             category: "aggregator",     peerReviewed: "mixed", corpus: "BASE" },
+  { id: "pmcFullText",    name: "PMC Full Text",    category: "biomedical",     peerReviewed: "mostly", corpus: "Europe PMC" },
+  { id: "openAire",       name: "OpenAIRE",         category: "aggregator",     peerReviewed: "mixed", corpus: "OpenAIRE" },
+  { id: "preprints",      name: "Preprint index",     category: "preprint",       peerReviewed: "no", corpus: "Europe PMC" },
 ];
 
 /** Derived, never hand-written. */
 export const SOURCE_COUNT = SCHOLARLY_SOURCES.length;
+
+/**
+ * Distinct corpora behind the fanout slots (2026-10-23, logic audit
+ * L2-1). A slot is one query the fanout fires; a corpus is one body
+ * of records behind an endpoint. Three slots (europePMC, preprints,
+ * pmcFullText) query the Europe PMC endpoint over different slices
+ * of it, and the biorxiv slot queries the OpenAlex endpoint with a
+ * preprint filter, so the fourteen slots reach eleven distinct
+ * corpora. Any surface that tells a reader how many databases were
+ * searched must derive from this list, never from the slot count:
+ * the audit found the slot count shipped as a database count on
+ * runs where nearly half the slots returned nothing at all.
+ */
+export const DISTINCT_CORPORA = [...new Set(SCHOLARLY_SOURCES.map((s) => s.corpus))];
+
+/** Derived, never hand-written. */
+export const CORPUS_COUNT = DISTINCT_CORPORA.length;
+
+/** The corpus a fanout slot actually queries, or null for an unknown id. */
+export function corpusOfSource(id) {
+  const entry = SCHOLARLY_SOURCES.find((s) => s.id === id);
+  return entry ? entry.corpus : null;
+}
 
 /** The handful named in marketing copy, in the order they are listed. */
 export const HEADLINE_SOURCES = ["Europe PMC", "PubMed", "OpenAlex", "Crossref", "Semantic Scholar", "arXiv"];

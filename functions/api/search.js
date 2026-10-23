@@ -42,7 +42,7 @@ import { recordStageHealthAggregate } from "../lib/stageHealthAggregate.js";
 import { authorizeLlmCall, spendTokens, CHEAP_MODEL, checkEmbeddingBudget, spendEmbeddingNeurons, EMBEDDING_NEURON_COST_PER_RERANK } from "../lib/costControl.js";
 import { recordLlmUsage, estimateTokensFromChars } from "../lib/requestLog.js";
 import { semanticRerank } from "../lib/semanticRerank.js";
-import { SCHOLARLY_SOURCES, SOURCE_COUNT } from "../lib/product.js";
+import { SCHOLARLY_SOURCES, SOURCE_COUNT, CORPUS_COUNT, corpusOfSource } from "../lib/product.js";
 
 // ============ CORE UTILITIES ============
 
@@ -1617,6 +1617,19 @@ function paperDedupeKeys(p) {
   if (/^10\.\d{4,9}\//.test(doiField)) {
     push("doi:" + doiNorm(doiField));
   }
+  /* Identifier graph edge (2026-10-23, logic audit L2-8): a
+   * preprint record that names the DOI of its published version
+   * (Crossref's is-preprint-of relation, carried by the crossref
+   * fetcher as preprintOf) yields that DOI as one of its own keys,
+   * so the preprint and the journal record intersect on an
+   * identifier the registries themselves assert, instead of
+   * surviving as two papers because their own DOIs differ by
+   * design and their years differ with them. */
+  const preprintOfField = String((p && (p.preprintOf || p._preprintOf)) || "")
+    .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
+  if (/^10\.\d{4,9}\//.test(preprintOfField)) {
+    push("doi:" + doiNorm(preprintOfField));
+  }
   // DOI is the strongest unique identifier
   const doiMatch = url.match(/doi\.org\/(.+)$/i);
   if (doiMatch && doiMatch[1] && /^10\.\d{4,9}\//i.test(doiMatch[1])) {
@@ -1703,11 +1716,16 @@ function paperCoreIdentity(p) {
   if (!core) return null;
   const yearMatch = String((p && p.year) || "").match(/(?:19|20)\d{2}/);
   if (!yearMatch) return null;
-  const doiKeys = paperDedupeKeys(p).filter((k) => k.startsWith("doi:"));
+  const allKeys = paperDedupeKeys(p);
+  const doiKeys = allKeys.filter((k) => k.startsWith("doi:"));
   return {
     key: core + "|" + yearMatch[0],
     doi: doiKeys.length ? doiKeys[0].slice(4) : null,
     surname: firstAuthorSurname(p),
+    // Non title identifier keys, for the positive evidence test in
+    // dedupePapers (2026-10-23, L2-8): a shared PMID, PMC or arXiv
+    // key is registry asserted identity, not title shape.
+    strongKeys: allKeys.filter((k) => !k.startsWith("title:")),
   };
 }
 
@@ -1738,6 +1756,61 @@ function firstAuthorSurname(p) {
   return words[words.length - 1].toLowerCase();
 }
 
+/* Record completeness for the kept copy choice (2026-10-23, logic
+ * audit L2-15): when several copies of one work arrive, the copy
+ * the pipeline keeps is the most complete record, not the first
+ * arrival. Completeness is scored on the fields later stages
+ * actually consume: a usable abstract (longer counts more, capped),
+ * a citation count, the identifier family (DOI, PMID, PMC, arXiv
+ * keys from paperDedupeKeys), a DOI URL a reader can open, and the
+ * presence of journal, year and authors. Exported so the choice is
+ * testable without driving the whole dedupe. */
+export function paperCompleteness(p) {
+  if (!p || typeof p !== "object") return 0;
+  let score = 0;
+  const absLen = String(p.abstract || "").trim().length;
+  if (absLen > 0) score += 4 + Math.min(4, Math.floor(absLen / 250));
+  const cit = [p.citations, p.citedByCount, p.citationCount]
+    .find((v) => typeof v === "number" && Number.isFinite(v));
+  if (typeof cit === "number") score += 3;
+  let keys = [];
+  try { keys = paperDedupeKeys(p); } catch { keys = []; }
+  const strong = keys.filter((k) => !k.startsWith("title:"));
+  score += Math.min(4, strong.length * 2);
+  if (keys.some((k) => k.startsWith("doi:"))) score += 2;
+  if (/doi\.org\//i.test(String(p.url || ""))) score += 2;
+  if (String(p.journal || "").trim()) score += 1;
+  if (/(?:19|20)\d{2}/.test(String(p.year || ""))) score += 1;
+  if (String(p.authors || "").trim()) score += 1;
+  return score;
+}
+
+/* The dedupe audit list (2026-10-23, logic audit L2-8): every
+ * merge dedupePapers performs, naming the dropped record, the kept
+ * record, and the signal that judged them the same work. Kept in
+ * module state for the duration of one dedupe call and read back
+ * with getLastDedupeAudit(); processGathered stamps it on the
+ * run's diag so the search record can show what merged and why,
+ * instead of the distinct count silently differing from arrivals. */
+let lastDedupeAudit = [];
+export function getLastDedupeAudit() {
+  return lastDedupeAudit.slice();
+}
+
+/* Is this record a preprint copy of a work (2026-10-23, L2-8)?
+ * The markers the fetchers themselves set: the isPreprint flag
+ * (preprintSearch), a journal string naming a preprint server, or
+ * a bioRxiv/medRxiv DOI (the 10.1101 prefix both servers mint). */
+function paperIsPreprintCopy(p) {
+  if (!p || typeof p !== "object") return false;
+  if (p.isPreprint === true) return true;
+  const j = String(p.journal || "").toLowerCase();
+  if (/biorxiv|medrxiv|arxiv|preprint/.test(j)) return true;
+  const doi = String(p.doi || "") || String(p.url || "");
+  if (/10\.1101\//.test(doi)) return true;
+  return false;
+}
+
 /* Order-preserving dedupe over a paper list. A paper is dropped when ANY of
  * its candidate keys was already seen . this is what catches "same paper,
  * one record with DOI, one without", the duplicate that used to be cited as
@@ -1752,28 +1825,113 @@ export function dedupePapers(list) {
   // whose full title strings differ by a subtitle, while its two
   // vetoes (both DOIs present and different; both surnames present
   // and different) keep provably distinct works apart.
-  const seenStrong = new Set();  // DOIs, PMIDs, etc.
-  const seenTitles = new Map();  // normalized title -> hasStrongId
-  const seenCores = new Map();   // core key -> [{ doi, surname }] of kept records
-  const seenTwins = new Map();   // main title core -> [{ surname, year, abstractWords }] of kept records
+  const seenStrong = new Map();  // strong key -> title of the kept record that claimed it
+  const seenTitles = new Map();  // normalized title -> { hasStrong, title }
+  const seenCores = new Map();   // core key -> [{ doi, surname, title, abstractWords, fullTitle }] of kept records
+  const seenTwins = new Map();   // main title core -> [{ surname, year, abstractWords, title, fullTitle, preprint }] of kept records
+  // Dedupe audit (2026-10-23, L2-8): reset per call; every drop
+  // below names the kept record and the signal that merged them.
+  lastDedupeAudit = [];
+  const auditDrop = (dropped, keptTitle, signal) => {
+    if (lastDedupeAudit.length < 100) {
+      lastDedupeAudit.push({
+        dropped: String((dropped && dropped.title) || "").slice(0, 120),
+        kept: String(keptTitle || "").slice(0, 120),
+        signal,
+      });
+    }
+  };
   const kept = (list || []).filter((p) => {
     const keys = paperDedupeKeys(p);
     if (keys.length === 0) return true;
     // Check strong identifiers first
     const strongKeys = keys.filter(k => !k.startsWith('title:'));
     for (const k of strongKeys) {
-      if (seenStrong.has(k)) return false;  // Same DOI/PMID = same paper
+      if (seenStrong.has(k)) {  // Same DOI/PMID = same paper
+        auditDrop(p, seenStrong.get(k), "strong-identifier");
+        return false;
+      }
     }
-    // Core identity: same main title and year, and no veto from a
-    // differing DOI or a differing first author surname on both
-    // sides, is the same work however its records were fetched.
+    // Core identity: same main title and year is the same work
+    // however its records were fetched, but only on POSITIVE
+    // evidence (2026-10-23, logic audit L2-8). The old rule merged
+    // whenever neither veto fired, so a record carrying no surname
+    // at all merged with any same title, same year record: two
+    // genuinely distinct papers sharing a main title and year, one
+    // of them abstractless and surnameless, collapsed into one.
+    // A missing surname is no longer neutral. The core arm now
+    // requires one of: an equal DOI, a shared non title identifier,
+    // identical full titles, both surnames present and equal, or
+    // abstract overlap at the twin rule's threshold. The two
+    // vetoes (differing DOIs, differing surnames) still stand
+    // ahead of every arm.
     const core = paperCoreIdentity(p);
+    const myFullTitle = normalizePaperTitle((p && p.title) || "");
+    const myAbstractWords = (() => {
+      const abs = String((p && p.abstract) || "").trim();
+      return abs ? claimWordSet(abs) : null;
+    })();
+    const abstractOverlapWith = (words) => {
+      if (!words || !myAbstractWords) return false;
+      let shared = 0;
+      for (const w of myAbstractWords) if (words.has(w)) shared++;
+      const union = myAbstractWords.size + words.size - shared;
+      return union > 0 && shared / union >= 0.5;
+    };
     if (core) {
       const kept = seenCores.get(core.key) || [];
-      const sameWork = kept.some((k) =>
-        !((k.doi && core.doi && k.doi !== core.doi) ||
-          (k.surname && core.surname && k.surname !== core.surname)));
-      if (sameWork) return false;
+      const sameWork = kept.find((k) => {
+        if (k.doi && core.doi && k.doi !== core.doi) return false;
+        if (k.surname && core.surname && k.surname !== core.surname) return false;
+        if (k.doi && core.doi && k.doi === core.doi) return true;
+        if (k.strongKeys && core.strongKeys && k.strongKeys.some((sk) => core.strongKeys.includes(sk))) return true;
+        if (k.fullTitle && myFullTitle && k.fullTitle === myFullTitle) return true;
+        if (k.surname && core.surname && k.surname === core.surname) return true;
+        if (abstractOverlapWith(k.abstractWords)) return true;
+        return false;
+      });
+      if (sameWork) {
+        auditDrop(p, sameWork.title, "core-identity");
+        return false;
+      }
+    }
+    // PREPRINT VERSION RULE (2026-10-23, logic audit L2-8): a
+    // preprint and its published version are one study, but they
+    // carry different DOIs by design and often different years,
+    // and the preprint record from some sources carries no
+    // abstract, which defeated the core rule (year differs), the
+    // twin rule (DOI conflict with a missing abstract is not a
+    // twin) and the title key rule (both sides identified, keys
+    // differ). Identity here is the identifier graph plus title
+    // shape together: identical normalized full titles, first
+    // author surnames present and equal on both sides, and
+    // exactly one side a preprint copy. The preprint copy is the
+    // one dropped; when it arrived first, mergeDroppedDuplicates
+    // plus the completeness choice (L2-15) replaces its fields
+    // with the published copy's, so the kept record is the
+    // published record in content either way.
+    {
+      const titleKeysV = keys.filter(k => k.startsWith('title:'));
+      const mySurnameV = firstAuthorSurname(p);
+      if (titleKeysV.length > 0 && mySurnameV) {
+        const myPreprint = paperIsPreprintCopy(p);
+        let versionKept = null;
+        for (const keptTwins of seenTwins.values()) {
+          for (const k of keptTwins) {
+            if (k.fullTitle && myFullTitle && k.fullTitle === myFullTitle
+              && k.surname && k.surname === mySurnameV
+              && !!k.preprint !== myPreprint) {
+              versionKept = k;
+              break;
+            }
+          }
+          if (versionKept) break;
+        }
+        if (versionKept) {
+          auditDrop(p, versionKept.title, "preprint-version");
+          return false;
+        }
+      }
     }
     // TITLE TWIN RULE (2026-10-14, fifth panel, Job 2d): the same
     // story carried by two outlets under the identical main title
@@ -1810,18 +1968,29 @@ export function dedupePapers(list) {
           const union = myWords.size + k.abstractWords.size - shared;
           return union > 0 && shared / union >= 0.5;
         };
-        const isTwin = keptTwins.some((k) => {
+        const twinMatch = keptTwins.find((k) => {
           if (k.surname && mySurname && k.surname !== mySurname) return false;
           if (k.doi && myDoi && k.doi !== myDoi) {
             // Differing DOIs on both sides: abstracts must prove it.
             if (!k.abstractWords || !myWords) return false;
             return abstractOverlap(k);
           }
-          if (!k.abstractWords || !myWords) return true; // a side lacks an abstract
+          if (!k.abstractWords || !myWords) {
+            // A side lacks an abstract (2026-10-23, L2-8): the
+            // missing abstract used to carry the merge on its own,
+            // which merged distinct same title papers whenever one
+            // record was thin. Positive evidence is required now:
+            // surnames present and equal on both sides. A missing
+            // surname no longer counts as a non conflict here.
+            return !!(k.surname && mySurname && k.surname === mySurname);
+          }
           if (myYear && k.year && myYear === k.year) return true;
           return abstractOverlap(k);
         });
-        if (isTwin) return false;
+        if (twinMatch) {
+          auditDrop(p, twinMatch.title, "title-twin");
+          return false;
+        }
       }
     }
     // For title keys: only dedupe if neither has strong IDs
@@ -1829,20 +1998,30 @@ export function dedupePapers(list) {
     const hasStrong = strongKeys.length > 0;
     for (const tk of titleKeys) {
       if (seenTitles.has(tk)) {
-        const prevHadStrong = seenTitles.get(tk);
+        const prev = seenTitles.get(tk);
+        const prevHadStrong = prev && typeof prev === "object" ? prev.hasStrong : !!prev;
         // If both have strong IDs but they didn't match above, they're different papers
         if (hasStrong && prevHadStrong) return true;  // Keep both
+        auditDrop(p, prev && typeof prev === "object" ? prev.title : "", "title-key");
         return false;  // Same title, at most one has ID = likely same paper
       }
     }
     // Record
-    for (const k of strongKeys) seenStrong.add(k);
+    for (const k of strongKeys) {
+      if (!seenStrong.has(k)) seenStrong.set(k, String((p && p.title) || ""));
+    }
     for (const tk of titleKeys) {
-      if (!seenTitles.has(tk)) seenTitles.set(tk, hasStrong);
+      if (!seenTitles.has(tk)) seenTitles.set(tk, { hasStrong, title: String((p && p.title) || "") });
     }
     if (core) {
       const kept = seenCores.get(core.key) || [];
-      kept.push({ doi: core.doi, surname: core.surname });
+      kept.push({
+        doi: core.doi, surname: core.surname,
+        title: String((p && p.title) || ""),
+        abstractWords: myAbstractWords,
+        fullTitle: myFullTitle,
+        strongKeys: core.strongKeys || [],
+      });
       seenCores.set(core.key, kept);
     }
     if (twinCore) {
@@ -1854,6 +2033,9 @@ export function dedupePapers(list) {
         year: yMatch ? yMatch[0] : null,
         abstractWords: abs ? claimWordSet(abs) : null,
         doi: core ? core.doi : null,
+        title: String((p && p.title) || ""),
+        fullTitle: myFullTitle,
+        preprint: paperIsPreprintCopy(p),
       });
       seenTwins.set(twinCore, keptTwins);
     }
@@ -1894,9 +2076,12 @@ function mergeDroppedDuplicates(list, kept) {
       strong: new Set(keys.filter((k) => !k.startsWith("title:"))),
       titles: new Set(keys.filter((k) => k.startsWith("title:"))),
       core: paperCoreIdentity(p || {}),
+      fullTitle: normalizePaperTitle((p && p.title) || ""),
+      surname: firstAuthorSurname(p || {}),
+      preprint: paperIsPreprintCopy(p || {}),
     };
   });
-  const sameWork = (idx, dKeys, dCore) => {
+  const sameWork = (idx, dKeys, dCore, dropped) => {
     const k = keptIndex[idx];
     for (const key of dKeys) {
       if (!key.startsWith("title:") && k.strong.has(key)) return true;
@@ -1904,6 +2089,16 @@ function mergeDroppedDuplicates(list, kept) {
     if (dCore && k.core && dCore.key === k.core.key &&
         !((k.core.doi && dCore.doi && k.core.doi !== dCore.doi) ||
           (k.core.surname && dCore.surname && k.core.surname !== dCore.surname))) return true;
+    // Preprint version arm (2026-10-23, L2-8): the pair the
+    // filter's version rule dropped must fold too, or the kept
+    // preprint copy would stay thin while its published version
+    // sits in the discarded pile.
+    if (dropped && k.fullTitle && k.surname) {
+      const dFull = normalizePaperTitle(dropped.title || "");
+      const dSurname = firstAuthorSurname(dropped);
+      if (dFull && dFull === k.fullTitle && dSurname && dSurname === k.surname
+        && paperIsPreprintCopy(dropped) !== k.preprint) return true;
+    }
     const dStrong = dKeys.some((key) => !key.startsWith("title:"));
     if (!dStrong || k.strong.size === 0) {
       for (const key of dKeys) {
@@ -1925,25 +2120,59 @@ function mergeDroppedDuplicates(list, kept) {
     const dCore = paperCoreIdentity(dropped);
     let target = null;
     for (let i = 0; i < kept.length; i++) {
-      if (sameWork(i, dKeys, dCore)) { target = kept[i]; break; }
+      if (sameWork(i, dKeys, dCore, dropped)) { target = kept[i]; break; }
     }
     if (!target) continue;
-    const dAbs = String(dropped.abstract || "");
-    if (dAbs.trim().length > String(target.abstract || "").trim().length) target.abstract = dropped.abstract;
-    if (!String(target.snippet || "").trim() && dropped.snippet) target.snippet = dropped.snippet;
-    if (!String(target.tldr || "").trim() && dropped.tldr) target.tldr = dropped.tldr;
+    // Kept copy by completeness (2026-10-23, logic audit L2-15):
+    // the fold below only ever upgrades fields the kept copy
+    // lacks, so a field the first arrival carries wrongly (a
+    // sparse journal, a landing page URL, a wrong year) used to
+    // win over a correct richer copy forever. When the dropped
+    // copy is the more complete record (paperCompleteness:
+    // abstract, citations, identifiers, DOI URL), it becomes the
+    // kept record in place: the kept object takes the dropped
+    // copy's fields wholesale, lane tags the dropped copy lacks
+    // are preserved, and the old kept fields fold back in as the
+    // upgrade source. Which source's copy was kept is logged in
+    // the dedupe audit (keptSource) and stamped on the record.
+    let fold = dropped;
+    if (paperCompleteness(dropped) > paperCompleteness(target)) {
+      const old = { ...target };
+      for (const k of Object.keys(target)) {
+        if (!(k in dropped)) delete target[k];
+      }
+      Object.assign(target, dropped);
+      if (old._foundationalLane && !target._foundationalLane) target._foundationalLane = true;
+      if (old._nlNet && !target._nlNet) target._nlNet = true;
+      target._keptSource = dropped._fromSource || null;
+      if (lastDedupeAudit.length < 100) {
+        lastDedupeAudit.push({
+          dropped: String(old.title || "").slice(0, 120),
+          kept: String(target.title || "").slice(0, 120),
+          signal: "kept-copy-completeness",
+          keptSource: dropped._fromSource || null,
+        });
+      }
+      fold = old;
+    } else if (target._keptSource === undefined) {
+      target._keptSource = target._fromSource || null;
+    }
+    const dAbs = String(fold.abstract || "");
+    if (dAbs.trim().length > String(target.abstract || "").trim().length) target.abstract = fold.abstract;
+    if (!String(target.snippet || "").trim() && fold.snippet) target.snippet = fold.snippet;
+    if (!String(target.tldr || "").trim() && fold.tldr) target.tldr = fold.tldr;
     const tc = citationValue(target);
-    const dc = citationValue(dropped);
+    const dc = citationValue(fold);
     if (dc !== null && (tc === null || dc > tc)) {
       target.citations = dc;
       target.citedByCount = dc;
       target.citationCount = dc;
     }
-    if (!/(?:19|20)\d{2}/.test(String(target.year || "")) && /(?:19|20)\d{2}/.test(String(dropped.year || ""))) target.year = dropped.year;
+    if (!/(?:19|20)\d{2}/.test(String(target.year || "")) && /(?:19|20)\d{2}/.test(String(fold.year || ""))) target.year = fold.year;
     for (const f of ["authors", "_allAuthors", "journal", "doi", "url", "pmcid"]) {
-      if (!String(target[f] || "").trim() && dropped[f]) target[f] = dropped[f];
+      if (!String(target[f] || "").trim() && fold[f]) target[f] = fold[f];
     }
-    if (dropped._foundationalLane && !target._foundationalLane) target._foundationalLane = true;
+    if (fold._foundationalLane && !target._foundationalLane) target._foundationalLane = true;
   }
 }
 
@@ -2581,7 +2810,19 @@ export function isNonLiterature(p) {
 // citable count instead of raw arrivals; and draft repair
 // (bold formatting, citation retry on the request budget)
 // changes which drafted answers ship for cached questions.
-const CACHE_SCHEMA_VERSION = "v54";
+// v55 (2026-10-23, logic audit repair wave 3, stage 2):
+// rungs are built from the question's parsed constraint slots;
+// Europe PMC loses its server side language filter; the PMC
+// full text and arXiv sent forms are rebuilt into forms those
+// sources can match; effectiveness questions gain a review and
+// meta analysis leg, any floor unmet question gains a citation
+// ordered leg and a shifted form requery; dedupe judges
+// identity on identifier graphs with positive evidence and
+// keeps the most complete copy; author matching is per
+// individual with PubMed in the branch; and late additions
+// route through one admission unit, so gathered pools, shelves
+// and cited sets change for cached questions.
+const CACHE_SCHEMA_VERSION = "v55";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
@@ -7083,11 +7324,18 @@ export async function europePMC(query, limit = 8, ledger = null, opts = {}) {
   // when the current rows are empty; a failed fallback call keeps the rows
   // already in hand instead of losing them to the outer catch.
   const runSearch = async (qs) => {
-    // 2026-10-05: prefer English. Europe PMC's LANG field filters to
-    // English-language records server-side.
-    const langQs = qs.includes("LANG:") ? qs : `(${qs}) AND LANG:eng`;
+    // No server side language filter (2026-10-23, logic audit
+    // L2-14): this leg used to append a LANG eng clause to every query,
+    // the same class of filter the OpenAlex leg removed in 2026-10
+    // for silently deleting exactly on topic papers whose language
+    // metadata is missing. The reasoning applies here unchanged:
+    // a record with missing or incomplete language indexing is
+    // unreachable through a server side filter and its removal is
+    // invisible in the funnel, while the post fetch language
+    // screen downstream counts what it removes. The query ships
+    // as the caller built it.
     const params = {
-      query: langQs,
+      query: qs,
       resultType: "core",
       pageSize: String(limit),
       format: "json",
@@ -7106,6 +7354,12 @@ export async function europePMC(query, limit = 8, ledger = null, opts = {}) {
     // was 2026 papers with zero citations, while sort=CITED desc
     // returned the 2012 founding paper first with 11,954).
     if (opts && typeof opts.sort === "string" && opts.sort) params.sort = opts.sort;
+    // Page shifting (2026-10-23, L2-5): Europe PMC paginates by
+    // cursor mark. A caller working past the first page (the
+    // shifted form requery in the gather) passes the cursor it
+    // was handed; the first page's response carries it as
+    // nextCursorMark, read by the caller off the raw rows.
+    if (opts && typeof opts.cursorMark === "string" && opts.cursorMark) params.cursorMark = opts.cursorMark;
     const url =
       "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
       new URLSearchParams(params);
@@ -7157,8 +7411,10 @@ export async function europePMC(query, limit = 8, ledger = null, opts = {}) {
         // trusting this source blindly just because it's usually clean.
         _rawType: (r.pubTypeList && Array.isArray(r.pubTypeList.pubType) ? r.pubTypeList.pubType.join(",") : "") || r.pubType || "",
       }));
-  } catch {
-    return [];
+  } catch (e) {
+    // Marked failure (2026-10-23, L2-1): a swallowed error must
+    // never read as a source that answered with zero.
+    return fetchFailed(e);
   }
 }
 
@@ -7200,6 +7456,11 @@ function parsePubmedXML(xmlText) {
       year,
       citations: null,
       authors,
+      // Full author list (2026-10-23, L2-13): the author branch
+      // matches per individual author, which the truncated
+      // display field cannot support. Every name efetch returned
+      // rides here, the same field the other fetchers set.
+      _allAuthors: names.join(", "),
       journal: journal || "",
       abstract,
       pmid,
@@ -7323,8 +7584,8 @@ export async function pubmed(query, limit = 10, apiKey = "", ledger = null, opts
       }
     }
     return merged;
-  } catch {
-    return [];
+  } catch (e) {
+    return fetchFailed(e);
   }
 }
 
@@ -9537,7 +9798,7 @@ async function europePMCPreprintAuthor(fullName, limit = 15, ledger = null) {
         isPreprint: true,
       };
     });
-  } catch { return []; }
+  } catch (e) { return fetchFailed(e); }
 }
 
 async function preprintServerAuthor(server, fullName, ledger = null) {
@@ -9589,8 +9850,8 @@ async function preprintServerAuthor(server, fullName, ledger = null) {
       journal: server === "biorxiv" ? "bioRxiv (preprint)" : "medRxiv (preprint)",
       abstract: it.abstract || "",
     }));
-  } catch {
-    return [];
+  } catch (e) {
+    return fetchFailed(e);
   }
 }
 
@@ -9632,7 +9893,7 @@ async function genericWebSearch(query, ledger = null) {
   }
 }
 
-async function openAlex(query, limit = 10, key = "", ledger = null, opts = {}) {
+export async function openAlex(query, limit = 10, key = "", ledger = null, opts = {}) {
   try {
 
 
@@ -9646,7 +9907,14 @@ async function openAlex(query, limit = 10, key = "", ledger = null, opts = {}) {
       // A dataset deposit, a component record, a book chapter etc. never
       // matches either arm and is dropped server-side before it costs us a
       // slot in `limit`.
-      filter: "type:article|preprint",
+      // Type filter (2026-10-23, logic audit L2-7): the default
+      // excludes the OpenAlex review type, which silently removed
+      // systematic reviews and meta analyses, the strongest
+      // evidence class, from the broadest source. The filter is
+      // now a caller decision: the effectiveness review leg passes
+      // opts.types "review" so reviews are fetched for those
+      // questions and their yield is reported as its own leg.
+      filter: "type:" + ((opts && typeof opts.types === "string" && opts.types) || "article|preprint"),
 // 2026-10-05: prefer English-language papers. OpenAlex's language filter
 // keeps results predominantly English; non-English papers from other
 // sources are demoted (not dropped) in post-fetch ranking.
@@ -9660,6 +9928,11 @@ async function openAlex(query, limit = 10, key = "", ledger = null, opts = {}) {
       // field's most cited first descriptions, and relevance
       // order demonstrably ranks recent reviews above them.
       sort: (opts && typeof opts.sort === "string" && opts.sort) || "relevance_score:desc",
+      // Page shifting (2026-10-23, L2-5): the shifted form
+      // requery asks for page 2, so a paper ranked thirteenth or
+      // lower on the first form's ordering can still enter the
+      // pool when the citable floor is unmet.
+      ...((opts && typeof opts.page === "number" && opts.page > 1) ? { page: String(opts.page) } : {}),
       per_page: String(limit),
       select:
         "title,doi,publication_year,cited_by_count,abstract_inverted_index,primary_location,authorships,ids,type",
@@ -9706,28 +9979,31 @@ async function openAlex(query, limit = 10, key = "", ledger = null, opts = {}) {
         };
       })
       .filter((p) => p.title);
-  } catch {
-    return [];
+  } catch (e) {
+    return fetchFailed(e);
   }
 }
 
-async function crossref(query, limit = 8, ledger = null) {
+async function crossref(query, limit = 8, ledger = null, opts = {}) {
   try {
+    // Type filter (2026-10-23, logic audit L2-7): the default stays
+    // journal articles only, for the reason the old comment gave
+    // (posted-content also covers conference abstracts, and
+    // preprints have dedicated fetchers). But the filter is now a
+    // caller decision, not a silent constant: the effectiveness
+    // review leg passes includePosted so posted content is FETCHED
+    // for those questions, counted in the leg's record, and judged
+    // by the same admission screen as everything else, instead of
+    // being deleted upstream where no record could see it.
+    const includePosted = !!(opts && opts.includePosted);
     const url =
       "https://api.crossref.org/works?" +
       new URLSearchParams({
         query,
         rows: String(limit),
-        // Crossref's `type` vocabulary doesn't have a literal "preprint"
-        // value . preprints deposited there are typed "posted-content", which
-        // also covers things like conference abstracts, so filtering it in
-        // here would let non-literature back in through the side door.
-        // Preprints are already covered by the dedicated `biorxiv()`/
-        // `medrxiv()` fetchers elsewhere in the ladder, so this fetcher is
-        // scoped to its strongest, unambiguous signal: real journal articles.
-        filter: "type:journal-article",
+        ...(includePosted ? {} : { filter: "type:journal-article" }),
         select:
-          "title,author,container-title,published,DOI,abstract,is-referenced-by-count,type",
+          "title,author,container-title,published,DOI,abstract,is-referenced-by-count,type,relation",
       }) +
       "&mailto=contact@askcerebrum.org";
     const data = await getJSON(url, {}, 4000, 1, ledger);
@@ -9760,10 +10036,20 @@ async function crossref(query, limit = 8, ledger = null) {
           : it["container-title"] || "Crossref",
         abstract: stripTags(it.abstract || ""),
         _rawType: it.type || "",
+        // Identifier graph edge (2026-10-23, L2-8): Crossref's
+        // is-preprint-of relation names the published version's
+        // DOI. Carried as preprintOf so paperDedupeKeys can yield
+        // it as a key and the preprint record intersects its
+        // published version on a registry asserted identifier.
+        preprintOf: (() => {
+          const rel = it.relation && it.relation["is-preprint-of"];
+          const first = Array.isArray(rel) ? rel[0] : null;
+          return (first && typeof first.id === "string" && /^10\.\d{4,9}\//.test(first.id)) ? first.id : "";
+        })(),
       }))
       .filter((p) => p.title);
-  } catch {
-    return [];
+  } catch (e) {
+    return fetchFailed(e);
   }
 }
 
@@ -9809,8 +10095,8 @@ async function arxiv(query, limit = 6, ledger = null) {
         };
       })
       .filter((p) => p.title);
-  } catch {
-    return [];
+  } catch (e) {
+    return fetchFailed(e);
   }
 }
 
@@ -9878,8 +10164,8 @@ export async function semanticScholar(query, limit = 8, apiKey = "", ledger = nu
           _rawType: Array.isArray(r.publicationTypes) ? r.publicationTypes.join(",") : "",
         };
       });
-  } catch {
-    return [];
+  } catch (e) {
+    return fetchFailed(e);
   }
 }
 
@@ -9909,8 +10195,8 @@ async function doaj(query, limit = 6, ledger = null) {
         };
       })
       .filter((p) => p.title);
-  } catch {
-    return [];
+  } catch (e) {
+    return fetchFailed(e);
   }
 }
 
@@ -9965,7 +10251,7 @@ async function preprintSearch(query, limit = 8, ledger = null) {
         isPreprint: true,
       };
     });
-  } catch { return []; }
+  } catch (e) { return fetchFailed(e); }
 }
 
 async function biorxiv(query, limit = 6, ledger = null) {
@@ -10004,8 +10290,8 @@ async function biorxiv(query, limit = 6, ledger = null) {
       });
     }
     return out;
-  } catch {
-    return [];
+  } catch (e) {
+    return fetchFailed(e);
   }
 }
 
@@ -10053,8 +10339,8 @@ async function plos(query, limit = 6, ledger = null) {
         ),
       }))
       .filter((p) => p.title);
-  } catch {
-    return [];
+  } catch (e) {
+    return fetchFailed(e);
   }
 }
 
@@ -10075,7 +10361,7 @@ async function coreSearch(query, limit = 8, ledger = null) {
       journal: r.publisher || "",
       abstract: stripTags((r.abstract || "").slice(0, 1500)),
     }));
-  } catch { return []; }
+  } catch (e) { return fetchFailed(e); }
 }
 
 async function baseSearch(query, limit = 8, ledger = null) {
@@ -10093,7 +10379,7 @@ async function baseSearch(query, limit = 8, ledger = null) {
       journal: Array.isArray(d.dcsource) ? d.dcsource[0] : (d.dcsource || ""),
       abstract: stripTags(Array.isArray(d.dcdescription) ? d.dcdescription.join(" ").slice(0,1500) : (d.dcdescription || "").slice(0,1500)),
     }));
-  } catch { return []; }
+  } catch (e) { return fetchFailed(e); }
 }
 
 async function pmcFullText(query, limit = 8, ledger = null) {
@@ -10101,7 +10387,11 @@ async function pmcFullText(query, limit = 8, ledger = null) {
     const url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
       // Commit 94 . see the note in europePMC(): "relevance" is not a
       // documented Europe PMC sort value and relevance is the default.
-      new URLSearchParams({ query: '(BODY:"' + query + '")', resultType: "core", pageSize: String(limit), format: "json" });
+      // Sent form (2026-10-23, L2-6): buildPmcFullTextQuery ANDs
+      // the topic's content words as individual BODY terms. The
+      // old form wrapped the whole string in one BODY phrase and
+      // returned zero in every audit probe run.
+      new URLSearchParams({ query: buildPmcFullTextQuery(query), resultType: "core", pageSize: String(limit), format: "json" });
     const data = await getJSON(url, {}, 6000, 1, ledger);
     return ((data && data.resultList && data.resultList.result) || []).filter((r) => r.title).map((r) => ({
       title: r.title || "Untitled",
@@ -10113,7 +10403,7 @@ async function pmcFullText(query, limit = 8, ledger = null) {
       journal: r.journalTitle || "",
       abstract: stripTags(r.abstractText),
     }));
-  } catch { return []; }
+  } catch (e) { return fetchFailed(e); }
 }
 
 async function openAire(query, limit = 8, ledger = null) {
@@ -10146,7 +10436,7 @@ async function openAire(query, limit = 8, ledger = null) {
         abstract: stripTags((typeof m.description === "string" ? m.description : (m.description?.["$"] || "")).slice(0,1500)),
       };
     }).filter((p) => p.title && p.title !== "Untitled");
-  } catch { return []; }
+  } catch (e) { return fetchFailed(e); }
 }
 
 
@@ -17613,6 +17903,405 @@ export function countOnTopicPapers(papers, query, dynLookup) {
   return n;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * WAVE 3 RETRIEVAL REPAIRS (2026-10-23, logic audit stage 2).
+ * The units below carry the stage 2 process repairs: constraint
+ * slot rungs (L2-4), shifted form requeries (L2-5), per source
+ * canaries and matchable query forms (L2-6), the effectiveness
+ * review leg's question test (L2-7), per author name matching
+ * (L2-13), the late addition admission unit (L2-9), fetcher error
+ * marking so a swallowed error can never read as an answered
+ * source (L2-1), and the gathered pool's age distribution
+ * (L2-12). Each is exported at the smallest unit carrying its
+ * decision, the same convention the wave 2 suite used.
+ * ══════════════════════════════════════════════════════════════ */
+
+/* A fetcher failure, marked on the empty list it returns
+ * (2026-10-23, L2-1). Every fetcher catches its own errors and
+ * returns an empty list, which the rung recorder used to read as
+ * a fulfilled zero: a dead, refused or rate limited source was
+ * recorded as a source that answered. The catch now returns this
+ * marked list instead. The mark is a property on the array, so
+ * every existing consumer that only reads papers is unaffected,
+ * while recordRungResults can tell an errored attempt from a
+ * genuine empty answer and record it as not answered. */
+export function fetchFailed(err) {
+  const out = [];
+  out.fetchError = String((err && err.message) || err || "fetch failed").slice(0, 120);
+  return out;
+}
+
+/* ── L2-4: rungs built from the question's parsed constraints ──
+ * The old rungs were slices of a specificity ranked word list, so
+ * the words that identify the needed papers on a dose question
+ * (the quantity, the duration) were exactly the words the ranking
+ * dropped, and scaffolding words held mandatory slots instead.
+ * parseQuestionConstraints reads the question's own stated
+ * constraints into slots: quantity (a number with a non time
+ * unit), duration (a number with a time unit, with its rate
+ * tail when stated, as in "six hours a night"), population (the
+ * organism the question names, plus stated demographic phrases),
+ * and the remaining topic words. buildConstraintRungs then makes
+ * the slot phrases mandatory in every rung and lets specificity
+ * order only the topic words inside the slots: loosening drops
+ * topic words, never a stated constraint. */
+const CONSTRAINT_NUMBER_WORDS = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
+  fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+  twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, ninety: 90,
+};
+const CONSTRAINT_TIME_UNITS = new Set([
+  "hour", "hours", "hr", "hrs", "minute", "minutes", "min", "mins",
+  "day", "days", "night", "nights", "week", "weeks", "month", "months",
+  "year", "years",
+]);
+const CONSTRAINT_POPULATION_PHRASES = [
+  "older adults", "young adults", "adults", "children", "infants", "babies",
+  "women", "men", "patients", "elderly", "students", "athletes", "workers",
+];
+
+export function parseQuestionConstraints(query) {
+  const q = String(query || "").toLowerCase();
+  const quantity = [];
+  const duration = [];
+  const seenSlot = new Set();
+  const pushSlot = (list, phrase) => {
+    const p = String(phrase || "").replace(/\s+/g, " ").trim();
+    if (p && !seenSlot.has(p)) { seenSlot.add(p); list.push(p); }
+  };
+  const numAlt = "(\\d+(?:\\.\\d+)?|" + Object.keys(CONSTRAINT_NUMBER_WORDS).join("|") + ")";
+  const measured = new RegExp(numAlt + "\\s*(hours?|hrs?|minutes?|mins?|days?|weeks?|months?|years?|mg|g|kg|ml|mcg|%|percent)(?:\\s+(a|per)\\s+(night|day|week))?", "g");
+  let m;
+  while ((m = measured.exec(q)) !== null) {
+    const unit = m[2].replace(/s$/, "");
+    const phrase = m[3] ? m[0].trim() : (m[1] + " " + m[2]).trim();
+    if (CONSTRAINT_TIME_UNITS.has(unit) || CONSTRAINT_TIME_UNITS.has(m[2])) pushSlot(duration, phrase);
+    else pushSlot(quantity, phrase);
+  }
+  // A bare duration with no unit on the number ("for two weeks"
+  // is caught above; "a fortnight" style phrasing is not a stated
+  // numeric constraint and is left to the topic words).
+  const population = [];
+  try {
+    const qa = analyzeQuery(query);
+    if (qa && qa.organism) pushSlot(population, String(qa.organism).toLowerCase());
+  } catch { /* organism is a bonus slot, never a requirement */ }
+  for (const phrase of CONSTRAINT_POPULATION_PHRASES) {
+    if (new RegExp("\\b" + phrase.replace(/ /g, "\\s+") + "\\b").test(q)) pushSlot(population, phrase);
+  }
+  return { quantity, duration, population };
+}
+
+export function buildConstraintRungs(query, ranked, opts = {}) {
+  const slots = parseQuestionConstraints(query);
+  const slotPhrases = [
+    ...slots.quantity,
+    ...slots.duration,
+    ...(opts && opts.skipPopulation ? [] : slots.population),
+  ];
+  if (slotPhrases.length === 0) return null;
+  const slotWords = new Set(slotPhrases.join(" ").split(/\s+/).filter(Boolean));
+  const topic = (Array.isArray(ranked) ? ranked : [])
+    .filter((t) => !slotWords.has(String(t).toLowerCase()));
+  const rungs = [];
+  const seen = new Set();
+  for (const n of [3, 2, 1, 0]) {
+    const rung = [...slotPhrases, ...topic.slice(0, n)];
+    const key = rung.join(" ");
+    if (rung.length > 0 && !seen.has(key)) { seen.add(key); rungs.push(rung); }
+  }
+  return rungs.length ? rungs : null;
+}
+
+/* ── L2-5: shifted forms for the requery when the floor is unmet ──
+ * A canonical paper can sit below every source's first page for
+ * the form that was sent. The shifted forms ask the same question
+ * in the shapes the literature also uses: number words as digits
+ * ("six hours" as "6 hours", "two weeks" as "14 days" through the
+ * week conversion), and the stated constraint phrases quoted as
+ * phrases ahead of the topic words. Page shifting rides the
+ * fetchers' own page and cursor options beside these forms. */
+export function shiftedQueryForms(query, ranked) {
+  const forms = [];
+  const seen = new Set();
+  const push = (f) => {
+    const s = String(f || "").replace(/\s+/g, " ").trim();
+    if (s && !seen.has(s.toLowerCase())) { seen.add(s.toLowerCase()); forms.push(s); }
+  };
+  const q = String(query || "");
+  // Digits form: number words become digits, and week counts
+  // become day counts, the two shapes indexes file dose and
+  // duration papers under interchangeably.
+  let digits = q.toLowerCase();
+  digits = digits.replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|twenty)\s+weeks?\b/g,
+    (whole, n) => String((CONSTRAINT_NUMBER_WORDS[n] || 0) * 7) + " days");
+  digits = digits.replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|ninety)\b/g,
+    (whole, n) => String(CONSTRAINT_NUMBER_WORDS[n] || whole));
+  if (digits !== q.toLowerCase()) push(digits);
+  // Quoted constraint form: the stated slots as exact phrases,
+  // then the top topic words unquoted.
+  const slots = parseQuestionConstraints(query);
+  const slotPhrases = [...slots.quantity, ...slots.duration];
+  if (slotPhrases.length > 0) {
+    const topic = (Array.isArray(ranked) ? ranked : []).slice(0, 3).join(" ");
+    push(slotPhrases.map((p) => '"' + p + '"').join(" ") + (topic ? " " + topic : ""));
+  }
+  return forms;
+}
+
+/* ── L2-6: per source canaries and matchable forms ──
+ * A source whose sent form structurally cannot match ordinary
+ * questions returns zero forever, indistinguishable in the record
+ * from a genuine no literature result. Each source therefore has
+ * a canary: an ordinary multiword question with known hits in
+ * that source, run through the source's own sent form. A source
+ * whose canary returns zero is failed in the canary record
+ * (SOURCE_CANARY_STATE) and labeled dead wherever the run record
+ * lists it, until a later canary returns a paper. The canary run
+ * itself is a probe action, never part of a user search: it is
+ * exported for the coordinator's probe batch and the test suite,
+ * and spends no user request budget. */
+export const SOURCE_CANARIES = {
+  europePMC: "chronic sleep restriction cognitive performance",
+  pubmed: "chronic sleep restriction cognitive performance",
+  openAlex: "honey wound healing systematic review",
+  crossref: "determination of manganese peroxidase activity",
+  arxiv: "transformer attention neural network",
+  semanticScholar: "honey wound healing systematic review",
+  doaj: "black soldier fly larvae waste",
+  biorxiv: "crispr cas9 gene editing",
+  plos: "black soldier fly larvae waste",
+  CORE: "climate change adaptation",
+  BASE: "climate change adaptation",
+  pmcFullText: "sleep restriction cognitive performance",
+  openAire: "climate change adaptation",
+  preprints: "crispr cas9 gene editing",
+};
+
+/* Canary state per source: { status: "unknown" | "ok" | "dead",
+ * count, query, at }. Module state, like the leg health registry:
+ * it describes this isolate's probe record, and a fresh isolate
+ * starts unknown rather than claiming either way. */
+export const SOURCE_CANARY_STATE = {};
+export function noteSourceCanaryResult(source, count, query) {
+  const n = typeof count === "number" && Number.isFinite(count) ? count : 0;
+  SOURCE_CANARY_STATE[source] = {
+    status: n > 0 ? "ok" : "dead",
+    count: n,
+    query: typeof query === "string" ? query : (SOURCE_CANARIES[source] || null),
+    at: Date.now(),
+  };
+  return SOURCE_CANARY_STATE[source];
+}
+export function deadSourcesFromCanaries() {
+  return Object.keys(SOURCE_CANARY_STATE)
+    .filter((s) => SOURCE_CANARY_STATE[s] && SOURCE_CANARY_STATE[s].status === "dead");
+}
+export async function runSourceCanaries(fetchersById) {
+  const out = {};
+  for (const [source, query] of Object.entries(SOURCE_CANARIES)) {
+    const fetcher = fetchersById && fetchersById[source];
+    if (typeof fetcher !== "function") { out[source] = { status: "unknown", count: 0, query }; continue; }
+    let rows = [];
+    try { rows = await fetcher(query); } catch { rows = []; }
+    const failed = Array.isArray(rows) && !!rows.fetchError;
+    const count = failed ? 0 : (Array.isArray(rows) ? rows.length : 0);
+    out[source] = noteSourceCanaryResult(source, count, query);
+    if (failed) out[source] = { ...out[source], status: "dead", errored: true };
+  }
+  return out;
+}
+
+/* The PMC full text sent form (L2-6): the old form wrapped the
+ * whole bare topic string in one quoted phrase against BODY, so
+ * only a full text containing that exact multiword sequence in
+ * that exact order could ever hit, and the source returned zero
+ * in all 34 audit probe runs. The matchable form ANDs the topic's
+ * content words as individual BODY terms, the shape Europe PMC's
+ * full text index actually answers. */
+export function buildPmcFullTextQuery(query) {
+  const words = String(query || "").toLowerCase()
+    .replace(/["()]/g, " ")
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+  const terms = [...new Set(words)].slice(0, 6);
+  if (terms.length === 0) return String(query || "");
+  if (terms.length === 1) return '(BODY:"' + terms[0] + '")';
+  return "(" + terms.map((t) => "BODY:" + t).join(" AND ") + ")";
+}
+
+/* The arXiv sent form (L2-6): the old form made every rung term
+ * its own ANDed all: clause with multiword terms unquoted, the
+ * strictest form arXiv offers, on questions whose relevant papers
+ * are not indexed by all the rung words. The matchable form
+ * quotes multiword terms as phrases, caps the ANDed terms at the
+ * four most specific, and keeps single words bare. */
+export function buildArxivQuery(terms) {
+  const list = (Array.isArray(terms) ? terms : [terms])
+    .map((t) => String(t || "").replace(/"/g, "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  if (list.length === 0) return "";
+  return list.map((t) => "all:" + (t.includes(" ") ? '"' + t + '"' : t)).join(" AND ");
+}
+
+/* ── L2-7: effectiveness questions ──
+ * A question asking whether something works, helps, heals or is
+ * safe is an effectiveness question: the evidence class it needs
+ * most is the systematic review and meta analysis class. The test
+ * is the clinical shape the fanout already computes, a treatment,
+ * prevention or safety research intent, or an auxiliary verb
+ * paired with an effectiveness verb in the question's own words. */
+export function isEffectivenessQuestion(query) {
+  const q = String(query || "");
+  if (isClinicalShapeQuery(q)) return true;
+  try {
+    const intents = classifyResearchIntent(q);
+    if (intents.some((i) => i && (i.key === "treatment" || i.key === "prevention" || i.key === "safety"))) return true;
+  } catch { /* the word test below still applies */ }
+  return /\b(does|do|can|could|should|will|would)\b[^.?!]*\b(help|heal|work|improve|treat|prevent|reduce|increase)\b/i.test(q)
+    || /\b(effective|effectiveness|efficacy|safe|safety)\b/i.test(q);
+}
+
+/* ── L2-13: author matching per individual author ──
+ * The old author filter ran the name's tokens over one
+ * concatenated author string, so a given name from one author and
+ * a surname from another satisfied the match and the paper was
+ * attributed to someone who did not write it. Matching is now per
+ * individual: the author list is split into individuals, and
+ * every token of the searched name must match inside ONE
+ * individual's name, with initial aware matching (a searched
+ * "john" matches an individual recorded as "Smith J", and a
+ * searched initial matches the full given name it abbreviates). */
+export function splitAuthorNames(authorField) {
+  const raw = Array.isArray(authorField)
+    ? authorField.map((a) => (a && typeof a === "object" ? (a.name || a.display_name || "") : String(a || ""))).join("; ")
+    : String(authorField || "");
+  const segments = raw
+    .replace(/\bet al\.?\b/gi, " ")
+    .split(/[;,]/)
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const out = [...segments];
+  // "Surname, Given" lists split into two single word segments;
+  // rejoin adjacent single word segments as one candidate
+  // individual so that format can still match its own name.
+  for (let i = 0; i + 1 < segments.length; i++) {
+    if (!segments[i].includes(" ") && !segments[i + 1].includes(" ")) {
+      out.push(segments[i] + " " + segments[i + 1]);
+    }
+  }
+  return out;
+}
+function authorTokenMatches(searchedToken, individualWords) {
+  const t = String(searchedToken || "").toLowerCase().replace(/[^a-z]/g, "");
+  if (!t) return false;
+  return individualWords.some((w) => {
+    if (w === t) return true;
+    if (t.length === 1 && w.startsWith(t)) return true;   // searched initial
+    if (w.length === 1 && t.startsWith(w)) return true;   // recorded initial
+    return false;
+  });
+}
+export function authorNameMatches(authorField, name) {
+  const tokens = String(name || "").toLowerCase().split(/[^a-z]+/).filter((t) => t.length > 0);
+  if (tokens.length === 0) return false;
+  const individuals = splitAuthorNames(authorField);
+  return individuals.some((individual) => {
+    const words = individual.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+    if (words.length === 0) return false;
+    return tokens.every((t) => authorTokenMatches(t, words));
+  });
+}
+
+/* ── L2-9: the late addition admission unit ──
+ * Every paper added after the gather (the handler's LLM rescue
+ * above all) enters through here, the same admission the gathered
+ * papers pass in processGathered: the retraction title screen,
+ * the non literature screen, dedupe against the shelf and within
+ * the additions themselves (dedupePapers, the identifier graph
+ * rules included), and a scoring judgment. Scoring for a late
+ * addition is the Wave 1 provenance settlement: no number is
+ * invented, the paper is stamped _unscored, and the citation
+ * gate's topicality standard judges it, the same standard half
+ * every scored paper must clear. A candidate that fails any step
+ * is NOT added and NOT counted as a found paper: it is returned
+ * in failures with its reason, and the caller records those as
+ * rescue failures. When the question yields no gate standard at
+ * all, topicality cannot be judged and the paper is admitted on
+ * the screens and dedupe alone, exactly the countOnTopicPapers
+ * fallback. */
+export function admitLatePapers(existing, candidates, query, dynLookup) {
+  const shelf = Array.isArray(existing) ? existing : [];
+  const list = Array.isArray(candidates) ? candidates : [];
+  const failures = [];
+  const screened = [];
+  for (const p of list) {
+    if (!p || typeof p !== "object" || !p.title) { failures.push({ title: "", reason: "no-title" }); continue; }
+    if (hasRetractedTitleMarker(p.title)) { failures.push({ title: String(p.title).slice(0, 120), reason: "retracted-title" }); continue; }
+    if (isNonLiterature(p)) { failures.push({ title: String(p.title).slice(0, 120), reason: "non-literature" }); continue; }
+    if (!paperDedupeKey(p)) { failures.push({ title: String(p.title).slice(0, 120), reason: "no-identifier" }); continue; }
+    screened.push({ ...p, title: stripTags(p.title || "") || "Untitled" });
+  }
+  // Dedupe the additions against the shelf and each other in one
+  // pass: a candidate that does not survive dedupePapers over the
+  // combined list was already on the shelf or duplicated by a
+  // sibling addition.
+  const combined = dedupePapers([...shelf, ...screened]);
+  const shelfSet = new Set(shelf);
+  const survivors = combined.filter((p) => !shelfSet.has(p));
+  const survivorSet = new Set(survivors);
+  for (const p of screened) {
+    if (!survivorSet.has(p)) failures.push({ title: String(p.title).slice(0, 120), reason: "duplicate" });
+  }
+  // Topicality judgment: the citation gate's own context, the
+  // same one countOnTopicPapers reads. A standard must exist for
+  // the judgment to bind; without one, admission stands on the
+  // screens and dedupe.
+  let ctx = null;
+  try { ctx = conceptGateContext([...shelf, ...survivors], query, dynLookup); } catch { ctx = null; }
+  const hasStandard = !!ctx && ((ctx.groups || []).length > 0
+    || (ctx.centralTerms || []).length > 0
+    || (Array.isArray(ctx.centralConcepts) && ctx.centralConcepts.length > 0)
+    || !!ctx.subjectGroup);
+  const admitted = [];
+  for (const p of survivors) {
+    if (hasStandard) {
+      let keeps = false;
+      try { keeps = conceptGateKeeps(p, 1, ctx); } catch { keeps = false; }
+      if (!keeps) { failures.push({ title: String(p.title).slice(0, 120), reason: "off-topic" }); continue; }
+    }
+    try { p._unscored = true; p._lateAdmission = true; } catch { /* tagging is best effort */ }
+    admitted.push(p);
+  }
+  return { admitted, failures };
+}
+
+/* ── L2-12: the gathered pool's age distribution ──
+ * Reported in the record so a pool with no paper older than five
+ * years on a mature topic reads as the retrieval gap it is,
+ * instead of looking like a full pool. Buckets by paper age in
+ * years against the current year: 0 to 2, 3 to 5, 6 to 10, 11 to
+ * 20, over 20, and unknown when no plausible year exists. */
+export function poolAgeDistribution(papers, nowYear) {
+  const y = typeof nowYear === "number" && Number.isFinite(nowYear) ? nowYear : new Date().getFullYear();
+  const out = { age0to2: 0, age3to5: 0, age6to10: 0, age11to20: 0, ageOver20: 0, unknown: 0, oldest: null, newest: null };
+  for (const p of Array.isArray(papers) ? papers : []) {
+    const year = plausibleRecordYear(p && p.year);
+    if (year === null || year > y + 1) { out.unknown++; continue; }
+    const age = y - year;
+    if (age <= 2) out.age0to2++;
+    else if (age <= 5) out.age3to5++;
+    else if (age <= 10) out.age6to10++;
+    else if (age <= 20) out.age11to20++;
+    else out.ageOver20++;
+    if (out.oldest === null || year < out.oldest) out.oldest = year;
+    if (out.newest === null || year > out.newest) out.newest = year;
+  }
+  return out;
+}
+
 /* ── WAVE SIXTEEN (2026-10-14, eighth panel, item 1): THE
  * SERVE SIDE SUBJECT TEST ───────────────────────────────────
  * The eighth panel's Search verdict: the honest no evidence
@@ -19578,6 +20267,18 @@ function recordDatabasesOf(raw) {
     // byte identical.
     const notSearched = Number(o.notSearched);
     if (Number.isFinite(notSearched) && notSearched > 0) entry.notSearched = Math.floor(notSearched);
+    // Yield and corpus (2026-10-23, logic audit L2-1): the count
+    // is named for what it counts, the papers this slot
+    // contributed across the run's attempts, and the corpus
+    // names the distinct database behind the slot, so a reader
+    // can tell fourteen slots from eleven databases. A source
+    // the canary record has failed is labeled dead here until a
+    // canary returns a paper for it.
+    entry.yield = entry.count;
+    const corpus = corpusOfSource(source);
+    if (corpus) entry.corpus = corpus;
+    const canary = SOURCE_CANARY_STATE[source];
+    if (canary && canary.status === "dead") entry.dead = true;
     out.push(entry);
   }
   return out.length ? out : null;
@@ -19687,9 +20388,27 @@ function recordFunnelOf(raw, diag, sourceCount) {
   })();
   const titleRescued = diag && diag.titleRescued && typeof diag.titleRescued.admitted === "number"
     ? n(diag.titleRescued.admitted) : null;
+  // The four counts, each named for what it counts (2026-10-23,
+  // logic audit L2-10): arrivals (every record every source
+  // returned, duplicates included), distinct (after dedupe),
+  // shelf (the scored papers the answer pipeline worked from),
+  // citable (the cited count this same record derives). The
+  // legacy keys stay for existing consumers; no sentence may
+  // read a narrower count under a broader name, and these are
+  // the names sentences must use.
+  const shelfCount = typeof f.ranked === "number" && Number.isFinite(f.ranked)
+    ? Math.min(n(f.ranked), gathered)
+    : Math.max(0, deduped - excludedWeak);
+  const counts = {
+    arrivals: gathered,
+    distinct: deduped,
+    shelf: shelfCount,
+    citable: cited,
+  };
   return {
     gathered, deduped, excludedWeak, excludedWeakTitles, excludedNonEnglish,
     excludedRetracted: n(f.excludedRetracted), cited,
+    counts,
     ...(foundationalLane ? { foundationalLane } : {}),
     ...(foundationalFates ? { foundationalFates } : {}),
     ...(foundationalNearMisses ? { foundationalNearMisses } : {}),
@@ -20198,6 +20917,10 @@ export function buildSearchRecord(input) {
     const recordFunnel = funnel && Array.isArray(sources)
       ? { ...funnel, cited: flags.filter(Boolean).length }
       : funnel;
+    // The named citable count follows the same flags (L2-10).
+    if (recordFunnel && recordFunnel.counts && Array.isArray(sources)) {
+      recordFunnel.counts = { ...recordFunnel.counts, citable: recordFunnel.cited };
+    }
     const recordSources = (sources || []).map((s, i) => {
       const entry = s && typeof s === "object" ? s : {};
       const title = String(entry.title || "").trim() || "Untitled";
@@ -20325,6 +21048,109 @@ export function buildSearchRecord(input) {
     // papers or the run fell to the honest no evidence state,
     // so the record can answer "why did a large pool ship no
     // answer" in named terms instead of silence.
+    // Retrieval detail (2026-10-23, logic audit stage 2): the
+    // stage 2 repairs ride the record additively, each field
+    // present only when the gather produced it. The coverage
+    // summary states the run's breadth in distinct corpora and
+    // measured yield, never fanout slots (L2-1); the dedupe
+    // audit names what merged and on which signal (L2-8); the
+    // pool age distribution makes a young pool on a mature
+    // topic visible (L2-12); the type filter record names the
+    // upstream filters in force and the post fetch screen's
+    // removals per source (L2-7); the leg records report the
+    // review, citation ordered and shifted form legs separately
+    // (L2-7, L2-12, L2-5); and rescue failures are recorded as
+    // failures, not found papers (L2-9).
+    let recordCoverageSummary = null;
+    try {
+      if (Array.isArray(databases) && databases.length > 0) {
+        const corpora = new Set(databases.map((d) => d.corpus || d.source));
+        recordCoverageSummary = {
+          slots: databases.length,
+          distinctCorpora: corpora.size,
+          answered: databases.filter((d) => d.ok).length,
+          notSearched: databases.filter((d) => d.notSearched > 0).map((d) => d.source).slice(0, 20),
+          deadSources: databases.filter((d) => d.dead).map((d) => d.source).slice(0, 20),
+          totalYield: databases.reduce((n2, d) => n2 + (typeof d.yield === "number" ? d.yield : 0), 0),
+        };
+      }
+    } catch { recordCoverageSummary = null; }
+    let recordDedupeAudit = null;
+    try {
+      const da = diag && diag.dedupeAudit;
+      if (Array.isArray(da) && da.length > 0) {
+        recordDedupeAudit = da.slice(0, 20).map((e) => ({
+          dropped: String((e && e.dropped) || "").slice(0, 120),
+          kept: String((e && e.kept) || "").slice(0, 120),
+          signal: String((e && e.signal) || "").slice(0, 40),
+          ...((e && e.keptSource) ? { keptSource: String(e.keptSource).slice(0, 40) } : {}),
+        })).filter((e) => e.dropped && e.signal);
+        if (recordDedupeAudit.length === 0) recordDedupeAudit = null;
+      }
+    } catch { recordDedupeAudit = null; }
+    let recordPoolAgeDistribution = null;
+    try {
+      const pa = diag && diag.poolAgeDistribution;
+      if (pa && typeof pa === "object") {
+        const nn = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
+        recordPoolAgeDistribution = {
+          age0to2: nn(pa.age0to2), age3to5: nn(pa.age3to5), age6to10: nn(pa.age6to10),
+          age11to20: nn(pa.age11to20), ageOver20: nn(pa.ageOver20), unknown: nn(pa.unknown),
+          oldest: typeof pa.oldest === "number" ? pa.oldest : null,
+          newest: typeof pa.newest === "number" ? pa.newest : null,
+        };
+      }
+    } catch { recordPoolAgeDistribution = null; }
+    let recordTypeFilters = null;
+    try {
+      const tf = diag && diag.typeFilters;
+      if (Array.isArray(tf) && tf.length > 0) {
+        const removals = recordFunnel && typeof recordFunnel === "object" && diag && diag.funnel && diag.funnel.typeRemovedBySource
+          ? diag.funnel.typeRemovedBySource : null;
+        recordTypeFilters = tf.slice(0, 8).map((e) => ({
+          source: String((e && e.source) || "").slice(0, 40),
+          filter: String((e && e.filter) || "").slice(0, 80),
+          ...(removals && typeof removals[(e && e.source)] === "number"
+            ? { screenRemoved: removals[e.source] } : {}),
+        })).filter((e) => e.source && e.filter);
+        if (recordTypeFilters.length === 0) recordTypeFilters = null;
+      }
+    } catch { recordTypeFilters = null; }
+    let recordRetrievalLegs = null;
+    try {
+      const legs = {};
+      if (diag && diag.reviewLeg && typeof diag.reviewLeg === "object") {
+        legs.reviewLeg = {
+          count: typeof diag.reviewLeg.count === "number" ? diag.reviewLeg.count : null,
+          bySource: diag.reviewLeg.bySource && typeof diag.reviewLeg.bySource === "object" ? diag.reviewLeg.bySource : null,
+          crossrefPosted: typeof diag.reviewLeg.crossrefPosted === "number" ? diag.reviewLeg.crossrefPosted : null,
+        };
+      }
+      if (diag && diag.citationLeg && typeof diag.citationLeg === "object") {
+        legs.citationLeg = { count: typeof diag.citationLeg.count === "number" ? diag.citationLeg.count : null };
+      }
+      if (diag && diag.shiftedRequery && typeof diag.shiftedRequery === "object") {
+        legs.shiftedRequery = {
+          forms: Array.isArray(diag.shiftedRequery.forms) ? diag.shiftedRequery.forms.slice(0, 2).map((f) => String(f).slice(0, 200)) : [],
+          count: typeof diag.shiftedRequery.count === "number" ? diag.shiftedRequery.count : null,
+        };
+      }
+      if (diag && diag.constraintSlots && typeof diag.constraintSlots === "object") {
+        legs.constraintSlots = {
+          quantity: Array.isArray(diag.constraintSlots.quantity) ? diag.constraintSlots.quantity.slice(0, 4) : [],
+          duration: Array.isArray(diag.constraintSlots.duration) ? diag.constraintSlots.duration.slice(0, 4) : [],
+          population: Array.isArray(diag.constraintSlots.population) ? diag.constraintSlots.population.slice(0, 4) : [],
+        };
+      }
+      if (diag && Array.isArray(diag.llmRescueFailures) && diag.llmRescueFailures.length > 0) {
+        legs.rescueFailures = diag.llmRescueFailures.slice(0, 10).map((f) => ({
+          title: String((f && f.title) || "").slice(0, 120),
+          reason: String((f && f.reason) || "").slice(0, 40),
+        }));
+      }
+      recordRetrievalLegs = Object.keys(legs).length > 0 ? legs : null;
+    } catch { recordRetrievalLegs = null; }
+
     let recordSubjectServe = null;
     try {
       const ss = input.subjectServe;
@@ -20373,6 +21199,11 @@ export function buildSearchRecord(input) {
       failedStages,
       sources: recordSources,
       ...(recordMinSupport ? { minSupport: recordMinSupport } : {}),
+      ...(recordCoverageSummary ? { coverageSummary: recordCoverageSummary } : {}),
+      ...(recordDedupeAudit ? { dedupeAudit: recordDedupeAudit } : {}),
+      ...(recordPoolAgeDistribution ? { poolAgeDistribution: recordPoolAgeDistribution } : {}),
+      ...(recordTypeFilters ? { typeFilters: recordTypeFilters } : {}),
+      ...(recordRetrievalLegs ? { retrievalLegs: recordRetrievalLegs } : {}),
       ...(recordGateAudit ? { gateAudit: recordGateAudit } : {}),
       ...(recordSubjectServe ? { subjectServe: recordSubjectServe } : {}),
       ...(recordFactCheckTrace ? { factCheckTrace: recordFactCheckTrace } : {}),
@@ -21211,22 +22042,47 @@ export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gated
   const failedCount = list.filter((s) => !s.ok).length;
   const whatWasTried = [];
   if (list.length > 0) {
-    whatWasTried.push(
-      "Searched " + list.length + " scientific databases" +
-      (failedCount > 0
-        ? " . " + (list.length - failedCount) + " answered, " + failedCount + " didn't respond."
-        : " . every one answered.")
-    );
+    // Breadth stated in distinct corpora and measured answers
+    // (2026-10-23, logic audit L2-1): the old line counted fanout
+    // slots as databases and claimed every one answered on runs
+    // where several had returned nothing or never been searched.
+    // Slots that share an endpoint share a corpus (corpusOfSource);
+    // an entry whose source is unknown to the canonical list
+    // counts as its own corpus rather than being dropped.
+    const corpora = new Set(list.map((s) => {
+      const id = String((s && (s.source || s.name)) || "");
+      return corpusOfSource(id) || corpusOfSource(id.replace(/\s+/g, "")) || id;
+    }).filter(Boolean));
+    const answeredCount = list.filter((s) => s.ok).length;
+    const notSearchedCount = list.filter((s) => !s.ok && typeof s.notSearched === "number" && s.notSearched > 0).length;
+    const silentCount = Math.max(0, failedCount - notSearchedCount);
+    let firstLine = "Searched " + list.length + " sources across " + corpora.size + " distinct databases . " +
+      answeredCount + " answered";
+    if (silentCount > 0) firstLine += ", " + silentCount + " didn't respond";
+    if (notSearchedCount > 0) firstLine += ", " + notSearchedCount + " not searched";
+    firstLine += ".";
+    whatWasTried.push(firstLine);
   } else {
     whatWasTried.push("Ran the full literature search across Cerebrum's scientific databases.");
   }
+  // What was tried, keyed to the run's own record (2026-10-23,
+  // logic audit L2-11): every line below is built from
+  // rungsTried, which retrievalStrategiesTried derives from the
+  // run's diag entries (executed rungs, named fallbacks, an
+  // expansion that returned queries). A strategy with no diag
+  // entry cannot be listed, and the unconditional expansion
+  // sentence this payload used to append, claiming a synonym and
+  // MeSH expansion ran on every run including runs whose gathered
+  // counts sat above every threshold that could fire one, is
+  // deleted. The strategies are enumerated as recorded, never
+  // summarized into a broader claim.
   const rungN = Array.isArray(rungsTried) ? rungsTried.length : 0;
   if (rungN > 1) {
-    whatWasTried.push("Tried " + rungN + " retrieval strategies, from exact-term matching through synonym-expanded and broadened queries.");
+    whatWasTried.push("Tried " + rungN + " retrieval strategies: " +
+      rungsTried.map((r) => String(r).slice(0, 120)).join("; ") + ".");
   } else if (rungN === 1 && rungsTried[0]) {
     whatWasTried.push("Tried: " + String(rungsTried[0]).slice(0, 120) + ".");
   }
-  whatWasTried.push("Expanded the question with scientific synonyms and indexed (MeSH) terms before concluding.");
   if (gatedOut > 0) {
     // RETRIEVAL STATE, NOT A LITERATURE VERDICT (2026-10-22,
     // logic audit L3-2): a zero citable outcome reports the
@@ -21259,6 +22115,15 @@ export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gated
       line = "Found " + gatedOut + " candidate paper" + (gatedOut === 1 ? "" : "s") + " but cited none: " +
         (gatedOut === 1 ? "it didn't" : "none did") + " clear the relevance bar for this question, and citing " +
         (gatedOut === 1 ? "it" : "them") + " would have been misleading.";
+      // Named counts (2026-10-23, L2-10): gatedOut here is the
+      // shelf remnant (shelf papers minus citable), not the
+      // number of papers the search found. When the run's
+      // distinct gathered total rides along and is larger, the
+      // sentence states it under its own name instead of letting
+      // the narrower count read as the search's whole yield.
+      if (typeof gatheredCount === "number" && gatheredCount > gatedOut) {
+        line = "Retrieval gathered " + gatheredCount + " distinct papers in total. " + line;
+      }
     }
     if (Array.isArray(gatedExamples) && gatedExamples.length > 0) {
       // L7-17 (2026-10-23): one title renderer for the closest list.
@@ -23811,7 +24676,6 @@ async function gatherPapersBody(rawQuery, opts) {
   if (isNameQuery) {
     _outerDiag.phase = "author_branch";
     const nameLower = effectiveName.toLowerCase();
-    const nameTokens = nameLower.split(/\s+/).filter((t) => t.length > 1);
     // Build a quoted-phrase query for the full name and also a broader OR of
     // first+last for sources that don't handle quoted phrases well.
     const quoted = '"' + effectiveName + '"';
@@ -23821,6 +24685,11 @@ async function gatherPapersBody(rawQuery, opts) {
     // dropping real matches . the strict filter was checking a truncated field).
     const results = await Promise.allSettled([
       europePMC(quoted, 25, ledger),                        // best full-text index for biomed
+      // PubMed (2026-10-23, L2-13): the principal biomedical
+      // author index was a fanout source for topic search but
+      // absent from the author branch, so a biomedical author's
+      // PubMed indexed work was never asked for here.
+      pubmed(effectiveName, 25, ncbiKey, ledger),
       openAlex(quoted, 25, openAlexKey, ledger),            // cross-disciplinary
       crossref(quoted, 15, ledger),                         // DOI-registered works
       arxiv(effectiveName, 15, ledger),                     // physics/CS/quantitative bio
@@ -23840,12 +24709,16 @@ async function gatherPapersBody(rawQuery, opts) {
       if (r.status !== "fulfilled") continue;
       for (const p of (r.value || [])) {
         // Check the FULL author list, not the truncated `authors` display.
-        const authorHay = (p._allAuthors || p.authors || "").toLowerCase();
+        const authorHay = p._allAuthors || p.authors || "";
         if (!authorHay) continue;
-        // Require every token of the searched name to appear somewhere in
-        // the paper's actual author string. This is the correct filter and
-        // works because we now capture the full author list.
-        const hit = nameTokens.every((t) => authorHay.includes(t));
+        // Per individual matching (2026-10-23, logic audit
+        // L2-13): every token of the searched name must match
+        // inside ONE individual's name, initial aware. The old
+        // test ran the tokens over the concatenated author
+        // string, so a given name from one author and a surname
+        // from another satisfied it and the paper was attributed
+        // to someone who did not write it.
+        const hit = authorNameMatches(authorHay, effectiveName);
         if (!hit) continue;
         funnel.gathered++;
         const titleKey = (p.title || "").toLowerCase().trim();
@@ -24275,12 +25148,25 @@ async function gatherPapersBody(rawQuery, opts) {
       else if (dropped) booleanQuery = dropped;
     }
   }
-  const arxivQuery = (terms) => terms.map((t) => "all:" + t).join(" AND ");
+  const arxivQuery = (terms) => buildArxivQuery(terms);
 
   // Progressive rungs, most-precise first.
   // If we detected an organism, prepend it to EVERY rung so the organism
   // is always part of the search, no matter how loose the topic terms get.
-  let rungs = [
+  // Constraint slot rungs (2026-10-23, logic audit L2-4): when the
+  // question states constraints (a quantity, a duration, a
+  // population), the rungs are built from those slots, with the
+  // stated phrases mandatory in every rung and specificity left
+  // to order only the topic words inside the slots. The old
+  // slices let the ranking drop the dose and the duration, the
+  // very words that identify the canonical papers, while
+  // scaffolding words held mandatory slots. The organism slot is
+  // skipped here because organismTerm is prepended to every rung
+  // just below, as before. Questions with no stated slot keep the
+  // specificity slices exactly.
+  const constraintRungs = buildConstraintRungs(rawQuery, ranked, { skipPopulation: !!organismTerm });
+  const constraintSlots = constraintRungs ? parseQuestionConstraints(rawQuery) : null;
+  let rungs = constraintRungs || [
     ranked.slice(0, 4),
     ranked.slice(0, 3),
     ranked.slice(0, 2),
@@ -24395,11 +25281,14 @@ async function gatherPapersBody(rawQuery, opts) {
         bareCommon = topicPhrase ? common + " " + topicPhrase : common;
       }
     }
-    // arXiv: prefix each term with "all:" and join with " AND "
+    // arXiv: the matchable form (2026-10-23, L2-6): phrases
+    // quoted, at most four ANDed all: terms (buildArxivQuery).
+    // The old form ANDed every rung term with multiword terms
+    // unquoted, a form almost no relevant paper can match.
     const arxTerms = orgQuoted
       ? [orgQuoted.replace(/"/g, ""), ...topicTerms]
       : terms;
-    const arx = arxTerms.map((t) => "all:" + t).join(" AND ");
+    const arx = buildArxivQuery(arxTerms);
 
     // PubMed is a NATURAL LANGUAGE fetcher in this fanout (wave
     // seven): it receives the unstemmed rung terms as plain text
@@ -24521,6 +25410,22 @@ async function gatherPapersBody(rawQuery, opts) {
     }
     const fundedByName = new Map();
     fundedPairs.forEach((p, i) => fundedByName.set(p.name, fundedResults[i]));
+    // Provenance stamp (2026-10-23, L2-15 and L2-7): every paper
+    // a funded pair returned carries the slot that fetched it, so
+    // the dedupe audit can log which source's copy was kept and
+    // the type filter record can count removals per source. The
+    // stamp is set only when absent: a paper object shared across
+    // rounds keeps its first fetcher.
+    for (const p of fundedPairs) {
+      const r = fundedByName.get(p.name);
+      if (r && r.status === "fulfilled" && Array.isArray(r.value)) {
+        for (const paper of r.value) {
+          try {
+            if (paper && typeof paper === "object" && !paper._fromSource) paper._fromSource = p.name;
+          } catch { /* the stamp is best effort */ }
+        }
+      }
+    }
     return pairs.map((p) => {
       if (fundedByName.has(p.name)) return fundedByName.get(p.name);
       return {
@@ -24550,6 +25455,23 @@ async function gatherPapersBody(rawQuery, opts) {
   _outerDiag.phase = "ladder_start";
   let results = [];
   const diag = { rungs: [], sourceOutcomes: null };
+  // The parsed constraint slots the rungs were built from
+  // (2026-10-23, L2-4), recorded so the record can show which
+  // stated constraints retrieval treated as mandatory.
+  if (constraintSlots) diag.constraintSlots = constraintSlots;
+  // The type filters in force for this run (2026-10-23, L2-7):
+  // the upstream filters are caller decisions now, and the run
+  // records which ones applied. Removal counts for the post fetch
+  // screen ride the funnel (typeRemovedBySource, stamped in
+  // processGathered); server side filters remove records before
+  // any response exists, so their record is the filter itself,
+  // named, never a silent constant.
+  diag.typeFilters = [
+    { source: "openAlex", filter: "type:article|preprint" },
+    { source: "crossref", filter: "type:journal-article" },
+    { source: "semanticScholar", filter: "publicationTypes:" + S2_LITERATURE_TYPES },
+    { source: "biorxiv", filter: "type:preprint" },
+  ];
   // The ledger's trim record rides the diag: which retrieval rounds
   // the subrequest budget cut on this gather, in cut order.
   if (budgetTrims.length || ledger) diag.budgetTrims = budgetTrims;
@@ -24679,13 +25601,24 @@ async function gatherPapersBody(rawQuery, opts) {
     // (notSearched: true) and the totals carry a notSearched count,
     // so the coverage record says the source was never asked
     // rather than that it answered with zero.
-    const perSource = rungResults.map((r, idx) => ({
-      source: rungNames[idx] || sourceNames[idx],
-      status: r.status,
-      notSearched: r.status === "not_searched",
-      count: r.status === "fulfilled" ? (r.value || []).length : 0,
-      error: r.status === "rejected" ? String(r.reason && r.reason.message || r.reason).slice(0, 120) : null,
-    }));
+    // Answered only on a real response (2026-10-23, L2-1): a
+    // fulfilled result carrying the fetchError mark (fetchFailed)
+    // is a fetcher that swallowed its own error, not a source
+    // that answered with zero. It records as status "error" with
+    // ok false, the same standing a rejected promise gets, so no
+    // surface downstream can count it as answered.
+    const perSource = rungResults.map((r, idx) => {
+      const fetchError = r.status === "fulfilled" && Array.isArray(r.value) && !!r.value.fetchError;
+      return {
+        source: rungNames[idx] || sourceNames[idx],
+        status: fetchError ? "error" : r.status,
+        notSearched: r.status === "not_searched",
+        count: r.status === "fulfilled" && !fetchError ? (r.value || []).length : 0,
+        error: r.status === "rejected"
+          ? String(r.reason && r.reason.message || r.reason).slice(0, 120)
+          : fetchError ? String(r.value.fetchError).slice(0, 120) : null,
+      };
+    });
     const got = perSource.reduce((n, x) => n + x.count, 0);
     diag.rungs.push(continuation ? { terms: rungs[i], got, perSource, continuation: true } : { terms: rungs[i], got, perSource });
     /* Accumulate across rungs rather than overwriting.
@@ -24923,6 +25856,10 @@ async function gatherPapersBody(rawQuery, opts) {
     // not the already-stripped `query`/`ranked` terms, since it matches on
     // multi-word phrases that term-splitting would have destroyed.
     const meshSyns = expandViaMesh(rawQuery).slice(0, 4);
+    // Recorded on the diag (2026-10-23, L2-11): the no results
+    // record may only claim a MeSH expansion ran when this entry
+    // exists, keyed to this execution.
+    if (meshSyns.length > 0) diag.meshTerms = meshSyns.slice();
     for (const syn of meshSyns) {
       const q = organismTerm ? organismTerm.replace(/"/g, "") + " " + syn : syn;
       expandedQueries.add(q.trim());
@@ -25482,7 +26419,20 @@ async function gatherPapersBody(rawQuery, opts) {
         // the answer as if it read it. See isNonLiterature() above for why
         // this single choke point exists independent of each fetcher's own
         // upstream type filter.
-        if (isNonLiterature(p)) { funnel.nonLiterature++; continue; }
+        if (isNonLiterature(p)) {
+          funnel.nonLiterature++;
+          // Removals counted per source (2026-10-23, L2-7): the
+          // post fetch screen's removals were one global count, so
+          // no record could say which source's records the type
+          // screen removed. The provenance stamp names the source;
+          // papers from the unlabelled fallback nets count under
+          // "unknown" rather than being assigned a source they did
+          // not come from.
+          const srcKey = p._fromSource || "unknown";
+          if (!funnel.typeRemovedBySource) funnel.typeRemovedBySource = {};
+          funnel.typeRemovedBySource[srcKey] = (funnel.typeRemovedBySource[srcKey] || 0) + 1;
+          continue;
+        }
         // Same title-sanitization gap as the author-query branch above .
         // see the comment there. Applied once here so every one of the
         // 15+ source fetchers is covered without touching each of them.
@@ -25495,6 +26445,13 @@ async function gatherPapersBody(rawQuery, opts) {
   const merged = dedupePapers(preDedupe);
   funnel.duplicates += preDedupe.length - merged.length;
   funnel.deduped = merged.length;
+  // The dedupe audit and the pool age distribution ride the diag
+  // (2026-10-23, L2-8 and L2-12): what merged and on which signal,
+  // and how old the distinct pool is, both computed over the
+  // merged pool this pass built. A continuation rebuild overwrites
+  // them, so the record describes the final pool.
+  try { diag.dedupeAudit = getLastDedupeAudit(); } catch { /* best effort */ }
+  try { diag.poolAgeDistribution = poolAgeDistribution(merged); } catch { /* best effort */ }
 
   // ============ RELEVANCE SCORING ============
   // Rebuilt from scratch. The old version had five compounding bugs that were
@@ -26999,12 +27956,138 @@ async function gatherPapersBody(rawQuery, opts) {
       funnel.ranked = 0;
       funnel.nonEnglishInner = 0;
       funnel.excludedRetracted = 0;
+      funnel.typeRemovedBySource = {};
       delete diag.floorRelaxed;
       gatheredOut = await processGathered(results);
       citableCount = countCitable(gatheredOut.papers);
     }
     if (nextRung > ladderRungsExecuted) {
       diag.ladderContinuation = { rungsRun: nextRung - ladderRungsExecuted, citable: citableCount };
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // FLOOR UNMET LEGS (2026-10-23, logic audit stage 2): when
+    // the ladder and its continuation still leave the citable
+    // floor unmet, three more retrieval legs run, each gated on
+    // the same citable count and each rebuilding the shelf before
+    // the next decision reads it. None of them is gated on raw
+    // arrivals (L2-3's rule, continued).
+    const rebuildShelfAfterLeg = async () => {
+      funnel.gathered = 0;
+      funnel.duplicates = 0;
+      funnel.nonLiterature = 0;
+      funnel.deduped = 0;
+      funnel.ranked = 0;
+      funnel.nonEnglishInner = 0;
+      funnel.excludedRetracted = 0;
+      funnel.typeRemovedBySource = {};
+      delete diag.floorRelaxed;
+      gatheredOut = await processGathered(results);
+      citableCount = countCitable(gatheredOut.papers);
+    };
+    const stampLegPapers = (settled, names) => {
+      (settled || []).forEach((r, i) => {
+        if (r && r.status === "fulfilled" && Array.isArray(r.value)) {
+          for (const p of r.value) {
+            try { if (p && typeof p === "object" && !p._fromSource) p._fromSource = names[i]; } catch { /* best effort */ }
+          }
+        }
+      });
+    };
+    const legCount = (settled) => (settled || []).reduce(
+      (n, r) => n + (r.status === "fulfilled" && Array.isArray(r.value) && !r.value.fetchError ? r.value.length : 0), 0);
+
+    // REVIEW LEG (L2-7): effectiveness questions get a dedicated
+    // review and meta analysis retrieval leg, because the default
+    // type filters excluded that evidence class upstream
+    // (OpenAlex type article|preprint drops the review type;
+    // Crossref type journal article drops posted content). The
+    // leg asks for the class by name: OpenAlex with the review
+    // type, Europe PMC by publication type, Semantic Scholar
+    // (whose allowlist already names Review and MetaAnalysis)
+    // and Crossref with posted content included, each on a
+    // review named query. Its yield is recorded separately in
+    // diag.reviewLeg, including how many Crossref posted content
+    // records it returned, the class that used to vanish
+    // silently before ranking.
+    if (citableCount < SHELF_FLOOR_MINIMUM && isEffectivenessQuestion(rawQuery) && _budgetLeft()
+      && roomOrTrim("review-leg", SUBREQUEST_RUNG_COST)) {
+      try {
+        const reviewTopic = (organismTerm ? organismTerm.replace(/"/g, "") + " " : "") + ranked.slice(0, 4).join(" ");
+        const reviewQ = (reviewTopic + " systematic review meta-analysis").trim();
+        const reviewResults = await Promise.allSettled([
+          openAlex(reviewQ, 10, openAlexKey, ledger, { types: "review" }),
+          europePMC("(" + surfaceQuery + ') AND (PUB_TYPE:"Systematic Review" OR PUB_TYPE:"Meta-Analysis")', 10, ledger),
+          semanticScholar(reviewQ, 8, s2Key, ledger),
+          crossref(reviewQ, 10, ledger, { includePosted: true }),
+        ]);
+        const reviewNames = ["openAlex", "europePMC", "semanticScholar", "crossref"];
+        stampLegPapers(reviewResults, reviewNames);
+        const crossrefPosted = (reviewResults[3] && reviewResults[3].status === "fulfilled" && Array.isArray(reviewResults[3].value))
+          ? reviewResults[3].value.filter((p) => String((p && p._rawType) || "") === "posted-content").length
+          : 0;
+        results = results.concat(reviewResults);
+        diag.reviewLeg = {
+          query: reviewQ,
+          count: legCount(reviewResults),
+          bySource: Object.fromEntries(reviewNames.map((name, i) => [name,
+            reviewResults[i] && reviewResults[i].status === "fulfilled" && Array.isArray(reviewResults[i].value) && !reviewResults[i].value.fetchError
+              ? reviewResults[i].value.length : 0])),
+          crossrefPosted,
+        };
+        await rebuildShelfAfterLeg();
+      } catch (cbErr) { console.error("[Cerebrum] search.js review leg:", cbErr); }
+    }
+
+    // CITATION ORDERED LEG (L2-12): the foundational lane's
+    // citation sorted retrieval used to fire only for mechanism,
+    // method and famous health shapes, so on every other question
+    // the field's most cited papers competed against source
+    // relevance order and a recency bonus with no leg working
+    // for them. Any question whose citable floor is still unmet
+    // now gets the same three citation sorted legs over its own
+    // surface query.
+    if (citableCount < SHELF_FLOOR_MINIMUM && _budgetLeft()
+      && roomOrTrim("citation-ordered-leg", SUBREQUEST_FOUNDATIONAL_LANE_COST)) {
+      try {
+        const citationResults = await Promise.allSettled([
+          europePMC(surfaceQuery, 12, ledger, { sort: "CITED desc" }),
+          openAlex(surfaceQuery, 12, openAlexKey, ledger, { sort: "cited_by_count:desc" }),
+          semanticScholar(surfaceQuery, 10, s2Key, ledger, { sort: "citationCount:desc" }),
+        ]);
+        stampLegPapers(citationResults, ["europePMC", "openAlex", "semanticScholar"]);
+        results = results.concat(citationResults);
+        diag.citationLeg = { count: legCount(citationResults) };
+        await rebuildShelfAfterLeg();
+      } catch (cbErr) { console.error("[Cerebrum] search.js citation leg:", cbErr); }
+    }
+
+    // SHIFTED FORM REQUERY (L2-5): the first page of each source
+    // in its own relevance order used to be the source's whole
+    // contribution, so a canonical paper ranked below the cap in
+    // every source could never enter the pool. When the floor is
+    // still unmet, retrieval requeries with shifted forms (number
+    // words as digits, durations converted, constraint phrases
+    // quoted) and pages OpenAlex past its first page. Known item
+    // regression coverage for this leg lives in the wave 3 suite:
+    // a named canonical paper must be inside the gathered pool
+    // the shifted forms produce.
+    if (citableCount < SHELF_FLOOR_MINIMUM && _budgetLeft()
+      && roomOrTrim("shifted-requery", SUBREQUEST_RUNG_COST)) {
+      try {
+        const forms = shiftedQueryForms(rawQuery, ranked);
+        if (forms.length > 0) {
+          const shiftedResults = await Promise.allSettled(forms.slice(0, 2).flatMap((form) => [
+            europePMC(form, 12, ledger),
+            openAlex(form, 12, openAlexKey, ledger, { page: 2 }),
+            semanticScholar(form, 10, s2Key, ledger),
+          ]));
+          stampLegPapers(shiftedResults, forms.slice(0, 2).flatMap(() => ["europePMC", "openAlex", "semanticScholar"]));
+          results = results.concat(shiftedResults);
+          diag.shiftedRequery = { forms, count: legCount(shiftedResults) };
+          await rebuildShelfAfterLeg();
+        }
+      } catch (cbErr) { console.error("[Cerebrum] search.js shifted requery:", cbErr); }
     }
   }
   // The retrieval budget record (2026-10-22, L2-2): the real
@@ -29235,14 +30318,26 @@ async function runSearchPipeline(pctx) {
         // speculative round . the primary retrieval already ran . so
         // it needs a full rung of headroom above the reserve.
         if (llmQueries.length > 0 && ledger.retrievalRoom(SUBREQUEST_RUNG_COST)) {
-          // Per query accounting (2026-10-23, L1-14): the
-          // rescue runs query by query so each generated
-          // query's yield is recorded against the concept it
-          // was audited as mapping to, instead of one merged
-          // pool with no provenance per query.
+          // Per query accounting (2026-10-23, L1-14) composed with
+          // the admission unit (2026-10-23, L2-9, completing the
+          // Wave 1 L3-5 provenance repair) at the Wave 3 landing:
+          // the rescue runs query by query so each generated
+          // query's yield is recorded against the concept it was
+          // audited as mapping to, and each query's candidates
+          // route through admitLatePapers, the same admission
+          // gathered papers pass: retraction and non literature
+          // screens, dedupe on the identifier graph against the
+          // shelf and each other, and the citation gate's
+          // topicality standard inside the unit. Candidates that
+          // fail admission are recorded as rescue failures, never
+          // as found papers: llmRescueAdded counts only admitted
+          // papers, and llmRescueFailures names the rest. Admitted
+          // papers carry the _unscored provenance stamp the unit
+          // applies (see paperIsUnscored and paperIsCitable).
           const queryAudits = Array.isArray(llmQueries.audits) ? llmQueries.audits : [];
-          const seenTitles = new Set((gResult.papers || []).map(p => (p.title || "").toLowerCase().trim()));
           const llmQueryYields = [];
+          const rescueFailures = [];
+          let rescueAddedTotal = 0;
           for (const q of llmQueries) {
             const perQuery = await Promise.allSettled([
               europePMC(q, 8, ledger).catch(() => []),
@@ -29250,42 +30345,33 @@ async function runSearchPipeline(pctx) {
               openAlex(q, 6, env.OPENALEX_KEY || "", ledger).catch(() => []),
             ]);
             let returned = 0;
-            let added = 0;
+            const candidates = [];
             for (const r of perQuery) {
               if (r.status !== "fulfilled" || !Array.isArray(r.value)) continue;
               returned += r.value.length;
               for (const p of r.value) {
-                const key = (p.title || "").toLowerCase().trim();
-                if (key && !seenTitles.has(key)) {
-                  seenTitles.add(key);
-                  added++;
-                  // Score provenance (2026-10-22, logic audit
-                  // L3-5): these records arrive after gatherPapers
-                  // has scored, carrying no relevance at all. The
-                  // old reading (no score means minus one, below
-                  // every floor) silently killed every one of
-                  // them at the citation gate while the diag
-                  // below recorded them as rescued. Stamp the
-                  // provenance instead: the paper enters the
-                  // pipeline explicitly unscored, and the gate
-                  // judges it on the citation standard alone
-                  // (see paperIsUnscored and paperIsCitable).
-                  try { p._unscored = true; } catch { /* tagging is best effort */ }
-                  gResult.papers.push(p);
-                }
+                try { if (p && typeof p === "object" && !p._fromSource) p._fromSource = "llmRescue"; } catch { /* best effort */ }
+                candidates.push(p);
               }
             }
+            const admission = admitLatePapers(gResult.papers || [], candidates, query, null);
+            for (const p of admission.admitted) gResult.papers.push(p);
+            rescueAddedTotal += admission.admitted.length;
+            for (const f of admission.failures) rescueFailures.push(f);
             const auditEntry = queryAudits.find((a) => a && a.query === q);
             llmQueryYields.push({
               query: q,
               concept: auditEntry ? auditEntry.concept : null,
               returned,
-              added,
+              added: admission.admitted.length,
             });
           }
           if (gResult._diag) gResult._diag.llmQueries = llmQueries;
           if (gResult._diag) gResult._diag.llmQueryYields = llmQueryYields;
-          if (gResult._diag) gResult._diag.llmRescueAdded = gResult.papers.length - mechPaperCount;
+          if (gResult._diag) gResult._diag.llmRescueAdded = rescueAddedTotal;
+          if (gResult._diag && rescueFailures.length > 0) {
+            gResult._diag.llmRescueFailures = rescueFailures.slice(0, 10);
+          }
         }
       }
     }
@@ -29353,7 +30439,7 @@ async function runSearchPipeline(pctx) {
 
       return new Response(JSON.stringify({
         answer:
-          `I searched Europe PMC (including its preprint index), OpenAlex, Crossref, arXiv, Semantic Scholar, bioRxiv, and medRxiv for papers authored by **${displayName}** and didn't find any that list them as an author.\n\n` +
+          `I searched Europe PMC (including its preprint index), PubMed, OpenAlex, Crossref, arXiv, Semantic Scholar, bioRxiv, and medRxiv for papers authored by **${displayName}** and didn't find any that list them as an author.\n\n` +
           `This usually means one of a few things:\n\n` +
           `- Their paper hasn't propagated to these indexes yet (aggregators can lag weeks to months behind actual publication).\n` +
           `- They publish under a slightly different form of their name (initials, middle name, hyphenation).\n` +
@@ -30164,6 +31250,14 @@ async function runSearchPipeline(pctx) {
                 if (r.status === "fulfilled" && Array.isArray(r.value)) {
                   for (const p of r.value) {
                     if (p && p.title) {
+                      // Admission screen (2026-10-23, L2-9): the
+                      // non literature screen every gathered paper
+                      // passes, applied here too. Dedupe and the
+                      // retraction screen already bound this
+                      // merge (dedupePapers below, and the title
+                      // screen after it); this was the one screen
+                      // a late addition could still skip.
+                      if (isNonLiterature(p)) continue;
                       p._contraAdjudicator = true;
                       p._contraDispute = cq.dispute;
                       // Score provenance (2026-10-22, logic

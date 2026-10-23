@@ -97,10 +97,13 @@ await test("assembles the full record from diag, funnel and sources", () => {
   assert.equal(rec.structuredQuery, FULL_INPUT.diag.structuredQuery);
   assert.deepEqual(rec.conceptQueries, FULL_INPUT.diag.conceptExpanded);
   assert.deepEqual(rec.llmExpansion, FULL_INPUT.diag.llmExpanded);
+  // Yield and corpus ride each entry (2026-10-23, L2-1): the
+  // count named for what it counts, and the distinct database
+  // behind the slot.
   assert.deepEqual(rec.databases, [
-    { source: "europePMC", ok: true, count: 40 },
-    { source: "pubmed", ok: true, count: 31 },
-    { source: "openAlex", ok: false, count: 0 },
+    { source: "europePMC", ok: true, count: 40, yield: 40, corpus: "Europe PMC" },
+    { source: "pubmed", ok: true, count: 31, yield: 31, corpus: "PubMed" },
+    { source: "openAlex", ok: false, count: 0, yield: 0, corpus: "OpenAlex" },
   ]);
   assert.equal(rec.synthesisModel, "groq:openai/gpt-oss-120b");
   assert.equal(rec.sources.length, 3);
@@ -120,6 +123,8 @@ await test("converts the internal diag funnel to the public shape", () => {
     excludedNonEnglish: 2,
     excludedRetracted: 0,
     cited: 2,
+    // The four counts named for what they count (2026-10-23, L2-10).
+    counts: { arrivals: 88, distinct: 61, shelf: 12, citable: 2 },
   });
 });
 
@@ -129,7 +134,7 @@ await test("accepts the public _funnel shape directly", () => {
     funnel: { gathered: 10, deduped: 8, excludedWeak: 3, excludedNonEnglish: 1, excludedRetracted: 0, cited: 2 },
     sources: [{ title: "A", year: 2020 }, { title: "B", year: 2022 }],
   });
-  assert.deepEqual(rec.funnel, { gathered: 10, deduped: 8, excludedWeak: 3, excludedWeakTitles: [], excludedNonEnglish: 1, excludedRetracted: 0, cited: 2 });
+  assert.deepEqual(rec.funnel, { gathered: 10, deduped: 8, excludedWeak: 3, excludedWeakTitles: [], excludedNonEnglish: 1, excludedRetracted: 0, cited: 2, counts: { arrivals: 10, distinct: 8, shelf: 5, citable: 2 } });
   assert.equal(rec.databases, null, "no outcome list means databases stay null, not invented");
 });
 

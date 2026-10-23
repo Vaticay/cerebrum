@@ -505,8 +505,8 @@ await test("the six handler checkpoints, the restore, the record normalization, 
   // side honesty wave. The v50 entry stays as history above.
   // PIN UPDATED (2026-10-15, wave seventeen): v52, the
   // citation depth wave. The v51 entry stays as history above.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v54";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v54");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v55";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v55");
   assert.ok(/\/\/ v49 \(2026-10-14, wave fourteen\)/.test(src),
     "the v49 chain entry is missing its dated reason");
 });

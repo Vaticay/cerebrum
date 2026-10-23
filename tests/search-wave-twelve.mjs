@@ -800,8 +800,8 @@ await test("CACHE_SCHEMA_VERSION is v49 with the wave fourteen chain entry, v47 
   // citation depth wave. The v51 entry stays as history below.
   // PIN UPDATED (2026-10-22, logic audit repair wave 1): v53,
   // the gate one standard wave.
-  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v54";'),
-    "CACHE_SCHEMA_VERSION was not bumped to v54");
+  assert.ok(src.includes('const CACHE_SCHEMA_VERSION = "v55";'),
+    "CACHE_SCHEMA_VERSION was not bumped to v55");
   assert.ok(/\/\/ v51 \(2026-10-14, wave sixteen\)/.test(src),
     "the v51 chain entry is missing its dated reason");
   assert.ok(/\/\/ v50 \(2026-10-14, wave fifteen\)/.test(src),
