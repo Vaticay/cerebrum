@@ -7613,9 +7613,16 @@ export async function pubmed(query, limit = 10, apiKey = "", ledger = null, opts
     // Fallback ladder: structured, then organism-focused. The
     // structured form is the pipeline's, passed as data
     // (2026-10-23, L1-17), never rebuilt here without dynLookup.
+    // PubMed never receives boolean text (wave seven contract,
+    // reaffirmed 2026-10-23 at the Wave 3 S3 landing): PubMed is
+    // a natural language fetcher in this fanout, and the boolean
+    // form's fragments returned zero from its index on seven of
+    // seven panel probes. A boolean structured form is skipped
+    // here and in the off topic fallback below; the organism
+    // form still runs.
     if (!ids.length) {
       const structured = fetcherStructuredFallback(query, opts);
-      if (structured && structured !== query) {
+      if (structured && structured !== query && !/\b(AND|OR)\b/.test(structured)) {
         const es2 = await getJSON(esUrl(structured), {}, 4000, 1, ledger).catch(() => null);
         ids = (es2 && es2.esearchresult && es2.esearchresult.idlist) || [];
       }
@@ -7695,7 +7702,8 @@ export async function pubmed(query, limit = 10, apiKey = "", ledger = null, opts
           }
         } catch { /* keep the papers already in hand */ }
       };
-      await tryFallbackForm(fetcherStructuredFallback(query, opts));
+      const structuredForm = fetcherStructuredFallback(query, opts);
+      await tryFallbackForm(/\b(AND|OR)\b/.test(structuredForm || "") ? null : structuredForm);
       if (fetcherRowsNeedFallback(merged, query)) {
         const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
         if (hasOrganism) {
