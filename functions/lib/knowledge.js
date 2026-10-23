@@ -699,6 +699,87 @@ const _MESH_MAX_WORDS = (() => {
   return Math.min(max, 6); // sane ceiling regardless of what's in the table
 })();
 
+// ── MeSH relations and sense conditions (2026-10-23, logic audit
+// L1-13) ────────────────────────────────────────────────────────
+// The table above was read as if every entry were a synonym of
+// its key, in whatever sense the key's words appear. Neither
+// half is true. Some entries are narrower terms (carcinoma is
+// only the epithelial subset of cancer), some are related terms
+// (hyperglycemia is a sign of diabetes, insulin resistance a
+// mechanism beside it, neither is diabetes), and some keys are
+// polysemous single words whose expansion belongs to one sense
+// only ("stroke" the cerebrovascular event, not "heat stroke"
+// the heat illness). The annotations below name the relation
+// per entry where it is not a plain synonym, and the sense
+// conditions a polysemous single word key must pass before it
+// may fire at all. expandViaMeshTyped is the annotated read;
+// expandViaMesh keeps its flat shape for existing callers, with
+// the sense conditions applied inside it, so a blocked sense
+// never expands on any path.
+export const MESH_ENTRY_RELATIONS = {
+  diabetes: { "diabetes mellitus": "synonym", "hyperglycemia": "related", "insulin resistance": "related" },
+  "sugar disease": { "diabetes mellitus": "synonym", "type 2 diabetes": "narrower", "hyperglycemia": "related" },
+  cancer: { "neoplasm": "synonym", "malignancy": "related", "carcinoma": "narrower", "tumor": "related" },
+  stroke: { "cerebrovascular accident": "synonym", "cerebral infarction": "narrower", "ischemic stroke": "narrower", "cva": "synonym" },
+};
+
+// Polysemous single word keys: the key may fire only when the
+// question is not already speaking the rival sense. A rival
+// context present in the question blocks the expansion outright;
+// that is the whole rule, because the standalone medical use
+// ("stroke symptoms", "what is a stroke") is the sense this
+// table exists for, while "heat stroke" never is.
+export const MESH_SENSE_CONDITIONS = {
+  stroke: { blockedBy: ["heat stroke", "heatstroke", "sunstroke"] },
+};
+
+function meshSenseBlocked(key, words) {
+  const cond = MESH_SENSE_CONDITIONS[key];
+  if (!cond) return false;
+  const joined = words.join(" ");
+  return (cond.blockedBy || []).some((b) => joined.includes(b));
+}
+
+export function meshRelationFor(key, term) {
+  const rels = MESH_ENTRY_RELATIONS[String(key || "").toLowerCase()];
+  if (rels) {
+    const r = rels[String(term || "").toLowerCase()];
+    if (r) return r;
+  }
+  return "synonym";
+}
+
+// The annotated expansion: [{ term, key, relation }] in the
+// same discovery order expandViaMesh returns its flat terms.
+// Fallback queries built from related or narrower entries are
+// labeled by this relation, so their papers can be held to the
+// question's own concept standard instead of inheriting the
+// key's authority (2026-10-23, L1-13).
+export function expandViaMeshTyped(rawQuery) {
+  const q = (rawQuery || "").toLowerCase();
+  if (!q) return [];
+  const words = q.replace(/[^\p{L}\p{N}\s\-']/gu, " ").split(/\s+/).filter(Boolean).slice(0, 1000);
+  if (!words.length) return [];
+  const out = [];
+  const seen = new Set();
+  for (let n = Math.min(_MESH_MAX_WORDS, words.length); n >= 1; n--) {
+    for (let i = 0; i + n <= words.length; i++) {
+      const gram = words.slice(i, i + n).join(" ");
+      const syns = _MESH_MERGED.get(gram);
+      if (!syns) continue;
+      if (n === 1 && meshSenseBlocked(gram, words)) continue;
+      for (const s of syns) {
+        const k = String(s).toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ term: s, key: gram, relation: meshRelationFor(gram, s) });
+      }
+    }
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
 export function expandViaMesh(rawQuery) {
   const q = (rawQuery || "").toLowerCase();
   if (!q) return [];
@@ -721,6 +802,10 @@ export function expandViaMesh(rawQuery) {
     for (let i = 0; i + n <= words.length; i++) {
       const gram = words.slice(i, i + n).join(" ");
       const syns = _MESH_MERGED.get(gram);
+      // Sense conditions (2026-10-23, L1-13): a polysemous
+      // single word key does not fire inside its rival sense,
+      // so "heat stroke" collects no cerebrovascular terms.
+      if (syns && n === 1 && meshSenseBlocked(gram, words)) continue;
       if (syns) for (const s of syns) out.add(s);
     }
     if (out.size >= 12) break; // caller (search.js) only ever uses the first 4

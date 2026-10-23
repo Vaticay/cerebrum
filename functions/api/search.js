@@ -12,6 +12,7 @@ import { contextAction, answerFromContext } from "../lib/conversation.js";
 // of how search.js fetches/merges/ranks.
 import {
   expandViaMesh,
+  expandViaMeshTyped,
   classifyStudyType,
   scoreJournalTier,
   predatoryPenalty,
@@ -3545,13 +3546,27 @@ function preprocessQuery(raw) {
   // Scientific paraphrase: rewrite natural-language concepts into proper
   // search terminology. "turning air into ethanol" should search for
   // "CO2 ethanol conversion", not "air ethanol".
+  //
+  // Contested rewrites dropped as a class (2026-10-23, logic
+  // audit L1-12): a substitution that presupposes the answer to
+  // the question being asked, or equates the asked concept with
+  // a narrower one, is not a paraphrase. The cure entries are
+  // gone entirely (a cure is not any treatment or therapy, and
+  // a question asking whether one exists must not be searched
+  // as if it does), "global warming" no longer acquires
+  // "anthropogenic" (the cause a question may be asking
+  // about), the safety rewrite no longer equates safety with
+  // toxicity, and "how is X made" no longer presupposes a
+  // biological origin. What stands are terminology equivalents,
+  // and the canonical representation (canonicalQueryForms
+  // below) keeps the original text beside them: retrieval,
+  // analysis, and gating all derive from that one
+  // representation, never from three different texts.
   const PARAPHRASES = [
     [/turning\s+air\s+into/gi, "CO2 conversion to"],
     [/air\s+(?:to|into)\s+(ethanol|fuel|methanol|plastic)/gi, "CO2 conversion to $1"],
     [/(ethanol|fuel|methanol)\s+from\s+air/gi, "$1 from CO2 atmospheric carbon capture"],
-    [/cure\s+(?:for\s+)?cancer/gi, "cancer treatment therapy"],
-    [/cure\s+(?:for\s+)?alzheimer/gi, "Alzheimer disease treatment therapy"],
-    [/global\s+warming/gi, "climate change anthropogenic warming"],
+    [/global\s+warming/gi, "climate change"],
     [/how\s+(?:does|do)\s+(.+?)\s+work/gi, "$1 mechanism"],
     [/what\s+causes?\s+(.+?)(?:\?|$)/gi, "$1 etiology mechanism cause"],
     // Plant biology
@@ -3561,15 +3576,12 @@ function preprocessQuery(raw) {
     [/(?:go|went)\s+extinct/gi, "extinction cause"],
     [/why\s+(?:do|did)\s+dinosaurs?\s+(?:go|die)/gi, "dinosaur extinction Cretaceous-Paleogene"],
     // Medicine / disease
-    [/cure\s+(?:for\s+)?diabetes/gi, "diabetes treatment therapy glycemic control"],
-    [/cure\s+(?:for\s+)?parkinson/gi, "Parkinson disease treatment therapy neuroprotection"],
-    [/cure\s+(?:for\s+)?depression/gi, "major depressive disorder treatment antidepressant therapy"],
-    [/side\s+effects?\s+of\s+(.+?)(?:\?|$)/gi, "$1 adverse effects toxicity safety"],
-    [/is\s+(.+?)\s+safe/gi, "$1 safety toxicity adverse effects"],
+    [/side\s+effects?\s+of\s+(.+?)(?:\?|$)/gi, "$1 adverse effects safety"],
+    [/is\s+(.+?)\s+safe/gi, "$1 safety adverse effects"],
     // Nutrition / biochemistry
     [/(?:good|bad)\s+(?:for\s+)?(?:your?\s+)?health/gi, "health effects benefits risks"],
     [/what\s+(?:does|do)\s+(.+?)\s+do\s+(?:to|in|for)\s+(?:the\s+)?body/gi, "$1 physiological effects mechanism of action"],
-    [/how\s+is\s+(.+?)\s+made/gi, "$1 biosynthesis production pathway"],
+    [/how\s+is\s+(.+?)\s+made/gi, "$1 production synthesis"],
     // Genetics
     [/gene\s+for\s+(.+?)(?:\?|$)/gi, "$1 genetic basis gene locus"],
     [/is\s+(.+?)\s+(?:hereditary|genetic|inherited)/gi, "$1 heritability genetic predisposition inheritance"],
@@ -3589,6 +3601,30 @@ function preprocessQuery(raw) {
     q = q.replace(re, repl);
   }
   return q.trim();
+}
+
+// The one canonical query representation (2026-10-23, L1-12).
+// Before this, retrieval searched the paraphrase rewritten
+// text, analysis ran on the spelling corrected text only, and
+// the handler's intent and gate consumers ran on the raw text:
+// three different texts of one question, so a failure could
+// not be attributed to any one of them. Every form below is
+// computed here, once, from the same preprocessed text, and
+// the consumers take their form from this object: retrieval
+// the cleaned and surface forms, analysis the preprocessed
+// form (analyzeQuery calls this), gating the question as
+// asked beside them. The paraphrase forms are declared on the
+// object (paraphrased) rather than silently replacing the
+// original, which stays on the object as original.
+export function canonicalQueryForms(raw) {
+  const original = String(raw || "").trim();
+  const paraphrased = preprocessQuery(original);
+  return {
+    original,
+    paraphrased,
+    cleaned: cleanQuery(paraphrased),
+    surface: cleanSurfaceQuery(paraphrased),
+  };
 }
 
 const GENERIC_SCIENCE_WORDS = new Set([
@@ -3988,6 +4024,84 @@ const CONCEPT_LOOKUP = (() => {
   return map;
 })();
 
+// ── Typed relations inside concept groups (2026-10-23, logic
+// audit L1-8) ────────────────────────────────────────────────
+// The flat groups above were read as equivalence sets by every
+// consumer, but they encode association and hypernymy as often
+// as equivalence: "sleep" grouped with "insomnia" (a disorder
+// beside it) and "sleep duration" (an aspect of it), "waste
+// oil" with bare "cooking oil" (the qualifier the question
+// turns on, dropped), "enzyme" with its subtypes. Widening and
+// gating inherit opposite needs from that mixture. OR widening
+// may use any member: a narrower or related term is a
+// legitimate way to find more of the literature. A GATE touch
+// is a satisfaction claim, and it requires a synonym or a
+// narrower term, never a qualifier dropping broader term and
+// never a merely related one: a paper feeding larvae fresh
+// cooking oil has not touched the waste oil concept, however
+// close the words are. The typed tables below name the
+// relations for the groups the audit evidenced; consumers
+// that count touches (centralConceptHits, paperConceptGroupHits)
+// read gateConceptSetFor, widening consumers keep the full set.
+export const CONCEPT_GROUP_RELATIONS = [
+  {
+    head: "sleep",
+    synonyms: ["sleep", "sleeping", "slept"],
+    narrower: ["sleep deprivation", "sleep restriction", "sleep restricted",
+      "chronic sleep restriction", "sleep loss", "short sleep", "sleep deprived"],
+    broader: [],
+    related: ["insomnia", "sleep duration", "sleep quality"],
+  },
+  {
+    head: "waste oil",
+    synonyms: ["waste oil", "waste cooking oil", "used cooking oil"],
+    narrower: [],
+    broader: ["cooking oil", "used oil"],
+    related: [],
+  },
+  {
+    head: "enzyme",
+    synonyms: ["enzyme", "enzymes", "enzymatic"],
+    narrower: ["oxidase", "oxidases", "hydrolase", "hydrolases", "esterase",
+      "esterases", "cutinase", "lipase", "protease", "depolymerase",
+      "oxidoreductase", "oxidoreductases", "phenoloxidase", "laccase", "peroxidase"],
+    broader: [],
+    related: [],
+  },
+];
+
+// The typed view of one hand group. Matching is by CONTENT,
+// not Set identity: the lookup hands out one Set per group,
+// but the pipeline also rebuilds group Sets (buildDynLookup
+// copies every group it merges), so an identity keyed table
+// would silently never fire on the handler path. A group is
+// the typed entry's group when it names the entry's head
+// term; its gate set is then the group's OWN members that the
+// entry types as synonyms or narrower, so a rebuilt or
+// supplemented copy keeps exactly the typed members it
+// actually carries. Returns null for groups with no typed
+// table: those keep the flat reading everywhere, exactly as
+// before, until someone types them.
+export function typedConceptGroup(group) {
+  if (!group || typeof group.has !== "function") return null;
+  for (const rel of CONCEPT_GROUP_RELATIONS) {
+    if (!group.has(rel.head)) continue;
+    const allowed = new Set([...(rel.synonyms || []), ...(rel.narrower || [])]);
+    const gate = new Set([...group].filter((m) => allowed.has(m)));
+    if (gate.size === 0) continue;
+    return { head: rel.head, gate, widen: group, relations: rel };
+  }
+  return null;
+}
+
+// The set a gate touch may be counted on: for a typed group,
+// synonyms and narrower terms only. For anything else, the
+// group itself, unchanged.
+export function gateConceptSetFor(group) {
+  const typed = typedConceptGroup(group);
+  return typed ? typed.gate : group;
+}
+
 // ════════════════════════════════════════════════════════════════════
 // MODEL-PROPOSED CONCEPT GROUPS (2026-10-13)
 //
@@ -4199,8 +4313,48 @@ export function validateExpansionGroups(raw, query) {
       if (!alt || alt === term || seenAlts.has(alt)) continue;
       if (alt.split(" ").length > 4 || !isCleanWording(alt)) continue;
       if (EXPANSION_FRAMING_WORDS.has(alt)) continue;
+      // Sense test (2026-10-23, L1-9): an unlabeled alternate is
+      // claimed as the same thing in the same sense. For a term
+      // with known rival senses, that claim must be evidenced
+      // against the question's other concepts or the hand
+      // tables before the alternate may drive retrieval. The
+      // audit's specimen: "fine" bridged to the size sense
+      // (small, tiny, minute) on a question whose sense was
+      // okay, and "grow" to population growth on a larval
+      // growth question, and both bridges drove retrieval.
+      if (!expansionAlternatePassesSenseTest(term, alt, q)) continue;
       seenAlts.add(alt);
       alts.push(alt);
+    }
+    // Labeled alternate classes (2026-10-23, L1-9): expansion is
+    // by concept, not by word. A concept's bridge to the
+    // literature is often not a synonym at all: the outcome is
+    // measured as vigilance lapses or closure time, the
+    // activity as an absorbance change. Those forms arrive in
+    // separately labeled classes (outcome measures,
+    // instruments, study design vocabulary), each held to the
+    // class test in expansionClassAlternatePasses, and they
+    // ride the group's alternates so every existing consumer
+    // sees them, with the labels preserved on the group.
+    const classes = {};
+    let classAltCount = 0;
+    for (const [field, label] of [["outcomeMeasures", "outcomeMeasures"], ["instruments", "instruments"], ["studyDesign", "studyDesign"]]) {
+      const rawList = Array.isArray(entry[field]) ? entry[field]
+        : (entry.classes && Array.isArray(entry.classes[field]) ? entry.classes[field] : []);
+      const kept = [];
+      for (const a of rawList) {
+        if (typeof a !== "string") continue;
+        const alt = cleanPiece(a);
+        if (!alt || alt === term || seenAlts.has(alt)) continue;
+        if (alt.split(" ").length > 4 || !isCleanWording(alt)) continue;
+        if (EXPANSION_FRAMING_WORDS.has(alt)) continue;
+        if (!expansionClassAlternatePasses(alt)) continue;
+        seenAlts.add(alt);
+        kept.push(alt);
+        alts.push(alt);
+        classAltCount++;
+      }
+      if (kept.length > 0) classes[label] = kept.slice(0, 4);
     }
     if (alts.length === 0) continue;
     // The two alternate floor stands for ordinary concepts. A
@@ -4210,9 +4364,92 @@ export function validateExpansionGroups(raw, query) {
     // the constraint the question turns on.
     if (alts.length < 2 && !isQuantityConstraintTerm(term)) continue;
     seenTerms.add(term);
-    out.push({ term, alternates: alts.slice(0, 6) });
+    const group = { term, alternates: alts.slice(0, 6) };
+    if (classAltCount > 0) group.classes = classes;
+    out.push(group);
   }
   return out;
+}
+
+// Terms with known rival senses (2026-10-23, L1-9): the
+// ambiguity table's terms, plus the everyday outcome words the
+// audit's specimen turned on. Only alternates proposed for
+// these terms face the sense test; a technical term nobody has
+// flagged keeps the validator's previous behavior, because for
+// such a term the model's bridge is often the only one there
+// is and a false rejection recreates the coverage failure.
+const EXPANSION_SENSE_RISK_EXTRA = new Set([
+  "fine", "grow", "grows", "grew", "growing", "growth",
+  "strong", "weak", "active", "working", "check", "test",
+]);
+function expansionSenseRiskTerms() {
+  const out = new Set(EXPANSION_SENSE_RISK_EXTRA);
+  try {
+    for (const e of AMBIGUOUS_QUERY_TERMS) if (e && e.term) out.add(e.term);
+  } catch { /* the extra set stands alone */ }
+  return out;
+}
+
+// The sense test for one proposed alternate (2026-10-23, L1-9).
+// Passes when the alternate is anchored to the question as
+// asked: it shares a content token with the term or with the
+// question's other content words (co occurrence with the
+// subject concept is the cheapest sense evidence there is), it
+// is vocabulary the hand tables already carry for some concept
+// in the question, or it carries a digit (a quantity
+// equivalence, judged by L1-2's rules). Non risk terms pass
+// unconditionally.
+export function expansionAlternatePassesSenseTest(term, alt, query) {
+  const t = String(term || "").toLowerCase().trim();
+  if (!expansionSenseRiskTerms().has(t)) return true;
+  const a = String(alt || "").toLowerCase().trim();
+  if (!a) return false;
+  if (/\d/.test(a)) return true;
+  const q = String(query || "").toLowerCase();
+  const altToks = a.split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+  const termToks = new Set(t.split(/[^a-z0-9]+/).filter(Boolean));
+  const qToks = new Set(q.split(/[^a-z0-9]+/).filter((w) => w.length > 2));
+  for (const tok of altToks) {
+    if (termToks.has(tok)) return true;
+    if (qToks.has(tok) && !termToks.has(tok)) return true;
+  }
+  // Hand table vocabulary: an alternate some curated group,
+  // synonym entry, or MeSH expansion already names is anchored
+  // by the tables, whatever its tokens.
+  try {
+    for (const set of CONCEPT_LOOKUP.values()) if (set.has(a)) return true;
+  } catch { /* tables are evidence, not a requirement */ }
+  try {
+    for (const vals of Object.values(SYNONYMS)) {
+      if (Array.isArray(vals) && vals.some((v) => String(v).toLowerCase() === a)) return true;
+    }
+  } catch { /* as above */ }
+  return false;
+}
+
+// The class test for a labeled alternate (2026-10-23, L1-9):
+// outcome measures, instruments, and study design vocabulary
+// are field vocabulary by construction, so a labeled alternate
+// passes when it is multi word (a named measure, instrument, or
+// design is a phrase), when the hand tables carry it, or when
+// it contains a token from the field vocabulary families the
+// classes exist to name.
+const EXPANSION_CLASS_FIELD_TOKENS = new Set([
+  "survival", "mortality", "weight", "gain", "growth", "closure",
+  "healing", "time", "rate", "vigilance", "lapses", "lapse",
+  "performance", "absorbance", "wavelength", "assay", "assays",
+  "spectrophotometric", "randomized", "randomised", "cohort",
+  "trial", "placebo", "controlled", "restriction", "deprivation",
+  "latency", "threshold", "score", "scores", "index", "scale",
+]);
+export function expansionClassAlternatePasses(alt) {
+  const a = String(alt || "").toLowerCase().trim();
+  if (!a) return false;
+  if (a.includes(" ")) return true;
+  try {
+    for (const set of CONCEPT_LOOKUP.values()) if (set.has(a)) return true;
+  } catch { /* as above */ }
+  return a.split(/[^a-z0-9]+/).some((tok) => EXPANSION_CLASS_FIELD_TOKENS.has(tok));
 }
 
 // Build a lookup in exactly the CONCEPT_LOOKUP shape (term -> Set of
@@ -4788,6 +5025,71 @@ export function computeExpansionCoverage(query, groups, central) {
   };
 }
 
+// ── Coverage scored by retrievability (2026-10-23, logic
+// audit L1-10) ───────────────────────────────────────────────
+// Key presence used to settle coverage: if the hand tables
+// contained a term, its vocabulary problem counted as solved,
+// and the model trigger never proposed a bridge for it. But a
+// group can be present and still unable to retrieve the field
+// for this question's shape: the sleep group stood for years
+// with no restriction or outcome vocabulary in it, while
+// "sleep" being covered was the reason no bridge was ever
+// requested on its behalf. Adequacy is scored per question
+// shape instead. A measurement question needs method vocabulary
+// in the group (assay, determination, spectrophotometric, and
+// kin). An outcome question (the question states an outcome or
+// a comparison of outcomes) needs outcome or study design
+// vocabulary (restriction, deprivation, vigilance, closure,
+// mortality, and kin). A question with neither shape asks
+// nothing of a group beyond existing. A central term whose
+// group fails its shape's test is inadequate: expansion may
+// SUPPLEMENT that group, not only originate groups for terms
+// nobody has tabled.
+const EXPANSION_METHOD_VOCAB = new Set([
+  "assay", "assays", "determination", "measurement", "measuring",
+  "quantification", "spectrophotometric", "spectrophotometry",
+  "colorimetric", "absorbance", "protocol", "method", "methods",
+]);
+const EXPANSION_OUTCOME_VOCAB = new Set([
+  "restriction", "deprivation", "loss", "vigilance", "lapses",
+  "closure", "mortality", "survival", "impairment", "decline",
+  "performance", "deficit", "deficits", "outcome", "outcomes",
+]);
+function groupMembersContainVocab(members, vocab) {
+  for (const m of members || []) {
+    for (const tok of String(m || "").toLowerCase().split(/[^a-z0-9]+/)) {
+      if (vocab.has(tok)) return true;
+    }
+  }
+  return false;
+}
+
+export function expansionGroupAdequacy(term, query, members) {
+  const t = String(term || "").toLowerCase().trim();
+  let group = members || null;
+  if (!group) {
+    try { group = conceptSetFor(t, null); } catch { group = null; }
+    if (!group && SYNONYMS[t]) group = new Set([t, ...SYNONYMS[t]]);
+  }
+  if (!group) return { covered: false, adequate: false, missing: ["group"] };
+  const list = [...group];
+  const missing = [];
+  if (detectMeasurementIntent(query) && !groupMembersContainVocab(list, EXPANSION_METHOD_VOCAB)) {
+    missing.push("method vocabulary");
+  }
+  const q = String(query || "").toLowerCase();
+  const outcomeShaped = /\b(?:worse|better|improve|improves|improved|decline|impair|affect|effect|effects|outcome|happen|happens|change|changes)\b/.test(q);
+  if (outcomeShaped && !groupMembersContainVocab(list, EXPANSION_OUTCOME_VOCAB)) {
+    missing.push("outcome or study design vocabulary");
+  }
+  return { covered: true, adequate: missing.length === 0, missing };
+}
+
+export function isExpansionGroupInadequate(term, query) {
+  const a = expansionGroupAdequacy(term, query, null);
+  return a.covered && !a.adequate;
+}
+
 // Decide coverage concept by concept (2026-10-22, L1-1 and
 // L1-11). Takes the groups one source already produced (in
 // gatherPapers, the model's validated groups, possibly none),
@@ -4819,6 +5121,7 @@ export function resolveExpansionCoverage(query, proposedGroups, opts = {}) {
     base.push({
       term,
       alternates: g.alternates.map((a) => String(a || "").toLowerCase()).filter(Boolean),
+      ...(g.classes ? { classes: g.classes } : {}),
       source: baseVia === "fallback" ? "fallback" : "model",
     });
   }
@@ -4870,7 +5173,13 @@ export function resolveExpansionCoverage(query, proposedGroups, opts = {}) {
   if (coverage.uncovered.length > 0 && (tagged.length > 0)) {
     coverage.cut = [...coverage.uncovered];
   }
-  const clean = (g) => ({ term: g.term, alternates: g.alternates });
+  // Labeled alternate classes ride through (2026-10-23, L1-9):
+  // the coverage merge must not strip the labels the validator
+  // kept, or the record loses which alternates were outcome
+  // measures, instruments, or study design vocabulary.
+  const clean = (g) => (g && g.classes
+    ? { term: g.term, alternates: g.alternates, classes: g.classes }
+    : { term: g.term, alternates: g.alternates });
   return {
     groups: tagged.map(clean),
     fallbackGroups: added.map(clean),
@@ -4965,11 +5274,12 @@ export async function defaultConceptGroupCall(query, env, timing, ledger = null)
       content:
         "You are a scientific literature search specialist. A researcher's question sometimes words a concept differently from the papers that answer it: the question says one thing, the literature says the same thing in its standard technical wording. Your job is to propose alternate wording ONLY for concepts already present in the question.\n" +
         "Rules:\n" +
-        "- Alternates must be synonyms or the standard wording the literature uses for the SAME thing: method preparations, technical terms, species names.\n" +
+        "- Alternates must be synonyms or the standard wording the literature uses for the SAME thing, in the SAME sense the question uses: method preparations, technical terms, species names. A word with several senses (fine, grow, cold) takes the sense the question's other concepts fix, never another sense of the same spelling.\n" +
+        "- The bridge is not always a synonym. When the literature measures the concept's outcome, names an instrument for it, or studies it under a standard design, add those forms in the separate labeled lists outcomeMeasures, instruments, and studyDesign instead of calling them synonyms.\n" +
         "- Never drop a constraint of the question.\n" +
-        "- Never introduce a new topic, organism, or method that the question does not name.\n" +
+        "- Never introduce a new topic or organism that the question does not name. A method may be named only in the instruments list, and only when the question asks how something is measured or tested.\n" +
         "- Only include a concept when a wording mismatch is plausible. If the question already uses the literature's wording, return an empty array.\n" +
-        "- Output ONLY a JSON array of objects shaped {\"term\": \"wording from the question, lowercased\", \"alternates\": [\"alternate wording\", \"...\"]} with 2 to 6 alternates per term and at most 4 terms. No markdown, no explanation.",
+        "- Output ONLY a JSON array of objects shaped {\"term\": \"wording from the question, lowercased\", \"alternates\": [\"alternate wording\", \"...\"], \"outcomeMeasures\": [\"...\"], \"instruments\": [\"...\"], \"studyDesign\": [\"...\"]} with 2 to 6 alternates per term and at most 4 terms. The three labeled lists are optional. No markdown, no explanation.",
     },
     { role: "user", content: String(query || "") },
   ];
@@ -5102,6 +5412,105 @@ function termSpecificity(term) {
   if (SYNONYMS[term]) score += 0.4;                            // known scientific acronym
   if (term.length <= 5 && !COMMON_SHORT_WORDS.has(term)) score += 0.25;
   return Math.min(1, score);
+}
+
+// ── Structural centrality (2026-10-23, logic audit L1-7) ─────
+// termSpecificity scores a word by its length, suffix, and
+// table presence. That proxy used to be the single ranking
+// that decided which concepts hold AND rungs, which get
+// expansion, and which count as central at the gate, so its
+// errors were the question's official meaning: the plain sleep
+// question ANDed the framing adverb "clearly", and the assay
+// question ANDed the generic modifier "standard" while the
+// operative noun "assay" held no rung at all. Centrality is
+// now derived from the question's structure first: the subject
+// and lead key phrase words are the top class, stated
+// constraints (quantity phrases, learned constraints) and
+// operative nouns (the method nouns of a measurement ask) are
+// the next, ordinary content words follow, and framing adverbs
+// and generic modifiers are the bottom class. Specificity
+// remains only as the tie breaker inside a class (the anchor
+// race below still sorts by it within the eligible set). The
+// standing rule the builder enforces with this: no bottom
+// class term may hold an AND rung while a stated subject,
+// substrate, quantity, or operative noun holds none.
+const STRUCTURAL_FRAMING_ADVERBS = new Set([
+  "clearly", "actually", "really", "barely", "still", "just",
+  "even", "also", "very", "quite", "rather", "simply", "merely",
+  "exactly", "probably", "possibly", "mainly", "mostly",
+]);
+const STRUCTURAL_GENERIC_MODIFIERS = new Set([
+  "standard", "general", "normal", "common", "typical",
+  "regular", "basic", "various", "different",
+]);
+const STRUCTURAL_OPERATIVE_NOUNS = new Set([
+  "assay", "assays", "method", "methods", "test", "tests",
+  "protocol", "protocols", "procedure", "procedures",
+  "measurement", "measurements", "determination", "quantification",
+]);
+const STRUCTURAL_NUMBER_WORDS = new Set([
+  "one", "two", "three", "four", "five", "six", "seven", "eight",
+  "nine", "ten", "eleven", "twelve", "dozen",
+]);
+
+export function structuralTermClass(term, query) {
+  const t = String(term || "").toLowerCase().trim();
+  if (!t) return 1;
+  if (STRUCTURAL_FRAMING_ADVERBS.has(t) || STRUCTURAL_GENERIC_MODIFIERS.has(t)) return 0;
+  // Subject class: the lead key phrase's words and the resolved
+  // organism's words, the same subject judgment the builder's
+  // subject representation pass already makes.
+  try {
+    const analysis = analyzeQuery(query);
+    if (analysis) {
+      const kp = (analysis.keyPhrases || [])[0];
+      if (kp && String(kp).toLowerCase().split(/[^a-z0-9]+/).includes(t)) return 3;
+      if (analysis.organism
+        && String(analysis.organism).toLowerCase().split(/[^a-z0-9]+/).includes(t)) return 3;
+      for (const p of analysis.organismPhrases || []) {
+        if (String(p).toLowerCase().split(/[^a-z0-9]+/).includes(t)) return 3;
+      }
+      // Stated constraints: every word of a required constraint
+      // is a class 2 term by the grading in analyzeQuery.
+      for (const c of analysis.constraints || []) {
+        if (c.level === "required"
+          && String(c.phrase || "").toLowerCase().split(/[^a-z0-9]+/).includes(t)) return 2;
+      }
+    }
+  } catch { /* no analysis, structural classes below still apply */ }
+  if (STRUCTURAL_OPERATIVE_NOUNS.has(t)) return 2;
+  if (STRUCTURAL_NUMBER_WORDS.has(t) || /\d/.test(t)) return 2;
+  try { if (GATE_TIME_UNIT_TOKENS.has(t)) return 2; } catch { /* unit set unavailable */ }
+  try { if (isQuantityPhraseKey(t)) return 2; } catch { /* quantity predicate unavailable */ }
+  return 1;
+}
+
+/* Whether a term's structural standing comes from being an
+ * operative noun or a quantity (a number word, a digit term, a
+ * time unit, a quantity phrase): the two named classes the
+ * L1-7 displacement below may seat over a plain content anchor.
+ * A required constraint word's standing is NOT this (its phrase
+ * is already a constraint of the question, judged elsewhere),
+ * and neither is a subject word's (the subject pass above owns
+ * subject representation). */
+export function structuralTermIsOperativeOrQuantity(term, query) {
+  const t = String(term || "").toLowerCase().trim();
+  if (!t) return false;
+  if (STRUCTURAL_OPERATIVE_NOUNS.has(t)) return true;
+  if (STRUCTURAL_NUMBER_WORDS.has(t) || /\d/.test(t)) return true;
+  // A bare time unit word is not a stated quantity: "night" in
+  // the sea turtle question is when the turtles come, not a
+  // duration the question states. A unit counts only when the
+  // question attaches a quantity to its units somewhere (a
+  // digit or a number word: "six hours", "two weeks").
+  try {
+    if (GATE_TIME_UNIT_TOKENS.has(t)) {
+      const q = String(query || "").toLowerCase();
+      if (/\d/.test(q) || q.split(/[^a-z0-9]+/).some((w) => STRUCTURAL_NUMBER_WORDS.has(w))) return true;
+    }
+  } catch { /* unit set unavailable */ }
+  try { if (isQuantityPhraseKey(t)) return true; } catch { /* quantity predicate unavailable */ }
+  return false;
 }
 
 // Short everyday words that should NOT get the "short technical term" boost.
@@ -5822,7 +6231,7 @@ export function rebuildStructuredQueryFromGroups(query, dynLookup) {
   const groups = questionConceptGroups(query, gateDynLookup(query, dynLookup));
   if (!groups.length) return null;
   const qLower = String(query || "").toLowerCase();
-  const rungs = groups.slice(0, 4).map((set) => {
+  const renderGroup = (set) => {
     const members = [...set];
     const head = members.find((m) => qLower.includes(m)) || members[0];
     // 2026-10-22 (search diagnosis, sleep trace): after the head,
@@ -5842,7 +6251,31 @@ export function rebuildStructuredQueryFromGroups(query, dynLookup) {
       return ordered[0].includes(" ") ? '"' + ordered[0] + '"' : ordered[0];
     }
     return "(" + ordered.map((m) => (m.includes(" ") ? '"' + m + '"' : m)).join(" OR ") + ")";
-  });
+  };
+  const rungs = groups.slice(0, 4).map(renderGroup);
+  // Overflow representation (2026-10-23, L1-11, closing the
+  // part Wave 2 left standing): groups past the AND budget of
+  // four used to be sliced off silently, so a fifth central
+  // concept had no representation in the rebuilt boolean at
+  // all. ANDing every group would starve the boolean, so the
+  // overflow groups are represented as one OR rung of their
+  // head terms: the tail concepts are present in the query, as
+  // alternates of one rung, instead of absent. The AND budget
+  // itself stands at four for the reason it always stood:
+  // each additional mandatory group multiplies the chance the
+  // boolean matches nothing, and the coverage state (L1-1)
+  // already records any concept no source represented.
+  if (groups.length > 4) {
+    const overflowHeads = groups.slice(4).map((set) => {
+      const members = [...set];
+      return members.find((m) => qLower.includes(m)) || members[0];
+    }).filter(Boolean);
+    if (overflowHeads.length === 1) {
+      rungs.push(overflowHeads[0].includes(" ") ? '"' + overflowHeads[0] + '"' : overflowHeads[0]);
+    } else if (overflowHeads.length > 1) {
+      rungs.push("(" + overflowHeads.map((m) => (m.includes(" ") ? '"' + m + '"' : m)).join(" OR ") + ")");
+    }
+  }
   return rungs.length ? rungs.join(" AND ") : null;
 }
 
@@ -6261,6 +6694,78 @@ export function buildStructuredQuery(query, dynLookup) {
       }
     }
   }
+  // Structural centrality pass (2026-10-23, L1-7): the standing
+  // rule, enforced last so it sees the final anchor set. A
+  // framing adverb or generic modifier (structural class 0) may
+  // not hold an AND rung while a stated subject, quantity, or
+  // operative noun (class 2 or 3) stands outside the anchors:
+  // each such outside term, in race order, evicts the weakest
+  // class 0 anchor in place. This is the exact pair the audit
+  // measured: "clearly" ANDed on the sleep question while the
+  // duration held no rung, and "standard" ANDed on the assay
+  // question while "assay" itself held none. One step down,
+  // the two classes the audit names outright, a stated quantity
+  // and an operative noun, may also displace a plain content
+  // anchor (class 1) that is not a subject term: the sleep
+  // question's "night" over its stated duration "weeks", the
+  // assay question's "measured" over "assay". Nothing else
+  // about the arbitrated race changes: subject representation
+  // stays with the pass above, and no anchor of the incoming
+  // term's own class or better is ever evicted here.
+  {
+    const anchoredNow = new Set(anchors);
+    // The builder's own subject definition, the same one the
+    // subject representation pass above uses: the lead key
+    // phrase's words and the resolved organism's words.
+    const subjectSet = new Set();
+    try {
+      const analysis = analyzeQuery(query);
+      if (analysis) {
+        const kp = (analysis.keyPhrases || [])[0];
+        if (kp) for (const w of String(kp).toLowerCase().split(/[^a-z0-9]+/)) if (w.length > 2) subjectSet.add(w);
+        if (analysis.organism) for (const w of String(analysis.organism).toLowerCase().split(/[^a-z0-9]+/)) if (w.length > 2) subjectSet.add(w);
+        for (const p of analysis.organismPhrases || []) {
+          for (const w of String(p).toLowerCase().split(/[^a-z0-9]+/)) if (w.length > 2) subjectSet.add(w);
+        }
+      }
+    } catch { /* no analysis, class order alone decides */ }
+    const classOf = (t) => {
+      try { return structuralTermClass(t, query); } catch { return 1; }
+    };
+    for (const x of eligible) {
+      if (anchoredNow.has(x.t) || coveredWords.has(x.t) || hasNegationLead(x.t)) continue;
+      const cls = classOf(x.t);
+      if (cls < 2) continue;
+      let victim = -1;
+      for (let i = anchors.length - 1; i >= 0; i--) {
+        if (classOf(anchors[i]) === 0) { victim = i; break; }
+      }
+      if (victim === -1) break;
+      anchoredNow.delete(anchors[victim]);
+      anchors[victim] = x.t;
+      anchoredNow.add(x.t);
+    }
+    // The operative and quantity step reads the full ranked
+    // list, not only the eligible anchors: a stated duration
+    // can score under the anchor floor on specificity alone
+    // ("weeks" on the sleep question), and a term the race
+    // cannot see is a term this rule cannot seat.
+    for (const x of ranked) {
+      if (anchoredNow.has(x.t) || coveredWords.has(x.t) || hasNegationLead(x.t)) continue;
+      if (QUERY_FRAMING_WORDS.has(x.t) || isGateFunctionWord(x.t)) continue;
+      if (!structuralTermIsOperativeOrQuantity(x.t, query)) continue;
+      let victim = -1;
+      for (let i = anchors.length - 1; i >= 0; i--) {
+        if (subjectSet.has(anchors[i])) continue;
+        const aCls = classOf(anchors[i]);
+        if (aCls === 0 || aCls === 1) { victim = i; break; }
+      }
+      if (victim === -1) break;
+      anchoredNow.delete(anchors[victim]);
+      anchors[victim] = x.t;
+      anchoredNow.add(x.t);
+    }
+  }
   if (!usablePhraseAnchors.length && anchors.length < 2) {
     // Not enough specific terms to build groups . OR the best few so we still
     // get recall rather than an over-narrow AND.
@@ -6547,6 +7052,26 @@ export function fetcherRowsNeedFallback(rows, query) {
   return fetcherRowsOnTopicCount(list, query) === 0;
 }
 
+/* The fetcher structured fallback form (2026-10-23, logic
+ * audit L1-17). The structured query is computed ONCE by the
+ * pipeline, in its final form (the boolean built from the
+ * surface query with the run's dynLookup), and passed down as
+ * data through opts.structuredQuery. Fetchers use that form
+ * verbatim for their internal fallback and never reconstruct
+ * query meaning from whatever string they were handed: the old
+ * rebuild called buildStructuredQuery(query) with no dynLookup,
+ * which dropped every model proposed and fallback concept
+ * group, and for europePMC tokenized the already built boolean
+ * it had been given instead of the user's question. Only a
+ * caller that passes no form at all (a direct call outside the
+ * pipeline) takes the legacy rebuild. */
+export function fetcherStructuredFallback(query, opts) {
+  if (opts && typeof opts.structuredQuery === "string" && opts.structuredQuery) {
+    return opts.structuredQuery;
+  }
+  return buildStructuredQuery(query);
+}
+
 export async function europePMC(query, limit = 8, ledger = null, opts = {}) {
   // Trust the query we were given. The retrieval ladder passes progressively
   // simpler forms . if this function silently rebuilds them, the ladder can't
@@ -6590,7 +7115,7 @@ export async function europePMC(query, limit = 8, ledger = null, opts = {}) {
   try {
     let rows = await runSearch(query);
     if (fetcherRowsNeedFallback(rows, query)) {
-      const structured = buildStructuredQuery(query);
+      const structured = fetcherStructuredFallback(query, opts);
       if (structured && structured !== query) {
         const structuredRows = await runSearch(structured).catch(() => null);
         if (structuredRows && structuredRows.length
@@ -6682,7 +7207,7 @@ function parsePubmedXML(xmlText) {
   });
 }
 
-export async function pubmed(query, limit = 10, apiKey = "", ledger = null) {
+export async function pubmed(query, limit = 10, apiKey = "", ledger = null, opts = {}) {
   const keyParam = apiKey ? "&api_key=" + apiKey : "";
   const tool = "&tool=cerebrum&email=contact@askcerebrum.org" + keyParam;
   try {
@@ -6703,9 +7228,11 @@ export async function pubmed(query, limit = 10, apiKey = "", ledger = null) {
     const es = await getJSON(esUrl(query), {}, 4000, 1, ledger).catch(() => null);
     ids = (es && es.esearchresult && es.esearchresult.idlist) || [];
 
-    // Fallback ladder: structured, then organism-focused
+    // Fallback ladder: structured, then organism-focused. The
+    // structured form is the pipeline's, passed as data
+    // (2026-10-23, L1-17), never rebuilt here without dynLookup.
     if (!ids.length) {
-      const structured = buildStructuredQuery(query);
+      const structured = fetcherStructuredFallback(query, opts);
       if (structured && structured !== query) {
         const es2 = await getJSON(esUrl(structured), {}, 4000, 1, ledger).catch(() => null);
         ids = (es2 && es2.esearchresult && es2.esearchresult.idlist) || [];
@@ -6786,7 +7313,7 @@ export async function pubmed(query, limit = 10, apiKey = "", ledger = null) {
           }
         } catch { /* keep the papers already in hand */ }
       };
-      await tryFallbackForm(buildStructuredQuery(query));
+      await tryFallbackForm(fetcherStructuredFallback(query, opts));
       if (fetcherRowsNeedFallback(merged, query)) {
         const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
         if (hasOrganism) {
@@ -7127,13 +7654,43 @@ const MEASUREMENT_VERB_RE =
 //   "what/which method/assay/technique/protocol ...";
 //   a bare methods topic ("measurement of X", "determination
 //     of X", "quantification of X").
-export function detectMeasurementIntent(query) {
+// ONE INTENT RESOLVER (2026-10-23, logic audit L1-3). The
+// detector below used to be a list of textbook surface shapes:
+// a measurement verb from a fixed list, in a fixed word order.
+// Plain phrasings of the same ask (check, test, working, strong,
+// active) fell outside the list, so the switch that makes method
+// papers lead stayed off and a value reporting answer was the
+// designed outcome. The resolver now reads the question's
+// OPERATIVE RELATION instead: is a determination procedure for
+// some quantity, activity, or state being requested? The
+// signals, any one of which is enough, are: a determination
+// verb (the textbook list plus check, test, tell, and know in
+// their determination uses), a named method noun (assay, test,
+// protocol, procedure, measurement) anywhere the question names
+// it as the thing asked for, a quantity adjective in the asked
+// position (how active, how strong, how effective), or a state
+// check (whether or if some thing is working, active, alive,
+// pure, or strong). detectMeasurementIntent is this resolver's
+// boolean, and every consumer (the analysis, the question type,
+// the shelf order, the synthesis, the handler) reads that one
+// function, so no consumer can hold a second private detector.
+const MEASUREMENT_QUANTITY_WORDS =
+  "working|works|active|activity|effective|effectiveness|potent|potency|strong|strength|alive|pure|purity|concentrated|concentration";
+export function resolveMeasurementIntent(query) {
   const lc = String(query || "").toLowerCase().replace(/\s+/g, " ").trim();
-  if (!lc) return false;
-  if (new RegExp("\\bhow\\b[^?]*\\b(?:" + MEASUREMENT_VERB_RE + ")\\b").test(lc)) return true;
-  if (/\bhow\s+to\s+(?:measure|assay|determine|quantify|estimate|detect|assess)\b/.test(lc)) return true;
-  if (/^(?:what|which)\s+(?:is\s+the\s+|are\s+the\s+)?(?:method|methods|technique|techniques|assay|assays|protocol|protocols|procedure|procedures)\b/.test(lc)) return true;
-  if (/\b(?:measurement|quantification|determination)\s+of\b/.test(lc)) return true;
+  if (!lc) return { measurement: false, signal: null };
+  if (new RegExp("\\bhow\\b[^?]*\\b(?:" + MEASUREMENT_VERB_RE + ")\\b").test(lc)) {
+    return { measurement: true, signal: "measurement verb" };
+  }
+  if (/\bhow\s+to\s+(?:measure|assay|determine|quantify|estimate|detect|assess|check|test)\b/.test(lc)) {
+    return { measurement: true, signal: "how to determination verb" };
+  }
+  if (/^(?:what|which)\s+(?:is\s+the\s+|are\s+the\s+)?(?:method|methods|technique|techniques|assay|assays|protocol|protocols|procedure|procedures)\b/.test(lc)) {
+    return { measurement: true, signal: "named method" };
+  }
+  if (/\b(?:measurement|quantification|determination)\s+of\b/.test(lc)) {
+    return { measurement: true, signal: "measurement of" };
+  }
   // Plain phrasings (2026-10-21, search fix wave, Lane A): the
   // Oct 20 audit's two manganese peroxidase phrasings both
   // returned intent null, so the method lane never fired, the
@@ -7150,9 +7707,15 @@ export function detectMeasurementIntent(query) {
   // outcome word, or a direct "how active is X" ask. A bare
   // "how does X work" carries none of the outcome words and
   // stays a mechanism question, untouched.
-  if (/^(?:what|which)\s+(?:test|tests|assay|assays)\b/.test(lc)) return true;
-  if (/\bhow\b[^?]*\b(?:check|test|tell|know)\b[^?]*\b(?:working|active|activity|effective|effectiveness|strong|strength)\b/.test(lc)) return true;
-  if (/\bhow\s+(?:active|effective|potent|strong)\s+is\b/.test(lc)) return true;
+  if (/^(?:what|which)\s+(?:test|tests|assay|assays)\b/.test(lc)) {
+    return { measurement: true, signal: "named test" };
+  }
+  if (new RegExp("\\bhow\\b[^?]*\\b(?:check|test|tell|know)\\b[^?]*\\b(?:" + MEASUREMENT_QUANTITY_WORDS + ")\\b").test(lc)) {
+    return { measurement: true, signal: "check or test with quantity word" };
+  }
+  if (/\bhow\s+(?:active|effective|potent|strong)\s+is\b/.test(lc)) {
+    return { measurement: true, signal: "how quantity adjective is" };
+  }
   // The standard assay ask (2026-10-21, search fix wave, Lane A,
   // second pass on the completed before batch): probe 12, "what
   // is the standard lab assay for manganese peroxidase
@@ -7171,8 +7734,39 @@ export function detectMeasurementIntent(query) {
   // wherever in the sentence it sits. A what question naming
   // none of those words ("what is manganese peroxidase") is
   // untouched, exactly as before.
-  if (/^(?:what|which)\b[^?]*\b(?:assay|assays|method|methods|test|tests|protocol|protocols|procedure|procedures)\b/.test(lc)) return true;
-  return false;
+  if (/^(?:what|which)\b[^?]*\b(?:assay|assays|method|methods|test|tests|protocol|protocols|procedure|procedures)\b/.test(lc)) {
+    return { measurement: true, signal: "named method anywhere" };
+  }
+  // Operative relation shapes (2026-10-23, L1-3): the plain
+  // determination asks the verb lists still missed. A how
+  // question whose operative verb is check or test asks for a
+  // determination procedure by itself, whatever quantity word
+  // follows ("how do you check if honey is pure", "how would
+  // you test the water"). A check, test, tell, or know paired
+  // with an if or whether clause naming a working state asks
+  // the same thing ("how can you tell whether the enzyme still
+  // works"). And a what or which CHECK opening names the
+  // procedure the way the test opening does. The mechanism
+  // controls stay safe: "how does a steam engine work" and
+  // "how do bees make honey" carry no determination verb, no
+  // method noun, and no quantity word in the asked position.
+  if (/\bhow\b[^?]*\b(?:check|test|checking|testing|tested|checked)\b/.test(lc)) {
+    return { measurement: true, signal: "how check or test" };
+  }
+  if (new RegExp("\\b(?:check|test|tell|know|determine|measure)\\b[^?]*\\b(?:if|whether)\\b[^?]*\\b(?:" + MEASUREMENT_QUANTITY_WORDS + ")\\b").test(lc)) {
+    return { measurement: true, signal: "whether state check" };
+  }
+  if (/^(?:what|which)\s+(?:check|checks)\b/.test(lc)) {
+    return { measurement: true, signal: "named check" };
+  }
+  return { measurement: false, signal: null };
+}
+
+export function detectMeasurementIntent(query) {
+  // The one resolver (2026-10-23, L1-3): every consumer reads
+  // this boolean, which is resolveMeasurementIntent's verdict
+  // and nothing else.
+  return resolveMeasurementIntent(query).measurement;
 }
 
 // MECHANISM SHAPE (2026-10-14, wave nine): a mechanism question
@@ -7945,10 +8539,37 @@ export function orderShelfForHealth(shelf, gatedPool) {
   return tiered.map((x) => x.p);
 }
 
+// Question type (2026-10-23, logic audit L1-15): the type used
+// to be a fact about punctuation and opening formulas. The
+// yes/no branch required a trailing question mark (the Oct 21
+// probe set, written the way people type, has none, so every
+// probe took the default path), and the definition branch
+// claimed any "what are the ..." opening, including findings
+// questions ("what are the effects of sleep loss" is not asking
+// for a definition of effects). Type is now scored from the
+// question's content words and operative verb, punctuation
+// plays no part in any branch, a findings noun can never be a
+// definition term, a method ask outranks a definition reading
+// whenever the term names the method (2026-10-23, L1-3: the
+// definition guard used to reject only a term that STARTS with
+// a method noun, so "standard lab assay for X" defined the
+// assay instead of asking for it), and a question no cue
+// supports returns the explicit unknown state instead of a
+// general default that pretends to know. Every return carries
+// the confidence of the cues that produced it; consumers that
+// key on type must handle "unknown" as no type knowledge, the
+// way they already handle every non special type.
+const DEFINITION_FINDINGS_HEADS = new Set([
+  "effects", "effect", "outcomes", "outcome", "benefits", "benefit",
+  "risks", "risk", "causes", "symptoms", "consequences", "impacts",
+  "impact", "advantages", "disadvantages", "uses", "types", "kinds",
+]);
+const METHOD_NOUN_RE = /\b(?:method|methods|technique|techniques|assay|assays|test|tests|protocol|protocols|procedure|procedures|measurement|measurements|determination)\b/;
+
 export function classifyQuestionType(query) {
   const q = String(query || "").trim();
   const lc = q.toLowerCase().replace(/\s+/g, " ");
-  if (!lc) return { type: "general", term: null };
+  if (!lc) return { type: "unknown", term: null, confidence: 0 };
 
   // Definition: "what is X", "what are X", "define X", "what does X mean",
   // "meaning of X", "X definition", "what is meant by X"
@@ -7970,8 +8591,17 @@ export function classifyQuestionType(query) {
     // "assay for X" were a thing to define.
     if (term && !/^(best|most|latest|newest|first|main|primary)\b/.test(term)
       && !/^(method|methods|technique|techniques|assay|assays|protocol|protocols|procedure|procedures)\b/.test(term)
+      // Findings guard (2026-10-23, L1-15): a term headed by a
+      // findings noun names results the literature reports, not
+      // a thing to define.
+      && !DEFINITION_FINDINGS_HEADS.has(term.split(/\s+/)[0])
+      // Method guard (2026-10-23, L1-3): when the operative
+      // relation is measurement and the term names a method
+      // noun anywhere ("standard lab assay for X"), the
+      // question asks for the method, not for a definition.
+      && !(detectMeasurementIntent(lc) && METHOD_NOUN_RE.test(term))
       && term.split(/\s+/).length <= 8) {
-      return { type: "definition", term };
+      return { type: "definition", term, confidence: 0.9 };
     }
   }
   // Comparison: "X vs Y", "X versus Y", "compare X and Y", "difference between X and Y"
@@ -7979,7 +8609,7 @@ export function classifyQuestionType(query) {
     || lc.match(/^compare\s+(.+?)\s+and\s+(.+?)[?.!]*$/)
     || lc.match(/^(?:what(?:'s| is) the )?difference between\s+(.+?)\s+and\s+(.+?)[?.!]*$/);
   if (m) {
-    return { type: "comparison", term: (m[1] || "").trim(), termB: (m[2] || "").trim() };
+    return { type: "comparison", term: (m[1] || "").trim(), termB: (m[2] || "").trim(), confidence: 0.9 };
   }
   // Method intent (2026-10-14) outranks the mechanism shape:
   // "how do researchers quantify X" opens like a mechanism
@@ -7988,12 +8618,12 @@ export function classifyQuestionType(query) {
   // and comparison branches above are untouched: a measurement
   // phrasing reaches here only when it is neither.
   if (detectMeasurementIntent(lc)) {
-    return { type: "methods", term: null };
+    return { type: "methods", term: null, confidence: 0.85 };
   }
   // Mechanism: "how does X work", "mechanism of X", "why does X cause Y"
   if (/^(how\s+does|how\s+do|mechanism\s+of|what(?:'s| is) the mechanism)/.test(lc)
     || /\bmechanism\b/.test(lc) && /^(how|what|why)/.test(lc)) {
-    return { type: "mechanism", term: null };
+    return { type: "mechanism", term: null, confidence: 0.8 };
   }
   // Methods: "how to X", "protocol for X", "method to X", and
   // measurement questions (2026-10-14, method intent): "how can
@@ -8004,17 +8634,32 @@ export function classifyQuestionType(query) {
   // papers. detectMeasurementIntent carries the patterns.
   if (/^how\s+to\b/.test(lc) || /\bprotocol\b/.test(lc) || /^(what|which)\s+(method|methods|technique|assay)/.test(lc)
     || detectMeasurementIntent(lc)) {
-    return { type: "methods", term: null };
+    return { type: "methods", term: null, confidence: 0.8 };
   }
-  // Yes/no: "is X ...?", "does X ...?", "can X ...?", "are X ...?"
-  if (/^(is|are|was|were|does|do|did|can|could|has|have|will|would)\b[^?]*\?$/.test(lc)) {
-    return { type: "yesno", term: null };
+  // Yes/no (2026-10-23, L1-15): an auxiliary opening IS the
+  // yes/no cue, with or without a trailing question mark. The
+  // old pattern ended in a literal question mark, so the same
+  // sentence typed without one fell through to the default.
+  if (/^(is|are|was|were|does|do|did|can|could|has|have|will|would|should)\b/.test(lc)) {
+    return { type: "yesno", term: null, confidence: 0.8 };
   }
   // List: "list ...", "what are the ...", "name the ..."
-  if (/^(list|name|enumerate)\b/.test(lc) || /^what\s+are\s+(?:the\s+|some\s+)?(?:types|kinds|examples|causes|symptoms|treatments|effects)\b/.test(lc)) {
-    return { type: "list", term: null };
+  if (/^(list|name|enumerate)\b/.test(lc) || /^what\s+are\s+(?:the\s+|some\s+)?(?:types|kinds|examples|causes|symptoms|treatments|effects|outcomes|benefits|risks)\b/.test(lc)) {
+    return { type: "list", term: null, confidence: 0.75 };
   }
-  return { type: "general", term: null };
+  // Findings (2026-10-23, L1-15): "what happens ...", "what
+  // are the effects of ..." and their kin ask what the
+  // literature found. No dedicated consumer keys on this type
+  // yet; it is recorded so the type field stops calling these
+  // questions definitions or unknowns.
+  if (/^what\s+(?:happens|are\s+the\s+(?:effects|outcomes|benefits|risks|consequences))\b/.test(lc)
+    || /\b(?:effects|outcomes|consequences)\s+of\b/.test(lc)) {
+    return { type: "findings", term: null, confidence: 0.6 };
+  }
+  // Explicit unknown (2026-10-23, L1-15): no cue scored, so the
+  // record says the type is not known instead of defaulting to
+  // a general type that pretends it is.
+  return { type: "unknown", term: null, confidence: 0 };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -8241,6 +8886,7 @@ const QUESTION_VERBS = new Set([
   "wear", "wears", "wore", "worn", "wearing",
 ]);
 
+// Span separators (2026-10-23, logic audit L1-6): the only
 function extractKeyPhrases(query, organismPhrases) {
   const norm = normalizeConstraintText(query);
   const orgSet = new Set((organismPhrases || []).map(normalizeConstraintText));
@@ -8324,6 +8970,40 @@ const LEARNED_CONSTRAINT_RULES = [
  *   mustSatisfyAll: true,             // AND semantics, not OR
  * }
  */
+/* Whether a screened key phrase's words occur in the question
+ * only across a clause boundary (2026-10-23, logic audit L1-6).
+ * The manufactured phrase class: "oil restaurants turn" (from
+ * "cooking oil that restaurants turn into waste oil") crosses
+ * the relativizer "that"; its words sit in different clauses,
+ * the phrase means nothing, and as a constraint no paper could
+ * satisfy it. The test runs on the SCREENED phrase against the
+ * question's own token stream: a phrase whose surviving words
+ * are one span ("creatine hair loss" crosses only "cause")
+ * stands untouched. */
+const KEY_PHRASE_CLAUSE_BOUNDARY_TOKENS = new Set(["that", "which", "who", "whom", "whose"]);
+export function keyPhraseCrossesClause(phrase, queryText) {
+  const words = String(phrase || "").split(" ").filter(Boolean);
+  if (words.length < 2) return false;
+  const normToks = normalizeConstraintText(String(queryText || ""))
+    .split(" ")
+    .map((t) => t.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ""));
+  let wi = 0;
+  let firstIdx = -1;
+  let lastIdx = -1;
+  for (let i = 0; i < normToks.length && wi < words.length; i++) {
+    if (normToks[i] === words[wi]) {
+      if (wi === 0) firstIdx = i;
+      lastIdx = i;
+      wi++;
+    }
+  }
+  if (wi < words.length || firstIdx < 0) return false;
+  for (let i = firstIdx + 1; i < lastIdx; i++) {
+    if (KEY_PHRASE_CLAUSE_BOUNDARY_TOKENS.has(normToks[i])) return true;
+  }
+  return false;
+}
+
 export function analyzeQuery(rawQuery) {
   // 2026-10-09: analyze the TYPO-CORRECTED query, not the raw one. The
   // retrieval ladder searches the corrected form; constraint extraction
@@ -8331,6 +9011,18 @@ export function analyzeQuery(rawQuery) {
   // constraint "bubonic plague", not "deadly bubonic plauge". The raw
   // original is kept as originalQuery for display and learning signatures.
   const raw = String(rawQuery || "").trim();
+  // Analysis input (2026-10-23, L1-12, scoped): the analysis
+  // keeps reading the spelling corrected form, the input its
+  // extraction and the gate standards were tuned on. The
+  // canonical forms work (canonicalQueryForms) canonicalizes
+  // the RETRIEVAL side and declares the paraphrase there;
+  // feeding the paraphrased text into the analysis instead
+  // demonstrably moved the gate standards off their fixtures
+  // (the paraphrase's added words became key phrases and
+  // central concepts for the honey safety and light questions),
+  // so the shared representation stands for retrieval and the
+  // analysis input stands as tuned. Recorded here so the
+  // boundary is a decision, not a drift.
   const query = correctQuerySpelling(raw).trim();
   const qType = classifyQuestionType(query);
   // Method intent (2026-10-14): recorded on the analysis so the
@@ -8381,11 +9073,39 @@ export function analyzeQuery(rawQuery) {
   // with no content word is dropped, and a real constraint phrase
   // passes word for word unchanged.
   keyPhrases = [...new Set(keyPhrases.map((p) => screenKeyPhrase(p)).filter(Boolean))];
+  // Manufactured phrases out (2026-10-23, L1-6): a screened
+  // phrase whose words occur in the question only across a
+  // clause boundary is not a span the user stated, and never
+  // becomes a constraint.
+  keyPhrases = keyPhrases.filter((p) => !keyPhraseCrossesClause(p, query));
 
-  const constraints = keyPhrases.map((phrase) => ({
-    phrase,
-    terms: normalizeConstraintText(phrase).split(" ").filter(Boolean),
-  }));
+  // Graded constraints (2026-10-23, L1-6): every phrase above
+  // is a span the user stated, but spans are not all equal. A
+  // learned constraint (a recorded failure: "waste oil" is one
+  // concept) and a stated quantity phrase are required: they
+  // are the constraints the question turns on. A multi word
+  // span is preferred: a paper engaging it is on the question,
+  // a paper missing it is weaker, not automatically off topic.
+  // A single word phrase is contextual. The old code declared
+  // every extracted phrase mandatory for every paper
+  // (mustSatisfyAll: true, and a plain English sentence saying
+  // so), including phrases the extraction had manufactured.
+  const learnedPhrases = new Set();
+  for (const rule of LEARNED_CONSTRAINT_RULES) {
+    if (rule && rule.constraint) learnedPhrases.add(rule.constraint);
+  }
+  const constraints = keyPhrases.map((phrase) => {
+    const level = learnedPhrases.has(phrase) || isQuantityPhraseKey(phrase)
+      ? "required"
+      : phrase.includes(" ")
+        ? "preferred"
+        : "contextual";
+    return {
+      phrase,
+      terms: normalizeConstraintText(phrase).split(" ").filter(Boolean),
+      level,
+    };
+  });
 
   // Plain-English intent statement. This is what the system believes the
   // user is asking for; it goes into _diag so the frontend can show it
@@ -8428,7 +9148,16 @@ export function analyzeQuery(rawQuery) {
     keyPhrases,
     constraints,
     plainEnglish,
-    mustSatisfyAll: true,
+    // True only when a required constraint exists (2026-10-23,
+    // L1-6): the AND semantics bind the required spans, not
+    // every extracted phrase.
+    // mustSatisfyAll (2026-10-23, L1-6): no longer an
+    // unconditional constant. It is true exactly when the
+    // question yielded real span constraints (every surviving
+    // phrase is a stated span now, graded above), and false
+    // for a question with none, where the old constant claimed
+    // a mandatory set that did not exist.
+    mustSatisfyAll: constraints.length > 0,
   };
 }
 
@@ -9714,7 +10443,91 @@ async function fetchVideos(query, maxMs = 3000) {
 //
 // Returns an array of 3-5 search query strings optimized for scholarly databases.
 // Falls back to empty array on any failure (timeout, rate limit, etc).
-async function llmGenerateSearchQueries(rawQuery, token, ledger = null) {
+/* The preservation audit for generated search queries
+ * (2026-10-23, logic audit L1-14, the L1-4 audit applied to
+ * the rescue path). A model written query is a proposal, not
+ * a fact: it may run only when it maps to a stated concept of
+ * the original question. The mapping test is token level and
+ * deterministic: the generated query must share a content
+ * token with the question itself, or with the vocabulary the
+ * question's own tokens expand to through the hand tables
+ * (the synonyms bridge, the concept groups, the MeSH table),
+ * which is what lets "Hermetia illucens gut microbiota" map
+ * to the black soldier fly concept it was generated for while
+ * a broad production query on a measurement question, sharing
+ * nothing with the ask, is refused. Returns { ok, concept }:
+ * the concept is the question token the query mapped to, and
+ * callers record it beside the query and its yield. */
+export function auditGeneratedSearchQuery(originalQuery, generatedQuery) {
+  const gen = String(generatedQuery || "").toLowerCase();
+  const genToks = new Set(gen.split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOPWORDS.has(w)));
+  if (genToks.size === 0) return { ok: false, concept: null };
+  const orig = String(originalQuery || "").toLowerCase();
+  const origToks = orig.split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOPWORDS.has(w));
+  for (const t of origToks) {
+    if (genToks.has(t)) return { ok: true, concept: t };
+    // An inflection of a stated word maps too ("growth" for
+    // the question's "grow").
+    try { if (termStemHitInText(gen, t)) return { ok: true, concept: t }; } catch { /* direct tokens decide first */ }
+  }
+  const bridged = new Map();
+  const addBridge = (tok, concept) => {
+    if (tok && tok.length > 2 && !bridged.has(tok)) bridged.set(tok, concept);
+  };
+  // Bridge sources: the question's single words, and its
+  // stated phrases and central concepts, whose concept groups
+  // are keyed by the phrase ("black soldier fly" carries
+  // Hermetia illucens), never by any one word of it.
+  const bridgeTerms = [...origToks];
+  try {
+    for (const c of expansionCentralConcepts(orig)) {
+      if (c && c.term) bridgeTerms.push(String(c.term).toLowerCase());
+    }
+  } catch { /* phrases are one bridge source among several */ }
+  try {
+    const qa = analyzeQuery(orig);
+    for (const p of qa.organismPhrases || []) bridgeTerms.push(String(p).toLowerCase());
+    if (qa.organism) bridgeTerms.push(String(qa.organism).toLowerCase());
+  } catch { /* as above */ }
+  for (const t of bridgeTerms) {
+    try {
+      const set = conceptSetFor(t, null);
+      if (set) for (const m of set) for (const tok of String(m).toLowerCase().split(/[^a-z0-9]+/)) addBridge(tok, t);
+    } catch { /* one bridge source among several */ }
+    const syns = SYNONYMS[t];
+    if (Array.isArray(syns)) {
+      for (const s of syns) for (const tok of String(s).toLowerCase().split(/[^a-z0-9]+/)) addBridge(tok, t);
+    }
+  }
+  try {
+    for (const m of expandViaMesh(orig)) {
+      for (const tok of String(m).toLowerCase().split(/[^a-z0-9]+/)) addBridge(tok, origToks[0] || null);
+    }
+  } catch { /* as above */ }
+  for (const tok of genToks) {
+    if (bridged.has(tok)) return { ok: true, concept: bridged.get(tok) };
+  }
+  return { ok: false, concept: null };
+}
+
+/* The intent leg of the generated query audit (2026-10-23,
+ * L1-14): mapping to a stated concept is necessary but not
+ * sufficient when the question carries an operative intent.
+ * A measurement question's generated queries must carry
+ * method vocabulary of their own; the audit's specimen was a
+ * fluent production query for a measurement question, on
+ * concept and wholly off the ask. Applied by
+ * llmGenerateSearchQueries after the concept mapping. */
+export function generatedQueryHonorsIntent(originalQuery, generatedQuery) {
+  try {
+    if (!detectMeasurementIntent(originalQuery)) return true;
+    const gen = String(generatedQuery || "").toLowerCase();
+    if (detectMeasurementIntent(generatedQuery)) return true;
+    return [...EXPANSION_METHOD_VOCAB].some((v) => gen.includes(v));
+  } catch { return true; }
+}
+
+export async function llmGenerateSearchQueries(rawQuery, token, ledger = null) {
   if (!token) return [];
   try {
     const c = new AbortController();
@@ -9754,14 +10567,33 @@ async function llmGenerateSearchQueries(rawQuery, token, ledger = null) {
     const txt = (j?.choices?.[0]?.message?.content || "").trim();
     // Parse JSON array from response
     const clean = txt.replace(/```json|```/g, "").trim();
+    // Preservation audit (2026-10-23, L1-14): every generated
+    // query, from the JSON path or the line fallback alike,
+    // must map to a stated concept of the original question
+    // before it may run. The audit's mapping rides on the
+    // returned array as .audits ([{ query, concept }]) so the
+    // rescue path can record each query's concept and yield.
+    const audited = (list) => {
+      const kept = [];
+      const audits = [];
+      for (const s of list) {
+        const audit = auditGeneratedSearchQuery(rawQuery, s);
+        if (!audit.ok) continue;
+        if (!generatedQueryHonorsIntent(rawQuery, s)) continue;
+        kept.push(s);
+        audits.push({ query: s, concept: audit.concept });
+      }
+      kept.audits = audits;
+      return kept;
+    };
     try {
       const arr = JSON.parse(clean);
       if (Array.isArray(arr) && arr.length > 0 && typeof arr[0] === "string") {
-        return arr.slice(0, 6).map(s => s.trim()).filter(s => s.length > 3 && s.length < 100);
+        return audited(arr.slice(0, 6).map(s => s.trim()).filter(s => s.length > 3 && s.length < 100));
       }
     } catch (cbErr) { console.error("[Cerebrum] search.js: const arr = JSON.parse(clean);:", cbErr); }
     // Fallback: try to extract lines
-    return clean.split("\n").map(l => l.replace(/^[\d\.\-\*\s"]+|"$/g, "").trim()).filter(s => s.length > 3 && s.length < 100).slice(0, 6);
+    return audited(clean.split("\n").map(l => l.replace(/^[\d\.\-\*\s"]+|"$/g, "").trim()).filter(s => s.length > 3 && s.length < 100).slice(0, 6));
   } catch {
     return [];
   } finally {
@@ -9983,7 +10815,9 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
     // counts as a touch follows the corrected standard.
     const groupTouches = (p, gs) => {
       const hay = ((p.title || "") + " " + (usableAbstract(p) || p.abstract || "")).toLowerCase();
-      return gs.filter((g) => textTouchesConceptGroup(hay, g)).length;
+      // Typed gate sets (2026-10-23, L1-8), same as the gate's
+      // own counting, so this filter and the gate stay in lockstep.
+      return gs.filter((g) => textTouchesConceptGroup(hay, gateConceptSetFor(g))).length;
     };
     // WAVE EIGHT (2026-10-14, Job 1b): the concept path. The
     // citation standard counts CENTRAL CONCEPTS, and a concept
@@ -15470,7 +16304,10 @@ export function paperConceptGroupHits(paper, groups) {
   if (!hay.trim()) return 0;
   const tokens = new Set(hay.split(/[^a-z0-9]+/).filter(Boolean));
   let hits = 0;
-  for (const group of groups || []) {
+  for (const rawGroup of groups || []) {
+    // Gate touches use the typed gate set (2026-10-23, L1-8):
+    // a broader or related member never satisfies the concept.
+    const group = gateConceptSetFor(rawGroup);
     for (const member of group) {
       const m = String(member || "").toLowerCase();
       if (!m) continue;
@@ -16213,8 +17050,10 @@ export function centralConceptHits(paper, concepts) {
   let subjectHit = false, subjectInTitle = false;
   for (const c of list) {
     if (!c) continue;
-    const th = termStemHitInText(titleLow, c.term) || textTouchesConceptGroup(titleLow, c.group);
-    const ah = termStemHitInText(absLow, c.term) || textTouchesConceptGroup(absLow, c.group);
+    // Gate touches use the typed gate set (2026-10-23, L1-8).
+    const gateGroup = gateConceptSetFor(c.group);
+    const th = termStemHitInText(titleLow, c.term) || textTouchesConceptGroup(titleLow, gateGroup);
+    const ah = termStemHitInText(absLow, c.term) || textTouchesConceptGroup(absLow, gateGroup);
     if (th || ah) total++;
     if (th) inTitle++;
     if (ah) inAbstract++;
@@ -19231,6 +20070,32 @@ export function buildSearchRecord(input) {
       }
     } catch { expansionCoverage = null; }
 
+    // The resolved query record (2026-10-23, L1-4): the
+    // original question, the proposed resolved form (accepted
+    // or rejected), and the preservation audit's verdict and
+    // mapping, normalized and bounded like every other late
+    // field. Present only when a proposal existed.
+    let recordResolvedQuery = null;
+    try {
+      const auditRaw = input.resolvedQueryAudit != null ? input.resolvedQueryAudit
+        : diag ? diag.resolvedQueryAudit : null;
+      const proposalRaw = input.resolvedProposal != null ? input.resolvedProposal
+        : auditRaw ? auditRaw.resolved : null;
+      if (auditRaw && typeof auditRaw === "object" && proposalRaw) {
+        recordResolvedQuery = {
+          original: String(auditRaw.original || "").slice(0, 300),
+          resolved: String(proposalRaw).slice(0, 300),
+          accepted: !!auditRaw.ok,
+          missingNumbers: Array.isArray(auditRaw.missingNumbers) ? auditRaw.missingNumbers.slice(0, 8).map(String) : [],
+          missingNegations: Array.isArray(auditRaw.missingNegations) ? auditRaw.missingNegations.slice(0, 8).map(String) : [],
+          missingConcepts: Array.isArray(auditRaw.missingConcepts) ? auditRaw.missingConcepts.slice(0, 8).map(String) : [],
+          unmappedBare: Array.isArray(auditRaw.unmappedBare) ? auditRaw.unmappedBare.slice(0, 8).map(String) : [],
+          intentLost: !!auditRaw.intentLost,
+          mapping: auditRaw.mapping && typeof auditRaw.mapping === "object" ? auditRaw.mapping : {},
+        };
+      }
+    } catch { recordResolvedQuery = null; }
+
     const modelRaw = input.synthesisModel != null ? input.synthesisModel : input.modelUsed;
     const synthesisModel = typeof modelRaw === "string" && modelRaw ? modelRaw : null;
 
@@ -19495,6 +20360,10 @@ export function buildSearchRecord(input) {
       executedQueries: recordExecutedQueries(input, diag),
       llmExpansion,
       ...(expansionCoverage ? { expansionCoverage } : {}),
+      // Both query forms and the preservation audit verdict
+      // (2026-10-23, L1-4), present only when a resolved form
+      // was proposed this run.
+      ...(recordResolvedQuery ? { resolvedQuery: recordResolvedQuery } : {}),
       databases,
       funnel: recordFunnel,
       synthesisModel,
@@ -20026,8 +20895,8 @@ const AMBIGUOUS_QUERY_TERMS = [
     { label: "Python programming", context: ["code", "program", "software", "data", "script", "library", "bioinformatic"], query: "python programming data analysis" },
     { label: "Python (snake)", context: ["snake", "reptile", "constrictor", "herpetolog"], query: "python snake biology behavior" } ] },
   { term: "memory", re: /\bmemory\b/i, senses: [
-    { label: "Human memory", context: ["brain", "cognit", "recall", "hippocampus", "alzheimer", "learn", "sleep", "depriv"], query: "human memory formation hippocampus" },
-    { label: "Computer memory", context: ["computer", "ram", "storage", "cache", "hardware"], query: "computer memory ram architecture" } ] },
+    { label: "Human memory", context: ["brain", "cognit", "recall", "hippocampus", "alzheimer", "learn", "sleep", "depriv", "loss", "forget", "elderly", "old people", "aging", "ageing", "dementia"], query: "human memory formation hippocampus" },
+    { label: "Computer memory", context: ["computer", "ram", "storage", "cache", "hardware", "laptop", "ssd", "memory card"], query: "computer memory ram architecture" } ] },
   { term: "expression", re: /\bexpression\b/i, senses: [
     { label: "Gene expression", context: ["gene", "rna", "transcript", "protein", "mrna"], query: "gene expression regulation transcription" },
     { label: "Facial / emotional expression", context: ["facial", "emotion", "face", "affect"], query: "facial expression emotion recognition" } ] },
@@ -20114,7 +20983,32 @@ export function detectAmbiguity(query) {
     if (matched.length === 1) {
       return { ambiguous: false, term: entry.term, resolvedAs: matched[0].label, interpretations: [] };
     }
-    if (matched.length === 0) {
+    // Positive evidence rule (2026-10-23, logic audit L1-18):
+    // a flag requires positive evidence FOR a rival sense,
+    // never merely the absence of evidence for one sense. The
+    // old rule flagged whenever no listed context word matched,
+    // so "memory loss in old people", whose sense ordinary
+    // reading settles, shipped a computer memory footnote, and
+    // it resolved (silently, to the first sense) whenever two
+    // senses matched at once. Now: two or more senses with
+    // context evidence in the question is genuine ambiguity,
+    // flagged with exactly the evidenced senses; one sense is
+    // a resolution; and no sense evidence flags only the bare
+    // term shape, a question so short that the term itself is
+    // effectively the whole question and no settling context
+    // exists at all. A longer question whose context the table
+    // does not list is not evidence of a rival sense, and is
+    // not flagged.
+    if (matched.length >= 2) {
+      return {
+        ambiguous: true,
+        term: entry.term,
+        resolvedAs: null,
+        interpretations: matched.map((s) => ({ label: s.label, query: s.query })),
+      };
+    }
+    const contentWords = lc.split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOPWORDS.has(w));
+    if (contentWords.length <= 3) {
       return {
         ambiguous: true,
         term: entry.term,
@@ -22457,21 +23351,235 @@ async function describeImage(dataUrl, question, token, ledger = null) {
   return null;
 }
 
+/* ── The preservation audit for resolved_query (2026-10-23,
+ * logic audit L1-4) ──────────────────────────────────────────
+ * A model paraphrase of the user's question used to replace
+ * the user's words as the search query on the strength of its
+ * length alone (length > 5 was the whole acceptance test), so
+ * a confident narrowing or sense change was invisible in the
+ * record, and the gates downstream judged papers against the
+ * raw question while retrieval searched the rewritten one.
+ * resolved_query is now a PROPOSAL: it is accepted only after
+ * this deterministic audit finds every stated constraint of
+ * the original preserved or explicitly mapped. The audit
+ * checks numbers (a dose or duration must survive, in digit
+ * or word form), negations (a question carrying one must not
+ * resolve to a positive form), the central concepts (each
+ * must appear in the resolved form or be mapped through the
+ * hand tables: a concept group member or a synonyms bridge
+ * named in the resolved form counts as mapped, and the
+ * mapping is returned), and the intent (a measurement
+ * question's resolved form must still read as one). The
+ * handler records both forms and this audit in the search
+ * record, and a proposal that fails is rejected outright: the
+ * original question is searched instead. */
+const AUDIT_NUMBER_WORD_FORMS = {
+  "0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
+  "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine",
+  "10": "ten", "11": "eleven", "12": "twelve", "13": "thirteen",
+  "14": "fourteen", "15": "fifteen", "16": "sixteen", "17": "seventeen",
+  "18": "eighteen", "19": "nineteen", "20": "twenty",
+};
+const AUDIT_NEGATION_TOKENS = new Set([
+  "not", "no", "never", "without", "non", "cannot", "can't",
+  "doesn't", "don't", "isn't", "aren't", "wasn't", "weren't",
+  "didn't", "won't", "wouldn't", "couldn't", "shouldn't",
+  "hasn't", "haven't", "absence", "free",
+]);
+
+export function auditResolvedQuery(originalQuery, resolvedQuery) {
+  const orig = String(originalQuery || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const resolved = String(resolvedQuery || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const out = {
+    ok: false,
+    original: orig,
+    resolved,
+    missingNumbers: [],
+    missingNegations: [],
+    missingConcepts: [],
+    unmappedBare: [],
+    intentLost: false,
+    mapping: {},
+  };
+  if (!orig || !resolved) return out;
+  const resToks = new Set(resolved.split(/[^a-z0-9]+/).filter(Boolean));
+  // Numbers: every digit token and every number word of the
+  // original must survive in one of its forms.
+  const origToks = orig.split(/[^a-z0-9]+/).filter(Boolean);
+  for (const tok of origToks) {
+    if (/^\d+$/.test(tok)) {
+      const word = AUDIT_NUMBER_WORD_FORMS[tok];
+      if (!resToks.has(tok) && !(word && resToks.has(word))) out.missingNumbers.push(tok);
+    }
+  }
+  for (const [digit, word] of Object.entries(AUDIT_NUMBER_WORD_FORMS)) {
+    if (origToks.includes(word) && !resToks.has(word) && !resToks.has(digit)) {
+      if (!out.missingNumbers.includes(word)) out.missingNumbers.push(word);
+    }
+  }
+  // Negations: a negated question must not resolve positive.
+  const origNeg = origToks.filter((t) => AUDIT_NEGATION_TOKENS.has(t));
+  if (origNeg.length > 0 && !origNeg.some((t) => resToks.has(t))) {
+    out.missingNegations = [...new Set(origNeg)];
+  }
+  // Concepts: every central concept appears, or is mapped
+  // through the hand tables by a form the resolved query names.
+  try {
+    for (const c of expansionCentralConcepts(orig)) {
+      if (!c || !c.term) continue;
+      const term = String(c.term).toLowerCase();
+      // Present: the term itself, or a stem variant of it, in
+      // the resolved form ("sleeping" resolved as "sleep").
+      let present = false;
+      try { present = termStemHitInText(resolved, term); } catch { present = false; }
+      if (present) {
+        out.mapping[term] = "present";
+        continue;
+      }
+      let mapped = null;
+      try {
+        const set = conceptSetFor(term, null);
+        if (set) {
+          for (const m of set) {
+            const ml = String(m).toLowerCase();
+            if (ml !== term && resolved.includes(ml)) { mapped = ml; break; }
+          }
+        }
+      } catch { /* one mapping source among several */ }
+      if (!mapped) {
+        const syns = SYNONYMS[term];
+        if (Array.isArray(syns)) {
+          for (const s of syns) {
+            if (resolved.includes(String(s).toLowerCase())) { mapped = String(s).toLowerCase(); break; }
+          }
+        }
+      }
+      if (!mapped) {
+        // The MeSH bridge (2026-10-23, L1-4): a concept the
+        // controlled vocabulary table maps ("heart attack" to
+        // "myocardial infarction") counts as mapped when the
+        // resolved form names the table's term for the key the
+        // concept came from.
+        try {
+          for (const t of expandViaMeshTyped(orig)) {
+            const tl = String(t.term || "").toLowerCase();
+            if (tl && resolved.includes(tl) && (term.includes(t.key) || String(t.key).includes(term))) {
+              mapped = tl;
+              break;
+            }
+          }
+        } catch { /* one mapping source among several */ }
+      }
+      if (mapped) { out.mapping[term] = mapped; continue; }
+      // A bare single word concept with no hand table backing
+      // (no group, no synonyms entry, not a quantity, not a
+      // stated phrase) is the resolver's legitimate working
+      // material: its whole job is mapping such words onto
+      // controlled vocabulary ("thinking" to "cognitive
+      // performance"), and no deterministic test here can tell
+      // a good mapping from a sense change. Those are recorded
+      // as unmapped bare, visible in the record, but they do
+      // not fail the audit. What fails it is a dropped backed
+      // concept: a phrase, a quantity, an organism, or any
+      // concept the tables themselves resolve.
+      let backed = term.includes(" ");
+      if (!backed) {
+        try { backed = !!conceptSetFor(term, null) || !!SYNONYMS[term] || isQuantityConstraintTerm(term); }
+        catch { backed = false; }
+      }
+      if (backed) out.missingConcepts.push(term);
+      else out.unmappedBare.push(term);
+    }
+  } catch { /* concepts are one leg of the audit */ }
+  // Intent: a measurement ask must stay a measurement ask.
+  try {
+    if (detectMeasurementIntent(orig) && !detectMeasurementIntent(resolved)) {
+      out.intentLost = true;
+    }
+  } catch { /* intent is one leg of the audit */ }
+  out.ok = out.missingNumbers.length === 0
+    && out.missingNegations.length === 0
+    && out.missingConcepts.length === 0
+    && !out.intentLost;
+  return out;
+}
+
 /* Map one query_intelligence row to the resolver facing shape,
  * shared by the single read below and the batched preflight read
  * in runSearchPipeline (which reads this table in the same batch
  * as the early answer cache read — see there). */
-function qiResultFromRow(row) {
+/* Cached confidence with decay (2026-10-23, logic audit
+ * L1-16). A stored resolution used to gain confidence from
+ * success_count alone and never lose any: a resolution learned
+ * while money was spent on it stayed authoritative forever,
+ * with no path for it to lose standing when later runs under
+ * it fail. The read path now decays confidence with age since
+ * the row last earned a success: a row untouched for a month
+ * starts losing standing, and after roughly four months an
+ * unreinforced row falls below the 0.5 use threshold and stops
+ * being applied, so the resolver re-derives the question and a
+ * fresh gated success re-earns the row. The write path writes
+ * only on gated success (see queryIntelligenceStoreGate),
+ * which is what makes "untouched" mean "not re-earned". */
+export function qiConfidenceForRow(row, nowMs) {
+  if (!row) return 0;
+  const base = Math.min((row.success_count || 1) / 3, 1);
+  const stamp = Number(row.updated_at || row.created_at || 0);
+  const now = Number(nowMs != null ? nowMs : Date.now());
+  if (!stamp || !now || now <= stamp) return base;
+  const ageDays = (now - stamp) / 86400000;
+  if (ageDays <= 30) return base;
+  const decay = Math.min(0.55, ((ageDays - 30) / 90) * 0.55);
+  return Math.max(0.25, base - decay);
+}
+
+export function qiResultFromRow(row) {
   if (row && row.resolved_query) {
     return {
       resolved_query: row.resolved_query,
       intent: row.intent,
       topic: row.topic,
       entities: row.entities ? JSON.parse(row.entities) : [],
-      confidence: Math.min(row.success_count / 3, 1), // 3+ successes = full confidence
+      confidence: qiConfidenceForRow(row),
     };
   }
   return null;
+}
+
+/* The evidence quality store gate (2026-10-23, logic audit
+ * L1-16). A resolution used to be stored whenever any fluent
+ * answer was produced, so a merely plausible answer trained
+ * the shortcut exactly as surely as a well evidenced one, and
+ * the row then outranked the resolver for every later similar
+ * question. The gate asks the question the store depends on:
+ * did THIS run's cited set clear the citation standard on the
+ * ORIGINAL question's concepts? It requires at least two
+ * distinct cited papers, and at least two of them citable
+ * under the same standard the answer itself was gated by.
+ * Anything less (a thin single citation, citations that do
+ * not clear the standard, a no results run) leaves the table
+ * untouched. */
+export function queryIntelligenceStoreGate(input) {
+  const out = { store: false, citedCount: 0, citableCited: 0 };
+  try {
+    const answer = input && typeof input.answer === "string" ? input.answer : "";
+    const evidence = input && Array.isArray(input.evidencePapers) ? input.evidencePapers : [];
+    const q = input && typeof input.query === "string" ? input.query : "";
+    if (!answer || evidence.length === 0 || !q) return out;
+    const citedIdx = new Set([...answer.matchAll(/\[(\d+)\]/g)].map((m) => parseInt(m[1], 10)));
+    const citedPairs = [...citedIdx].map((n) => ({ p: evidence[n - 1], idx: n })).filter((x) => x.p);
+    out.citedCount = citedPairs.length;
+    if (citedPairs.length < 2) return out;
+    let ctx = null;
+    try { ctx = conceptGateContext(evidence, q, input.dynLookup || null); } catch { ctx = null; }
+    let citable = 0;
+    for (const { p, idx } of citedPairs) {
+      try { if (paperIsCitable(p, idx, ctx)) citable++; } catch { /* one paper among several */ }
+    }
+    out.citableCited = citable;
+    out.store = citable >= 2;
+    return out;
+  } catch { return out; }
 }
 
 // D1-backed query intelligence: check if we've seen a similar query before
@@ -22661,14 +23769,19 @@ async function gatherPapersBody(rawQuery, opts) {
   if (ledger) ledger.setStage("retrieval");
   // Retrieval rounds the ledger cut, named for the diag record.
   const budgetTrims = [];
-  _outerDiag.phase = "cleaned_query"; const query = cleanQuery(preprocessQuery(rawQuery)); _outerDiag.cleanedQuery = query.slice(0, 200);
+  // One canonical representation (2026-10-23, L1-12): the
+  // cleaned and surface forms both derive from the single
+  // representation computed here, never from separate
+  // preprocessing passes over the raw text.
+  const canonicalForms = canonicalQueryForms(rawQuery);
+  _outerDiag.phase = "cleaned_query"; const query = canonicalForms.cleaned; _outerDiag.cleanedQuery = query.slice(0, 200);
   // The surface cleaned query (wave seven): retrieval speaks in
   // surface terms — the lemmatized `query` above is kept for the
   // scorer's internal matching only. Rungs, the structured
   // boolean, expansion, and every fetcher input below are built
   // from surfaceQuery, so no stemmed fragment ("rais", "flie")
   // ever reaches a database or a user facing string.
-  const surfaceQuery = cleanSurfaceQuery(preprocessQuery(rawQuery));
+  const surfaceQuery = canonicalForms.surface;
   // A resolved person name from conversation history (pronoun follow-up like
   // "he has papers from UTK") takes priority over re-detecting from rawQuery.
   const resolvedPersonName = opts && opts.resolvedPersonName;
@@ -22917,7 +24030,16 @@ async function gatherPapersBody(rawQuery, opts) {
   try {
     dynUncovered = ranked.filter((t) => {
       const tl = t.toLowerCase();
-      return termSpecificity(tl) >= 0.5 && !CONCEPT_LOOKUP.has(tl) && !SYNONYMS[tl] && !EXPANSION_FRAMING_WORDS.has(tl);
+      if (!(termSpecificity(tl) >= 0.5) || EXPANSION_FRAMING_WORDS.has(tl)) return false;
+      if (!CONCEPT_LOOKUP.has(tl) && !SYNONYMS[tl]) return true;
+      // Supplement, not only originate (2026-10-23, L1-10): a
+      // tabled term whose group cannot retrieve this question
+      // shape's vocabulary is an expansion target too. The
+      // model call proposes groups for it, and the validated
+      // group merges with the hand group on the phrase paths
+      // and stands beside it in the lookup.
+      try { if (isExpansionGroupInadequate(tl, surfaceQuery)) return true; } catch { /* adequacy is an addition */ }
+      return false;
     });
     if (dynUncovered.length > 0 && _budgetLeft()) {
       // Subrequest budget: expansion is an answer-shaping stage, not
@@ -23309,8 +24431,8 @@ async function gatherPapersBody(rawQuery, opts) {
     // construction, so the firing order is a decision the runner
     // makes with the live ledger in view (Job 2).
     const pairs = [
-      { name: "europePMC", fetch: () => europePMC(boolQ, 12, ledger) },
-      { name: "pubmed", fetch: () => pubmed(pubmedQ, 12, ncbiKey, ledger) },
+      { name: "europePMC", fetch: () => europePMC(boolQ, 12, ledger, { structuredQuery: booleanQuery }) },
+      { name: "pubmed", fetch: () => pubmed(pubmedQ, 12, ncbiKey, ledger, { structuredQuery: booleanQuery }) },
       { name: "openAlex", fetch: () => openAlex(bare, 12, openAlexKey, ledger) },
       ...(bareCommon ? [{ name: "openAlexCommon", fetch: () => openAlex(bareCommon, 12, openAlexKey, ledger) }] : []),
       { name: "crossref", fetch: () => crossref(bare, 10, ledger) },
@@ -23701,7 +24823,7 @@ async function gatherPapersBody(rawQuery, opts) {
       ? organismTerm.replace(/"/g, "") + " " + surfaceQuery
       : surfaceQuery;
     const rawFallback = await Promise.allSettled([
-      europePMC(rawQ, 12, ledger),
+      europePMC(rawQ, 12, ledger, { structuredQuery: booleanQuery }),
       semanticScholar(rawQ, 10, s2Key, ledger),
       openAlex(rawQ, 10, openAlexKey, ledger),
     ]);
@@ -23805,13 +24927,26 @@ async function gatherPapersBody(rawQuery, opts) {
       const q = organismTerm ? organismTerm.replace(/"/g, "") + " " + syn : syn;
       expandedQueries.add(q.trim());
     }
+    // Labeled MeSH fallback (2026-10-23, L1-13): the diag
+    // records which table entry each MeSH query came from and
+    // its relation to the key, so a fallback query built from a
+    // related term is visible as one. The papers these queries
+    // return enter through the same results stream as every
+    // other expanded query and are scored and gated on the
+    // question's own concepts downstream; the label is what
+    // keeps a related term's yield from masquerading as a
+    // synonym's.
+    try {
+      const typed = expandViaMeshTyped(rawQuery).slice(0, 4);
+      if (typed.length > 0) diag.meshExpanded = typed;
+    } catch { /* labeling is diagnostic, never a requirement */ }
 
     // Fire expanded queries in parallel across the most reliable engines
     const expandedArr = [...expandedQueries].slice(0, 6);
     if (expandedArr.length) {
       const expandedResults = await Promise.allSettled(
         expandedArr.flatMap((eq) => [
-          europePMC(eq, 8, ledger),
+          europePMC(eq, 8, ledger, { structuredQuery: booleanQuery }),
           semanticScholar(eq, 6, s2Key, ledger),
           openAlex(eq, 6, openAlexKey, ledger),
         ])
@@ -23847,7 +24982,7 @@ async function gatherPapersBody(rawQuery, opts) {
     if (yieldBroad) diag.cascadeYield = "broad-terms-rung";
     const broadQuery = stillUncoveredTerms.join(" OR ");
     const broadResults = await Promise.allSettled([
-      europePMC(broadQuery, 12, ledger),
+      europePMC(broadQuery, 12, ledger, { structuredQuery: booleanQuery }),
       semanticScholar(broadQuery, 10, s2Key, ledger),
       openAlex(broadQuery, 10, openAlexKey, ledger),
     ]);
@@ -23918,7 +25053,7 @@ async function gatherPapersBody(rawQuery, opts) {
     if (yieldNl) diag.cascadeYield = "natural-language-fallback";
     const nlFallback = await Promise.allSettled([
       semanticScholar(rawQuery.slice(0, 200), 15, s2Key, ledger),
-      europePMC(rawQuery.slice(0, 200), 12, ledger),
+      europePMC(rawQuery.slice(0, 200), 12, ledger, { structuredQuery: booleanQuery }),
       openAlex(rawQuery.slice(0, 200), 10, openAlexKey, ledger),
     ]);
     // Tag the net's papers: the relevance scorer below ranks THIS
@@ -23980,8 +25115,8 @@ async function gatherPapersBody(rawQuery, opts) {
       // boolean it parses.
       const relaxedNaturalQ = ((orgNames[0] || "") + " " + topicOr.join(" ")).trim() || surfaceQuery;
       const relaxedResults = await Promise.allSettled([
-        europePMC(relaxedBoolQ, 12, ledger),
-        pubmed(relaxedNaturalQ, 12, ncbiKey, ledger),
+        europePMC(relaxedBoolQ, 12, ledger, { structuredQuery: relaxedBoolQ }),
+        pubmed(relaxedNaturalQ, 12, ncbiKey, ledger, { structuredQuery: relaxedBoolQ }),
       ]);
       results = results.concat(relaxedResults);
       diag.relaxedBoolean = { query: relaxedBoolQ, count: relaxedResults.reduce(
@@ -27630,6 +28765,30 @@ async function runSearchPipeline(pctx) {
       }
     }
 
+    // PRESERVATION AUDIT (2026-10-23, logic audit L1-4): one
+    // authority owns the effective query from here on. Every
+    // resolved form, the resolver's or the cache's, is a
+    // proposal that must pass auditResolvedQuery against the
+    // user's own words before it may become the search query.
+    // A proposal that drops a number, a negation, a backed
+    // concept, or the question's intent is rejected and the
+    // original is searched instead; both forms and the audit
+    // are recorded in the search record either way, so a
+    // substitution is never invisible again. No later
+    // mechanical merge in this handler may overwrite the
+    // audited form (see the context injection gate below).
+    let resolvedQueryAudit = null;
+    let resolvedProposal = null;
+    if (resolvedSearchQuery) {
+      resolvedProposal = resolvedSearchQuery;
+      try {
+        resolvedQueryAudit = auditResolvedQuery(query, resolvedSearchQuery);
+      } catch { resolvedQueryAudit = null; }
+      if (resolvedQueryAudit && !resolvedQueryAudit.ok) {
+        resolvedSearchQuery = null;
+      }
+    }
+
     let gResult;
     // NEXT-GEN pipeline state (declared early: retrieval uses stageHealth
     // and ambiguity well before the synthesis section below).
@@ -27772,9 +28931,11 @@ async function runSearchPipeline(pctx) {
       // resolved to "BSFL gut microbiome mechanism detail"). Otherwise fall back
       // to the user's raw message.
       searchQuery = resolvedSearchQuery || query;
-      
-      // If user is asking for MORE papers, use the ORIGINAL topic as the search query
-      if (wantsMorePapers && Array.isArray(body.history)) {
+
+      // If user is asking for MORE papers, use the ORIGINAL topic as the search query.
+      // An audited resolved form outranks this merge too (2026-10-23, L1-5):
+      // the resolver's source request form already names the topic.
+      if (!resolvedSearchQuery && wantsMorePapers && Array.isArray(body.history)) {
         const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 8);
         if (prevUser) {
           searchQuery = String(prevUser.content).trim();
@@ -27787,27 +28948,51 @@ async function runSearchPipeline(pctx) {
         }
       }
 
-      // CONTEXT INJECTION: When this is a follow-up with new substance (e.g. asking about
-      // qPCR in BSF midgut after an initial BSF query), the current query may lack the
-      // organism/topic context. Pull key terms from conversation history to enrich the search.
-      if (!wantsMorePapers && Array.isArray(body.history) && body.history.length > 0) {
+      // CONTEXT INJECTION (2026-10-23, logic audit L1-5): context
+      // may be added ONLY on a followup verdict for this turn.
+      // The old block ran whenever history existed and the turn
+      // was not a more papers request, with no condition on the
+      // resolver's new_search verdict or on forceNewSearch, and
+      // it rebuilt the query from the raw text, discarding any
+      // resolved form: a new topic asked in an old conversation
+      // got up to six words of the previous topic appended and
+      // lost its resolution, so retrieval ran on a hybrid
+      // question nobody asked. Now: no injection at all when an
+      // audited resolved form exists (the resolver already
+      // carried the topic), none on a new topic verdict, and the
+      // added terms come from the resolved topic (the resolver's
+      // topic, or the previous question's analyzed organism and
+      // key phrases), never from a raw word set difference.
+      const followupVerdict = !forceNewSearch
+        && (intent.kind === "followup" || intent.kind === "correction")
+        && !(resolverResult && resolverResult.intent === "new_search");
+      if (!resolvedSearchQuery && followupVerdict && !wantsMorePapers && Array.isArray(body.history) && body.history.length > 0) {
         const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 10);
         if (prevUser) {
-          const prevQ = String(prevUser.content).trim().toLowerCase();
-          const currentQ = query.toLowerCase();
-          // Extract organism/topic words from previous query that aren't in current
-          const prevWords = prevQ.split(/\s+/).filter(w => w.length > 3 && !STOPWORDS.has(w));
-          const currentWords = new Set(currentQ.split(/\s+/));
-          const missingContext = prevWords.filter(w => !currentWords.has(w));
-          // If the current query is missing key context words, add them
+          const prevQ = String(prevUser.content).trim();
+          const currentWords = new Set(query.toLowerCase().split(/\s+/));
+          let topicTerms = [];
+          if (llmResolvedTopic) {
+            topicTerms = String(llmResolvedTopic).toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+          } else {
+            try {
+              const prevAnalysis = analyzeQuery(prevQ);
+              const bits = [];
+              if (prevAnalysis.organism) bits.push(prevAnalysis.organism);
+              for (const p of prevAnalysis.organismPhrases || []) bits.push(p);
+              for (const kp of prevAnalysis.keyPhrases || []) bits.push(kp);
+              topicTerms = bits.join(" ").toLowerCase().split(/\s+/).filter((w) => w.length > 3 && !STOPWORDS.has(w));
+            } catch { topicTerms = []; }
+          }
+          const missingContext = [...new Set(topicTerms)].filter((w) => !currentWords.has(w));
           if (missingContext.length > 0 && missingContext.length <= 6) {
             searchQuery = query + " " + missingContext.join(" ");
           }
         }
       }
-      
+
       const looksLikeFollowup = !forceNewSearch && (intent.kind === "followup" || intent.kind === "correction");
-      if (looksLikeFollowup && Array.isArray(body.history)) {
+      if (!resolvedSearchQuery && looksLikeFollowup && Array.isArray(body.history)) {
         const prevUser = [...body.history].reverse().find((t) => t && t.role === "user" && (t.content || "").trim().length > 0);
         if (prevUser) {
           const prevQ = String(prevUser.content).trim();
@@ -28050,19 +29235,30 @@ async function runSearchPipeline(pctx) {
         // speculative round . the primary retrieval already ran . so
         // it needs a full rung of headroom above the reserve.
         if (llmQueries.length > 0 && ledger.retrievalRoom(SUBREQUEST_RUNG_COST)) {
-          const llmSearches = llmQueries.flatMap((q) => [
-            europePMC(q, 8, ledger).catch(() => []),
-            semanticScholar(q, 6, env.SEMANTIC_SCHOLAR_KEY || "", ledger).catch(() => []),
-            openAlex(q, 6, env.OPENALEX_KEY || "", ledger).catch(() => []),
-          ]);
-          const llmResults = await Promise.allSettled(llmSearches);
+          // Per query accounting (2026-10-23, L1-14): the
+          // rescue runs query by query so each generated
+          // query's yield is recorded against the concept it
+          // was audited as mapping to, instead of one merged
+          // pool with no provenance per query.
+          const queryAudits = Array.isArray(llmQueries.audits) ? llmQueries.audits : [];
           const seenTitles = new Set((gResult.papers || []).map(p => (p.title || "").toLowerCase().trim()));
-          for (const r of llmResults) {
-            if (r.status === "fulfilled" && Array.isArray(r.value)) {
+          const llmQueryYields = [];
+          for (const q of llmQueries) {
+            const perQuery = await Promise.allSettled([
+              europePMC(q, 8, ledger).catch(() => []),
+              semanticScholar(q, 6, env.SEMANTIC_SCHOLAR_KEY || "", ledger).catch(() => []),
+              openAlex(q, 6, env.OPENALEX_KEY || "", ledger).catch(() => []),
+            ]);
+            let returned = 0;
+            let added = 0;
+            for (const r of perQuery) {
+              if (r.status !== "fulfilled" || !Array.isArray(r.value)) continue;
+              returned += r.value.length;
               for (const p of r.value) {
                 const key = (p.title || "").toLowerCase().trim();
                 if (key && !seenTitles.has(key)) {
                   seenTitles.add(key);
+                  added++;
                   // Score provenance (2026-10-22, logic audit
                   // L3-5): these records arrive after gatherPapers
                   // has scored, carrying no relevance at all. The
@@ -28079,8 +29275,16 @@ async function runSearchPipeline(pctx) {
                 }
               }
             }
+            const auditEntry = queryAudits.find((a) => a && a.query === q);
+            llmQueryYields.push({
+              query: q,
+              concept: auditEntry ? auditEntry.concept : null,
+              returned,
+              added,
+            });
           }
           if (gResult._diag) gResult._diag.llmQueries = llmQueries;
+          if (gResult._diag) gResult._diag.llmQueryYields = llmQueryYields;
           if (gResult._diag) gResult._diag.llmRescueAdded = gResult.papers.length - mechPaperCount;
         }
       }
@@ -28091,6 +29295,17 @@ async function runSearchPipeline(pctx) {
     // stage record with the final diag the search record is built
     // from, so stageHealth and the record tell one story (defect 8).
     reconcileRetrievalStageRecord(stageHealth, gResult && gResult._diag, (gResult && gResult.papers || []).length);
+
+    // Genuine ambiguity, positively evidenced (2026-10-23,
+    // L1-18): the branch queries for each evidenced sense are
+    // recorded with the run, and the interpretations ship in
+    // the response for a one tap re-search under the chosen
+    // sense. Running both senses' fanouts in one request would
+    // double retrieval spend against the priced budget, so the
+    // branch is recorded and offered, not silently executed.
+    if (gResult._diag && ambiguity && ambiguity.ambiguous) {
+      gResult._diag.ambiguityBranches = (ambiguity.interpretations || []).map((i) => i.query);
+    }
 
     // When user asked for MORE papers, remove duplicates of what they already have
     if (wantsMorePapers && prevSources.length > 0 && gResult.papers) {
@@ -28490,7 +29705,14 @@ async function runSearchPipeline(pctx) {
     // the limits below. A measurement question's cited shelf must
     // lead with the method papers (see orderShelfForMeasurement);
     // value reporting papers are supporting at best.
-    const measurementIntent = !isNameSearch && !isFollowupMode && detectMeasurementIntent(query);
+    // One resolver for every consumer (2026-10-23, L1-3): the
+    // followup suppression that used to sit here is gone. A
+    // followup turn that asks a measurement question is a
+    // measurement question; the turn's position in the
+    // conversation is not an intent signal, and suppressing the
+    // intent there silently lost method ordering on exactly
+    // the followup method asks.
+    const measurementIntent = !isNameSearch && detectMeasurementIntent(query);
     // MECHANISM SHAPE (2026-10-14, wave nine): detected once
     // here, alongside measurement intent, and read by the shelf
     // order below and the synthesis prompt. A mechanism
@@ -33463,7 +34685,14 @@ async function runSearchPipeline(pctx) {
     // can skip the LLM resolver entirely. This is how the system
     // "learns and grows" . every successful answer makes the next
     // similar query faster and more accurate.
-    if (env.DB && aiOK && answer.length > 100 && privacy.persist && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
+    // Evidence quality gate (2026-10-23, L1-16): the resolution
+    // is stored only when this run's cited set cleared the
+    // citation standard on the ORIGINAL question. A fluent
+    // answer alone no longer trains the shortcut.
+    const qiStoreGate = (env.DB && aiOK && answer.length > 100 && privacy.persist)
+      ? queryIntelligenceStoreGate({ answer, evidencePapers, query, dynLookup: _dynForValidation || null })
+      : { store: false, citedCount: 0, citableCited: 0 };
+    if (env.DB && aiOK && answer.length > 100 && privacy.persist && qiStoreGate.store && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
       const resolvedTopic = llmResolvedTopic || (resolverResult && resolverResult.topic) || null;
       const finalSearchQuery = resolvedSearchQuery || query;
       const intentUsed = resolverResult ? resolverResult.intent : intent.kind;
@@ -34150,6 +35379,9 @@ async function runSearchPipeline(pctx) {
     const searchRecord = buildSearchRecord({
       question: query,
       askedAt: new Date(),
+      // Both query forms and the audit (2026-10-23, L1-4).
+      resolvedQueryAudit,
+      resolvedProposal,
       diag: gResult && gResult._diag,
       funnel: publicFunnel,
       synthesisModel: synthWinner ? String(synthWinner.model) : null,
