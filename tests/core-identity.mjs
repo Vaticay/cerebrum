@@ -490,9 +490,10 @@ await test("no render decides its viewport mode from a one shot width read", asy
     // The selection toolbar's effect measures the live selection; it
     // clears the toolbar on resize rather than tracking the width.
     { file: "CerebrumApp.jsx", frag: "window.innerWidth - 12", count: 1 },
-    // The constellation tip and the document highlight popup clamp at
-    // paint time around coordinates captured at hover or selection.
-    { file: "CerebrumApp.jsx", frag: "window.innerWidth - 228", count: 1 },
+    // The document highlight popup clamps at paint time around
+    // coordinates captured at selection. (The constellation tip that
+    // also clamped here was deleted with ProfileConstellation in the
+    // 2026-10-23 profiles redo, and its exemption went with it.)
     { file: "CerebrumApp.jsx", frag: "window.innerWidth : 400", count: 1 },
     // The DotField sizes its canvas backing store inside its own
     // effect, which keeps its own resize subscription.

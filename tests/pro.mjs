@@ -1063,7 +1063,10 @@ await test("Pro badge is exposed on public identity surfaces", async () => {
   const uiSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
   assert.match(uiSrc, /\{u\.isPro && <ProBadge/, "PublicProfile must render the badge");
   assert.match(uiSrc, /\{r\.isPro && <ProBadge/, "people search cards must render the badge");
-  assert.match(uiSrc, /\{founder\.isPro && <ProBadge/, "founder card must render the badge");
+  // 2026-10-23 (huge audit redo): the founder card no longer renders in
+  // people search at all, so there is no founder card badge left to pin.
+  // The server founderCard above still carries isPro for any surface
+  // that ever shows it again.
 });
 
 await test("founder is Pro by definition via a one-time self-grant", async () => {

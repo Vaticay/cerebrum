@@ -166,7 +166,7 @@ await test("the public profile sheet has a visible close control, sheet corners,
   const end = appSrc.indexOf("/* Commit 100 — InstitutionModal is deleted.", start);
   const seg = appSrc.slice(start, end);
   assert.ok(seg.includes('aria-label="Close profile"'), "the sheet renders no visible close control");
-  assert.ok(seg.includes('borderRadius: isMobile ? "16px 16px 0 0" : RADIUS.lg'), "the mobile sheet corners are not sheet shaped");
+  assert.ok(seg.includes("borderRadius: isMobile ? `${RADIUS.lg}px ${RADIUS.lg}px 0 0` : RADIUS.lg"), "the mobile sheet does not take the sheet corner form used by the other bottom sheets");
   assert.ok(seg.includes("onSheetTouchEnd"), "swipe down dismissal is not wired");
   assert.ok(seg.includes("dy > 90"), "the swipe threshold is missing");
   assert.ok(seg.includes("Block this person") && seg.includes("Report this person"), "block and report controls are missing from the public profile");

@@ -16918,7 +16918,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
       scrimStyle={isMobile ? { alignItems: "flex-end", padding: 0 } : {}}
       panelStyle={{
         background: P.surface, border: `1px solid ${P.line}`,
-        borderRadius: isMobile ? "16px 16px 0 0" : RADIUS.lg,
+        borderRadius: isMobile ? `${RADIUS.lg}px ${RADIUS.lg}px 0 0` : RADIUS.lg,
         maxHeight: isMobile ? "92dvh" : "86dvh",
         display: "flex", flexDirection: "column", overflow: "hidden", outline: "none",
         boxShadow: "none",
