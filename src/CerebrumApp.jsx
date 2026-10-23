@@ -3230,7 +3230,7 @@ function stripStrayHashes(s) {
 const SECTION_LABELS = [
   "Summary", "The short answer", "What the research shows", "Where researchers disagree",
   "Where the studies disagree", "How solid is this", "What this does not establish",
-  "What would change this", "Core synthesis", "Evidence and mechanisms", "Divergent findings and gaps",
+  "What would change this", "What would change this (hypothetical)", "Core synthesis", "Evidence and mechanisms", "Divergent findings and gaps",
   "Methodological confidence", "Key evidence", "What we know", "Bottom line",
   "What changed", "Limitations", "Methods",
 ];

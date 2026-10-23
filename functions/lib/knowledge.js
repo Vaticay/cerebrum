@@ -1642,15 +1642,22 @@ export function analyzeTemporalConsensus(papers, conflicts = []) {
     confidence = 0.3;
   } else if (earlyRate > 0.3 && recentRate < 0.15) {
     pattern = "converging";
-    summary = `The field has converged: early work (${minYear}–${early[early.length-1].year}) was contested, but ${recent.length - recentContested} of ${recent.length} recent sources agree.`;
+    // (2026-10-23, audit L4-20): the summary states only what was
+    // computed, conflict involvement by period. A low recent
+    // contested rate is the absence of a detected conflict, not
+    // a measurement that the recent sources agree.
+    summary = `Early work (${minYear} to ${early[early.length-1].year}) was often involved in detected conflicts (${earlyContested} of ${early.length} papers), while recent work was rarely involved (${recentContested} of ${recent.length}). Fewer detected conflicts recently is not, by itself, evidence that the recent papers agree with each other.`;
     confidence = 0.7;
   } else if (earlyRate < 0.15 && recentRate > 0.3) {
     pattern = "diverging";
-    summary = `The consensus is fracturing: early sources largely agreed, but ${recentContested} of ${recent.length} recent papers challenge the established view.`;
+    summary = `Recent papers are involved in detected conflicts far more often than early ones: ${recentContested} of ${recent.length} recent papers, against ${earlyContested} of ${early.length} early papers. Whether an older consensus existed was not measured; the rise in detected conflict is what the data show.`;
     confidence = 0.7;
   } else if (earlyRate < 0.15 && recentRate < 0.15) {
     pattern = "stable";
-    summary = `Stable consensus across ${span} years (${minYear}–${maxYear}): sources agree throughout the timeline.`;
+    // (2026-10-23, audit L4-20): no conflict detected may never
+    // render as "sources agree"; only the detection result is
+    // stated.
+    summary = `Across ${span} years (${minYear} to ${maxYear}), few papers in any period were involved in a detected conflict. No agreement between the papers' findings was measured; this records only that the conflict detector found little to flag.`;
     confidence = 0.8;
   } else {
     pattern = "contested";
@@ -1714,7 +1721,12 @@ export function extractSampleSizes(papers) {
   }
   
   const ns = perPaper.map(p => p.n).sort((a, b) => a - b);
-  const totalN = ns.reduce((s, n) => s + n, 0);
+  // (2026-10-23, audit L4-20): per paper sample sizes overlap
+  // freely (the same cohort reported in several papers), so the
+  // summed figure was never a combined participant total and is
+  // no longer computed or presented as one. totalN now carries
+  // the largest single study, the only honest aggregate.
+  const totalN = ns.length > 0 ? ns[ns.length - 1] : 0;
   const medianN = ns.length > 0 ? ns[Math.floor(ns.length / 2)] : 0;
   const largestN = ns.length > 0 ? ns[ns.length - 1] : 0;
   const reporting = perPaper.length;
@@ -1723,14 +1735,14 @@ export function extractSampleSizes(papers) {
   let summary = null;
   let thinData = false;
   if (reporting > 0) {
-    if (totalN < 500 && total >= 3) {
+    if (largestN < 500 && total >= 3) {
       thinData = true;
-      summary = `Thin evidence base: ${reporting} of ${total} sources report sample sizes, totaling just n=${totalN.toLocaleString()} participants. Treat quantitative claims cautiously.`;
+      summary = `Thin evidence base: ${reporting} of ${total} sources report sample sizes, and the largest single study is n=${largestN.toLocaleString()}. Per study samples may overlap and are not summed. Treat quantitative claims cautiously.`;
     } else if (medianN < 100 && reporting >= 2) {
       thinData = true;
       summary = `Small-study pattern: median sample size is n=${medianN.toLocaleString()} across ${reporting} reporting sources. Findings may not generalize.`;
-    } else if (totalN >= 10000) {
-      summary = `Substantial evidence base: ${reporting} sources report a combined n=${totalN.toLocaleString()} participants.`;
+    } else if (largestN >= 10000) {
+      summary = `Substantial evidence base: ${reporting} sources report sample sizes, the largest a single study of n=${largestN.toLocaleString()}. Per study samples may overlap and are not summed into a combined total.`;
     }
   }
   
@@ -1765,7 +1777,7 @@ export function checkQuantitativeAgreement(papers) {
     if (found.length > 0) values.push({ idx: i + 1, values: found });
   }
   
-  if (values.length < 2) return { consistent: null, range: null, summary: null };
+  if (values.length < 2) return { consistent: null, range: null, summary: null, values };
   
   // Compare first-reported percentages across papers
   const firsts = values.map(v => v.values[0]);
@@ -1777,19 +1789,17 @@ export function checkQuantitativeAgreement(papers) {
   // Coefficient of variation as agreement measure
   const cv = mean > 0 ? spread / mean : 999;
   
-  if (cv < 0.5) {
-    return {
-      consistent: true,
-      range: [min, max],
-      summary: `Quantitatively consistent: key percentages cluster between ${min}% and ${max}% across ${values.length} sources.`,
-    };
-  } else {
-    return {
-      consistent: false,
-      range: [min, max],
-      summary: `Quantitative disagreement: reported figures range from ${min}% to ${max}% — a ${(max/min).toFixed(1)}x spread. The direction may agree but the magnitude doesn't.`,
-    };
-  }
+  // Agreement verdict DELETED (2026-10-23, audit L4-20): the
+  // first percentage in each abstract measures a different thing
+  // in each paper, so clustering or spreading those numbers is
+  // not agreement or disagreement between findings. The raw per
+  // paper figures and their range stay available to callers;
+  // no summary and no consistent flag are produced until an
+  // implementation keyed to extracted values on a shared
+  // outcome exists. (cv is still computed above for shape
+  // compatibility and deliberately unused.)
+  void cv;
+  return { consistent: null, range: [min, max], summary: null, values };
 }
 
 // ════════════════════════════════════════════════════════════════════════
