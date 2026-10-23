@@ -238,11 +238,18 @@ await test("the Trending and NovaEgg popstate listeners still exist", () => {
 });
 
 await test("Inbox messages reveal report on long press, not only on hover", () => {
-  assert.match(inboxSrc, /onTouchStart=\{\(\) => \{ if \(!m\.mine && m\.id\) startLongPress\(key\); \}\}/, "no long press start on a message");
-  assert.match(inboxSrc, /setTimeout\(\(\) => \{ longPressRef\.current = null; setActionMsgId\(key\);/, "the long press timer does not reveal the actions");
-  assert.match(inboxSrc, /actionMsgId === key && \(/, "no touch action row is rendered for the pressed message");
-  assert.match(inboxSrc, /> Report this message\s*<\/button>/, "the touch action row carries no labelled report action");
-  assert.match(inboxSrc, /opacity: hoverMsgId === key \|\| actionMsgId === key \? 1 : 0/, "the flag stays hidden after a long press");
+  // 2026-10-23 (shell landing reconciliation): the Inbox redo landed
+  // its own long press after this lane was written, covering own and
+  // received messages with one action row (Report, Delete, Close).
+  // The landing kept that implementation and dropped this lane's
+  // duplicate, so these pins assert the reconciled wiring: a touch
+  // start on the bubble arms a timer that sets actionMsgId, the
+  // pressed message renders the labelled action row, and the report
+  // flag reveals for the pressed message as it does for hover.
+  assert.match(inboxSrc, /onTouchStart=\{\(\) => \{ if \(longPressRef\.current\) clearTimeout\(longPressRef\.current\); longPressRef\.current = setTimeout\(\(\) => setActionMsgId\(m\.id \|\| key\), 450\); \}\}/, "no long press start on a message");
+  assert.match(inboxSrc, /actionMsgId === \(m\.id \|\| key\) && \(/, "no touch action row is rendered for the pressed message");
+  assert.match(inboxSrc, />Report this message<\/button>/, "the touch action row carries no labelled report action");
+  assert.match(inboxSrc, /opacity: hoverMsgId === key \|\| actionMsgId === \(m\.id \|\| key\) \? 1 : 0/, "the flag stays hidden after a long press");
 });
 
 await test("the selected evidence tier explanation is visible text, not only a title", () => {
