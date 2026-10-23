@@ -708,10 +708,26 @@ await test("a junk pool still lands in no results, the audit records why, and in
   const { data } = await runScenario("does eating yogurt actually help your gut");
   assert.equal(data.responseKind, "no-results",
     "a junk pool did not land in the honest no results state: " + data.responseKind);
+  // PIN UPDATED (2026-10-23, Wave 3 S3 landing, logic audit
+  // L3-7): the gate audit this test originally read is the
+  // citation layer's record, and it fires when the citation
+  // layer empties a pool that reached it. Since L3-7 bound the
+  // stamped verdict at the choke point, this junk pool now
+  // empties at the relevance and foundational layer and never
+  // reaches the citation layer, so no gateAudit is produced.
+  // The recording contract stands in the funnel instead: the
+  // record names the excluded papers and their failing reasons
+  // there, and nothing was comparison admitted.
   const ga = data._record && data._record.gateAudit;
-  assert.ok(ga, "the record carries no gate audit for an emptied pool");
-  assert.equal(ga.shippedLimited, false, "the junk pool was comparison admitted");
-  assert.ok(Array.isArray(ga.excluded) && ga.excluded.length >= 1, "the audit names no excluded papers");
+  assert.ok(!ga || ga.shippedLimited === false, "the junk pool was comparison admitted");
+  const funnel = (data._record && data._record.funnel) || {};
+  const namedExcluded = [
+    ...((funnel.excludedWeakTitles) || []),
+    ...((funnel.foundationalNearMisses) || []).map((m) => m.title),
+  ];
+  assert.ok(namedExcluded.length >= 1, "the record names no excluded papers: " + JSON.stringify(funnel));
+  const missReasons = ((funnel.foundationalNearMisses) || []).flatMap((m) => m.failing || []);
+  assert.ok(missReasons.length >= 1, "the record gives no failing reasons for the excluded papers");
   const reasons = (data.noResults && data.noResults.likelyReasons) || [];
   assert.ok(!reasons.some((r) => /too new to be indexed/i.test(r)),
     "the no results copy blamed indexing on a gathered pool: " + reasons.join(" | "));

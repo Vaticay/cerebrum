@@ -35207,7 +35207,25 @@ async function runSearchPipeline(pctx) {
           // false there), so the payload concluded nothing was
           // gathered and shipped the "too new to be indexed"
           // boilerplate on gathered pools.
-          gatedOut: relevanceGatedOut,
+          // Composed 2026-10-23 at the Wave 3 S3 landing: since
+          // L3-7 bound the stamped verdict at the choke point, a
+          // pool can empty at the relevance or foundational
+          // layer before the citation layer sees it, and
+          // relevanceGatedOut (the binding's own drops) reads 0
+          // while retrieval gathered distinct papers that all
+          // went uncitable. The wave ten contract counts what
+          // retrieval gathered and the gates withheld, whichever
+          // layer withheld it, so the gathered distinct count
+          // less the citable set floors the number.
+          gatedOut: Math.max(relevanceGatedOut, (() => {
+            try {
+              const fn = gResult && gResult._diag && gResult._diag.funnel;
+              if (fn && typeof fn.deduped === "number") {
+                return Math.max(0, fn.deduped - citablePapers.length);
+              }
+            } catch { /* the binding count stands alone */ }
+            return 0;
+          })()),
           gatedExamples: gatedOutTitles,
           // Bug 4 fix: honest filter attribution in the no-results answer.
           filteredOut: evidenceFilteredOut,
@@ -35407,7 +35425,17 @@ async function runSearchPipeline(pctx) {
           query: searchQuery,
           sourcesQueried: publicSourcesQueried(),
           rungsTried: retrievalStrategiesTried(gResult && gResult._diag),
-          gatedOut: relevanceGatedOut,
+          // Same funnel floor as the terminal no results call
+          // above (Wave 3 S3 landing composition, 2026-10-23).
+          gatedOut: Math.max(relevanceGatedOut, (() => {
+            try {
+              const fn = gResult && gResult._diag && gResult._diag.funnel;
+              if (fn && typeof fn.deduped === "number") {
+                return Math.max(0, fn.deduped - citablePapers.length);
+              }
+            } catch { /* the binding count stands alone */ }
+            return 0;
+          })()),
           gatedExamples: gatedOutTitles,
           filteredOut: evidenceFilteredOut,
           filterLabel: evidenceFilterApplied,

@@ -243,7 +243,14 @@ test("RELEVANCE_FLOOR is 50 (strong + top of partial survive)", () => {
   assert.equal(RELEVANCE_FLOOR, 50);
 });
 
-test("papers at or above 50 survive; below 50 never enter synthesis", () => {
+test("papers at or above the topical gate floor survive; below it never enter synthesis", () => {
+  // Updated 2026-10-23 at the Wave 3 S3 landing: L3-3 separated
+  // the scales and L3-4 calibrated the gate floor on the topical
+  // component at 25 (labeled on point papers score topical 25 to
+  // 35 while carrying blended relevance 62 to 80). The blended
+  // RELEVANCE_FLOOR of 50 above keeps governing the consumers
+  // that read blended relevance. This fixture's bare relevance
+  // values are read as the topical score by the gate.
   const papers = [
     { title: "A", relevance: 82 },
     { title: "B", relevance: 50 },
@@ -252,7 +259,7 @@ test("papers at or above 50 survive; below 50 never enter synthesis", () => {
     { title: "E", relevance: 12 },
   ];
   const out = applyRelevanceGate(papers);
-  assert.deepEqual(out.map((p) => p.title), ["A", "B"]);
+  assert.deepEqual(out.map((p) => p.title), ["A", "B", "C", "D"]);
 });
 
 test("missing, null, NaN, or non-numeric relevance counts as below the floor", () => {
