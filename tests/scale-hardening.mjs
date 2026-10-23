@@ -240,7 +240,11 @@ await test("source: key threaded from env through gatherPapers to every S2 call"
   // Updated 2026-10-14 (wave nine): the foundational lane is
   // the twelfth call site, keyed identically (s2Key, like
   // every other), superseding the eleven call site pin.
-  assert.equal(callLines.length, 12, `expected 12 call sites, found ${callLines.length}`);
+  // Updated 2026-10-23 (Wave 3 landing): three more keyed call
+  // sites, each verified to thread the key like every other:
+  // the L2-7 review leg, the L1-14/L2-9 rescue loop, and the
+  // L1-18 sense branch queries. Fifteen call sites.
+  assert.equal(callLines.length, 15, `expected 15 call sites, found ${callLines.length}`);
   for (const l of callLines) {
     assert.ok(
       l.includes("s2Key") || l.includes("SEMANTIC_SCHOLAR_KEY"),
