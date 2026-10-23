@@ -359,7 +359,10 @@ console.log('Actual shared-button and card components render in dark/light and m
   summary:'Checked 2 claims against the cited sources: 2 supported, 0 thin, 0 unsupported.',
   claims:[{claim:'First claim [1]',status:'supported',note:''},{claim:'Second claim [2]',status:'supported',note:''}],
  }}));
- assert.match(deep,/Checked 2 extracted claims against their papers and each one held up\. The rest of the answer was not claim checked\./,'deep receipt does not state its scope');
+ // PIN UPDATED (2026-10-23, Wave 3 S5 landing, audit L5-13): the deep
+ // receipt now states the check ran against the abstracts of the cited
+ // sources, the same wording the server summary carries.
+ assert.match(deep,/Checked 2 extracted claims against the abstracts of the cited sources and each one held up\. The rest of the answer was not claim checked\./,'deep receipt does not state its scope');
  assert.match(deep,/background:#7A9E7E/,'deep receipt lost its pass dot though its summary carries no caveat');
  assert.doesNotMatch(deep,/all 2 claims in this answer/,'the old exhaustive receipt wording is back');
  console.log('FactCheck deep receipt states its extracted denominator and keeps its pass dot.');
@@ -368,7 +371,7 @@ console.log('Actual shared-button and card components render in dark/light and m
   summary:'',
   claims:[{claim:'Only claim [1]',status:'supported',note:''}],
  }}));
- assert.match(none,/Checked 1 extracted claim against its paper and it held up\. The rest of the answer was not claim checked\./,'modeless receipt does not state its scope');
+ assert.match(none,/Checked 1 extracted claim against the abstracts of the cited sources and it held up\. The rest of the answer was not claim checked\./,'modeless receipt does not state its scope');
  assert.match(none,/background:#7A9E7E/,'modeless receipt lost its pass dot though its summary carries no caveat');
  console.log('FactCheck modeless receipt states its extracted denominator and keeps its pass dot.');
 

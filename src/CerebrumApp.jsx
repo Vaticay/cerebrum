@@ -4768,7 +4768,7 @@ function FactCheck({ fc, P, accent }) {
      heading in both panel shapes. */
   const flagsGroup = flagClaims.length > 0 ? (
     <div style={{ marginTop: 14 }}>
-      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 600, color: P.ink2, fontFamily: "var(--cb-font)", marginBottom: 4 }}>Flags from other checks</div>
+      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", marginBottom: 4 }}>Flags from other checks</div>
       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, marginBottom: 4 }}>These items were flagged by other passes over the answer. They do not count in the claim check totals above.</div>
       {flagClaims.map((c, i) => (
         <div key={i} style={{ display: "flex", gap: 12, padding: "10px 0 0", marginTop: 10, borderTop: `1px solid ${P.line}` }}>
