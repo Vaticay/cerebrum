@@ -2,17 +2,17 @@
  * inbox.jsx — Inbox / messaging UI.
  *
  * Extracted from CerebrumApp.jsx (monolith split, 2026-10-07).
- * InboxView: DM thread list + active thread view (E2EE, voice notes, attachments).
- * ReportConductModal: shared by InboxView and VideoHuddle (exported).
+ * InboxView: DM thread list + active thread view (E2EE, attachments).
+ * ReportConductModal: shared by InboxView (exported).
+ * PaperSharePicker: sends a paper card into a conversation (exported).
  */
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { apiDataAction, toast, REPORT_REASONS, apiDataGet, cbNotify, cbBlip, avatarSkin, relativeTime, statusBad, statusGood } from "./appUtils.js";
 import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, TYPE, Z, SHADOW, Icon, UIButton } from "./designSystem.jsx";
-import { ensureE2EEDevice, decryptThreadMessages, getSafetyNumber, getRecoveryPhrase, isPeerEncryptionReady, upgradeThread, markSafetyNumberVerified, clearSafetyNumberVerified, encryptMessage } from "./e2ee/messaging.js";
+import { ensureE2EEDevice, decryptThreadMessages, encryptMessage } from "./e2ee/messaging.js";
 import { safeHref } from "./textUtils.js";
 import { Dialog, ModalChrome } from "./flowcharts.jsx";
-import { NovaLive } from "./LearnView.jsx";
 
 /* Group threads need to tell speakers apart at a glance. One stable
    color per person, hashed from their id, so the same researcher is
@@ -92,6 +92,124 @@ function renderLinkedText(text) {
       </React.Fragment>
     );
   });
+}
+
+/* Build the paper attachment the server already accepts from any
+   source shaped object in the app: an answer source, a bibliography
+   entry, or a saved paper. One builder, so every Share action sends
+   the same card the thread view already knows how to render. */
+function paperAttachmentFromSource(source) {
+  const s = source || {};
+  const rawDoi = String(s.doi || s.DOI || "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim();
+  const doi = /^10\.\d{4,9}\//.test(rawDoi) ? rawDoi : null;
+  const title = String(s.title || "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 300) || "Paper";
+  const url = String(s.url || "").trim() || (doi ? "https://doi.org/" + doi : "");
+  return {
+    kind: "paper",
+    title,
+    url,
+    meta: {
+      journal: s.journal ? String(s.journal).slice(0, 200) : null,
+      year: s.year ? String(s.year).slice(0, 20) : null,
+      authors: s.authors ? String(s.authors).replace(/<[^>]+>/g, "").slice(0, 300) : null,
+      doi,
+    },
+  };
+}
+
+/* Share a paper into a conversation in one tap. Picking an existing
+   thread sends the paper card there at once. Picking a person starts
+   a thread through the normal start path, which applies the consent
+   policy on the server, and then sends the card into it. */
+function PaperSharePicker({ P, accent, at, paper, threads, onClose, onSent }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [busyKey, setBusyKey] = useState("");
+  const att = paperAttachmentFromSource(paper);
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setResults([]); setSearching(false); return; }
+    setSearching(true);
+    const t = setTimeout(() => {
+      apiDataGet("search-users", { q }).then((d) => { setResults((d && d.items) || []); setSearching(false); }).catch(() => setSearching(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [query]);
+  const sendToThread = async (threadId) => {
+    if (!threadId || busyKey) return;
+    setBusyKey("thread:" + threadId);
+    try {
+      await apiDataAction("send-message", {
+        thread_id: threadId, text: "",
+        attachment_kind: "paper", attachment_title: att.title,
+        attachment_url: att.url || "", attachment_meta: att.meta,
+      });
+      toast("Paper sent.");
+      if (onSent) onSent(threadId);
+      onClose();
+    } catch (e) {
+      toast(e.message || "Could not send that paper.", { tone: "error" });
+    } finally { setBusyKey(""); }
+  };
+  const startAndSend = async (person) => {
+    if (!person || busyKey) return;
+    setBusyKey("person:" + person.id);
+    try {
+      const res = await apiDataAction("start-thread", { target_id: person.id });
+      if (!res || !res.thread_id) throw new Error("Could not open a conversation.");
+      await sendToThread(res.thread_id);
+    } catch (e) {
+      toast(e.message || "Could not send that paper.", { tone: "error" });
+      setBusyKey("");
+    }
+  };
+  const rowStyle = { display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 44, padding: "10px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)" };
+  return (
+    <ModalChrome label="Share paper" eyebrow="Inbox" title="Send this paper" onClose={onClose} accent={accent} P={P} width={520}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ padding: "12px 14px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.surface }}>
+          <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.45 }}>{att.title}</div>
+          {(att.meta.journal || att.meta.year) && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>{[att.meta.journal, att.meta.year].filter(Boolean).join(" · ")}</div>}
+        </div>
+        {(threads || []).length > 0 && (
+          <div>
+            <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.faint, marginBottom: 6 }}>Your conversations</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
+              {(threads || []).map((t) => (
+                <button key={t.id} onClick={() => sendToThread(t.id)} disabled={!!busyKey} style={rowStyle}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name || "Conversation"}</span>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, flexShrink: 0 }}>{busyKey === "thread:" + t.id ? "Sending…" : "Send"}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div>
+          <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.faint, marginBottom: 6 }}>Start a new conversation</div>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search a name or @username" aria-label="Search people to share with"
+            style={{ width: "100%", padding: "12px 12px", borderRadius: RADIUS.md, fontSize: 16, background: P.surface, border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)", boxSizing: "border-box" }} />
+          {searching && <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>}
+          {!searching && query.trim().length >= 2 && results.length === 0 && (
+            <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Nobody matches that.</div>
+          )}
+          {results.length > 0 && (
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
+              {results.map((r) => (
+                <button key={r.id} onClick={() => startAndSend(r)} disabled={!!busyKey} style={rowStyle}>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || r.username}</span>
+                    {r.username && <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint }}>@{r.username}</span>}
+                  </span>
+                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, flexShrink: 0 }}>{busyKey === "person:" + r.id ? "Sending…" : "Send"}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </ModalChrome>
+  );
 }
 
 function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, reportedUserId, messageId, onClose }) {
@@ -183,7 +301,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
   );
 }
 
-function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThreadId, onConsumeInitialThread, onStartHuddle, activeHuddleRoomSeed, onCompose }) {
+function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThreadId, onConsumeInitialThread, onCompose }) {
   const [activeId, setActiveId] = useState(null);
   const [activeThread, setActiveThread] = useState(null);
   // E2EE Phase 1.4 — legacy divider index, memoized. The old code ran
@@ -214,9 +332,26 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [draftsByThread, setDraftsByThread] = useState(() => {
     try { return JSON.parse(localStorage.getItem("cb_inbox_drafts_v1") || "{}") || {}; } catch { return {}; }
   });
+  /* Encrypted threads are memory only for anything the reader
+     typed. Drafts and the outbox for a plain thread persist as
+     before, but a draft or a failed send from an encrypted thread
+     never reaches localStorage in plaintext. The set of encrypted
+     thread ids comes from the list payload plus the open thread, and
+     the persistence effects below filter on it every time they run,
+     which also scrubs anything stored by an older build. */
+  const encryptedThreadIds = useMemo(() => {
+    const ids = new Set((threads || []).filter((t) => t && t.encrypted).map((t) => t.id));
+    if (activeThread && activeThread.encrypted && activeThread.id) ids.add(activeThread.id);
+    return ids;
+  }, [threads, activeThread]);
+  const withoutEncrypted = (byThread, ids) => {
+    const out = {};
+    for (const [tid, v] of Object.entries(byThread || {})) { if (!ids.has(tid)) out[tid] = v; }
+    return out;
+  };
   useEffect(() => {
-    try { localStorage.setItem("cb_inbox_drafts_v1", JSON.stringify(draftsByThread)); } catch {}
-  }, [draftsByThread]);
+    try { localStorage.setItem("cb_inbox_drafts_v1", JSON.stringify(withoutEncrypted(draftsByThread, encryptedThreadIds))); } catch {}
+  }, [draftsByThread, encryptedThreadIds]);
   /* The durable outbox: sends that have not provably landed, kept
      per thread in localStorage exactly the way drafts are, so a
      failed send survives the reload that used to lose the message,
@@ -226,12 +361,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
      dropped the moment the send reconciles to a canonical server
      row. On open, entries become rows again carrying the same
      idempotency key, so a retry resumes the original send instead
-     of starting a new one. Encrypted threads are treated exactly
-     as drafts treat them: the draft persistence keeps no special
-     case for them, so the outbox mirrors that. What is stored is
-     the plaintext the reader typed, on their own device only,
-     never anything the server saw; the envelopes themselves are
-     regenerated at send time and are never persisted. */
+     of starting a new one. Encrypted threads are the exception:
+     their entries stay in memory for this session only and are
+     never written to localStorage, because what an outbox entry
+     holds is the plaintext the reader typed. Plain threads persist
+     exactly as before. The envelopes themselves are regenerated at
+     send time and are never persisted. */
   const [outboxByThread, setOutboxByThread] = useState(() => {
     try { return JSON.parse(localStorage.getItem("cb_inbox_outbox_v1") || "{}") || {}; } catch { return {}; }
   });
@@ -246,7 +381,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [outboxSaveFailed, setOutboxSaveFailed] = useState(false);
   useEffect(() => {
     try {
-      localStorage.setItem("cb_inbox_outbox_v1", JSON.stringify(outboxByThread));
+      localStorage.setItem("cb_inbox_outbox_v1", JSON.stringify(withoutEncrypted(outboxByThread, encryptedThreadIds)));
       setOutboxSaveFailed(false);
     } catch {
       // Storage full or unavailable: the outbox stays in memory for
@@ -254,7 +389,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       // says plainly that it is not saved for retry across a close.
       setOutboxSaveFailed(true);
     }
-  }, [outboxByThread]);
+  }, [outboxByThread, encryptedThreadIds]);
   const outboxPut = (threadId, entry) => setOutboxByThread((prev) => {
     const list = (prev[threadId] || []).filter((e) => e.clientMsgId !== entry.clientMsgId);
     return { ...prev, [threadId]: [...list, entry] };
@@ -357,6 +492,30 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [msgResults, setMsgResults] = useState([]);
   const [msgSearchState, setMsgSearchState] = useState("idle");
   const [encryptedExcluded, setEncryptedExcluded] = useState(0);
+  // Message search landing: the message a result points at, and the
+  // brief highlight that marks it once it is on screen.
+  const [targetMessageId, setTargetMessageId] = useState(null);
+  const [highlightMessageId, setHighlightMessageId] = useState(null);
+  const highlightTimerRef = useRef(null);
+  useEffect(() => () => { if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current); }, []);
+  // List row menu and thread lifecycle controls. The menu acts on a
+  // thread without opening it, so acting never reads the thread.
+  const [rowMenuId, setRowMenuId] = useState(null);
+  const [pendingDeleteThreadId, setPendingDeleteThreadId] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedThreads, setArchivedThreads] = useState([]);
+  // Attachment payloads fetched on demand, keyed by message id, so a
+  // poll that returns metadata only never loses a payload the reader
+  // already loaded.
+  const attachmentCacheRef = useRef(new Map());
+  /* Bug 11, standing in part. A full list wide decrypt preview would
+     mean fetching and running the Olm pipeline for every encrypted
+     thread on every list poll, which is disproportionate and touches
+     device keys for threads the reader may never open. What is safe
+     is showing the last message of a thread this device has already
+     decrypted this session, because that plaintext is already here.
+     Threads never opened on this device keep the plain label. */
+  const [decryptedPreviews, setDecryptedPreviews] = useState({});
 
   /* The open encrypted thread, searched on this device over the
      messages this client has already decrypted: the only place its
@@ -443,29 +602,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [settingsSearching, setSettingsSearching] = useState(false);
   // settingsBusy: "" | "add" | "rename" | "leave" | "remove:<memberId>"
   const [settingsBusy, setSettingsBusy] = useState("");
-  // E2EE Phase 1.4 — per-thread encryption UI. `upgradeInfo` is null when
-  // the banner doesn't apply, { checking } while probing, or
-  // { ready } once we know whether the peer can upgrade. `safetyChanged`
-  // is the loud banner when a verified number stops matching.
-  // `safetyModal` is null | { loading } | the getSafetyNumber() result.
-  const [upgradeInfo, setUpgradeInfo] = useState(null);
-  const [upgrading, setUpgrading] = useState(false);
-  const [safetyChanged, setSafetyChanged] = useState(false);
-  const [safetyModal, setSafetyModal] = useState(null);
-  const [safetyBusy, setSafetyBusy] = useState("");
   // Commit 56 — attachments. `attachBusy` covers both the compression pass
   // and the upload, so the composer can't fire twice on a slow phone.
   const msgPaneRef = useRef(null);
   const imageInputRef = useRef(null);
   const [attachBusy, setAttachBusy] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [recSeconds, setRecSeconds] = useState(0);
-  const recRef = useRef(null);
-  const recSecondsRef = useRef(0);
   const [lightbox, setLightbox] = useState(null);
-  // If the user leaves the inbox mid-recording, InboxView unmounts and the
-  // mic would stay open with no UI to stop it. Clean up on unmount.
-  useEffect(() => () => { try { stopRecording(); } catch (cbErr) { console.error("[Cerebrum] inbox: stopping the recording on unmount failed:", cbErr); } }, []);
 
   // Downscales to fit inside 1400px and re-encodes as JPEG before upload.
   // A phone photo is several MB; a message row in D1 has roughly 1MB to
@@ -513,105 +655,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     } catch (err) {
       toast(err.message || "Couldn't attach that image.", { tone: "error" });
     } finally { setAttachBusy(false); }
-  }
-
-  // Voice notes record audio AND run speech recognition over the same take,
-  // so the message arrives with a transcript attached. That is the whole
-  // reason voice notes belong in a research tool rather than being a chat
-  // gimmick: a transcript is skimmable, searchable, quotable and readable by
-  // someone who can't play audio right now, while the recording keeps the
-  // tone and emphasis a transcript loses.
-  async function startRecording() {
-    // Guard on the ref, not the `recording` state: state hasn't updated
-    // yet on a rapid double-click, which used to leak a second
-    // MediaRecorder. The placeholder reserves the slot synchronously
-    // across the getUserMedia await.
-    if (recording || recRef.current || !activeId) return;
-    recRef.current = { starting: true, cancelled: false };
-    // Show the stop UI immediately: the getUserMedia permission prompt can
-    // sit for seconds, and until `recording` flips the toggle button keeps
-    // calling startRecording (a no-op) instead of stop — the "can't stop
-    // it" bug.
-    setRecording(true);
-    let stream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    catch { recRef.current = null; setRecording(false); toast("Microphone access is needed for a voice note.", { tone: "error" }); return; }
-    // The user hit stop while the permission prompt was up: do not start
-    // a recorder they already cancelled.
-    if (!recRef.current || recRef.current.cancelled) {
-      stream.getTracks().forEach((t) => t.stop());
-      recRef.current = null;
-      setRecording(false);
-      setRecSeconds(0);
-      return;
-    }
-    const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => {
-      try { return window.MediaRecorder && MediaRecorder.isTypeSupported(m); } catch { return false; }
-    });
-    if (!mime) { recRef.current = null; stream.getTracks().forEach((t) => t.stop()); toast("Voice notes aren't supported in this browser.", { tone: "error" }); return; }
-    const chunks = [];
-    const rec = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 32000 });
-    let transcript = "";
-    let sr = null;
-    try {
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SR) {
-        sr = new SR(); sr.continuous = true; sr.interimResults = false; sr.lang = navigator.language || "en-US";
-        sr.onresult = (ev) => { for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) transcript += ev.results[i][0].transcript; };
-        sr.onerror = () => {};
-        sr.start();
-      }
-    } catch (cbErr) { console.error("[Cerebrum] inbox: speech recognition setup failed:", cbErr); }
-    const startedAt = Date.now();
-    rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
-    rec.onstop = async () => {
-      stream.getTracks().forEach((t) => t.stop());
-      try { sr && sr.stop(); } catch (cbErr) { console.error("[Cerebrum] inbox: stopping speech recognition failed:", cbErr); }
-      const durationMs = Date.now() - startedAt;
-      if (durationMs < 700) return; // a mis-tap, not a message
-      const blob = new Blob(chunks, { type: mime });
-      const data = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); });
-      if (data.length > 650000) { toast("That voice note is too long to send: try a shorter one.", { tone: "error" }); return; }
-      setAttachBusy(true);
-      try {
-        await sendMessage({ kind: "audio", data, title: "Voice note", meta: { durationMs, transcript: transcript.trim().slice(0, 2000) } });
-      } catch (err) { toast(err.message || "Couldn't send that voice note.", { tone: "error" }); }
-      finally { setAttachBusy(false); }
-    };
-    // 90 seconds is the hard ceiling the D1 row size implies at this
-    // bitrate; stopping automatically is friendlier than letting someone
-    // record for three minutes and then telling them it can't be sent.
-    // The count lives in a ref: calling stopRecording() inside the state
-    // updater below was a side effect in the updater and double-fired
-    // under StrictMode.
-    recSecondsRef.current = 0;
-    recRef.current = { rec, stream, timer: setInterval(() => {
-      recSecondsRef.current += 1;
-      const nv = recSecondsRef.current;
-      setRecSeconds(nv);
-      if (nv >= 90) stopRecording();
-    }, 1000) };
-    rec.start();
-    setRecSeconds(0);
-  }
-
-  function stopRecording() {
-    const cur = recRef.current;
-    if (!cur) return;
-    // Stopping during the getUserMedia permission prompt: mark cancelled
-    // so the resolver above abandons startup instead of starting a
-    // recorder the user already dismissed.
-    if (cur.starting) { cur.cancelled = true; }
-    clearInterval(cur.timer);
-    try { cur.rec.stop(); } catch {
-      // If stop() throws (e.g. iOS InvalidStateError), onstop never fires
-      // and the mic tracks would leak — stop them directly.
-      try { cur.stream && cur.stream.getTracks().forEach((t) => t.stop()); } catch (cbErr) { console.error("[Cerebrum] inbox: stopping the microphone tracks failed:", cbErr); }
-    }
-    recRef.current = null;
-    recSecondsRef.current = 0;
-    setRecording(false);
-    setRecSeconds(0);
   }
 
   // Refreshed every time this view mounts (navigating here from the
@@ -703,24 +746,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     const onPush = () => { if (listRefreshRef.current) listRefreshRef.current(); };
     window.addEventListener("cb:push-message", onPush);
     return () => window.removeEventListener("cb:push-message", onPush);
-  }, []);
-
-  /* Presence heartbeat. There is no realtime channel to ride, so
-     presence is this: while the inbox is open, this client tells the
-     server "I am here" on mount, every 45 seconds, and whenever the
-     tab becomes visible again, and the server keeps the latest time
-     as last_active_at. Readers see it as "Active now" or "Active
-     12m ago" in a conversation's subtitle and as a dot in the list.
-     It proves the app was open recently, nothing more, and the copy
-     never claims "online". The ping is fire and forget: a failed
-     heartbeat degrades presence to stale, never to an error. */
-  useEffect(() => {
-    const ping = () => { apiDataAction("presence-ping", {}).catch(() => {}); };
-    ping();
-    const timer = setInterval(() => { if (!document.hidden) ping(); }, 45000);
-    const onVisible = () => { if (!document.hidden) ping(); };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
   // Group creation — debounced people search, reusing the same
@@ -885,17 +910,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialThreadId]);
 
-  /* Auto-open the first conversation on desktop only.
-     On a phone the two panes are one at a time — list, or thread with a
-     back arrow — and this effect selected a thread the instant the view
-     mounted, so the list was replaced before it could ever be seen. The
-     Inbox looked like an app that had exactly one conversation in it and
-     no way to reach the others. A phone opens on the list, which is what
-     every messaging app does. */
-  useEffect(() => {
-    if (isMobile) return;
-    if (!activeId && !initialThreadId && threads.length > 0) setActiveId(threads[0].id);
-  }, [threads, activeId, initialThreadId, isMobile]);
+  /* No auto open. Opening the Inbox used to open the newest
+     conversation on desktop and read it without the reader choosing
+     it. Nothing is opened, and nothing is acknowledged read, until
+     the reader taps a conversation themselves. */
 
   useEffect(() => {
     // A new conversation starts parked at its latest message, with no
@@ -928,7 +946,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       pollTimer = setTimeout(() => refresh(false), delay);
     };
     const refresh = (isFirst) => {
-      apiDataGet("thread", { thread_id: activeId }).then(async (data) => {
+      apiDataGet("thread", isFirst ? { thread_id: activeId, full: 1 } : { thread_id: activeId }).then(async (data) => {
         if (cancelled) return;
         if (isFirst) setLoadingThread(false);
         const okFetch = !!(data && !data.error);
@@ -988,6 +1006,25 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   : m
               ),
             };
+          }
+        }
+        // Attachment payloads: the first load asks for them in full.
+        // Polls return metadata only, so a payload this device already
+        // holds is filled back in from the cache instead of being
+        // downloaded again every five seconds.
+        if (thread && Array.isArray(thread.messages)) {
+          thread = { ...thread, messages: thread.messages.map((m) => {
+            if (!m) return m;
+            if (m.attachmentData) { attachmentCacheRef.current.set(m.id, m.attachmentData); return m; }
+            const cached = attachmentCacheRef.current.get(m.id);
+            return cached ? { ...m, attachmentData: cached } : m;
+          }) };
+          if (thread.encrypted) {
+            const plain = [...thread.messages].reverse().find((m) => m && m.e2ee && m.e2ee.ok && m.e2ee.text);
+            if (plain) {
+              const txt = plain.e2ee.text;
+              setDecryptedPreviews((prev) => (prev[thread.id] === txt ? prev : { ...prev, [thread.id]: txt }));
+            }
           }
         }
         // A message that arrives while you're on another tab should reach
@@ -1165,103 +1202,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     });
   }, [activeId, activeThread, outboxByThread]);
 
-  // E2EE Phase 1.4 — per-thread encryption UI state. Runs when the open
-  // thread's identity/encryption changes (not on every poll: the deps are
-  // primitives, so message traffic doesn't retrigger the probes).
-  const threadPeerId = activeThread?.otherId;
-  const threadIsEncrypted = !!activeThread?.encrypted;
-  const threadKind = activeThread?.kind;
-  useEffect(() => {
-    let cancelled = false;
-    setUpgradeInfo(null);
-    setSafetyChanged(false);
-    if (threadKind !== "dm" || !threadPeerId) return;
-    if (threadIsEncrypted) {
-      // Encrypted DM: does the live number still match what was verified?
-      getSafetyNumber(apiDataAction, threadPeerId)
-        .then((s) => { if (!cancelled) setSafetyChanged(!!s.changed); })
-        .catch(() => {});
-      return;
-    }
-    // Plaintext DM: is an upgrade on the table? Only when THIS device is
-    // set up — otherwise Settings is the entry point, not a banner here.
-    setUpgradeInfo({ checking: true });
-    (async () => {
-      try {
-        const mine = await getRecoveryPhrase().catch(() => null);
-        if (cancelled) return;
-        if (!mine) { setUpgradeInfo(null); return; }
-        const ready = await isPeerEncryptionReady(apiDataAction, threadPeerId).catch(() => false);
-        if (!cancelled) setUpgradeInfo({ checking: false, ready: !!ready });
-      } catch {
-        if (!cancelled) setUpgradeInfo(null);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [activeId, threadKind, threadPeerId, threadIsEncrypted]);
-
-  const doUpgradeThread = async () => {
-    if (upgrading || !activeId) return;
-    setUpgrading(true);
-    try {
-      await upgradeThread(apiDataAction, activeId);
-      toast("Encrypted messaging is on for this conversation.");
-      // Optimistic: the 5s poll would catch up, but the badge and banner
-      // should flip now.
-      setActiveThread((t) => (t ? { ...t, encrypted: true } : t));
-      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, encrypted: true } : t)));
-      setUpgradeInfo(null);
-    } catch (e) {
-      toast(e.message || "Couldn't turn on encrypted messaging.", { tone: "error" });
-    } finally {
-      setUpgrading(false);
-    }
-  };
-
-  const openSafetyModal = async () => {
-    if (!threadPeerId) return;
-    setMenuOpen(false);
-    setSafetyModal({ loading: true });
-    try {
-      const s = await getSafetyNumber(apiDataAction, threadPeerId);
-      setSafetyModal({ loading: false, ...s });
-    } catch (e) {
-      setSafetyModal(null);
-      toast(e.message || "Couldn't load the security numbers.", { tone: "error" });
-    }
-  };
-
-  const doMarkSafetyVerified = async () => {
-    if (safetyBusy || !threadPeerId) return;
-    setSafetyBusy("verify");
-    try {
-      await markSafetyNumberVerified(apiDataAction, threadPeerId);
-      const s = await getSafetyNumber(apiDataAction, threadPeerId);
-      setSafetyModal({ loading: false, ...s });
-      setSafetyChanged(false);
-      toast("Marked as verified.");
-    } catch (e) {
-      toast(e.message || "Couldn't save that.", { tone: "error" });
-    } finally {
-      setSafetyBusy("");
-    }
-  };
-
-  const doForgetSafetyVerified = async () => {
-    if (safetyBusy || !threadPeerId) return;
-    setSafetyBusy("forget");
-    try {
-      await clearSafetyNumberVerified(threadPeerId);
-      const s = await getSafetyNumber(apiDataAction, threadPeerId);
-      setSafetyModal({ loading: false, ...s });
-      toast("Verification cleared.");
-    } catch (e) {
-      toast(e.message || "Couldn't clear that.", { tone: "error" });
-    } finally {
-      setSafetyBusy("");
-    }
-  };
-
   // One optimistic row per send. It appears the moment Send is
   // pressed, carries its own state (sending, failed, partially
   // sent), and is replaced by the server row when the send lands.
@@ -1429,21 +1369,26 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // row lives only as long as this tab does, and the composer
     // warning (outboxSaveFailed) tells the reader that plainly
     // instead of letting them trust a queue that is not there.
-    try {
-      const probeEntry = {
-        clientMsgId: payload.clientMsgId, text: payload.text, attachment: payload.attachment,
-        encrypted: payload.encrypted, otherId: payload.otherId, createdAt: Date.now(), state: "sending",
-      };
-      const nextThreadEntries = [...(outboxByThread[threadId] || []).filter((e) => e.clientMsgId !== payload.clientMsgId), probeEntry];
-      localStorage.setItem("cb_inbox_outbox_v1", JSON.stringify({ ...outboxByThread, [threadId]: nextThreadEntries }));
-      setOutboxSaveFailed(false);
-    } catch {
-      setOutboxSaveFailed(true);
+    // Encrypted threads skip the probe entirely: their outbox entry
+    // lives in memory only and is never written to storage.
+    if (!isEncrypted) {
+      try {
+        const probeEntry = {
+          clientMsgId: payload.clientMsgId, text: payload.text, attachment: payload.attachment,
+          encrypted: payload.encrypted, otherId: payload.otherId, createdAt: Date.now(), state: "sending",
+        };
+        const nextThreadEntries = [...(outboxByThread[threadId] || []).filter((e) => e.clientMsgId !== payload.clientMsgId), probeEntry];
+        localStorage.setItem("cb_inbox_outbox_v1", JSON.stringify({ ...outboxByThread, [threadId]: nextThreadEntries }));
+        setOutboxSaveFailed(false);
+      } catch {
+        setOutboxSaveFailed(true);
+      }
     }
     // The outbox entry is written BEFORE the send is attempted:
-    // from this moment the send exists durably, so a crash, a
-    // reload, or a closed tab mid-send leaves a restorable row
-    // instead of a message that silently never existed. It starts
+    // for a plain thread the send exists durably from this moment,
+    // so a crash, a reload, or a closed tab mid send leaves a
+    // restorable row instead of a message that silently never
+    // existed. An encrypted entry exists in memory only. It starts
     // life as "sending"; if the app dies before the outcome is
     // known, the restore presents it as failed, because failed is
     // the honest state when nobody can prove it landed, and the
@@ -1548,16 +1493,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   // row and answers with the state it stored; the mirrors below show
   // that answer, not the client's guess. Pinning is personal — the
   // other participants' lists never move.
-  const toggleThreadPinned = async () => {
-    if (!activeId || prefBusy) return;
-    const row = threads.find((t) => t.id === activeId);
-    const next = !(row ? !!row.pinned : !!(activeThread && activeThread.pinned));
+  const toggleThreadPinned = async (tidArg) => {
+    const tid = typeof tidArg === "string" ? tidArg : activeId;
+    if (!tid || prefBusy) return;
+    const row = threads.find((t) => t.id === tid);
+    const next = !(row ? !!row.pinned : !!(tid === activeId && activeThread && activeThread.pinned));
     setPrefBusy("pin");
     setMenuOpen(false);
     try {
-      const res = await apiDataAction("set-thread-pinned", { thread_id: activeId, pinned: next });
-      setThreads((prev) => sortThreadList(prev.map((t) => (t.id === activeId ? { ...t, pinned: !!res.pinned, pinnedAt: res.pinned_at || null } : t))));
-      setActiveThread((t) => (t && t.id === activeId ? { ...t, pinned: !!res.pinned } : t));
+      const res = await apiDataAction("set-thread-pinned", { thread_id: tid, pinned: next });
+      setThreads((prev) => sortThreadList(prev.map((t) => (t.id === tid ? { ...t, pinned: !!res.pinned, pinnedAt: res.pinned_at || null } : t))));
+      setActiveThread((t) => (t && t.id === tid ? { ...t, pinned: !!res.pinned } : t));
       toast(res.pinned ? "Pinned to the top of your list." : "Unpinned.");
     } catch (e) {
       toast(e.message || "Couldn't pin that conversation.", { tone: "error" });
@@ -1578,22 +1524,110 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   // open thread poll) leave muted threads out of their message
   // notifications, announcements, and sounds. The toast below
   // claims exactly this scope, no more.
-  const toggleThreadMuted = async () => {
-    if (!activeId || prefBusy) return;
-    const row = threads.find((t) => t.id === activeId);
-    const next = !(row ? !!row.muted : !!(activeThread && activeThread.muted));
+  const toggleThreadMuted = async (tidArg) => {
+    const tid = typeof tidArg === "string" ? tidArg : activeId;
+    if (!tid || prefBusy) return;
+    const row = threads.find((t) => t.id === tid);
+    const next = !(row ? !!row.muted : !!(tid === activeId && activeThread && activeThread.muted));
     setPrefBusy("mute");
     setMenuOpen(false);
     try {
-      const res = await apiDataAction("set-thread-muted", { thread_id: activeId, muted: next });
-      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, muted: !!res.muted } : t)));
-      setActiveThread((t) => (t && t.id === activeId ? { ...t, muted: !!res.muted } : t));
+      const res = await apiDataAction("set-thread-muted", { thread_id: tid, muted: next });
+      setThreads((prev) => prev.map((t) => (t.id === tid ? { ...t, muted: !!res.muted } : t)));
+      setActiveThread((t) => (t && t.id === tid ? { ...t, muted: !!res.muted } : t));
       toast(res.muted ? "Notifications muted for this conversation, calls included." : "Notifications unmuted for this conversation.");
     } catch (e) {
       toast(e.message || "Couldn't mute that conversation.", { tone: "error" });
     } finally {
       setPrefBusy("");
     }
+  };
+
+  // Archive and unarchive: archiving hides the thread from the
+  // normal list. The archived list is its way back.
+  const toggleThreadArchived = async (tidArg, archivedArg) => {
+    const tid = typeof tidArg === "string" ? tidArg : activeId;
+    if (!tid || prefBusy) return;
+    const row = threads.find((t) => t.id === tid) || archivedThreads.find((t) => t.id === tid);
+    const next = typeof archivedArg === "boolean" ? archivedArg : !(row && row.archived);
+    setPrefBusy("archive");
+    setMenuOpen(false);
+    setRowMenuId(null);
+    try {
+      const res = await apiDataAction("set-thread-archived", { thread_id: tid, archived: next });
+      if (res.archived) {
+        setThreads((prev) => prev.filter((t) => t.id !== tid));
+        setArchivedThreads((prev) => [{ ...(row || { id: tid, name: "Conversation" }), archived: true }, ...prev.filter((t) => t.id !== tid)]);
+        if (tid === activeId) setActiveId(null);
+        toast("Conversation archived.");
+      } else {
+        setArchivedThreads((prev) => prev.filter((t) => t.id !== tid));
+        if (row) setThreads((prev) => [{ ...row, archived: false }, ...prev.filter((t) => t.id !== tid)]);
+        toast("Conversation back in your list.");
+      }
+    } catch (e) {
+      toast(e.message || "Could not update that conversation.", { tone: "error" });
+    } finally { setPrefBusy(""); }
+  };
+
+  const refreshArchived = async () => {
+    try {
+      const data = await apiDataGet("inbox", { archived: 1 });
+      if (data && Array.isArray(data.items)) setArchivedThreads(data.items);
+    } catch { /* the archived list simply stays as it was */ }
+  };
+
+  // Delete a thread for this reader only, after the confirm step in
+  // the render below. Other people keep their copies.
+  const deleteThreadForMe = async () => {
+    const tid = pendingDeleteThreadId;
+    if (!tid) return;
+    setPendingDeleteThreadId(null);
+    setRowMenuId(null);
+    setMenuOpen(false);
+    try {
+      await apiDataAction("delete-thread", { thread_id: tid });
+      setThreads((prev) => prev.filter((t) => t.id !== tid));
+      setArchivedThreads((prev) => prev.filter((t) => t.id !== tid));
+      if (tid === activeId) { setActiveId(null); setActiveThread(null); }
+      toast("Conversation deleted from your list.");
+    } catch (e) {
+      toast(e.message || "Could not delete that conversation.", { tone: "error" });
+    }
+  };
+
+  // Delete one of my own messages, from its bubble.
+  const deleteOwnMessage = async (messageId) => {
+    if (!activeId || !messageId) return;
+    try {
+      await apiDataAction("delete-message", { thread_id: activeId, message_id: messageId });
+      setActiveThread((t) => (t && t.id === activeId ? { ...t, messages: (t.messages || []).filter((m) => m.id !== messageId) } : t));
+      toast("Message deleted.");
+    } catch (e) {
+      toast(e.message || "Could not delete that message.", { tone: "error" });
+    }
+  };
+
+  // Fetch one attachment payload on demand. Polls carry metadata
+  // only now, so a payload the reader asks for is fetched once and
+  // cached for the rest of the session.
+  const loadAttachment = async (m) => {
+    if (!activeId || !m || !m.id) return;
+    try {
+      const data = await apiDataGet("attachment", { thread_id: activeId, message_id: m.id });
+      if (!data || !data.attachmentData) { toast("That attachment did not load.", { tone: "error" }); return; }
+      attachmentCacheRef.current.set(m.id, data.attachmentData);
+      setActiveThread((t) => (t && t.id === activeId ? { ...t, messages: (t.messages || []).map((x) => (x.id === m.id ? { ...x, attachmentData: data.attachmentData } : x)) } : t));
+    } catch {
+      toast("That attachment did not load.", { tone: "error" });
+    }
+  };
+
+  // Open a conversation at a specific message, from a search result.
+  const openThreadAtMessage = (threadId, messageId) => {
+    if (!threadId) return;
+    setTargetMessageId(messageId || null);
+    setActiveId(threadId);
   };
 
   // Commit 48: flips the block for activeThread.otherId and mirrors the
@@ -1608,24 +1642,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       const res = await apiDataAction("toggle-block", { target_id: activeThread.otherId });
       setActiveThread((t) => (t ? { ...t, blocked: res.blocked } : t));
       setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, blocked: res.blocked } : t)));
-      toast(res.blocked ? "Blocked. They can no longer message or call you." : "Unblocked.");
+      toast(res.blocked ? "Blocked. They can no longer message you." : "Unblocked.");
     } catch (e) {
       toast(e.message || "Couldn't update that block.", { tone: "error" });
     } finally {
       setBlockBusy(false);
     }
   };
-
-  // Presence, from the peer's heartbeat (see the presence-ping
-  // effect): fresh within three minutes reads "Active now"; older
-  // reads "Active 12m ago" in relativeTime's own words; no heartbeat
-  // on record reads as nothing at all, because "we do not know" must
-  // never render as "offline".
-  const presenceText = activeThread && activeThread.kind === "dm" && activeThread.otherLastActiveAt
-    ? (Date.now() - activeThread.otherLastActiveAt < 180000
-      ? "Active now"
-      : "Active " + relativeTime(activeThread.otherLastActiveAt))
-    : null;
 
   const subtitle = activeThread
     ? (activeThread.kind === "group"
@@ -1638,7 +1661,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       // already filtered by that person's show_affiliation setting. The
       // handle is what belongs here: public, stable, and the thing that
       // tells two people with the same name apart.
-      [presenceText, activeThread.otherUsername ? "@" + activeThread.otherUsername : null, activeThread.otherAffiliation].filter(Boolean).join(" · ")))
+      [activeThread.otherUsername ? "@" + activeThread.otherUsername : null, activeThread.otherAffiliation].filter(Boolean).join(" · ")))
     : "";
 
   // Scroll keeper: the pane opens on the newest message, stays glued
@@ -1698,7 +1721,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     const prevHeight = pane ? pane.scrollHeight : 0;
     const prevTop = pane ? pane.scrollTop : 0;
     try {
-      const data = await apiDataGet("thread", { thread_id: activeId, before: oldest.createdAt, before_id: oldest.id });
+      const data = await apiDataGet("thread", { thread_id: activeId, before: oldest.createdAt, before_id: oldest.id, full: 1 });
       // A failed fetch is not the end of history. Only a successful
       // response with no messages in it may close the book; on any
       // error the reader keeps their place and their way back, and
@@ -1732,6 +1755,37 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       setLoadingEarlier(false);
     }
   };
+
+  /* Search landing: once the target message is in the loaded
+     thread, scroll it into view and highlight it briefly. If it sits
+     in older history, page history in until it arrives, a bounded
+     number of times. */
+  const targetAttemptsRef = useRef(0);
+  useEffect(() => {
+    if (!targetMessageId || !activeThread || activeThread.id !== activeId) return;
+    const found = (activeThread.messages || []).some((m) => m && m.id === targetMessageId);
+    if (!found) {
+      if (activeThread.hasMore && targetAttemptsRef.current < 8) {
+        targetAttemptsRef.current += 1;
+        loadEarlier();
+      } else {
+        targetAttemptsRef.current = 0;
+        setTargetMessageId(null);
+      }
+      return;
+    }
+    targetAttemptsRef.current = 0;
+    scrollStateRef.current.atBottom = false;
+    setHighlightMessageId(targetMessageId);
+    setTargetMessageId(null);
+    requestAnimationFrame(() => {
+      const el = document.getElementById("cb-msg-" + targetMessageId);
+      if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setHighlightMessageId(null), 2600);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetMessageId, activeThread, activeId]);
 
   // The composer grows with the draft instead of clipping a paragraph
   // into a one line slot.
@@ -1804,6 +1858,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     // unfindable in search.
     ? threads.filter((t) => ((t.name || "") + " " + (t.otherUsername || "") + " " + (t.otherAffiliation || "")).toLowerCase().includes(threadQuery.trim().toLowerCase()))
     : threads;
+  const displayThreads = showArchived ? archivedThreads : filteredThreads;
 
   return (
     <>
@@ -1827,15 +1882,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       {showList && (
         <div style={{ width: isMobile ? "100%" : 336, flexShrink: 0, borderRight: isMobile ? "none" : undefined, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, background: P.surface, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden", display: "flex", flexDirection: "column", height: "100%" }}>
           <div style={{ padding: "18px 18px 12px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
-            {/* The resident header Nova (2026-10-15), left of the
-                Inbox title at the usual 66px, idle brain. She
-                belongs to the thread list header only: the call
-                surface is an overlay above this pane and gets no
-                resident. */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <NovaLive size={66} />
-              </span>
               <div style={{ minWidth: 0 }}>
                 <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, lineHeight: TYPE.heading.lineHeight }}>Inbox</h1>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>Messages and shared papers</div>
@@ -1844,6 +1891,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             <button onClick={() => setGroupModalOpen(true)} aria-label="New group" title="New group" style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Icon name="network" size={16} />
+            </button>
+            <button onClick={() => { const next = !showArchived; setShowArchived(next); if (next) refreshArchived(); }} aria-label="Archived conversations" title="Archived conversations" aria-pressed={showArchived} style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: showArchived ? withAlpha(accent, 0.28) : withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Icon name="folder" size={16} />
             </button>
             <button onClick={onCompose} aria-label="New message" title="New message" style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Icon name="edit" size={15} />
@@ -1910,15 +1960,18 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 }}>Find someone</button>
               </div>
             )}
-            {threads.length > 0 && filteredThreads.length === 0 && (
+            {threads.length > 0 && !showArchived && filteredThreads.length === 0 && (
               <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint }}>No conversations match "{threadQuery}".</div>
             )}
-            {filteredThreads.map((t) => {
+            {showArchived && archivedThreads.length === 0 && (
+              <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint }}>No archived conversations.</div>
+            )}
+            {displayThreads.map((t) => {
               const initials = (t.name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
               const preview = !t.lastMessage
                 ? "No messages yet"
                 : t.lastMessage.encrypted
-                  ? (t.lastMessage.mine ? "You: " : "") + "Encrypted message"
+                  ? (t.lastMessage.mine ? "You: " : "") + (decryptedPreviews[t.id] || "Encrypted message")
                   : (t.lastMessage.mine
                     ? "You: "
                     : (t.kind === "group" && t.lastMessage.senderName ? t.lastMessage.senderName.split(" ")[0] + ": " : "")
@@ -1928,11 +1981,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               // column now — see functions/api/data.js) instead of every
               // row rendering identically regardless of read state.
               return (
-                <button key={t.id} onClick={() => setActiveId(t.id)} className="cb-row" style={{ minHeight: 44,
-                  width: "100%", textAlign: "left", padding: "12px 10px", borderRadius: 0, border: "none",
-                  borderBottom: `1px solid ${P.line}`, cursor: "pointer",
-                  background: activeId === t.id ? withAlpha(accent, 0.08) : "transparent",
-                  boxShadow: activeId === t.id ? `none` : "none",
+                <div key={t.id} style={{ position: "relative", display: "flex", alignItems: "stretch", borderBottom: `1px solid ${P.line}`, background: activeId === t.id ? withAlpha(accent, 0.08) : "transparent" }}>
+                <button onClick={() => setActiveId(t.id)} className="cb-row" style={{ minHeight: 44,
+                  flex: 1, minWidth: 0, textAlign: "left", padding: "12px 10px", borderRadius: 0, border: "none",
+                  cursor: "pointer", background: "transparent",
                   display: "flex", gap: 11, alignItems: "flex-start", fontFamily: "var(--cb-font)",
                 }}>
                   <span style={{ width: 42, height: 42, borderRadius: "50%", ...avatarSkin(t.name || t.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>{initials}</span>
@@ -1948,11 +2000,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         {t.kind === "group" && <Icon name="network" size={12} style={{ color: P.faint, flexShrink: 0 }} title="Group" />}
                         {t.pinned && <Icon name="pinFilled" size={11} style={{ color: accent, flexShrink: 0 }} title="Pinned" />}
                         {t.muted && <Icon name="volumeOff" size={11} style={{ color: P.faint, flexShrink: 0 }} title="Muted" />}
-                        {/* Presence: a dot only while the peer's
-                            heartbeat is fresh. No dot is no claim —
-                            the list never prints "offline", because a
-                            heartbeat cannot prove that. */}
-                        {t.kind === "dm" && t.otherLastActiveAt && (Date.now() - t.otherLastActiveAt < 180000) && <span aria-label="Active now" title="Active now" style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS.good, flexShrink: 0 }} />}
                       </span>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                         {t.unreadCount > 0 && (
@@ -1964,6 +2011,32 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", fontSize: FONT_SIZES.caption, color: t.unread ? P.ink2 : P.faint, fontWeight: t.unread ? 500 : 400, marginTop: 3, overflow: "hidden", lineHeight: 1.5 }}>{preview}</span>
                   </span>
                 </button>
+                <button onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === t.id ? null : t.id); }} aria-label={"Actions for " + (t.name || "this conversation")} aria-expanded={rowMenuId === t.id} style={{ width: 40, minHeight: 44, border: "none", background: "transparent", color: P.faint, cursor: "pointer", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 14, flexShrink: 0 }}>
+                  <Icon name="moreVertical" size={16} />
+                </button>
+                {rowMenuId === t.id && (
+                  <div role="menu" style={{ position: "absolute", top: 6, right: 44, zIndex: 30, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", padding: 5, minWidth: 168, display: "flex", flexDirection: "column" }}>
+                    <button onClick={() => { setRowMenuId(null); toggleThreadPinned(t.id); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                      <Icon name={t.pinned ? "pinFilled" : "pin"} size={14} style={{ color: P.ink2 }} /> {t.pinned ? "Unpin" : "Pin"}
+                    </button>
+                    <button onClick={() => { setRowMenuId(null); toggleThreadMuted(t.id); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                      <Icon name="volumeOff" size={14} style={{ color: P.ink2 }} /> {t.muted ? "Unmute" : "Mute"}
+                    </button>
+                    {showArchived ? (
+                      <button onClick={() => { setRowMenuId(null); toggleThreadArchived(t.id, false); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                        <Icon name="folder" size={14} style={{ color: P.ink2 }} /> Move back to list
+                      </button>
+                    ) : (
+                      <button onClick={() => { setRowMenuId(null); toggleThreadArchived(t.id, true); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                        <Icon name="folder" size={14} style={{ color: P.ink2 }} /> Archive
+                      </button>
+                    )}
+                    <button onClick={() => { setRowMenuId(null); setPendingDeleteThreadId(t.id); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                      <Icon name="trash" size={14} /> Delete
+                    </button>
+                  </div>
+                )}
+                </div>
               );
             })}
             {/* Message content results: the words inside
@@ -1972,7 +2045,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 encrypted conversation's results are found on this
                 device (localMsgResults) and merged in. Tapping one
                 opens its conversation. */}
-            {threadQuery.trim().length >= 2 && (
+            {!showArchived && threadQuery.trim().length >= 2 && (
               <div style={{ padding: "14px 8px 4px" }}>
                 <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.labelTight, color: P.faint, fontFamily: "var(--cb-font)", textTransform: "uppercase", marginBottom: 4 }}>Messages</div>
                 {msgSearchState === "searching" && msgResults.length === 0 && localMsgResults.length === 0 && (
@@ -1982,7 +2055,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   <div style={{ padding: "10px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>Message search did not answer. Names above still match as you type.</div>
                 )}
                 {[...localMsgResults, ...msgResults].map((r) => (
-                  <button key={(r.onDevice ? "local-" : "srv-") + r.messageId} onClick={() => setActiveId(r.threadId)} className="cb-row" style={{ minHeight: 44, width: "100%", textAlign: "left", padding: "9px 10px", borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: "transparent", display: "block", fontFamily: "var(--cb-font)" }}>
+                  <button key={(r.onDevice ? "local-" : "srv-") + r.messageId} onClick={() => openThreadAtMessage(r.threadId, r.messageId)} className="cb-row" style={{ minHeight: 44, width: "100%", textAlign: "left", padding: "9px 10px", borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: "transparent", display: "block", fontFamily: "var(--cb-font)" }}>
                     <span style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "baseline" }}>
                       <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.threadName}</span>
                       <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, flexShrink: 0 }}>{relativeTime(r.createdAt)}</span>
@@ -2052,67 +2125,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{subtitle}</div>}
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                {/* Commit 57 — "Huddle" was internal vocabulary on the most
-                    important button in a conversation. Nobody arrives at a
-                    science tool knowing what a huddle is; everyone knows a
-                    phone icon and a camera icon. Both open the same call
-                    surface; the audio one starts with the camera off. */}
-                {/* Bug 8 fix (2026-10-08): group calls are a button without an
-                    engine — VideoHuddle is architecturally 1:1 (peer identity
-                    latches to the first signal, the ring poll returns one
-                    ring). The buttons below used to render on group threads
-                    promising what the engine cannot do. On groups they now
-                    render disabled with an honest tooltip instead of a lie. */}
-                {activeThread.kind === "group" ? (<>
-                  {/* Both call buttons render on groups, matching the DM
-                      header's shape: audio and video alike, both disabled
-                      with the same explanation. Rendering only the camera
-                      (the old shape) made audio look like it might work
-                      somewhere else in the header. */}
-                  <button
-                    disabled
-                    aria-label="Group calls aren't supported yet"
-                    title="Group calls aren't supported yet. Calls work in direct messages"
-                    style={{
-                      background: withAlpha(accent, 0.05), border: "none", borderRadius: RADIUS.md, color: P.faint,
-                      cursor: "default", opacity: 0.4,
-                      width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
-                    }}
-                  ><Icon name="phone" size={16} /></button>
-                  <button
-                    disabled
-                    aria-label="Group calls aren't supported yet"
-                    title="Group calls aren't supported yet. Calls work in direct messages"
-                    style={{
-                      background: withAlpha(accent, 0.05), border: "none", borderRadius: RADIUS.md, color: P.faint,
-                      cursor: "default", opacity: 0.4,
-                      width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
-                    }}
-                  ><Icon name="camera" size={16} /></button>
-                </>) : (<>
-                <button
-                  onClick={() => { if (!activeThread.blocked) onStartHuddle(activeThread.name, activeId, { audioOnly: true }); }}
-                  disabled={activeThread.blocked}
-                  aria-label="Start an audio call" title="Audio call"
-                  style={{
-                    background: withAlpha(accent, 0.1), border: "none", borderRadius: RADIUS.md, color: accent,
-                    cursor: activeThread.blocked ? "default" : "pointer", opacity: activeThread.blocked ? 0.4 : 1,
-                    width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  }}
-                ><Icon name="phone" size={16} /></button>
-                <button
-                  onClick={() => { if (!activeThread.blocked) onStartHuddle(activeThread.name, activeId); }}
-                  disabled={activeThread.blocked}
-                  aria-label={activeThread.blocked ? "You've blocked this person: calling unavailable" : activeHuddleRoomSeed === activeId ? "Return to call" : "Start a video call"}
-                  title={activeThread.blocked ? "You've blocked this person" : activeHuddleRoomSeed === activeId ? "Return to call" : "Video call"}
-                  style={{
-                    background: withAlpha(accent, activeHuddleRoomSeed === activeId ? 0.22 : 0.1), border: "none", borderRadius: RADIUS.md, color: accent,
-                    cursor: activeThread.blocked ? "default" : "pointer", opacity: activeThread.blocked ? 0.4 : 1,
-                    width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  }}
-                ><Icon name="camera" size={16} /></button>
-                </>)}
                 {/* Conversation options menu. It started as Commit 48's
                     block/report menu — DM-only, because blocking is (see
                     user_blocks' scope note in schema.sql: groups have no
@@ -2147,6 +2159,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         <UIButton P={P} variant="ghost" onClick={toggleThreadMuted} disabled={!!prefBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="volumeOff" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> {activeThread.muted ? "Unmute" : "Mute"}
                         </UIButton>
+                        <UIButton P={P} variant="ghost" onClick={() => toggleThreadArchived()} disabled={!!prefBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
+                          <Icon name="folder" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> Archive
+                        </UIButton>
+                        <button onClick={() => { setMenuOpen(false); setPendingDeleteThreadId(activeId); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                          <Icon name="trash" size={15} style={{ flexShrink: 0 }} /> Delete conversation
+                        </button>
                         {activeThread.kind === "dm" && activeThread.otherId && (<>
                         <UIButton P={P} variant="ghost" onClick={toggleBlock} disabled={blockBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="block" size={15} style={{ minHeight: 44, color: P.ink2, flexShrink: 0 }} /> {activeThread.blocked ? "Unblock" : "Block"} {activeThread.name}
@@ -2155,18 +2173,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                           <Icon name="flag" size={15} style={{ flexShrink: 0 }} /> Report {activeThread.name}
                         </button>
                         </>)}
-                        {/* E2EE Phase 1.4 — safety numbers. Only on encrypted
-                            DMs: there's nothing to verify on a plaintext
-                            thread. */}
-                        {activeThread.encrypted && (
-                          <UIButton P={P} variant="ghost" onClick={openSafetyModal} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
-                            <Icon name="shield" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> Verify encryption
-                          </UIButton>
-                        )}
                       </div>
                     </>)}
                   </div>
-              </div>
             </div>
             {sharedTotal > 0 && (
               <div style={{ padding: "8px 18px", borderBottom: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.015)", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
@@ -2180,41 +2189,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             {activeThread.blocked && (
               <div style={{ padding: "12px 24px", background: withAlpha(STATUS.bad, 0.08), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8 }}>
                 <Icon name="block" size={14} style={{ color: statusBad(P), flexShrink: 0 }} />
-                You've blocked {activeThread.name}. Neither of you can message or call here until you unblock.
-              </div>
-            )}
-            {/* E2EE Phase 1.4 — safety number changed on an encrypted DM.
-                Loud, and it doesn't go away until the user checks: a
-                changed number can mean a new device — or someone else. */}
-            {safetyChanged && activeThread.encrypted && !activeThread.blocked && (
-              <div style={{ padding: "12px 24px", background: withAlpha(STATUS.bad, 0.1), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <Icon name="warning" size={15} style={{ color: statusBad(P), flexShrink: 0 }} />
-                <span style={{ flex: 1, minWidth: 220, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-                  The security numbers changed: {activeThread.name}'s devices changed. Make sure this was them before continuing.
-                </span>
-                <button onClick={openSafetyModal} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: withAlpha(STATUS.bad, 0.14), color: statusBad(P), border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
-                  Check numbers
-                </button>
-              </div>
-            )}
-            {/* E2EE Phase 1.4 — per-thread upgrade prompt. Only when this
-                device is set up AND the peer is ready; otherwise the banner
-                would nag about something the user can't act on. */}
-            {upgradeInfo && !upgradeInfo.checking && !activeThread.encrypted && !activeThread.blocked && (
-              <div style={{ padding: "12px 24px", background: withAlpha(accent, 0.07), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <Icon name="lock" size={14} style={{ color: accent, flexShrink: 0 }} />
-                {upgradeInfo.ready ? (<>
-                  <span style={{ flex: 1, minWidth: 220, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-                    Turn on encrypted messaging for this conversation: only you and {activeThread.name} will be able to read new messages.
-                  </span>
-                  <button onClick={doUpgradeThread} disabled={upgrading} style={{ minHeight: 44, padding: "6px 13px", fontSize: FONT_SIZES.caption, fontWeight: 500, background: withAlpha(accent, 0.16), color: accent, border: `1px solid ${withAlpha(accent, 0.35)}`, borderRadius: RADIUS.viewport, cursor: upgrading ? "default" : "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap", opacity: upgrading ? 0.6 : 1 }}>
-                    {upgrading ? "Turning on…" : "Turn on"}
-                  </button>
-                </>) : (
-                  <span style={{ fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
-                    Waiting for {activeThread.name} to set up encrypted messaging.
-                  </span>
-                )}
+                You've blocked {activeThread.name}. Neither of you can message here until you unblock.
               </div>
             )}
             {/* Commit 87 — messages sat at the TOP of the pane.
@@ -2299,7 +2274,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 {showDay && (
                   <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{dayLabel}</div>
                 )}
-                <div className="cb-msg-bubble" style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start", marginTop: groupedWithPrev ? -8 : 0 }}
+                <div className="cb-msg-bubble" id={m.id ? "cb-msg-" + m.id : undefined} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start", marginTop: groupedWithPrev ? -8 : 0, borderRadius: RADIUS.lg, ...(highlightMessageId && m.id === highlightMessageId ? { outline: `2px solid ${accent}`, outlineOffset: 3, background: withAlpha(accent, 0.07) } : {}) }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
                 >
                   {/* Group threads show who said what — DMs don't need it, you
@@ -2339,8 +2314,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                           }}
                         />
                       )}
+                      {m.attachmentKind === "image" && !m.attachmentData && m.attachmentHasData && (
+                        <button onClick={() => loadAttachment(m)} style={{ marginTop: m.text ? 8 : 0, minHeight: 44, padding: "9px 16px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.raised || P.surface, color: accent, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                          Show image{m.attachmentTitle ? ": " + m.attachmentTitle : ""}
+                        </button>
+                      )}
                       {/* Voice note: the player and, underneath it, the
-                          transcript captured while recording. The transcript
+                          transcript captured when it was recorded. The transcript
                           is the point — it makes the note skimmable, and
                           readable at all by someone who can't play audio. */}
                       {m.attachmentKind === "audio" && m.attachmentData && (
@@ -2359,6 +2339,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                             </div>
                           )}
                         </div>
+                      )}
+                      {m.attachmentKind === "audio" && !m.attachmentData && m.attachmentHasData && (
+                        <button onClick={() => loadAttachment(m)} style={{ marginTop: m.text ? 8 : 0, minHeight: 44, padding: "9px 16px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.raised || P.surface, color: accent, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                          Load voice note
+                        </button>
                       )}
                       {/* A shared paper. Distinct from a plain link: it keeps
                           the citation metadata, so a source sent in a DM
@@ -2400,6 +2385,20 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         The glyph stays small and quiet, but the button
                         itself is a full 40px target: a 21px flag is a
                         control a thumb cannot reliably hit. */}
+                    {m.mine && m.id && !m.pending && (
+                      <button
+                        onClick={() => deleteOwnMessage(m.id)}
+                        aria-label="Delete this message" title="Delete this message"
+                        style={{
+                          opacity: hoverMsgId === key ? 1 : 0, transition: "opacity 150ms ease",
+                          background: "none", border: "none", color: P.faint, cursor: "pointer",
+                          width: 40, height: 40, padding: 0, flexShrink: 0,
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        }}
+                      >
+                        <Icon name="trash" size={13} />
+                      </button>
+                    )}
                     {!m.mine && m.id && (
                       <button
                         onClick={() => setReportModal({ kind: "message", messageId: m.id })}
@@ -2490,62 +2489,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               ) : (<>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                   <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: "none" }} aria-hidden="true" />
-                  {/* While recording, the composer becomes the recorder —
-                      one obvious thing to look at and one obvious way out,
-                      rather than a record button competing with a text field
-                      nobody is going to use mid-sentence. */}
-                  {recording ? (
-                    <div style={{
-                      flex: 1, display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderRadius: RADIUS.viewport,
-                      background: withAlpha(STATUS.bad, 0.1), border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`,
-                    }}>
-                      <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: "50%", background: STATUS.bad, animation: "cbMicPulse 1.4s ease-in-out infinite" }} />
-                      <span style={{ fontSize: FONT_SIZES.label, color: P.ink, fontWeight: 500 }}>Recording</span>
-                      <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)" }}>
-                        {String(Math.floor(recSeconds / 60)).padStart(2, "0")}:{String(recSeconds % 60).padStart(2, "0")}
-                      </span>
-                      <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.caption, color: P.faint }}>Max 90s</span>
-                    </div>
-                  ) : (<>
-                  <UIButton P={P} variant="ghost"
-                    onClick={() => imageInputRef.current?.click()}
-                    disabled={attachBusy}
-                    aria-label="Attach an image" title="Attach an image"
-                    style={{ width: 44, height: 44, borderRadius: RADIUS.md, flexShrink: 0, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-                  ><Icon name={attachBusy ? "refresh" : "image"} size={16} className={attachBusy ? "cb-spin" : undefined} /></UIButton>
-                  <textarea
-                    ref={composerRef}
-                    value={draft}
-                    onChange={(e) => updateDraft(e.target.value)}
-                    placeholder={`Message ${activeThread.name}…`}
-                    aria-label="Reply"
-                    rows={1}
-                    style={{ flex: 1, padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.45, resize: "none", maxHeight: 140, overflowY: "auto", outline: "none" }}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                  />
-                  </>)}
-                  {/* Record / stop. Recording is the one action here that
-                      benefits from being a toggle rather than press-and-hold:
-                      a research note is often 30-60 seconds, and holding a
-                      button that long while thinking is genuinely awkward. */}
-                  <UIButton P={P} variant="ghost"
-                    onClick={() => (recording ? stopRecording() : startRecording())}
-                    disabled={attachBusy}
-                    aria-label={recording ? "Send voice note" : "Record a voice note"}
-                    title={recording ? "Stop and send" : "Record a voice note"}
-                    style={{
-                      width: 44, height: 44, borderRadius: "50%", flexShrink: 0, cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      background: recording ? STATUS.bad : "transparent",
-                      border: recording ? "none" : `1px solid ${P.line}`,
-                      color: recording ? "#fff" : P.ink2,
-                    }}
-                  ><Icon name={recording ? "send" : "mic"} size={16} /></UIButton>
-                  {!recording && <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ width: 44, height: 44, borderRadius: RADIUS.md, background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ width: 44, height: 44, borderRadius: RADIUS.md, background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="send" size={16} />
-                  </button>}
+                  </button>
                 </div>
-                {!isMobile && !recording && (
+                {!isMobile && (
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 52 }}>Enter to send · Shift + Enter for a new line · Drafts are kept per conversation</div>
                 )}
               </>)}
@@ -2586,7 +2534,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   }}><Icon name="mail" size={20} /></div>
                   <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Your conversations live here</div>
                   <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.65, maxWidth: 380 }}>
-                    Messages, shared papers, and calls with other researchers. Nothing you say here is used to train anything or shown on your profile.
+                    Messages and shared papers with other researchers. Nothing you say here is used to train anything or shown on your profile.
                   </div>
                   <button onClick={onCompose} className="cb-press" style={{ minHeight: 44,
                     marginTop: 8, padding: "9px 24px", borderRadius: RADIUS.pill, cursor: "pointer",
@@ -2626,78 +2574,22 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         onClose={() => setReportModal(null)}
       />
     )}
-    {/* E2EE Phase 1.4 — safety number comparison. The number is symmetric:
-        both sides derive the same digits from the same device records, so
-        comparing them out of band proves nobody added a device in the
-        middle. Plain language throughout: "security numbers", never the
-        crypto vocabulary. */}
-    {safetyModal && activeThread && (
+    {/* Delete a conversation for this reader, behind a confirm. */}
+    {pendingDeleteThreadId && (
       <ModalChrome
-        label="Verify encryption" eyebrow="Encrypted messaging"
-        title={`Verify ${activeThread.name}`}
-        onClose={() => setSafetyModal(null)} accent={accent}
-        P={P} drawer={isMobile} width={560}
+        P={P} onClose={() => setPendingDeleteThreadId(null)}
+        label="Delete conversation" eyebrow="Inbox"
+        title="Delete this conversation?"
+        sub="It leaves your list. Other people keep their copies."
       >
-        {(() => {
-          // ModalChrome panels follow the palette in both modes now
-          // (drawer and centered alike), so the text colors are the
-          // palette's own in both. They used to key off isMobile
-          // because centered mode was dark glass whatever the theme.
-          const mInk = P.ink;
-          const mDim = P.ink2;
-          const mFaint = P.faint;
-          const mCard = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)";
-          const mLine = P.line;
-          return safetyModal.loading ? (
-            <div style={{ padding: "32px 0", textAlign: "center", color: mFaint, fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)" }}>
-              Loading security numbers…
-            </div>
-          ) : (<>
-            {safetyModal.changed && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px", borderRadius: RADIUS.lg, background: withAlpha(STATUS.bad, 0.12), border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`, marginBottom: 16 }}>
-                <Icon name="warning" size={17} style={{ color: STATUS.bad, flexShrink: 0, marginTop: 1 }} />
-                <div style={{ fontSize: FONT_SIZES.label, lineHeight: 1.55, color: mInk, fontFamily: "var(--cb-font)" }}>
-                  <strong>The security numbers changed.</strong> {activeThread.name}'s devices changed since you last verified. Make sure this was them (a new phone, a reinstalled app) before continuing. If you can't confirm it, don't send anything sensitive.
-                </div>
-              </div>
-            )}
-            <div style={{
-              display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8,
-              padding: 16, borderRadius: RADIUS.lg, background: mCard,
-              border: `1px solid ${mLine}`, marginBottom: 14,
-            }}>
-              {(safetyModal.number || "").split(" ").map((g, i) => (
-                <div key={i} style={{
-                  textAlign: "center", padding: "8px 4px", borderRadius: RADIUS.md,
-                  background: isMobile && !P.dark ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.05)",
-                  fontSize: FONT_SIZES.body, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
-                  color: mInk, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums",
-                  userSelect: "all",
-                }}>{g}</div>
-              ))}
-            </div>
-            <div style={{ fontSize: FONT_SIZES.label, lineHeight: 1.6, color: mDim, fontFamily: "var(--cb-font)", marginBottom: 6 }}>
-              Compare these numbers with {activeThread.name} on a call or in person. If they match, your conversation is private. No one else can read it.
-            </div>
-            <div style={{ fontSize: FONT_SIZES.caption, color: mFaint, fontFamily: "var(--cb-font)", marginBottom: 18 }}>
-              Covers {safetyModal.deviceCount} of {activeThread.name}'s device{safetyModal.deviceCount === 1 ? "" : "s"} plus yours. You share one set of numbers per person, across all your devices.
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              {safetyModal.verified ? (<>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.label, fontWeight: 500, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "7px 16px", borderRadius: RADIUS.viewport, fontFamily: "var(--cb-font)" }}>
-                  <Icon name="check" size={14} /> Verified
-                </span>
-                <button onClick={doForgetSafetyVerified} disabled={safetyBusy === "forget"} style={{ minHeight: 44, padding: "7px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: mFaint, border: `1px solid ${mLine}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-                  {safetyBusy === "forget" ? "Clearing…" : "Forget verification"}
-                </button>
-              </>) : (
-                <button onClick={doMarkSafetyVerified} disabled={safetyBusy === "verify"} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: withAlpha(accent, 0.2), color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
-                  {safetyBusy === "verify" ? "Saving…" : safetyModal.changed ? "I checked, it's them" : "The numbers match"}
-                </button>
-              )}
-            </div>
-          </>);
-        })()}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap", marginTop: 6 }}>
+          <button onClick={() => setPendingDeleteThreadId(null)} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+            Keep it
+          </button>
+          <button onClick={deleteThreadForMe} style={{ minHeight: 44, padding: "8px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: withAlpha(STATUS.bad, 0.16), color: statusBad(P), border: `1px solid ${withAlpha(STATUS.bad, 0.4)}`, borderRadius: RADIUS.viewport, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
+            Delete
+          </button>
+        </div>
       </ModalChrome>
     )}
     {/* Group creation — name the group, search for people, add 2+. Groups
@@ -2921,4 +2813,4 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     </>
   );
 }
-export { InboxView, ReportConductModal };
+export { InboxView, ReportConductModal, PaperSharePicker, paperAttachmentFromSource };
