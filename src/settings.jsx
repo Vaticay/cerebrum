@@ -2310,6 +2310,16 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // Live preview: renders the fixed sample answer with a profile's visual
   // settings applied, so the choice is felt before it is committed.
   const [previewKey, setPreviewKey] = useState(null);
+  /* Touch preview guard (2026 10 23, mobile audit): previews were
+     hover driven, so on touch the first tap committed the profile
+     before anyone saw the preview. A touch press records here
+     whether that card was already previewed when the press began,
+     before the synthetic focus and hover events a tap also fires
+     can set the preview themselves. The click that follows reads
+     it: a first touch tap only previews, a tap on the already
+     previewed card applies, and the Apply button under the
+     preview is the explicit path that always commits. */
+  const profileTapRef = useRef(null);
   const previewProfileKey = previewKey || (matchedProfile ? matchedProfile : null);
   const ProfilePreview = () => {
     const pk = previewProfileKey;
@@ -2605,7 +2615,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   const isActive = effectiveProfile === key;
                   return (
                     <button key={key} type="button"
-                      onClick={() => applyReadingProfile(key)}
+                      onPointerDown={(e) => { profileTapRef.current = { key, touch: e.pointerType === "touch" || e.pointerType === "pen", previewed: previewKey === key }; }}
+                      onClick={() => {
+                        const tap = profileTapRef.current;
+                        profileTapRef.current = null;
+                        if (tap && tap.touch && tap.key === key && !tap.previewed) { setPreviewKey(key); return; }
+                        if (previewKey === key) applyReadingProfile(key);
+                        else setPreviewKey(key);
+                      }}
                       onMouseEnter={() => setPreviewKey(key)}
                       onMouseLeave={() => setPreviewKey(null)}
                       onFocus={() => setPreviewKey(key)}
@@ -2628,6 +2645,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                         )}
                       </span>
                       <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.45 }}>{prof.desc}</span>
+                      {previewKey === key && !isActive && (
+                        <span style={{ fontSize: FONT_SIZES.caption, color: accent, fontWeight: 500, lineHeight: 1.45 }}>Previewing. Tap again to apply.</span>
+                      )}
                     </button>
                   );
                 })}
@@ -2640,6 +2660,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               )}
               <div style={{ padding: "4px 2px 12px" }}>
                 <ProfilePreview />
+                {previewKey && previewKey !== effectiveProfile && READING_PROFILES[previewKey] && (
+                  <button type="button" onClick={() => applyReadingProfile(previewKey)}
+                    style={{ minHeight: 44, marginTop: 10, padding: "9px 20px", borderRadius: RADIUS.pill, border: "none", background: accent, color: at, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>
+                    Apply {READING_PROFILES[previewKey].label} profile
+                  </button>
+                )}
               </div>
             </Section>
             <Section title="Theme">
