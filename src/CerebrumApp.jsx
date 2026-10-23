@@ -115,6 +115,8 @@ import { useNovaSpeech } from "./NovaSpeech.jsx";
 import { Sfx } from "./sfx.js";
 import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
 import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, accentInkOn, statusBad, statusWarn, statusGood, tabListKeyDown, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, cbToastHostMount, cbToastHostUnmount, ensureDyslexicFont } from "./appUtils.js";
+import { useKeyboardInset } from "./keyboardInset.js";
+import { historyNav } from "./historyNav.js";
 
 /* Pro-only investigation templates. */
 import { INVESTIGATION_TEMPLATES, templateQuestions } from "./investigationTemplates.js";
@@ -1993,6 +1995,19 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
           </div>
         </div>
       </div>
+      {/* The selected tier explanation as visible text (2026 10 23,
+          mobile audit): the blurbs used to live only in hover
+          titles, which a touch user never sees. This line sits
+          under the pills in every state, names the tier in force,
+          and updates the moment the selection changes. What each
+          tier filters is unchanged. */}
+      <div role="status" style={{
+        fontSize: FONT_SIZES.caption, lineHeight: 1.55, color: P.faint,
+        fontFamily: "var(--cb-font)", textAlign: isMobile ? "left" : "center",
+        maxWidth: 560, alignSelf: isMobile ? "stretch" : "center",
+      }}>
+        <span style={{ color: P.ink2, fontWeight: 500 }}>{active[1]}.</span> {active[2]}
+      </div>
     </div>
   );
 }
@@ -2141,6 +2156,20 @@ function SignalComposer({
   specimenPlaceholders = null,
 }) {
   const reduced = useReducedMotion();
+  /* The shared keyboard inset (src/keyboardInset.js): this
+     composer is the search home stage composer, the one field
+     the home screen exists for. Its root reserves scroll margin
+     of the inset below, and when the keyboard opens while it has
+     focus it scrolls itself clear of the keyboard. */
+  const keyboardInset = useKeyboardInset();
+  useEffect(() => {
+    if (!keyboardInset || !focused) return;
+    const el = inputRef && inputRef.current;
+    if (el && el.scrollIntoView) {
+      try { el.scrollIntoView({ behavior: scrollBehavior(), block: "center" }); } catch { /* scroll is a nicety */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyboardInset]);
   const mode = ASK_MODES.find((m) => m.key === askMode) || ASK_MODES[0];
   const stageQs = variant === "stage" && Array.isArray(specimenPlaceholders) && specimenPlaceholders.length
     ? specimenPlaceholders : null;
@@ -2353,6 +2382,7 @@ function SignalComposer({
       onPointerDownCapture={() => { engageRef.current = true; }}
       className={"cb-ask" + (variant === "stage" ? " cb-ask--stage" : "") + (showRecents ? " cb-ask--recents-open" : "")}
       style={{
+        scrollMarginBottom: keyboardInset ? `${keyboardInset + 96}px` : undefined,
         "--cb-acc": accent,
         "--cb-ink": P.ink,
         "--cb-ink2": P.ink2,
@@ -16512,6 +16542,11 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     return () => window.removeEventListener("keydown", onKey);
   }, [close, asPage]);
   const isMobile = useIsMobile();
+  /* The shared keyboard inset (src/keyboardInset.js): the fixed
+     ask bar below lifts by it, and the page bottom padding grows
+     by it, so the bar and the last lines of the document both
+     stay above an overlay keyboard. */
+  const keyboardInset = useKeyboardInset();
   const [rightTab, setRightTab] = useState("summary");
   const [documentText, setDocumentText] = useState("");
   /* Identifier resolver: paste a DOI/PMID/arXiv ID, resolve it against the
@@ -18455,7 +18490,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         <div style={{
           position: "relative", zIndex: Z.content, flex: 1, width: "100%", maxWidth: 1280,
           margin: "0 auto", padding: isMobile ? "20px 16px" : "28px 24px",
-          paddingBottom: `max(${isMobile ? 40 : 64}px, env(safe-area-inset-bottom))`,
+          paddingBottom: isMobile ? `calc(max(40px, env(safe-area-inset-bottom, 0px)) + ${keyboardInset}px)` : `max(64px, env(safe-area-inset-bottom))`,
           display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 7fr) minmax(0, 5fr)",
           gap: isMobile ? 24 : 28, alignItems: "start",
         }}>
@@ -18476,7 +18511,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
              floating (2026-10-19, tail 19): a bordered solid strip on
              the named Z.headerBar slot, no shadow, replacing the
              shadowed pill that sat on a raw zIndex of 40. */
-          <div style={{ position: "fixed", left: 0, right: 0, bottom: "calc(78px + env(safe-area-inset-bottom, 0px))", zIndex: Z.headerBar, background: P.surface, borderTop: `1px solid ${P.line}`, padding: "10px 16px", display: "flex" }}>
+          <div style={{ position: "fixed", left: 0, right: 0, bottom: `calc(78px + env(safe-area-inset-bottom, 0px) + ${keyboardInset}px)`, zIndex: Z.headerBar, background: P.surface, borderTop: `1px solid ${P.line}`, padding: "10px 16px", display: "flex" }}>
             <button type="button" onClick={focusDocAsk}
               style={{ flex: 1, minHeight: 48, padding: "12px 22px", borderRadius: RADIUS.md, border: "1px solid transparent", background: accent, color: at, fontWeight: 500, fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", cursor: "pointer", boxShadow: "none" }}>
               Ask this document
@@ -23067,6 +23102,30 @@ function App({ profileHandle = null } = {}) {
   const handleSidebarNavigateRef = useRef(handleSidebarNavigate);
   useEffect(() => { handleSidebarNavigateRef.current = handleSidebarNavigate; });
   const stableSidebarNavigate = useCallback((key) => handleSidebarNavigateRef.current(key), []);
+
+  /* History backed views (2026 10 23, mobile audit): each view
+     change after entry pushes one layer with src/historyNav.js,
+     so the system back action steps out of the current view to
+     the previous view, under any thread and dialog layers those
+     surfaces push for themselves. The first view after entry is
+     the base and pushes nothing, and nothing pushes before
+     entry, so the intro door gains no back trap and a deep link
+     load starts from a clean base. A change that a pop itself
+     restored is marked and consumed here instead of pushing a
+     duplicate entry. */
+  const viewHistoryRef = useRef({ base: null, prev: null });
+  useEffect(() => {
+    if (!entered) return;
+    const h = viewHistoryRef.current;
+    if (h.base === null) { h.base = view; h.prev = view; return; }
+    if (view === h.prev) return;
+    const from = h.prev;
+    h.prev = view;
+    if (historyNav.consumeRestore("view", view)) return;
+    historyNav.pushLayer("view", view,
+      () => { historyNav.markRestore("view", from); setView(from); },
+      () => { historyNav.markRestore("view", view); setView(view); });
+  }, [view, entered]);
 
   /* Diagram Studio save (2026-10-22, simplify audit D4 and R21): one
      save path for the page studio and the answer dialog. New diagrams
