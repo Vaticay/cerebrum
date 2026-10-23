@@ -9,6 +9,8 @@
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { apiDataAction, toast, REPORT_REASONS, apiDataGet, cbNotify, cbBlip, avatarSkin, relativeTime, statusBad, statusGood } from "./appUtils.js";
+import { useKeyboardInset } from "./keyboardInset.js";
+import { historyNav } from "./historyNav.js";
 import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, TYPE, Z, SHADOW, Icon, UIButton } from "./designSystem.jsx";
 import { ensureE2EEDevice, decryptThreadMessages, encryptMessage } from "./e2ee/messaging.js";
 import { safeHref } from "./textUtils.js";
@@ -497,9 +499,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [targetMessageId, setTargetMessageId] = useState(null);
   const [highlightMessageId, setHighlightMessageId] = useState(null);
   const highlightTimerRef = useRef(null);
-  // Mobile keyboard: how much of the layout viewport the on screen
-  // keyboard covers, from the visual viewport. Zero when closed.
-  const [kbInset, setKbInset] = useState(0);
   // Touch device with no fine pointer: the return key makes a new
   // line there and Send is the send path, and per message actions
   // come from a long press rather than a hover.
@@ -508,18 +507,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   });
   const [actionMsgId, setActionMsgId] = useState(null);
   const longPressRef = useRef(null);
-  useEffect(() => {
-    if (!isMobile || typeof window === "undefined" || !window.visualViewport) return undefined;
-    const vv = window.visualViewport;
-    const onViewport = () => {
-      const inset = Math.max(0, Math.round(window.innerHeight - vv.height - (vv.offsetTop || 0)));
-      setKbInset(inset > 60 ? inset : 0);
-    };
-    onViewport();
-    vv.addEventListener("resize", onViewport);
-    vv.addEventListener("scroll", onViewport);
-    return () => { vv.removeEventListener("resize", onViewport); vv.removeEventListener("scroll", onViewport); };
-  }, [isMobile]);
   useEffect(() => () => { if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current); }, []);
   // List row menu and thread lifecycle controls. The menu acts on a
   // thread without opening it, so acting never reads the thread.
@@ -608,6 +595,16 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [markUnreadBusy, setMarkUnreadBusy] = useState(false);
   const [reportModal, setReportModal] = useState(null);
   const [hoverMsgId, setHoverMsgId] = useState(null);
+  /* The shared keyboard inset (2026 10 23, shell landing): on
+     overlay keyboard phones the composer and the newest messages
+     stay above this many pixels of keyboard. This view used to
+     read the visual viewport itself; the shell lane utility in
+     src/keyboardInset.js is now the one reader, and this hook is
+     its only consumption here. The per message long press above
+     stays the Inbox redo implementation, which covers own and
+     received messages with one action row; the shell lane long
+     press duplicate went away in this landing. */
+  const keyboardInset = useKeyboardInset();
   // Group creation — name input, people search with multi-select, create.
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [groupName, setGroupName] = useState("");
@@ -941,6 +938,42 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
      conversation on desktop and read it without the reader choosing
      it. Nothing is opened, and nothing is acknowledged read, until
      the reader taps a conversation themselves. */
+
+  /* History: opening a thread pushes one layer (see
+     src/historyNav.js), so the system back action closes the
+     thread back to the list before it can leave the view. A close
+     that came from that pop is marked as a restore and pushes
+     nothing. A close from inside the app releases the layer and
+     steps the browser back once. Switching straight to another
+     thread releases the old layer in silence; back walks through
+     its dead entry without reopening it. */
+  const prevThreadRef = useRef(null);
+  const activeIdRef = useRef(null);
+  useEffect(() => {
+    const prev = prevThreadRef.current;
+    prevThreadRef.current = activeId;
+    activeIdRef.current = activeId;
+    if (prev && prev !== activeId && !activeId) historyNav.closeLayer("thread", String(prev));
+    if (prev && prev !== activeId && activeId) historyNav.releaseLayer("thread", String(prev));
+    if (!activeId) return;
+    if (historyNav.consumeRestore("thread", String(activeId))) return;
+    historyNav.pushLayer("thread", String(activeId),
+      () => { setActiveId(null); },
+      () => { historyNav.markRestore("thread", String(activeId)); setActiveId(activeId); });
+  }, [activeId]);
+  useEffect(() => () => {
+    if (activeIdRef.current) historyNav.releaseLayer("thread", String(activeIdRef.current));
+  }, []);
+
+  /* When the keyboard inset grows, keep the newest message in
+     view for a reader who was already parked at the bottom. */
+  useEffect(() => {
+    if (!keyboardInset) return;
+    const pane = msgPaneRef.current;
+    if (pane && scrollStateRef.current.atBottom) {
+      requestAnimationFrame(() => { pane.scrollTop = pane.scrollHeight; });
+    }
+  }, [keyboardInset]);
 
   useEffect(() => {
     // A new conversation starts parked at its latest message, with no
@@ -1904,7 +1937,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         inbox follows the container instead of overflowing it by
         exactly the difference. The mobile paddings stay: they clear
         the app's own fixed chrome, which overlays the parent too. */}
-    <div style={{ height: "100%", maxHeight: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 0 : 16, boxSizing: "border-box", background: P.bg, paddingTop: isMobile ? 56 : 16, paddingRight: isMobile ? 0 : 16, paddingBottom: isMobile ? (kbInset > 0 ? kbInset : "calc(72px + env(safe-area-inset-bottom, 0px))") : 16, paddingLeft: isMobile ? 0 : 16 }}>
+    <div style={{ height: "100%", maxHeight: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 0 : 16, boxSizing: "border-box", background: P.bg, paddingTop: isMobile ? 56 : 16, paddingRight: isMobile ? 0 : 16, paddingBottom: isMobile ? `calc(72px + env(safe-area-inset-bottom, 0px) + ${keyboardInset}px)` : 16, paddingLeft: isMobile ? 0 : 16 }}>
       {showList && (
         <div style={{ width: isMobile ? "100%" : 336, flexShrink: 0, borderRight: isMobile ? "none" : undefined, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, background: P.surface, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden", display: "flex", flexDirection: "column", height: "100%" }}>
           <div style={{ padding: "18px 18px 12px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
@@ -2111,7 +2144,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             <div style={{ padding: "13px 18px", borderBottom: `1px solid ${P.line}`, background: P.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                 {isMobile && (
-                  <button onClick={() => setActiveId(null)} aria-label="Back to conversations" style={{ background: "none", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink2, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <button onClick={() => { if (!historyNav.requestBack("thread", String(activeId))) setActiveId(null); }} aria-label="Back to conversations" style={{ background: "none", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink2, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="arrowRight" size={16} style={{ transform: "rotate(180deg)" }} />
                   </button>
                 )}
