@@ -1597,8 +1597,11 @@ export async function onRequest(context) {
         return okRes({ items, query: q }, 200, cors);
       }
       // Evidence maps (Flowchart Studio). Same shape the client keeps in
-      // localStorage: { id, title, nodes, edges, updatedAt }. The blob
-      // holds { nodes, edges }; title is its own column for cheap listing.
+      // localStorage: { id, title, nodes, edges, sources, direction,
+      // updatedAt }. The blob holds { nodes, edges, sources, direction };
+      // title is its own column for cheap listing. Sources ride along so
+      // a reopened diagram keeps the papers its evidence steps cite,
+      // exactly as saved (huge audit Bug 3, 2026 10 23).
       if (resource === "flowcharts") {
         await ensureFlowchartTable(env);
         const rows = await env.DB.prepare(
@@ -1612,6 +1615,8 @@ export async function onRequest(context) {
             title: r.title || "Untitled evidence map",
             nodes: Array.isArray(blob.nodes) ? blob.nodes : [],
             edges: Array.isArray(blob.edges) ? blob.edges : [],
+            sources: Array.isArray(blob.sources) ? blob.sources : [],
+            direction: blob.direction === "across" ? "across" : "down",
             createdAt: r.created_at,
             updatedAt: r.updated_at,
           };
@@ -1950,7 +1955,9 @@ export async function onRequest(context) {
       for (const item of items) {
         const nodes = Array.isArray(item?.nodes) ? item.nodes : [];
         const edges = Array.isArray(item?.edges) ? item.edges : [];
-        const chartJson = JSON.stringify({ nodes, edges });
+        const sources = Array.isArray(item?.sources) ? item.sources : [];
+        const direction = item?.direction === "across" ? "across" : "down";
+        const chartJson = JSON.stringify({ nodes, edges, sources, direction });
         if (chartJson.length > MAX_CHART_JSON_LEN) continue;
         written++;
         const id = typeof item?.id === "string" && item.id.trim() ? item.id.trim().slice(0, 128) : newId("fc");
