@@ -83,6 +83,27 @@
  * second holds, the placard, the lockup, the rotation, and the
  * single way in are unchanged.
  *
+ * 2026-10-23 (Dusty's order): "Keep the cinematic feel but re
+ * arrange and re imagine." The room's arrangement changed, nothing
+ * else did. The centred stack became two groups on the header's
+ * axis: the sentence and the way in high in the frame, left
+ * aligned; Nova's line, the specimen plate, and the proof line low
+ * in the frame, the plate widened to the room's column with the
+ * citation at its right end on desktop. The film, the grade, the
+ * intensity, the reel list, the sentence word for word, the proof
+ * line, the solid plate ground, the rotation, and the single way
+ * in all stand as pinned before; no pin in this file asserted the
+ * old centred arrangement, so no pin changed. Measured the same
+ * day on five pulled frames per clip, the rearrangement moves the
+ * text bands on the dark matter clip from graded p95 14.6 and
+ * 15.1 to 11.1 and 10.7 without touching the grade. Note for the
+ * record: the huge audit of this same day reported the deployed
+ * door as flat with a test pinning the flat door; that reading
+ * came from the stale 423ac66 checkout. At the deployed commit
+ * the door is the film door restored on 2026-10-20, the pin in
+ * core-identity asserts the film is present in the Intro, and no
+ * flat door pin exists in this file or that one.
+ *
  * Run with: node tests/intro-title-card.mjs
  */
 

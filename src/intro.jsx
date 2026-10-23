@@ -1098,23 +1098,38 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         </div>
       </header>
 
-      {/* ── The room: one centred column over the film, with room to
-          breathe, in reading order: the sentence, the way in, the
-          specimen, the proof line, and Nova's quiet line. Phones
-          keep the way in inside the first screenful at 360 by 667:
-          header near 57, main top padding 24, the serif sentence
-          near four lines (about 135), the 26 gap, and the 48 tall
-          button ends near 330 from the top. */}
+      {/* ── The room, rearranged 2026-10-23 (owner's order: keep the
+          cinematic feel, rearrange and reimagine). The old room was
+          one centred stack in the middle of the frame: sentence, way
+          in, placard, proof, Nova, all reading centre. The new room
+          is two quiet groups on the header's own axis, with the film
+          breathing between them. High in the frame, the title group:
+          the sentence and the way in, left aligned on the same edge
+          as the lockup. Low in the frame, the evidence group: Nova's
+          line, then the specimen on its wide low plate, then the
+          proof line. Nothing was added and nothing was taken away;
+          the elements moved, and the move is also the grade fix the
+          owner asked for on 2026-10-20 without touching the grade:
+          measured on five pulled frames per intro clip the way the
+          photo wave measured, the dark matter clip's text bands sit
+          at graded p95 14.6 (sentence) and 15.1 (placard) in the old
+          centre bands, against 11.1 and 10.7 in the new high and low
+          bands. The stars clip is near black at every height.
+          Phones keep the way in inside the first screenful at 360 by
+          667, higher than before: header near 57, main top padding
+          20, the serif sentence near four lines (about 135), the 26
+          gap, and the 48 tall button ends near 290 from the top. */}
       <main className="cb-intro-chrome" style={{
         position: "relative", zIndex: 20, flex: 1,
-        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-        padding: isMobile ? "24px 20px 36px" : "48px 24px 56px",
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
+        padding: isMobile ? "20px 20px 24px" : "30px 24px 30px",
         animation: ceremony ? "cbIntroStillIn 0.7s ease both" : undefined,
       }}>
+      <div style={{ width: "100%", maxWidth: LAYOUT.stage }}>
         {/* The one plain sentence, the search home stage's own, word
             for word. */}
         <p style={{
-          margin: 0, maxWidth: 660, textAlign: "center",
+          margin: 0, maxWidth: 660, textAlign: "left",
           fontFamily: "var(--cb-serif)",
           fontSize: isMobile ? 25 : 31, fontWeight: 400, lineHeight: 1.35,
           color: ink,
@@ -1144,19 +1159,49 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             transition: "background-color 150ms ease-out",
           }}>Start researching</button>
         </div>
+      </div>
+
+      <div style={{ width: "100%", maxWidth: LAYOUT.stage, marginTop: "auto" }}>
+        {/* Nova, quiet: her figure once and one short line in her dry
+            voice. No section, no box, no wordmark; she stands in the
+            room like the rest of the furniture, and lifting her out
+            touches nothing else on the door. In the 2026-10-23
+            rearrangement she waits low in the frame, above the
+            specimen plate, the last voice before the evidence. */}
+        <div style={{
+          marginBottom: isMobile ? 22 : 26, display: "flex", alignItems: "center",
+          gap: isMobile ? 12 : 14, maxWidth: 520,
+        }}>
+          <span aria-hidden="true" style={{ display: "block", flex: "0 0 auto" }}>
+            <NovaRive size={isMobile ? 64 : 76} framing="full" bubbleVariant={null} quips={false}
+              reducedMotion={reduced || animationMode === "off"} />
+          </span>
+          <p style={{
+            margin: 0, textAlign: "left",
+            fontFamily: "var(--cb-serif)", fontSize: isMobile ? 15 : 16, fontWeight: 400,
+            lineHeight: 1.5, color: ink2,
+          }}>
+            Good specimens, these. The lab is open when you are ready.
+          </p>
+        </div>
 
         {/* The specimen: one verified claim at a time on a solid
             matte placard. The claim in the reading serif, and the
             citation with the paper one tap away. The
             change is a plain fade (cb-specimen-in), a page turning,
-            never a scene change. Hover and focus hold the rotation. */}
+            never a scene change. Hover and focus hold the rotation.
+            Since 2026-10-23 the placard is a wide low plate spanning
+            the room's column at the foot of the frame, the label
+            under the film: on desktop the citation stands at the
+            plate's right end behind a hairline, on phones it stacks
+            under the claim as it always did. */}
         <div
           ref={specimenWrapRef}
           onMouseEnter={() => setSpecimenHeld(true)}
           onMouseLeave={() => setSpecimenHeld(false)}
           onFocus={() => setSpecimenHeld(true)}
           onBlur={() => setSpecimenHeld(false)}
-          style={{ width: "100%", maxWidth: 620, marginTop: isMobile ? 38 : 50 }}
+          style={{ width: "100%" }}
         >
           <div
             key={specimenIdx}
@@ -1165,8 +1210,11 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
               background: plateBg,
               border: "1px solid " + hairline,
               borderRadius: RADIUS.lg,
-              padding: isMobile ? "22px 20px" : "26px 28px",
+              padding: isMobile ? "22px 20px" : "24px 28px",
               textAlign: "left",
+              display: isMobile ? undefined : "flex",
+              alignItems: isMobile ? undefined : "center",
+              gap: isMobile ? undefined : 28,
             }}
           >
             <p style={{
@@ -1174,12 +1222,17 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
               fontSize: FONT_SIZES.section,
               fontWeight: 400, lineHeight: 1.55,
               color: ink, margin: 0, textAlign: "left",
+              flex: isMobile ? undefined : "1 1 auto",
             }}>
               &ldquo;{spec.claim}&rdquo;
             </p>
             <p style={{
-              margin: "12px 0 0", paddingTop: 12,
-              borderTop: "1px solid " + hairline,
+              margin: isMobile ? "12px 0 0" : 0,
+              paddingTop: isMobile ? 12 : 0,
+              borderTop: isMobile ? "1px solid " + hairline : "none",
+              borderLeft: isMobile ? "none" : "1px solid " + hairline,
+              paddingLeft: isMobile ? 0 : 24,
+              flex: isMobile ? undefined : "0 0 250px",
               fontSize: FONT_SIZES.label, lineHeight: 1.6,
               color: ink2, textAlign: "left",
             }}>
@@ -1201,7 +1254,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
               SCHOLARLY_SOURCES the workspace searches. The line opens
               the Research sources dialog, so the count can be checked
               against the list. */}
-          <div style={{ marginTop: 14, textAlign: "center" }}>
+          <div style={{ marginTop: 14, textAlign: "left" }}>
             <button type="button" onClick={() => setSourcesOpen(true)} aria-label="Research sources"
               style={{
                 display: "inline-flex", alignItems: "center", gap: 8,
@@ -1219,26 +1272,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           </div>
         </div>
 
-        {/* Nova, quiet: her figure once and one short line in her dry
-            voice. No section, no box, no wordmark; she stands in the
-            room like the rest of the furniture, and lifting her out
-            touches nothing else on the door. */}
-        <div style={{
-          marginTop: isMobile ? 30 : 40, display: "flex", alignItems: "center",
-          gap: isMobile ? 12 : 14, maxWidth: 520,
-        }}>
-          <span aria-hidden="true" style={{ display: "block", flex: "0 0 auto" }}>
-            <NovaRive size={isMobile ? 64 : 76} framing="full" bubbleVariant={null} quips={false}
-              reducedMotion={reduced || animationMode === "off"} />
-          </span>
-          <p style={{
-            margin: 0, textAlign: "left",
-            fontFamily: "var(--cb-serif)", fontSize: isMobile ? 15 : 16, fontWeight: 400,
-            lineHeight: 1.5, color: ink2,
-          }}>
-            Good specimens, these. The lab is open when you are ready.
-          </p>
-        </div>
+      </div>
       </main>
 
       {/* ── Footer: one quiet line. */}
