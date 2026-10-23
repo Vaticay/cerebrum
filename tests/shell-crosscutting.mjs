@@ -261,6 +261,17 @@ await test("the floating Sources button renders on the search view only", () => 
   assert.match(appSrc, /started && isMobile && view === "search" && mobilePanel && \(/, "the Sources panel is not gated on the search view");
 });
 
+await test("the back to top button carries valid mobile offsets", () => {
+  // 2026-10-23 (shell landing closeout): the mobile audit named
+  // invalid none values in mobile style branches. The back to top
+  // button still carried them: bottom and side offsets were the
+  // string none on mobile, which browsers drop, leaving a fixed
+  // button with no placement. It now uses the calc its own
+  // 2026-10-16 layout comment always described.
+  assert.doesNotMatch(appSrc, /bottom: isMobile \? "none"/, "the back to top button still drops its mobile bottom offset");
+  assert.match(appSrc, /bottom: isMobile \? "calc\(88px \+ env\(safe-area-inset-bottom, 0px\)\)"/, "the back to top button lost its mobile bottom offset");
+});
+
 await test("the selected evidence tier explanation is visible text, not only a title", () => {
   const filter = appSrc.slice(appSrc.indexOf("function EvidenceFilter"), appSrc.indexOf("function EvidenceFilter") + 7000);
   assert.match(filter, /<span style=\{\{ color: P\.ink2, fontWeight: 500 \}\}>\{active\[1\]\}\.<\/span> \{active\[2\]\}/, "the selected tier blurb is not rendered as text");
