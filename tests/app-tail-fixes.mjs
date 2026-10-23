@@ -177,24 +177,27 @@ await test("the recomputed identity width grows on narrow widths while tap targe
   // Follow about 34px, Following about 52px.
   const pageAt = (vw) => vw - 2 * 18 - 2 * 1 - 2 * 12;
   const followBtn = (padSide, text) => text + 2 * padSide + 2;
-  const identity = (vw, rowPadSide, gap, followPad, text) =>
+  const identityBefore = (vw, rowPadSide, gap, followPad, text) =>
     pageAt(vw) - 2 * rowPadSide - 3 * gap - 40 - 44 - followBtn(followPad, text);
-  const before360 = identity(360, 8, 12, 16, 34);
-  const before390 = identity(390, 8, 12, 16, 34);
+  const before360 = identityBefore(360, 8, 12, 16, 34);
+  const before390 = identityBefore(390, 8, 12, 16, 34);
   assert.equal(before360, 94, "identity width at 360 before the fix");
   assert.equal(before390, 124, "identity width at 390 before the fix");
   assert.ok(app.includes("const narrowPeople = winW <= 560;"), "the narrow people row switch is missing");
   assert.ok(app.includes('gap: narrowPeople ? 8 : 12, padding: narrowPeople ? "12px 4px" : "12px 8px"'), "the row does not tighten on narrow widths");
-  assert.ok(app.includes('padding: narrowPeople ? "12px 10px" : "12px 16px", minHeight: 44'), "the Follow button does not tighten while keeping its 44px height");
   const modal = slice(app, "function NetworkSearchModal(", "/* Commit 100 — the privacy panel.");
   assert.ok(modal.includes("width: 44, height: 44"), "the message control lost its 44px tap target");
-  const after360 = identity(360, 4, 8, 10, 34);
-  const after390 = identity(390, 4, 8, 10, 34);
-  assert.equal(after360, 126, "identity width at 360 after the fix");
-  assert.equal(after390, 156, "identity width at 390 after the fix");
+  // 2026-10-23 (huge audit redo): the Follow button came off the row
+  // entirely, following lives on the profile. The row is now avatar,
+  // identity, and the one 44 round message button, two gaps in total,
+  // so the identity block keeps everything the Follow button used to take.
+  assert.ok(!modal.includes("toggleFollow(r)"), "a Follow toggle still rides on the row");
+  const identity = (vw, rowPadSide, gap) => pageAt(vw) - 2 * rowPadSide - 2 * gap - 40 - 44;
+  const after360 = identity(360, 4, 8);
+  const after390 = identity(390, 4, 8);
+  assert.equal(after360, 190, "identity width at 360 after the fix");
+  assert.equal(after390, 220, "identity width at 390 after the fix");
   assert.ok(after360 >= before360 + 30, "the fix does not buy real width at 360");
-  const after360Following = identity(360, 4, 8, 10, 52);
-  assert.ok(after360Following >= 100, "even the Following state keeps usable identity width at 360");
 });
 
 // ══════════════════════════════════════════════════════════════════
