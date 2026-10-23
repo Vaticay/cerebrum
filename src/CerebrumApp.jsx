@@ -13556,10 +13556,28 @@ function fcId(p) { fcSeq += 1; return `fc-${p}-${Date.now().toString(36)}-${fcSe
 function mergeFlowcharts(serverCharts, localCharts) {
   const server = Array.isArray(serverCharts) ? serverCharts : [];
   const local = Array.isArray(localCharts) ? localCharts : [];
+  const localById = new Map(local.filter((c) => c && c.id).map((c) => [c.id, c]));
+  const merged = server.map((c) => {
+    if (!c || !c.id) return c;
+    const alt = localById.get(c.id);
+    if (!alt) return c;
+    /* Grounding preservation (mobile lane item 1, 2026 10 23): a copy
+       with no sources never overwrites a copy that has them. The
+       account copy still wins every other field, but when it carries
+       no source list and the browser copy does, the browser sources
+       ride along instead of being lost. Direction is kept the same
+       way, from whichever copy has it. */
+    let out = c;
+    if (!(Array.isArray(c.sources) && c.sources.length) && Array.isArray(alt.sources) && alt.sources.length) {
+      out = { ...out, sources: alt.sources };
+    }
+    if (!out.direction && alt.direction) out = { ...out, direction: alt.direction };
+    return out;
+  });
   const serverIds = new Set(server.map((c) => c && c.id));
-  const merged = [...server, ...local.filter((c) => c && !serverIds.has(c.id))];
-  merged.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  return merged;
+  const all = [...merged, ...local.filter((c) => c && !serverIds.has(c.id))];
+  all.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  return all;
 }
 
 function fcNewNode(type, x, y, label, extra = {}) {
@@ -21662,6 +21680,11 @@ function App() {
   useEffect(() => {
     try { localStorage.setItem("cb_flowcharts", JSON.stringify(flowcharts)); } catch { /* storage full/blocked: charts still work in-memory */ }
   }, [flowcharts]);
+  /* Diagram Studio reset signal: the command palette New diagram
+     command bumps this, and the mounted page studio answers by
+     resetting to a fresh diagram through its unsaved work guard
+     (huge audit Bug 15, 2026 10 23). */
+  const [studioResetNonce, setStudioResetNonce] = useState(0);
 
   async function handleAuthed(authedUser, { checkImport }) {
     setUser(authedUser);
@@ -23871,11 +23894,20 @@ function App() {
   // and the next change retries. Gated on syncReady so the merge in
   // handleAuthed can't fire on pre-pull state and clobber the server copy.
   const flowchartsSyncTimer = useRef(null);
+  /* Signature of the list the account is known to hold. saveDiagramRecord
+     pushes a fresh save itself and records the signature, so this effect
+     does not push the same list a second time (huge audit Bug 14). */
+  const flowchartsSyncedSigRef = useRef("");
+  const flowchartsSig = (list) => JSON.stringify((Array.isArray(list) ? list : []).map((c) => (c && c.id) + ":" + ((c && c.updatedAt) || 0)));
   useEffect(() => {
     if (!user || !syncReady) return;
+    const sig = flowchartsSig(flowcharts);
+    if (sig === flowchartsSyncedSigRef.current) return;
     clearTimeout(flowchartsSyncTimer.current);
     flowchartsSyncTimer.current = setTimeout(() => {
-      apiDataPost("flowcharts", { action: "replace-all", items: flowcharts }).catch(() => toast("Diagrams could not sync to your account. Your browser copy is still available; check your connection before closing.", { tone: "error" }));
+      apiDataPost("flowcharts", { action: "replace-all", items: flowcharts })
+        .then(() => { flowchartsSyncedSigRef.current = sig; })
+        .catch(() => toast("Diagrams could not sync to your account. Your browser copy is still available; check your connection before closing.", { tone: "error" }));
     }, 900);
     return () => clearTimeout(flowchartsSyncTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -24103,28 +24135,54 @@ function App() {
      are metered: free accounts get 1 every 5 days, Lite 10, Pro
      unlimited, and saving a new one requires a signed in account.
      Re saving an existing diagram never counts. The server is the
-     authority; this routes people to the right door first. Returns
-     the saved diagram id on success and false when the save did not
-     happen, so the studio only says Saved when a save truly landed.
+     authority; this routes people to the right door first. Returns a
+     result object: ok with the record id and whether the account
+     copy landed, or ok false with a plain reason (empty, auth,
+     network, denied), so the studio only says Saved when a save
+     truly landed and never blames the plan for a connection failure.
      Sources ride along on the record so a reopened diagram keeps the
      papers its evidence steps cite (audit D6). */
-  const saveDiagramRecord = async ({ id, title, nodes, edges, sources }) => {
+  const saveDiagramRecord = async ({ id, title, nodes, edges, sources, direction }) => {
+    /* An empty diagram is refused here, before sign in checks and
+       before any allowance call, so a blank save can never consume
+       quota or create a blank Library record (huge audit Bug 3). */
+    const hasLabelledStep = (Array.isArray(nodes) ? nodes : []).some((n) => n && n.type !== "start" && n.type !== "end" && String(n.label || "").trim());
+    if (!hasLabelledStep) return { ok: false, reason: "empty" };
     const existingId = id || (flowchartOpen && flowchartOpen.chartId) || null;
     if (!existingId) {
-      if (!user) { setAuthInitialTab("signin"); setAuthOpen(true); return false; }
+      if (!user) { setAuthInitialTab("signin"); setAuthOpen(true); return { ok: false, reason: "auth" }; }
       if (!user.isPro) {
         let allow = null;
-        try { allow = await apiProPost("flowchart-allow", {}); } catch { allow = null; }
-        if (!allow || !allow.allowed) { openPro(proStatus?.tier === "lite" ? "annual" : "lite-monthly"); return false; }
+        try { allow = await apiProPost("flowchart-allow", {}); }
+        catch { return { ok: false, reason: "network" }; }
+        /* Only a real server denial opens the plan path. A failed
+           request returned above as a connection error instead
+           (huge audit Bug 13). */
+        if (!allow || !allow.allowed) { openPro(proStatus?.tier === "lite" ? "annual" : "lite-monthly"); return { ok: false, reason: "denied" }; }
         refreshPro();
       }
     }
     const recId = existingId || fcId("chart");
-    const rec = { id: recId, title, nodes, edges, updatedAt: Date.now() };
-    if (Array.isArray(sources) && sources.length) rec.sources = sources;
-    setFlowcharts((prev) => [rec, ...prev.filter((c) => c.id !== recId)]);
+    /* Sources and direction ride on the record end to end, even when
+       the source list is empty, so a reopen shows exactly what was
+       saved (huge audit Bugs 2, 3, and 7). */
+    const rec = { id: recId, title, nodes, edges, sources: Array.isArray(sources) ? sources : [], direction: direction === "across" ? "across" : "down", updatedAt: Date.now() };
+    const next = [rec, ...flowcharts.filter((c) => c.id !== recId)];
+    setFlowcharts(next);
     if (flowchartOpen) setFlowchartOpen((prev) => (prev ? { ...prev, chartId: recId, title } : prev));
-    return recId;
+    /* Saved means the account copy exists. The record is pushed now
+       and the result says plainly whether the account copy landed,
+       so the studio never claims an account save that did not happen
+       (huge audit Bug 14). */
+    if (!user) return { ok: true, id: recId, synced: false, localOnly: true };
+    if (!syncReady) return { ok: true, id: recId, synced: false, pending: true };
+    try {
+      await apiDataPost("flowcharts", { action: "replace-all", items: next });
+      flowchartsSyncedSigRef.current = flowchartsSig(next);
+      return { ok: true, id: recId, synced: true };
+    } catch {
+      return { ok: true, id: recId, synced: false, syncError: true };
+    }
   };
   const handleSidebarCloseMobile = useCallback(() => setSidebarMobileOpen(false), []);
   const handleToggleMute = useCallback(() => setMuted((m) => !m), []);
@@ -24139,7 +24197,7 @@ function App() {
 
   const commands = [
     { label: "New search", hint: kbdLabel("J"), run: () => newSession() },
-    { label: "New diagram", run: () => { setCmdOpen(false); setView("studio"); } },
+    { label: "New diagram", run: () => { setCmdOpen(false); setView("studio"); setStudioResetNonce((n) => n + 1); } },
     { label: "Open your library", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setView("library"); } },
     { label: "Open your investigations", run: () => { setCmdOpen(false); setView("investigations"); } },
     // Collections' header button is desktop-only (there's no room for it in
@@ -25242,6 +25300,8 @@ function App() {
               with the same steps model and the same save path. */}
           <DiagramStudio
             P={P} accent={accent} at={at} isMobile={isMobile}
+            tier={proStatus?.tier || (user?.isPro ? "pro" : "free")}
+            resetSignal={studioResetNonce}
             latestAnswer={(turns.length && turns[turns.length - 1].answer)
               ? { title: turns[turns.length - 1].q || "Your last answer", answerText: turns[turns.length - 1].answer, sources: turns[turns.length - 1].sources || [] }
               : null}
@@ -25512,12 +25572,12 @@ function App() {
               <div role="list" aria-label="Saved diagrams" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflow: "hidden", background: P.surface }}>
                 {flowcharts.map((fc, i) => (
                   <div key={fc.id} role="listitem" style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
-                    <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }} aria-label={`Open ${fc.title || "untitled diagram"}`}
+                    <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }} aria-label={`Open ${fc.title || "untitled diagram"}`}
                       style={{ width: 64, height: 48, flexShrink: 0, padding: 0, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, background: "none", cursor: "pointer", overflow: "hidden" }}>
                       <FcThumb chart={fc} accent={accent} />
                     </button>
                     <span style={{ flex: 1, minWidth: 0 }}>
-                      <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }}
+                      <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }}
                         style={{ display: "block", width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>
                         {fc.title || "Untitled diagram"}
                       </button>
@@ -25527,7 +25587,7 @@ function App() {
                       </span>
                     </span>
                     <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
-                      <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id }); }}>Open</UIButton>
+                      <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }}>Open</UIButton>
                       <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", fcSvgString(fc.nodes || [], fc.edges || [], fc.title)); }}>SVG</UIButton>
                       {/* 2026-10-19 (audit M41): first press arms and says
                           what will happen, second press deletes. */}
@@ -26177,6 +26237,7 @@ function App() {
         <DiagramStudio
           dialog
           P={P} accent={accent} at={at} isMobile={isMobile}
+          tier={proStatus?.tier || (user?.isPro ? "pro" : "free")}
           initial={flowchartOpen.chartId ? flowcharts.find((c) => c.id === flowchartOpen.chartId) : flowchartOpen}
           docTitle={flowchartOpen.title}
           answerText={flowchartOpen.answerText}
