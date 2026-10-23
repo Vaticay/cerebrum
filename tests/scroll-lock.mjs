@@ -221,8 +221,9 @@ await test("anyOverlayOpen covers all known overlay states", () => {
     "flowchartOpen",
     "proModalOpen",
     "viewingProfileId",
-    "incomingCall",
-    "activeHuddle",
+    // incomingCall and activeHuddle left this list in the October
+    // 2026 inbox redo: calling was removed from the client, so
+    // those overlays no longer exist to lock for.
   ];
   for (const r of required) {
     assert.ok(decl.includes(r), `anyOverlayOpen missing: ${r}`);

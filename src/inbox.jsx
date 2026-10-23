@@ -2041,7 +2041,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   <Icon name="moreVertical" size={16} />
                 </button>
                 {rowMenuId === t.id && (
-                  <div role="menu" style={{ position: "absolute", top: 6, right: 44, zIndex: 30, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", padding: 5, minWidth: 168, display: "flex", flexDirection: "column" }}>
+                  <div role="menu" style={{ position: "absolute", top: 6, right: 44, zIndex: 30, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, boxShadow: "none", padding: 5, minWidth: 168, display: "flex", flexDirection: "column" }}>
                     <button onClick={() => { setRowMenuId(null); toggleThreadPinned(t.id); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                       <Icon name={t.pinned ? "pinFilled" : "pin"} size={14} style={{ color: P.ink2 }} /> {t.pinned ? "Unpin" : "Pin"}
                     </button>

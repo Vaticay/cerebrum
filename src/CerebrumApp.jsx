@@ -8634,7 +8634,7 @@ function EvidenceMap({ t, P, accent, onOpenPaper }) {
   );
 }
 
-function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationStyle, onOpenPaper, onOpenVideo, onRetry, onAdjustQuery, busyNow, done, activeCite = 0, onActivateCite = () => {} }) {
+function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationStyle, onOpenPaper, onOpenVideo, onRetry, onAdjustQuery, busyNow, done, activeCite = 0, onActivateCite = () => {}, onSharePaper = null }) {
   const tabUid = useId().replace(/:/g, "");
   const sources = t.sources || [];
   const videos = t.videos || [];
@@ -10452,7 +10452,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             citationStyle={citationStyle} setCitationStyle={setCitationStyle}
             onOpenPaper={(n) => onOpenPaper(t, n)} onOpenVideo={setOpenVideo}
             onRetry={retrySearch} onAdjustQuery={adjustQuery} busyNow={busyNow} done={done}
-            activeCite={activeCite} onActivateCite={onActivateCite}
+            activeCite={activeCite} onActivateCite={onActivateCite} onSharePaper={onSharePaper}
             onHoverRow={(n) => setFanN(n)} onLeaveRow={() => setFanN(0)} />
         </div>
       )}
@@ -20304,6 +20304,10 @@ function App({ profileHandle = null } = {}) {
   // The paper being shared into a conversation, as a paper attachment
   // built from a source card or a saved source, or null.
   const [sharePaper, setSharePaper] = useState(null);
+  const handleSharePaper = useCallback((s) => {
+    if (!user) { setAuthInitialTab("login"); setAuthOpen(true); return; }
+    setSharePaper(paperAttachmentFromSource(s));
+  }, [user]);
   // Profile — name/username/affiliation live in the `users` table now (see
   // functions/api/data.js's get-profile/update-profile), pulled down on
   // sign-in and pushed back up on every edit by the debounced sync effect
@@ -23756,7 +23760,7 @@ function App({ profileHandle = null } = {}) {
                   return (
                     <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
                       onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
-                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} onSharePaper={(s) => { if (!user) { stableOnRequireAuth(); return; } setSharePaper(paperAttachmentFromSource(s)); }} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: scrollBehavior(), block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} onSharePaper={handleSharePaper} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: scrollBehavior(), block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
                     </div>
                   );
                 })}

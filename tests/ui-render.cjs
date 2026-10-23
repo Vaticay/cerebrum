@@ -13,7 +13,7 @@ const ast = parse(source,{sourceType:'module',plugins:['jsx']});
 const dsAst = parse(dsSource,{sourceType:'module',plugins:['jsx']});
 const fcAst = parse(fcSource,{sourceType:'module',plugins:['jsx']});
 const tuAst = parse(tuSource,{sourceType:'module',plugins:['jsx']});
-const names = [/* 2026-10-22 (simplify audit SH8): AskModePicker left the list because the component is deleted; the mode is set by the composer shapeshifter now, so there is no picker left to render */'ProfileMarkers','CitationPeek','IncomingCall','DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks','MediaFigure','TrendThumb',/* 2026-10-19 (S2, audit C3): CitationPeek renders its title through the shared inline renderer now, so the harness extracts the real chain */'renderTitleInline','renderInlineNodes','inlineTokens','speciesRuns','renderCleanTitle',/* 2026-10-22 (logic audit L7-2, L7-16): the real FactCheck receipt and the real buildEvidenceMap join the harness */'FactCheck','buildEvidenceMap'];
+const names = [/* 2026-10-22 (simplify audit SH8): AskModePicker left the list because the component is deleted; the mode is set by the composer shapeshifter now, so there is no picker left to render */'ProfileMarkers','CitationPeek',/* 2026-10-23 (inbox redo): IncomingCall left the list because the component is deleted; calling was removed from the client */'DocEvidenceTrail','answerTruncatedNote','DocStageHealth','stageState','TrendingHero','trendKind','trendProvenance','renderInlineMdLite','stripDanglingAsterisks','MediaFigure','TrendThumb',/* 2026-10-19 (S2, audit C3): CitationPeek renders its title through the shared inline renderer now, so the harness extracts the real chain */'renderTitleInline','renderInlineNodes','inlineTokens','speciesRuns','renderCleanTitle',/* 2026-10-22 (logic audit L7-2, L7-16): the real FactCheck receipt and the real buildEvidenceMap join the harness */'FactCheck','buildEvidenceMap'];
 const dsNames = ['UIButton','UICard'];
 const functions = ast.program.body.filter(n=>n.type==='FunctionDeclaration' && names.includes(n.id.name));
 const dsFunctions = dsAst.program.body
@@ -25,7 +25,7 @@ const fcFunctions = fcAst.program.body
 const tuDecls = tuAst.program.body
   .map(n=>n.type==='ExportNamedDeclaration' ? n.declaration : n)
   .filter(n=>n && ((n.type==='FunctionDeclaration' && (n.id.name==='renderCleanTitle' || n.id.name==='highlightKeywords')) || (n.type==='VariableDeclaration' && n.declarations.some(d=>d.id.name==='TITLE_SAFE_TAG_RE'))));
-assert.equal(functions.length + dsFunctions.length + fcFunctions.length + tuDecls.length,26); // 2026-10-22: was 25, AskModePicker deleted (simplify audit SH8) makes 24, FactCheck and buildEvidenceMap added (logic audit L7-2, L7-16) makes 26
+assert.equal(functions.length + dsFunctions.length + fcFunctions.length + tuDecls.length,25); // 2026-10-22: was 25, AskModePicker deleted (simplify audit SH8) makes 24, FactCheck and buildEvidenceMap added (logic audit L7-2, L7-16) makes 26; 2026-10-23: IncomingCall deleted (inbox redo, calling removed from the client) makes 25
 const js=transformSync(functions.map(n=>source.slice(n.start,n.end)).join('\n')+'\n'+dsFunctions.map(n=>dsSource.slice(n.start,n.end)).join('\n')+'\n'+fcFunctions.map(n=>fcSource.slice(n.start,n.end)).join('\n')+'\n'+tuDecls.map(n=>tuSource.slice(n.start,n.end)).join('\n'),{loader:'jsx',jsx:'transform'}).code;
 const context=vm.createContext({React,useEdgeMask:()=>[null,{}],ASK_MODES:[{key:'explain',label:'Explain',blurb:'Explain evidence',icon:'spark'},{key:'compare',label:'Compare',blurb:'Compare evidence',icon:'compare'}],Icon:()=>null,FONT_SIZES:{caption:13,small:14,micro:11,subhead:16},SP:{sm:8,lg:24},TYPE:{label:{}},RADIUS:{pill:999,lg:12},SHADOW:{xs:()=>'none',md:()=>'none',xl:()=>'none'} /* 2026-10-18: Dialog calls SHADOW.xl (design audit C5) */,STATUS:{bad:'#b44',warn:'#B08B4F',good:'#7A9E7E'} /* 2026-10-20, readability residue wave: warn and good keys added beside bad because extracted components now read STATUS.warn and STATUS.good through withAlpha */,TRACKING:{eyebrow:"0.12em",eyebrowWide:"0.2em",label:"0.06em",labelTight:"0.04em",tight:"0.01em"},withAlpha:(c)=>c,
 /* 2026-10-14, design overhaul wave 1: UIButton and UICard now close over
@@ -128,16 +128,9 @@ console.log('Actual shared-button and card components render in dark/light and m
  assert.match(peek,/Deep read/);
  assert.match(peek,/Close source preview/);
  console.log('Mobile citation sheet renders through the Dialog primitive with modal semantics and its content.');
-
- const call=renderToStaticMarkup(React.createElement(context.IncomingCall,{call:{fromName:'Ada Lovelace',fromId:'u1'},P,accent:'#A3B899',at:'#111',isMobile:true,onAccept:()=>{},onDecline:()=>{}}));
- assert.match(call,/role="dialog"/);
- assert.match(call,/aria-modal="true"/);
- assert.match(call,/aria-label="Incoming call from Ada Lovelace"/);
- // The panel itself is the focus target on mount (tabIndex -1).
- assert.match(call,/tabindex="-1"/);
- assert.match(call,/Accept/);
- assert.match(call,/Decline/);
- console.log('Incoming call card renders as a modal dialog with a focusable panel and both actions.');
+ /* 2026-10-23 (inbox redo): the IncomingCall render block that
+    stood here is gone with the component. Calling was removed
+    from the client, so there is no incoming call card to render. */
 }
 
 /* ── Document Reader honesty surfaces, render level ──────────────────
@@ -245,42 +238,17 @@ console.log('Actual shared-button and card components render in dark/light and m
  console.log('Stage health renders nothing for an all passing record, parked legs included.');
 }
 
-/* ── Call surfaces: the huddle's modal contract, pinned by reading ──
-   VideoHuddle is not extracted above: its body drives live WebRTC
-   machinery that a server render cannot exercise, and this repo has
-   no DOM harness to run its effects (see the dialog semantics note
-   at the top of this file). What CAN be pinned is that the contract
-   is present in the shipped source, in the IncomingCall shape: the
-   expanded huddle declares dialog + aria-modal, focus moves into
-   the surface, Tab cycles inside it, Escape minimizes, and focus is
-   restored on unmount. The IncomingCall accept glyph is likewise
-   source pinned: the harness Icon stub renders nothing, so the
-   rendered markup cannot show which icon was chosen. */
+/* ── Call surfaces: removed from the client (2026-10-23, inbox redo) ──
+   This block pinned VideoHuddle's modal focus contract and the
+   IncomingCall accept glyph by reading the shipped source. Both
+   components are deleted: calling was removed from the client end
+   to end, and the server signaling endpoints stay dormant. The
+   pin now is that neither surface exists in the source at all. */
 {
- const vhAt=source.indexOf('function VideoHuddle');
- assert.ok(vhAt>0,'VideoHuddle missing');
- const vh=source.slice(vhAt,source.indexOf('\nfunction InboxView',vhAt));
- assert.match(vh,/role=\{minimized \? "button" : "dialog"\} aria-modal=\{!minimized\}/,'the huddle no longer declares its modal state');
- assert.match(vh,/const huddleRef = useRef\(null\);/,'the huddle has no root ref for the focus contract');
- assert.match(vh,/ref=\{huddleRef\}/,'the huddle root does not carry the ref');
- assert.match(vh,/tabIndex=\{minimized \? 0 : -1\}/,'the expanded huddle root is not a focus target');
- assert.match(vh,/if \(panel\) panel\.focus\(\);/,'focus does not move into the huddle on open or expand');
- assert.match(vh,/if \(e\.key === "Escape"\) \{ e\.preventDefault\(\); setMinimized\(true\); return; \}/,'Escape does not minimize the huddle');
- assert.match(vh,/e\.key !== "Tab"/,'the huddle has no Tab containment');
- assert.match(vh,/prevFocus && prevFocus\.focus/,'focus is not restored when the huddle unmounts');
- // The trap stands down while a dialog is stacked over the call.
- assert.match(vh,/t\.closest\('\[role="dialog"\]'\)/,'the huddle key handler does not yield to a stacked dialog');
- // The root gap (sixth panel): focus lands on the panel root on
- // open, and the root is excluded from the focusable list by its
- // minus 1 tabindex, so the wrap must treat the root itself as the
- // boundary or Shift + Tab from the freshly focused root steps out
- // of the aria-modal surface before any wrap engages.
- assert.match(vh,/if \(document\.activeElement === panel\) \{ e\.preventDefault\(\); \(e\.shiftKey \? last : first\)\.focus\(\); \}/,'the huddle trap does not treat its root as the wrap boundary');
- const icAt=source.indexOf('function IncomingCall');
- const ic=source.slice(icAt,source.indexOf('\nlet __cbHuddleClientSeq',icAt));
- assert.match(ic,/call\.audioOnly \? "phone" : "camera"/,'the accept button does not pick its icon from the call kind');
- assert.match(ic,/if \(document\.activeElement === panel\) \{ e\.preventDefault\(\); \(e\.shiftKey \? last : first\)\.focus\(\); \}/,'the incoming call trap does not treat its root as the wrap boundary');
- console.log('VideoHuddle carries the modal focus contract and the accept icon follows the call kind.');
+ assert.ok(!source.includes('function VideoHuddle'), 'VideoHuddle is back in the app source');
+ assert.ok(!source.includes('function IncomingCall'), 'IncomingCall is back in the app source');
+ assert.ok(!source.includes('function useCallTone'), 'the ringtone hook is back in the app source');
+ console.log('Call surfaces stay removed from the client.');
 }
 
 /* ── MediaFigure: the unverified fallback renders marked ──────────
