@@ -147,7 +147,7 @@ await test("tools/list carries a title and the full annotation set for both tool
   const res = await handleRpcMessage(rpc("tools/list"), fakeRunners);
   const byName = Object.fromEntries(res.result.tools.map((t) => [t.name, t]));
   assert.equal(byName.search_literature.title, "Search the literature");
-  assert.equal(byName.get_trending.title, "Trending in Science");
+  assert.equal(byName.get_trending.title, "Today in Science");
   const expected = { readOnlyHint: true, destructiveHint: false, openWorldHint: true };
   for (const t of res.result.tools) {
     assert.deepEqual(t.annotations, expected, `annotations wrong on ${t.name}`);
@@ -606,7 +606,7 @@ await test("POST round trips initialize and tools/call", async () => {
   assert.equal((await init.json()).result.serverInfo.name, "cerebrum");
   const call = await post(rpc("tools/call", { name: "get_trending", arguments: {} }, 10));
   assert.equal(call.status, 200);
-  assert.ok((await call.json()).result.content[0].text.includes("Trending in Science"));
+  assert.ok((await call.json()).result.content[0].text.includes("Today in Science"));
 });
 
 await test("a throwing rate limit store fails bounded, not open: the memory limiter still refuses past the limit", async () => {

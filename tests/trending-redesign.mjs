@@ -42,7 +42,15 @@ await test("the view reads the feed health fields the endpoint sends", () => {
 await test("the edition can be searched and sorted", () => {
   assert.ok(appSrc.includes("Search this edition"), "edition search missing");
   assert.ok(appSrc.includes("trendSort"), "sort state missing");
-  assert.ok(appSrc.includes("Most cited") && appSrc.includes("Newest"), "sort options missing");
+  assert.ok(appSrc.includes("Longest running") && appSrc.includes("Newest"), "sort options missing");
+  // The surface is called what it is, everywhere it is named: the
+  // daily edition of new science. One name in the nav, the page
+  // heading, the phone title, and the tab title.
+  assert.ok(appSrc.includes('["trending", "Today in Science", "chart"]'), "sidebar does not carry the new name");
+  assert.ok(appSrc.includes(">Today in Science</h1>"), "page heading is not the new name");
+  assert.ok(appSrc.includes('t = "Today in Science · Cerebrum"'), "tab title is not the new name");
+  assert.ok(appSrc.includes('trending: "Today in Science"'), "phone title is not the new name");
+  assert.ok(!appSrc.includes("Trending in Science</h1>"), "the old name still heads the page");
 });
 
 await test("a filter that matches nothing gets a real empty state", () => {
@@ -50,9 +58,15 @@ await test("a filter that matches nothing gets a real empty state", () => {
   assert.ok(appSrc.includes("Show the whole edition"), "empty state has no way back");
 });
 
-await test("the briefing band ranks the edition", () => {
-  assert.ok(appSrc.includes("TrendRailList"), "rail component missing");
-  assert.ok(appSrc.includes("Newest in this edition"), "newest rail missing");
+await test("the edition is hero and digest only, with no rail repeating stories", () => {
+  // The Newest rail repeated stories the hero and digest already
+  // showed, so a story could appear twice on one page. It is gone:
+  // no rail component, no rail title, and no newest list computed
+  // beside the visible items.
+  assert.ok(!appSrc.includes("TrendRailList"), "the rail component is still present");
+  assert.ok(!appSrc.includes("Newest in this edition"), "the newest rail title is still present");
+  assert.ok(appSrc.includes("TrendingHero"), "the hero is missing");
+  assert.ok(appSrc.includes("The digest"), "the digest is missing");
 });
 
 await test("the most cited rail stays hidden while the feed sends no counts", () => {
@@ -70,12 +84,17 @@ await test("section pills carry story counts", () => {
   assert.ok(appSrc.includes("categoryCount"), "category counts missing");
 });
 
-await test("the cited sort can never run before its helper exists, and hides without data", () => {
-  const helperAt = appSrc.indexOf("const citedOf");
-  const sortAt = appSrc.indexOf("const visibleItems");
-  assert.ok(helperAt > 0 && sortAt > helperAt, "citedOf is still declared after the sort that uses it");
-  assert.ok(appSrc.includes("hasCitedData"), "cited sort is not gated on real counts");
-  assert.ok(appSrc.includes('effectiveSort === "cited"'), "sort does not fall back without data");
+await test("there is no Most cited sort until the citation leg is reliable", () => {
+  // A ranking of only the subset a rate limited provider answered
+  // claims an order the data does not support, so the sort is gone
+  // outright: no option, no gating helper, no cited branch in the
+  // visible items sort. Counts still print on stories that carry
+  // them, and the citation health detail still reports the leg.
+  const view = appSrc.slice(appSrc.indexOf("function TrendingView("), appSrc.indexOf("function LiteratureTimeline("));
+  assert.ok(!view.includes('id: "cited"'), "a cited sort option is still offered");
+  assert.ok(!view.includes("hasCitedData"), "the cited sort gate is still present");
+  assert.ok(!view.includes('effectiveSort === "cited"'), "the visible items still sort by citations");
+  assert.ok(appSrc.includes("stories carry a citation count"), "citation coverage stopped being reported");
 });
 
 await test("stories group into coverage clusters and are addressable", () => {
@@ -648,8 +667,8 @@ await test("client trend ordering matches the server comparator on the same stor
 await test("persistence marker: named only above the first day", async () => {
   const { trendPersistenceLabel } = await import(join(root, "src/trendingUtils.js"));
   assert.equal(trendPersistenceLabel({ trend: { daysPresent: 1 } }), null, "a first day story earned a marker");
-  assert.equal(trendPersistenceLabel({ trend: { daysPresent: 2 } }), "Day 2 in Trending");
-  assert.equal(trendPersistenceLabel({ trend: { daysPresent: 5, firstSeenEdition: "2026-10-09" } }), "Day 5 in Trending");
+  assert.equal(trendPersistenceLabel({ trend: { daysPresent: 2 } }), "Day 2 in the edition");
+  assert.equal(trendPersistenceLabel({ trend: { daysPresent: 5, firstSeenEdition: "2026-10-09" } }), "Day 5 in the edition");
   assert.equal(trendPersistenceLabel({}), null, "a story with no trend field earned a marker");
   assert.equal(trendPersistenceLabel({ trend: { daysPresent: "3" } }), null, "a string day count earned a marker");
   assert.equal(trendPersistenceLabel({ trend: { daysPresent: NaN } }), null, "a NaN day count earned a marker");
@@ -658,15 +677,17 @@ await test("persistence marker: named only above the first day", async () => {
 
 await test("the view offers the trend ordering and renders the persistence marker", () => {
   assert.ok(appSrc.includes("compareByTrend(a, b)"), "the client sort never calls the trend comparator");
-  assert.ok(appSrc.includes('{ id: "trend", label: "Trending" }'), "no Trending sort option");
-  const optionsAt = appSrc.indexOf('id: "edition", label: "Edition order"');
+  assert.ok(appSrc.includes('{ id: "trend", label: "Longest running" }'), "no persistence sort option");
+  // Persistence is the default order under the new name, not an
+  // option behind the edition order, and it is not gated on
+  // citation data it does not need.
+  assert.ok(appSrc.includes('useState("trend")'), "the default sort is not persistence");
+  const optionsAt = appSrc.indexOf('id: "trend", label: "Longest running"');
   const optionsSlice = appSrc.slice(optionsAt, optionsAt + 240);
-  assert.ok(optionsSlice.indexOf('id: "trend"') > -1 && optionsSlice.indexOf('id: "trend"') < optionsSlice.indexOf("hasCitedData"),
-    "the Trending option is gated on citation data it does not need");
-  assert.ok(appSrc.includes('trendSort === "cited" && !hasCitedData'), "the cited ordering lost its data gate");
+  assert.ok(optionsSlice.indexOf('id: "edition"') > -1, "the persistence option does not lead the sort group");
   // The marker reaches every story surface through one helper: the
-  // provenance line the hero, digest rows, and rail all render, and
-  // the story modal's own meta line and up next rows.
+  // provenance line the hero and digest rows render, and the story
+  // modal's own meta line and up next rows.
   assert.ok(appSrc.includes("const persistence = trendPersistenceLabel(item);"), "provenance never carries the marker");
   assert.ok(appSrc.includes("const persistenceLabel = trendPersistenceLabel(item);"), "the modal never computes the marker");
   assert.ok(appSrc.includes("trendPersistenceLabel(nx)"), "the modal's up next rows never carry the marker");

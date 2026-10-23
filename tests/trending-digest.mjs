@@ -476,15 +476,17 @@ await test("legitimate summaries are not eaten by the furniture strip", async ()
 // ══════════════════════════════════════════════════════════════════════════
 group("trending digest — citation health and ranking basis are on screen");
 
-await test("the Most cited ordering discloses the size of its ranked subset", () => {
-  assert.match(appSrc, /effectiveSort === "cited" && visibleItems\.length > 0/,
-    "the cited ordering renders without its basis disclosure");
-  assert.match(appSrc, /have a count above zero/,
-    "the disclosure does not state how many stories carry a positive count");
-  assert.match(appSrc, /Stories without a reported count are not ranked/,
-    "the disclosure does not say the uncounted stories are unranked");
-  assert.match(appSrc, /const citedRankedCount = filteredItems\.filter\(\(x\) => citedOf\(x\) > 0\)\.length/,
-    "the disclosed count is not computed from the view being ranked");
+await test("there is no Most cited ordering to disclose a basis for", () => {
+  // The Most cited sort is gone until the citation leg is reliable:
+  // it ranked only the subset a rate limited provider answered and
+  // let the rest follow unranked, which read as a ranking of the
+  // whole edition. The counts and the health reporting stay; the
+  // ordering does not.
+  const view = appSrc.slice(appSrc.indexOf("function TrendingView("), appSrc.indexOf("function LiteratureTimeline("));
+  assert.ok(!view.includes('id: "cited"'), "a cited sort option is still offered");
+  assert.ok(!appSrc.includes("citedRankedCount"), "the cited ranking count is still computed");
+  assert.match(appSrc, /const citedKnownCount = stories\.filter\(\(x\) => typeof x\.citedByCount === "number"\)\.length/,
+    "the coverage count is not computed from the stories on screen");
 });
 
 await test("citation health is rendered, not just shipped in the payload", () => {
@@ -510,7 +512,7 @@ await test("citation health is rendered, not just shipped in the payload", () =>
 await test("story titles render through the inline markdown path the answers use", () => {
   const rendered = appSrc.split("renderInlineMdLite(item.title, P)").length - 1;
   assert.ok(rendered >= 3, `expected hero, digest and modal titles via renderInlineMdLite, found ${rendered}`);
-  assert.match(appSrc, /renderInlineMdLite\(x\.title, P\)/, "rail titles do not render via renderInlineMdLite");
+  assert.ok(!appSrc.includes("TrendRailList"), "a rail still renders story titles a second time");
   assert.match(appSrc, /renderInlineMdLite\(nx\.title, P\)/, "up next titles do not render via renderInlineMdLite");
   assert.match(appSrc, /renderInlineMdLite\(c\.title, P\)/, "coverage titles do not render via renderInlineMdLite");
 });
