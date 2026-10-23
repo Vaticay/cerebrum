@@ -84,11 +84,11 @@ export const MARKETING_PAGES = {
       },
       {
         h: "Use Cerebrum inside ChatGPT and Claude",
-        p: "Cerebrum speaks MCP, the open protocol that AI assistants use to call outside tools. Connect a compatible assistant to the endpoint below and it can search the literature through Cerebrum and bring back a cited answer with a numbered source list, or fetch the current Trending in Science edition. It is live now.",
+        p: "Cerebrum speaks MCP, the open protocol that AI assistants use to call outside tools. Connect a compatible assistant to the endpoint below and it can search the literature through Cerebrum and bring back a cited answer with a numbered source list, or fetch the current Today in Science edition. It is live now.",
         list: [
           "Endpoint: https://askcerebrum.org/mcp",
           "search_literature: a cited answer from the literature for a research question you give it.",
-          "get_trending: the current Trending in Science edition, headlines grouped by section with links.",
+          "get_trending: the current Today in Science edition, headlines grouped by section with links.",
           "When a search stores a record, the result carries the Search record with it: the permanent link to the record page, the question as asked, and the source and database counts.",
         ],
       },
@@ -128,7 +128,7 @@ export const MARKETING_PAGES = {
       },
       {
         q: "Can I use Cerebrum from inside ChatGPT or Claude?",
-        a: "Yes. Cerebrum runs a live MCP endpoint at https://askcerebrum.org/mcp. A compatible assistant can call search_literature for a cited answer from the literature, or get_trending for the current Trending in Science edition. Search results carry their Search record with them, permanent link included.",
+        a: "Yes. Cerebrum runs a live MCP endpoint at https://askcerebrum.org/mcp. A compatible assistant can call search_literature for a cited answer from the literature, or get_trending for the current Today in Science edition. Search results carry their Search record with them, permanent link included.",
       },
       {
         q: "Can Cerebrum tell me when new papers appear on a topic?",

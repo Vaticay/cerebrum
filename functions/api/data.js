@@ -2039,6 +2039,11 @@ export async function onRequest(context) {
     // are preserved by id where the client still has that collectionId;
     // anything else lands uncategorized rather than erroring.
     if (resource === "saved" && action === "replace-all") {
+      // Count what arrived before the cap slices it: papers past the
+      // cap are skipped exactly like oversized records below, and the
+      // response must say so by count so the client can tell the user
+      // plainly instead of the papers vanishing at the next sign in.
+      const received = Array.isArray(body.items) ? body.items.length : 0;
       const items = Array.isArray(body.items) ? body.items.slice(0, MAX_SAVED_PER_USER) : [];
       const now = Date.now();
       const validCollections = new Set(
@@ -2065,9 +2070,11 @@ export async function onRequest(context) {
       // client's debounced whole-array sync re-sends the full list on the
       // next change and heals it.
       await batchedWrites(env.DB, stmts);
-      // Count what was actually written: oversized items are skipped above,
-      // so reporting items.length would claim a full sync that never happened.
-      return new Response(JSON.stringify({ ok: true, count: written, skipped: items.length - written }), { status: 200, headers: cors });
+      // Count what was actually written: oversized items are skipped above
+      // and items past the cap never entered the loop, so the skipped
+      // count is everything received that was not written. Reporting
+      // items.length would claim a full sync that never happened.
+      return new Response(JSON.stringify({ ok: true, count: written, skipped: received - written }), { status: 200, headers: cors });
     }
 
     /* Paper ratings (Goodreads/Letterboxd-style, 1-5 stars, personal).

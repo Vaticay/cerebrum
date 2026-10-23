@@ -736,6 +736,52 @@ export function finishTrendingSummary(text) {
   return t + "…";
 }
 
+// ── Story quality gate ─────────────────────────────────────────────
+// The daily edition is a set of stories. Event invitations, photo
+// galleries and roundups, and other non stories used to take edition
+// slots beside research and reporting on research (the October 23
+// 2026 edition carried a satellite event invitation whose whole
+// summary was the invitation, and an ESA weekly photo roundup). This
+// gate runs at the source merge in fetchTrendingFeed, before an item
+// can claim a dedupe slot or an edition slot, and drops a record
+// when its title, its summary opening, or its own type signal says
+// it is not a story. Patterns are narrow on purpose: a missed drop
+// costs one weak slot, a false drop costs a real story.
+const NON_STORY_TITLE_RES = [
+  /\bweek in (images|pictures)\b/i,
+  /\bphoto (gallery|roundup|essay)\b/i,
+  /\bpicture gallery\b/i,
+  /\bin pictures\b/i,
+  /\bphotos of the (day|week)\b/i,
+  /\bslideshow\b/i,
+  /\bsave the date\b/i,
+  /\bregister now\b/i,
+  /\bjoin us\b/i,
+  /\byou are invited\b/i,
+  /\bwebinar\b/i,
+  /\bticket(s|ing)? (now )?(available|on sale)\b/i,
+];
+const NON_STORY_SUMMARY_RES = [
+  /^join\b/i,
+  /\bjoin us (for|on|at)\b/i,
+  /\bregister to attend\b/i,
+  /\bregistration is (now )?open\b/i,
+  /\byou are invited to\b/i,
+  /\btickets are (now )?available\b/i,
+  /\bsign up to attend\b/i,
+  /\breserve your (seat|spot|place)\b/i,
+];
+export function isNonStoryTrendingItem(item) {
+  if (!item || typeof item !== "object") return false;
+  const typeSignal = String(item.type || item.kind || "");
+  if (/event|gallery|slideshow|roundup/i.test(typeSignal)) return true;
+  const title = String(item.title || "");
+  if (NON_STORY_TITLE_RES.some((re) => re.test(title))) return true;
+  const summaryStart = String(item.summary || "").trim().slice(0, 400);
+  if (summaryStart && NON_STORY_SUMMARY_RES.some((re) => re.test(summaryStart))) return true;
+  return false;
+}
+
 // ── Edition window ─────────────────────────────────────────────────
 // An edition presented as today's trending cannot hold items from a
 // past quarter. Production evidence (live edition of 2026-10-13): a
@@ -1057,6 +1103,10 @@ export async function fetchTrendingFeed() {
     const clean = [];
     for (const a of group.items || []) {
       const item = buildTrendingItem(a, group.category);
+      // Story quality gate: event invitations, galleries, roundups
+      // and other non stories are dropped here, at the merge, before
+      // they can claim a dedupe slot or an edition slot.
+      if (isNonStoryTrendingItem(item)) continue;
       // A summary is genuinely optional for a paper (many records have no
       // abstract); a title and a link are not — without those there's
       // nothing to show and nowhere to send anyone.

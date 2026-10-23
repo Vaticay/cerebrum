@@ -155,9 +155,9 @@ export const TOOLS = [
   },
   {
     name: "get_trending",
-    title: "Trending in Science",
+    title: "Today in Science",
     description:
-      "Get the current Trending in Science edition and return the top headlines grouped by section with links to the original stories.",
+      "Get the current Today in Science edition and return the top headlines grouped by section with links to the original stories.",
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: {
       type: "object",
@@ -506,7 +506,7 @@ export function formatTrendingToolResult(data) {
   }
   const sections = trendingSectionsOf(items);
 
-  let text = edition ? `Trending in Science, edition ${edition}.` : "Trending in Science, current edition.";
+  let text = edition ? `Today in Science, edition ${edition}.` : "Today in Science, current edition.";
   if (!items.length) {
     text += "\n\nNo headlines were returned for this edition.";
     return { content: [{ type: "text", text }], structuredContent: structuredTrendingContent(edition, sections), isError: false };

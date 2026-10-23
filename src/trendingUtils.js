@@ -265,13 +265,13 @@ export function trendStoryKey(item) {
 }
 
 /* The persistence label a story earns once it has been in the
-   edition more than one day running: "Day 3 in Trending". A story
+   edition more than one day running: "Day 3 in the edition". A story
    on its first day gets no label: while the archive is young every
    item reads 1, so the label would say nothing, and a missing or
    malformed trend field reads as day 1, never as a claim. */
 export function trendPersistenceLabel(item) {
   const days = item && item.trend && Number.isFinite(item.trend.daysPresent) ? item.trend.daysPresent : 1;
-  return days > 1 ? `Day ${days} in Trending` : null;
+  return days > 1 ? `Day ${days} in the edition` : null;
 }
 
 /* The edition's trend ordering, the client counterpart of the
