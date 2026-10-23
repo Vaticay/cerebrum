@@ -25198,7 +25198,14 @@ function App({ profileHandle = null } = {}) {
         </Reveal>
       )}
       </main>
-      {started && isMobile && (
+      {/* 2026-10-23 (shell landing, accepted fix from the Library
+          lane report): this floating Sources button and its panel
+          belong to the search answer workspace, panelSources is the
+          active turn's sources. It used to render on every mobile
+          view, so on Today in Science, the Library, Nova, and the
+          Inbox it floated over the page and opened a past answer's
+          sources. It now renders on the search view only. */}
+      {started && isMobile && view === "search" && (
         <button
           style={{
             ...S.mobSrcBtn,
@@ -25225,7 +25232,7 @@ function App({ profileHandle = null } = {}) {
           )}
         </button>
       )}
-      {started && isMobile && mobilePanel && (
+      {started && isMobile && view === "search" && mobilePanel && (
         <Dialog label="Sources" onClose={() => setMobilePanel(false)} zIndex={Z.drawer} drawer={true}
           panelStyle={{ width: "min(400px, 88vw)", background: P.surface, border: `1px solid ${P.line}`, padding: "24px", boxShadow: "none" }}
         >

@@ -252,6 +252,15 @@ await test("Inbox messages reveal report on long press, not only on hover", () =
   assert.match(inboxSrc, /opacity: hoverMsgId === key \|\| actionMsgId === \(m\.id \|\| key\) \? 1 : 0/, "the flag stays hidden after a long press");
 });
 
+await test("the floating Sources button renders on the search view only", () => {
+  // 2026-10-23 (shell landing, accepted fix from the Library lane
+  // report): the button and its panel belong to the search answer
+  // workspace. Ungated, they floated over every mobile view and
+  // opened a past answer's sources.
+  assert.match(appSrc, /started && isMobile && view === "search" && \(\s*<button\s*style=\{\{\s*\.\.\.S\.mobSrcBtn/, "the Sources button is not gated on the search view");
+  assert.match(appSrc, /started && isMobile && view === "search" && mobilePanel && \(/, "the Sources panel is not gated on the search view");
+});
+
 await test("the selected evidence tier explanation is visible text, not only a title", () => {
   const filter = appSrc.slice(appSrc.indexOf("function EvidenceFilter"), appSrc.indexOf("function EvidenceFilter") + 7000);
   assert.match(filter, /<span style=\{\{ color: P\.ink2, fontWeight: 500 \}\}>\{active\[1\]\}\.<\/span> \{active\[2\]\}/, "the selected tier blurb is not rendered as text");
