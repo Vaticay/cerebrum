@@ -4188,7 +4188,7 @@ export const LEARNING_PATHS = [
                 { diagram: { steps: ["A single cell", "Cells divide and make copies", "Copies group into tissues", "Tissues build organs", "Organs work together in one body"], caption: "Starting from one cell and arriving at a whole body." } }),
               mkVisualQ("Look at the picture. The round shape shown here can divide, and its copies group together to build bigger parts. What is this shape?",
                 "/cortex/lessons/body/u1-l1-cell.webp", null,
-                ["A rock with no living parts inside it", "A cell, the smallest living unit", "A spoon seen very close up", "A whole body in one piece"],
+                ["A rock with no living parts inside it", "A cell, the smallest living unit", "A tissue made of many joined cells", "A whole body in one piece"],
                 1,
                 "The picture shows one cell. A cell is the smallest living unit, and trillions of them build a body."),
               mkMatch("Match each case to what it shows.",
@@ -4205,7 +4205,7 @@ export const LEARNING_PATHS = [
                 2,
                 "One cell can be a whole living thing. Size and cell count do not decide whether something is alive."),
               mkNote("The payoff", "Cells build everything",
-                "You are trillions of cells, and each one is a complete tiny living unit. Together they build tissues, organs, and a whole body. Tomorrow: what runs a cell?")
+                "You are trillions of cells, and each one is a complete tiny living unit. Together they build tissues, organs, and a whole body.")
             ]
           },
           {
@@ -4245,7 +4245,7 @@ export const LEARNING_PATHS = [
                 2,
                 "The membrane is the gate of the cell. When it leaks, the cell cannot control its inside, and the inside falls into disorder."),
               mkNote("The payoff", "A workshop that never closes",
-                "Each cell is a tiny workshop with a skin, a control center, and power stations. The control center directs the work and the membrane guards the gate. Tomorrow: why do you have to keep eating and breathing?")
+                "Each cell is a tiny workshop with a skin, a control center, and power stations. The control center directs the work and the membrane guards the gate.")
             ]
           },
           {
@@ -4286,7 +4286,7 @@ export const LEARNING_PATHS = [
                 1,
                 "Hard work burns through food and oxygen faster. More deliveries in means more waste out."),
               mkNote("The payoff", "Why meals and breaths matter",
-                "You eat and breathe for your cells, not just for your stomach and lungs. Blood delivers food and oxygen, and cells turn them into energy and waste. Tomorrow: what closes a scrape on your knee?")
+                "You eat and breathe for your cells, not just for your stomach and lungs. Blood delivers food and oxygen, and cells turn them into energy and waste.")
             ]
           },
           {
@@ -4328,7 +4328,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Skin is rebuilt by cells that divide often. That fast supply of new cells closes a cut quickly."),
               mkNote("The payoff", "Splitting builds and repairs",
-                "Division grows the body and fills in damage, one copied instruction book at a time. Skin does it often, which is why scrapes close fast. Tomorrow: what is a muscle actually made of?")
+                "Division grows the body and fills in damage, one copied instruction book at a time. Skin does it often, which is why scrapes close fast.")
             ]
           },
           {
@@ -4369,7 +4369,7 @@ export const LEARNING_PATHS = [
                 2,
                 "An organ is tissues working as one part. The heart needs its nerve tissue and covering tissue alongside the muscle."),
               mkNote("The payoff", "From cells to systems",
-                "Cells team into tissues, tissues join into organs, and organs work as systems. That pattern builds everything in you, from skin to heart. Tomorrow: can you prove the whole unit, start to finish?")
+                "Cells team into tissues, tissues join into organs, and organs work as systems. That pattern builds everything in you, from skin to heart.")
             ]
           },
           {
@@ -4450,11 +4450,11 @@ export const LEARNING_PATHS = [
                 false,
                 "The body keeps some oxygen and adds carbon dioxide. Breathed out air is used air, changed by the trade."),
               mkQuiz("A runner climbs a steep hill and her breathing speeds up long before she feels tired. Why does her breathing speed up so early?",
-                ["Your lungs grow larger each time you run", "The air near the ground turns thin as you run", "Hard working muscles use more oxygen and make more carbon dioxide to clear", "Your heart needs the lungs to entertain it while it works much harder than usual"],
+                ["Your lungs grow larger each time you run", "The air near the ground turns thin as you run", "Hard working muscles use more oxygen and make more carbon dioxide to clear", "Hard work makes the lungs release oxygen they stored earlier"],
                 2,
                 "Working muscles burn oxygen faster and make waste gas faster. Faster breathing speeds up both sides of the trade."),
               mkNote("The payoff", "Every breath is a trade",
-                "Breathing trades oxygen for carbon dioxide at the air sacs, breath after breath. The diaphragm does the pulling and the blood does the carrying. Tomorrow: why does blood look red?")
+                "Breathing trades oxygen for carbon dioxide at the air sacs, breath after breath. The diaphragm does the pulling and the blood does the carrying.")
             ]
           },
           {
@@ -4477,7 +4477,7 @@ export const LEARNING_PATHS = [
                 { diagram: { steps: ["The heart pushes blood out", "Red cells carry oxygen to the body", "Cells take oxygen and hand back waste", "Blood returns to the heart"], caption: "One loop, never parked." } }),
               mkVisualQ("Look at the picture. The red shapes pick up their load in the lungs and drop it off where cells are working hard. What are they carrying?",
                 "/cortex/lessons/body/u2-l2-blood.webp", null,
-                ["Germs, hunted down by the white cells", "Oxygen, held by the protein hemoglobin", "Messages, sealed inside tiny bottles", "Food sugar, dissolved in the pale plasma that fills most of the stream in the picture"],
+                ["Germs, hunted down by the white cells", "Oxygen, held by the protein hemoglobin", "Waste gas, carried back from working cells", "Food sugar, dissolved in the pale plasma that fills most of the stream in the picture"],
                 1,
                 "The red shapes are red blood cells. Their hemoglobin grabs oxygen in the lungs and lets go where cells need it."),
               mkBuild("A kitchen knife nicks a finger and blood starts to leak. Build the clot that seals it, step by step.",
@@ -4490,11 +4490,11 @@ export const LEARNING_PATHS = [
                 false,
                 "White cells hunt germs. Carrying oxygen is the job of the red cells and their hemoglobin."),
               mkQuiz("A doctor takes one small tube of blood from your arm and learns about organs she never touched. How can one tube say so much?",
-                ["Blood stays in one place and reports on it", "A tube of blood holds a tiny map of the body", "Blood carries cells, food, waste, and messages from everywhere", "Doctors can hear the heart beating inside a tube of blood if they listen very closely at night"],
+                ["Blood stays in one place and reports on it", "A tube of blood holds a tiny map of the body", "Blood carries cells, food, waste, and messages from everywhere", "One tube holds cells drawn from every organ equally"],
                 2,
                 "Blood visits every part of you and picks up a little of everything. Its load tells the story of the whole body."),
               mkNote("The payoff", "One fleet, many jobs",
-                "Blood is a fleet with carriers, guards, and a repair crew, all floating in plasma. It delivers oxygen and food and carries waste and messages back. Tomorrow: who tells your heart to beat?")
+                "Blood is a fleet with carriers, guards, and a repair crew, all floating in plasma. It delivers oxygen and food and carries waste and messages back.")
             ]
           },
           {
@@ -4537,7 +4537,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Fitness makes the pump stronger. A stronger pump delivers what the body needs in fewer, bigger beats."),
               mkNote("The payoff", "The beat that never waits",
-                "Your heart beats about 100,000 times a day, fired by its own pace setter. It speeds up when muscles call for more and settles when they rest. Tomorrow: where does a meal become part of you?")
+                "Your heart beats about 100,000 times a day, fired by its own pace setter. It speeds up when muscles call for more and settles when they rest.")
             ]
           },
           {
@@ -4578,7 +4578,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Juices can only work on the surface they touch. More surface means the churning and soaking run faster."),
               mkNote("The payoff", "Meals become you in stages",
-                "Digestion chops, churns, and absorbs a meal until its useful pieces ride the blood. Chewing well starts the whole line off right. Tomorrow: you eat a big lunch, then sit still all afternoon. Where does the energy go?")
+                "Digestion chops, churns, and absorbs a meal until its useful pieces ride the blood. Chewing well starts the whole line off right.")
             ]
           },
           {
@@ -4619,7 +4619,7 @@ export const LEARNING_PATHS = [
                 2,
                 "A hike spends energy for hours without a break. Emptying stores is the body signal that more fuel is due."),
               mkNote("The payoff", "Fuel in, fuel stored",
-                "Food is fuel, cells release its energy, and leftovers fill the stores. That is how one lunch can power an afternoon and part of an evening too. Tomorrow: can you prove the whole unit, start to finish?")
+                "Food is fuel, cells release its energy, and leftovers fill the stores. That is how one lunch can power an afternoon and part of an evening too.")
             ]
           },
           {
@@ -4650,7 +4650,7 @@ export const LEARNING_PATHS = [
                 ["Chewing in the mouth", "Churning in the stomach with juices", "Absorbing in the small intestine", "Reclaiming water in the large intestine"],
                 "Chop, churn, absorb, reclaim. Each stop comes after the one before it."),
               mkQuiz("Two friends jog side by side, and both start breathing faster within a minute of setting off. Why do both of them breathe faster?",
-                ["The lungs need practice at moving fast", "Running shakes extra air loose in the chest", "Working muscles use more oxygen and make more carbon dioxide", "The heart asks the lungs for company on the road while both of them work through the run"],
+                ["The lungs need practice at moving fast", "Running shakes extra air loose in the chest", "Working muscles use more oxygen and make more carbon dioxide", "The lungs take in extra air to cool the working muscles"],
                 2,
                 "Faster breathing moves more oxygen in and more waste gas out. It matches what hard working muscles demand."),
               mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
@@ -4688,7 +4688,7 @@ export const LEARNING_PATHS = [
               mkVisualQ("Look at the diagram. A catch is under way and the eyes have just spotted the ball while it is still in the air. Which step must happen next for the catch to work?",
                 null,
                 { steps: ["Your eyes spot the ball", "Signals race to the brain", "The brain works out where it will land", "Signals race to your arm muscles", "Your hands close on the ball"], caption: "Catching looks simple, but five fast steps happen in less than a blink." },
-                ["Your hands close on the ball", "Signals race to your arm muscles", "Signals race to the brain", "Your eyes spot the ball itself"],
+                ["Your hands close on the ball", "Signals race to your arm muscles", "The signal travels onward to the brain", "Your eyes spot the ball itself"],
                 2,
                 "The eyes spot the ball first, and the very next step is the signals racing to the brain, which works out where the ball will land."),
               mkMatch("Match each catch case to the part doing that job.",
@@ -4701,11 +4701,11 @@ export const LEARNING_PATHS = [
                 false,
                 "Nerve messages race along neurons, not inside the blood. The blood does carry a different and slower kind of message, and one of them is the rush message that speeds the heart when you are frightened."),
               mkQuiz("A goalkeeper practices catching every day for a month, and her saves keep getting quicker week after week. Why do her catches keep getting faster?",
-                ["Your eyes grow larger and spot the ball sooner", "Each link in the chain gets faster with practice", "The ball learns to fly slower toward you", "Your muscles move without waiting for any signals at all"],
+                ["Your eyes grow larger and spot the ball sooner", "Each link in the chain gets faster with practice", "Her eyes alone get faster, while every other link stays slow", "Your muscles move without waiting for any signals at all"],
                 1,
                 "Practice trains the whole chain, and the brain's regions share the work with the senses and the muscles, link by link."),
               mkNote("The payoff", "You are wired for speed",
-                "Messages race along neurons from your senses to your brain and back out to your muscles. The spinal cord is the main cable on that trip, and practice makes the whole chain faster. Tomorrow: why does your hand leave a hot pan before you feel the heat?")
+                "Messages race along neurons from your senses to your brain and back out to your muscles. The spinal cord is the main cable on that trip, and practice makes the whole chain faster.")
             ]
           },
           {
@@ -4746,7 +4746,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Blinking at danger is a reflex. The shortcut through the cord runs it, not a decision you stopped to make."),
               mkNote("The payoff", "Fast because it skips a step",
-                "A reflex is the same signal loop as catching, with the brain left out until later. The spinal cord turns the signal around at once, so the muscle moves before you feel a thing. Tomorrow: is one part of your brain in charge of everything?")
+                "A reflex is the same signal loop as catching, with the brain left out until later. The spinal cord turns the signal around at once, so the muscle moves before you feel a thing.")
             ]
           },
           {
@@ -4787,7 +4787,7 @@ export const LEARNING_PATHS = [
                 0,
                 "The regions at the back keep your balance and do the first handling of sight, so an injury there harms those jobs first."),
               mkNote("The payoff", "A team, not a boss",
-                "The brain is a control room of many regions, each with its own jobs, all sharing their news. No region works alone, and no region does everything. Tomorrow: why does your heart race when you are suddenly frightened?")
+                "The brain is a control room of many regions, each with its own jobs, all sharing their news. No region works alone, and no region does everything.")
             ]
           },
           {
@@ -4811,7 +4811,7 @@ export const LEARNING_PATHS = [
               mkVisualQ("Look at the diagram. A hormone rides the blood past every cell in the body, yet only some cells change their work. Which cells are the ones that answer?",
                 null,
                 { steps: ["A gland releases a message into the blood", "The blood carries it everywhere", "Cells with the right receiver answer", "The change lasts while the message lasts"], caption: "Slow to arrive, slow to fade, and heard only by the right cells." },
-                ["Every single cell in the body answers it at once", "Only cells with the right receiver for it", "The cells that happen to sit closest to the gland", "Only cells that ask for it by name, one by one"],
+                ["Every single cell in the body answers it at once", "Only cells with the right receiver for it", "The cells that happen to sit closest to the gland", "Only cells in the gland that released the hormone"],
                 1,
                 "The blood carries the message everywhere, but only the cells with the right receiver for it answer."),
               mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
@@ -4830,7 +4830,7 @@ export const LEARNING_PATHS = [
                 1,
                 "The rush message rides the blood and fades slowly, so the heart and the whole body settle slowly too."),
               mkNote("The payoff", "The slow road for messages",
-                "Hormones are the slow road for messages, carried by the blood and heard only by cells with the right receiver. The rush message speeds your heart, insulin handles sugar, and the growth message works while you sleep. Tomorrow: why do you think badly after a short night?")
+                "Hormones are the slow road for messages, carried by the blood and heard only by cells with the right receiver. The rush message speeds your heart, insulin handles sugar, and the growth message works while you sleep.")
             ]
           },
           {
@@ -4871,7 +4871,7 @@ export const LEARNING_PATHS = [
                 1,
                 "Each day of study is followed by sleep, and sleep sorts and keeps the new memories. Studying all night skips the keeping."),
               mkNote("The payoff", "The night shift earns its keep",
-                "Sleep is the night shift of the body. Deep sleep repairs and grows you, busy sleep dreams and sorts your memories, and a short night leaves both jobs half done. Tomorrow: can you prove the whole unit, start to finish?")
+                "Sleep is the night shift of the body. Deep sleep repairs and grows you, busy sleep dreams and sorts your memories, and a short night leaves both jobs half done.")
             ]
           },
           {
@@ -4958,7 +4958,7 @@ export const LEARNING_PATHS = [
                 1,
                 "A graze opens the wall, so germs can enter there until new skin grows and closes the gap."),
               mkNote("The payoff", "The wall comes first",
-                "Skin is your largest organ and your first defense, a living wall that renews itself from below. Mucus, tears, and stomach juices guard the other openings the same way, by stopping trouble early. Tomorrow: a germ slips past your skin. What happens next?")
+                "Skin is your largest organ and your first defense, a living wall that renews itself from below. Mucus, tears, and stomach juices guard the other openings the same way, by stopping trouble early.")
             ]
           },
           {
@@ -4999,7 +4999,7 @@ export const LEARNING_PATHS = [
                 1,
                 "Keeping the pattern is the whole point of memory cells. The first fight pays the building cost, so the second answer starts from stored weapons and stored orders."),
               mkNote("The payoff", "Guards that remember",
-                "White blood cells patrol, swallow germs, sound the alarm, and build antibodies that fit one invader. Memory cells keep the pattern, so a second meeting ends faster than the first. Tomorrow: why does your body heat up when you are ill?")
+                "White blood cells patrol, swallow germs, sound the alarm, and build antibodies that fit one invader. Memory cells keep the pattern, so a second meeting ends faster than the first.")
             ]
           },
           {
@@ -5040,7 +5040,7 @@ export const LEARNING_PATHS = [
                 1,
                 "The reading climbed because the setting climbed. Raised heat is a chosen weapon in the fight, timed to the infection and reversed when it clears."),
               mkNote("The payoff", "Heat as a weapon",
-                "An infection is germs multiplying, and a fever is the body turning its own heat into a weapon. Germs slow, guards speed up, and rest gives the fight the energy it needs. Tomorrow: how can a practice run protect you from a real germ?")
+                "An infection is germs multiplying, and a fever is the body turning its own heat into a weapon. Germs slow, guards speed up, and rest gives the fight the energy it needs.")
             ]
           },
           {
@@ -5079,11 +5079,11 @@ export const LEARNING_PATHS = [
                 false,
                 "What a vaccine carries is harmless, or only a piece of the invader, so it cannot give you the illness it practices against."),
               mkQuiz("A baby is too young for her vaccine practice, yet nearly everyone around her has had theirs. Why is the baby still safer than she would be alone?",
-                ["The baby learns the whole pattern just by watching others", "Guards in other people stop the germ early", "Vaccines make the air clean around babies", "The germ avoids houses with babies in them"],
+                ["The baby learns the whole pattern just by watching others", "Guards in other people stop the germ early", "Her own guards already know the pattern from birth", "The germ weakens too much while traveling between people"],
                 1,
                 "When many people around can stop the germ, fewer carriers pass it on, so it rarely reaches a baby too young for the practice."),
               mkNote("The payoff", "Practice that protects",
-                "A vaccine is a practice run with a harmless version, and the guards keep its pattern in memory cells. When the real invader arrives, the answer comes at once, often before you feel ill at all. Tomorrow: why do some people sneeze at flowers?")
+                "A vaccine is a practice run with a harmless version, and the guards keep its pattern in memory cells. When the real invader arrives, the answer comes at once, often before you feel ill at all.")
             ]
           },
           {
@@ -5124,7 +5124,7 @@ export const LEARNING_PATHS = [
                 2,
                 "The guards learned the wrong pattern at an earlier meeting, so, like a memory response, it fires at once."),
               mkNote("The payoff", "Strong guards, wrong aim",
-                "An allergy is defense aimed at the harmless, with real weapons fired at pollen or certain foods. Nothing is infecting you, and the guards are not weak. Their aim is wrong. Tomorrow: can you prove the whole unit, start to finish?")
+                "An allergy is defense aimed at the harmless, with real weapons fired at pollen or certain foods. Nothing is infecting you, and the guards are not weak. Their aim is wrong.")
             ]
           },
           {
@@ -5211,7 +5211,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Only living tissue can repair itself. Bone cells divide, fill the break, and rebuild the bone until it is whole again."),
               mkNote("The payoff", "The scaffolding is alive",
-                "Your bones are living scaffolding that holds you up, guards your soft organs, and makes fresh blood cells in the marrow. They grow with you and repair themselves when they break, which no dead stone could ever do. Tomorrow: can a muscle push?")
+                "Your bones are living scaffolding that holds you up, guards your soft organs, and makes fresh blood cells in the marrow. They grow with you and repair themselves when they break, which no dead stone could ever do.")
             ]
           },
           {
@@ -5252,7 +5252,7 @@ export const LEARNING_PATHS = [
                 1,
                 "The muscle ties on close to the joint, so its short pull is multiplied into a wide swing at the hand. Force is what the lever pays for that range."),
               mkNote("The payoff", "Pull, in pairs",
-                "Muscles are bundles of fibers that only know how to pull, so your body runs them in pairs to bend and straighten every limb. Work a muscle and it grows stronger, then does its growing while you rest. Tomorrow: what lets a stiff scaffold bend?")
+                "Muscles are bundles of fibers that only know how to pull, so your body runs them in pairs to bend and straighten every limb. Work a muscle and it grows stronger, then does its growing while you rest.")
             ]
           },
           {
@@ -5293,7 +5293,7 @@ export const LEARNING_PATHS = [
                 3,
                 "Joint kind sets the movement. Ball joints swing in wide circles, and hinge joints bend mostly one way."),
               mkNote("The payoff", "Where the frame bends",
-                "Joints are the bending places of the scaffolding, protected by smooth caps and slippery fluid so bones glide instead of grinding. Hinges bend one way and ball joints swing wide, and together they give a stiff frame its movement. Tomorrow: where does a taller you come from?")
+                "Joints are the bending places of the scaffolding, protected by smooth caps and slippery fluid so bones glide instead of grinding. Hinges bend one way and ball joints swing wide, and together they give a stiff frame its movement.")
             ]
           },
           {
@@ -5336,7 +5336,7 @@ export const LEARNING_PATHS = [
                 0,
                 "The glands send much of the growth message during sleep. Short nights give that message less time to do its building work."),
               mkNote("The payoff", "Built taller, slowly",
-                "You grow taller because cells divide and growth zones add new bone at the ends of long bones, a little at a time. Sleep, food, and movement supply the work, and the growth message does much of its building while you sleep. Tomorrow: what does your body do the moment you cut yourself, before you even look?")
+                "You grow taller because cells divide and growth zones add new bone at the ends of long bones, a little at a time. Sleep, food, and movement supply the work, and the growth message does much of its building while you sleep.")
             ]
           },
           {
@@ -5377,7 +5377,7 @@ export const LEARNING_PATHS = [
                 0,
                 "A clot is built at the leak, and building takes a calmer flow. Pressure buys the platelets the minutes they need to stick together and weave the fibrin mesh."),
               mkNote("The payoff", "Growth, turned to repair",
-                "Healing is growth turned toward repair: platelets seal the leak, new cells fill the gap, and fresh tissue knits the edges back together. Deep damage gets a quick scar patch, while shallow damage can be rebuilt as it was. Tomorrow: can you prove the whole unit, start to finish?")
+                "Healing is growth turned toward repair: platelets seal the leak, new cells fill the gap, and fresh tissue knits the edges back together. Deep damage gets a quick scar patch, while shallow damage can be rebuilt as it was.")
             ]
           },
           {
@@ -5464,7 +5464,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Focusing near and far is lens work. A rounder lens bends light more strongly, which is what a close page needs and a distant mountain does not."),
               mkNote("The payoff", "Nothing arrives finished",
-                "The eye is a window and a changer: the lens focuses light, the retina turns it into signals, and the brain builds the picture you live in. Nothing you see arrives finished, and that building work is what every other sense relies on. Tomorrow: what is a sound, before it reaches you?")
+                "The eye is a window and a changer: the lens focuses light, the retina turns it into signals, and the brain builds the picture you live in. Nothing you see arrives finished, and that building work is what every other sense relies on.")
             ]
           },
           {
@@ -5505,7 +5505,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Pitch is shaking rate, and the coil sorts by rate. Fast shaking peaks near the entrance, slow shaking travels farther, so the two sounds land in different places."),
               mkNote("The payoff", "From shaking to sound",
-                "Hearing begins as shaking air, becomes shaking skin and bone, and ends as signals the brain can build into sound. Protect the delicate chain from very loud sounds, because damage deep inside does not heal back. Tomorrow: why does food turn dull when your nose is blocked?")
+                "Hearing begins as shaking air, becomes shaking skin and bone, and ends as signals the brain can build into sound. Protect the delicate chain from very loud sounds, because damage deep inside does not heal back.")
             ]
           },
           {
@@ -5529,7 +5529,7 @@ export const LEARNING_PATHS = [
               mkVisualQ("In the diagram, two reports arrive at the brain together and the brain blends them into one experience. Which two reports are blended?",
                 null,
                 { steps: ["Taste buds report the basic tastes", "Smell particles reach the nose", "The brain blends taste and smell", "You experience it as flavor"], caption: "Two reports, one blend, and the result is flavor." },
-                ["Taste from the tongue and smell from the nose", "Touch from the skin and pain from the sensors", "Light from the eyes and sound from the ears", "Signals from the muscles and signals from bones"],
+                ["Reports from the tongue and from the nose", "Touch from the skin and pain from the sensors", "Light from the eyes and sound from the ears", "Signals from the muscles and signals from bones"],
                 0,
                 "Flavor is blended in the brain from the tongue taste report and the nose smell report arriving together."),
               mkBuild("A chef tastes a new sauce and a full flavor blooms. Build that flavor, step by step.",
@@ -5546,7 +5546,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Taste buds are not identical in everyone. Some people are built to notice a bitterness in certain vegetables that others never taste."),
               mkNote("The payoff", "One team, two hats",
-                "Taste and smell are one team wearing two hats: the tongue reports a short list of basic tastes, and smell supplies most of flavor. Block the nose and the team loses its strongest player, so meals turn dull and flat. Tomorrow: what is pain for?")
+                "Taste and smell are one team wearing two hats: the tongue reports a short list of basic tastes, and smell supplies most of flavor. Block the nose and the team loses its strongest player, so meals turn dull and flat.")
             ]
           },
           {
@@ -5589,7 +5589,7 @@ export const LEARNING_PATHS = [
                 1,
                 "The brain can turn pain up or down. A flood of gentle touch reports gives it reason to turn the pain down a little."),
               mkNote("The payoff", "The useful alarm",
-                "Your skin is a field of sensors, and pain is the alarm they can raise when damage happens. The brain builds that alarm from their reports and can turn it up or down, which is why attention and rubbing can change a hurt. Tomorrow: can your eyes lie to you?")
+                "Your skin is a field of sensors, and pain is the alarm they can raise when damage happens. The brain builds that alarm from their reports and can turn it up or down, which is why attention and rubbing can change a hurt.")
             ]
           },
           {
@@ -5630,7 +5630,7 @@ export const LEARNING_PATHS = [
                 1,
                 "The eyes report the lines honestly. The brain shortcut that judges length gets fooled, so the mistake is in the building, not the reporting."),
               mkNote("The payoff", "Built, not handed over",
-                "Your senses do not hand you the world ready made. They hand your brain signals, gaps and all, and the brain builds the smooth experience you live in, filling and guessing as it goes. Tomorrow: can you follow a sandwich and a sprint through the whole body?")
+                "Your senses do not hand you the world ready made. They hand your brain signals, gaps and all, and the brain builds the smooth experience you live in, filling and guessing as it goes.")
             ]
           },
           {
@@ -5764,7 +5764,7 @@ export const LEARNING_PATHS = [
                 0,
                 "A raised set point makes a warm body read itself as cold. Shivering is the climb toward the setting, not a failure of control."),
               mkNote("The payoff", "A setting, not a failure",
-                "A fever is the thermostat of the body holding a higher setting on purpose, ordered by prostaglandins and paid for in chills, energy, and water. The control never failed. It aimed higher, and the body climbed to meet it. Tomorrow: what happens to your blood when the air itself turns thin?")
+                "A fever is the thermostat of the body holding a higher setting on purpose, ordered by prostaglandins and paid for in chills, energy, and water. The control never failed. It aimed higher, and the body climbed to meet it.")
             ]
           },
           {
@@ -5804,7 +5804,7 @@ export const LEARNING_PATHS = [
                 3,
                 "The spun sample reports hematocrit directly. A larger red share after weeks of thin air means the marrow answered the kidney signal with new cells."),
               mkNote("The payoff", "Blood that answers the air",
-                "Thin air weakens the oxygen push, the kidneys answer with erythropoietin, and the marrow spends weeks building red cells until hematocrit climbs. The blood ends richer in carriers and thicker to pump, a gain with a price attached. Tomorrow: eight questions on fever settings and thin air, and nothing new to learn first.")
+                "Thin air weakens the oxygen push, the kidneys answer with erythropoietin, and the marrow spends weeks building red cells until hematocrit climbs. The blood ends richer in carriers and thicker to pump, a gain with a price attached.")
             ]
           },
           {
@@ -6354,7 +6354,7 @@ export const LEARNING_PATHS = [
                 3,
                 "Melting and shaping change the shape of the gold, not what it is made of. Its atoms stay gold atoms."),
               mkNote("The payoff", "Atoms build everything",
-                "Everything you can see, and much that you cannot, is built from atoms joined together. Each atom is a tiny piece of matter, far too small to see alone. Tomorrow: what sits at the center of an atom, and what moves around it in a cloud?")
+                "Everything you can see, and much that you cannot, is built from atoms joined together. Each atom is a tiny piece of matter, far too small to see alone.")
             ]
           },
           {
@@ -6395,7 +6395,7 @@ export const LEARNING_PATHS = [
                 1,
                 "The nucleus holds nearly all the weight in a tiny space. The model shows that, plus how much of the atom is empty space."),
               mkNote("The payoff", "A center, a cloud, and space",
-                "An atom is a heavy nucleus at the center, with electrons moving in a cloud around it, and empty space between. Its numbers, the number of protons, the number of neutrons, and the number of electrons, describe the atom. Tomorrow: what makes one kind of atom different from another kind?")
+                "An atom is a heavy nucleus at the center, with electrons moving in a cloud around it, and empty space between. Its numbers, the number of protons, the number of neutrons, and the number of electrons, describe the atom.")
             ]
           },
           {
@@ -6436,7 +6436,7 @@ export const LEARNING_PATHS = [
                 0,
                 "Looks do not name an element, proton counts do. The test found a different proton count, not extra neutrons, and a different count means a different kind of atom."),
               mkNote("The payoff", "Protons name the kind",
-                "The number of protons names every kind of atom, and kinds are called elements. Gold, oxygen, iron, and carbon are four of more than a hundred elements. Tomorrow: how do you count atoms when one batch is far too enormous to count one by one?")
+                "The number of protons names every kind of atom, and kinds are called elements. Gold, oxygen, iron, and carbon are four of more than a hundred elements.")
             ]
           },
           {
@@ -6475,11 +6475,11 @@ export const LEARNING_PATHS = [
                 false,
                 "A mole is not an atom at all. It is a batch word, a way of counting atoms in enormous batches."),
               mkQuiz("A shop sells eggs by the dozen, and a cook needs four dozen eggs for a feast. Why does the shop worker not count the eggs one by one?",
-                ["Eggs are too small for anyone to count at all", "Counting slowly makes the eggs taste better", "One batch word holds the exact count", "The worker prefers to guess the total number"],
+                ["Eggs are too small for anyone to count at all", "A dozen eggs cannot be split into single eggs at all", "One batch word holds the exact count", "The worker prefers to guess the total number"],
                 2,
                 "Dozen does for eggs what a mole does for atoms. The batch word carries the count, so no one counts one by one."),
               mkNote("The payoff", "Batches do the counting",
-                "A mole turns counting atoms into counting batches, and every batch holds the same enormous count. That counting only works because the kinds themselves are fixed and known. Tomorrow: does every kind of atom have its own place in one great table?")
+                "A mole turns counting atoms into counting batches, and every batch holds the same enormous count. That counting only works because the kinds themselves are fixed and known.")
             ]
           },
           {
@@ -6520,7 +6520,7 @@ export const LEARNING_PATHS = [
                 3,
                 "A new proton count means a new element. The table grows a place for it, in proton order, with its own family."),
               mkNote("The payoff", "The map of every kind",
-                "The periodic table is the map of the kinds, one place for every element, with families down the columns. The next story is what a bond can form when atoms join and stay held together as a molecule. Tomorrow: can you prove the whole unit, start to finish?")
+                "The periodic table is the map of the kinds, one place for every element, with families down the columns. The next story is what a bond can form when atoms join and stay held together as a molecule.")
             ]
           },
           {
@@ -6590,7 +6590,7 @@ export const LEARNING_PATHS = [
               mkVisualQ("Look at the diagram. Two atoms of hydrogen close in on one atom of oxygen in a drop of water. What forms between them as they meet and stay joined?",
                 null,
                 { steps: ["Two atoms meet", "A bond forms between them", "The bond holds them in one group", "The group is a molecule"], caption: "Meet, bond, hold, and the group is a molecule." },
-                ["A wall that keeps them apart for good", "A bond that holds them in one group", "A cloud that hides them from each other", "A batch word for counting them in moles"],
+                ["A wall that keeps them apart for good", "A bond, the hold that keeps atoms together", "A cloud that hides them from each other", "A batch word for counting them in moles"],
                 1,
                 "The diagram shows the bond forming in the meeting. The bond is what holds the atoms together as one group."),
               mkMatch("Match each case to the word it names.",
@@ -6607,7 +6607,7 @@ export const LEARNING_PATHS = [
                 1,
                 "Joined atoms held by bonds are a molecule, whatever the count in the group. Three joined atoms make one molecule of three atoms."),
               mkNote("The payoff", "Joined atoms, new stuff",
-                "Atoms join by bonds, and joined atoms form molecules with ways of their own. Tomorrow: is a joined compound the same as a mixture, just stirred together in a bowl?")
+                "Atoms join by bonds, and joined atoms form molecules with ways of their own.")
             ]
           },
           {
@@ -6648,7 +6648,7 @@ export const LEARNING_PATHS = [
                 3,
                 "Picking pieces out whole shows nothing joined. Parts that keep their own ways and can be sorted again are a mixture."),
               mkNote("The payoff", "Joined, or just stirred",
-                "Compounds are joined tight and mixtures are just stirred, and that one difference sorts most stuff you meet. Tomorrow: when a reaction starts, do the atoms vanish, or do they rearrange into something new?")
+                "Compounds are joined tight and mixtures are just stirred, and that one difference sorts most stuff you meet.")
             ]
           },
           {
@@ -6672,7 +6672,7 @@ export const LEARNING_PATHS = [
               mkVisualQ("Look at the diagram. Food kept in a warm kitchen spoils as its atoms rearrange in a slow reaction. At the end of that reaction, what is true of the atoms themselves?",
                 null,
                 { steps: ["Atoms sit in their starting groups", "Bonds break and the groups open", "Atoms move and rearrange", "New bonds form new groups", "The same atoms sit in new substances"], caption: "Break, move, rearrange, and join again, with the same atoms throughout." },
-                ["Fewer atoms, since some of them vanished", "The same atoms sit in new substances", "More atoms, made fresh during the reaction", "New atoms, swapped in while the groups open"],
+                ["Fewer atoms, since some of them vanished", "Every atom is still there, now in new groups", "More atoms, made fresh during the reaction", "New atoms, swapped in while the groups open"],
                 1,
                 "The diagram starts and ends with the same atoms. Only their groups and bonds changed."),
               mkBuild("Wood catches fire in a grate and turns to ash and smoke in front of a class. Build that reaction in order, from start to finish.",
@@ -6689,7 +6689,7 @@ export const LEARNING_PATHS = [
                 0,
                 "A shut jar keeps every atom inside. The atoms rearrange, but their total weight stays the same."),
               mkNote("The payoff", "Same atoms, new groups",
-                "Reactions break bonds, rearrange atoms, and form new substances, and burning fuel is one reaction you already know. Tomorrow: what joins with a fuel when it burns, and what joins with iron when it rusts?")
+                "Reactions break bonds, rearrange atoms, and form new substances, and burning fuel is one reaction you already know.")
             ]
           },
           {
@@ -6713,7 +6713,7 @@ export const LEARNING_PATHS = [
               mkVisualQ("Look at the diagram. A cook covers a small pan fire with a heavy lid to end the burn fast. How does the diagram say her lid works?",
                 null,
                 { steps: ["Heat starts the fuel burning", "The fuel joins with oxygen", "Heat and light are given out", "Cut off the air and burning stops"], caption: "Fuel, oxygen, and heat, or no burn at all." },
-                ["Cut off the air and the burning stops", "Add more fuel and give it extra heat", "Pour the oxygen in faster than before", "Wait for the atoms in the fuel to vanish"],
+                ["The lid keeps air out, so the burn ends", "Add more fuel and give it extra heat", "Pour the oxygen in faster than before", "Wait for the atoms in the fuel to vanish"],
                 0,
                 "Burning needs fuel, oxygen, and heat all at once. Cutting off the air removes the oxygen, so one need is gone."),
               mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
@@ -6732,7 +6732,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Burning needs oxygen as much as fuel. With the jar sealed, the oxygen ran out, and one of the three needs was gone."),
               mkNote("The payoff", "Fast joining, slow joining",
-                "Burning races and rusting creeps, but both are oxygen joining atoms at different speeds. Not every change joins oxygen, and an acid and a base are waiting to be told apart. Tomorrow: why does a lemon taste sour, and why does soap feel soapy on your skin?")
+                "Burning races and rusting creeps, but both are oxygen joining atoms at different speeds. Not every change joins oxygen, and an acid and a base are waiting to be told apart.")
             ]
           },
           {
@@ -6756,7 +6756,7 @@ export const LEARNING_PATHS = [
               mkVisualQ("Look at the diagram. What happens when an acid and a base meet?",
                 null,
                 { steps: ["An acid with its sour ways", "A base with its soapy ways", "The two meet and react", "Each calms the other down", "What is left is calmer stuff"], caption: "Opposites meet, and both grow calmer." },
-                ["Each grows sharper and stronger at once", "The acid turns into a base in a flash", "Each one calms the other down", "Both vanish and leave nothing behind"],
+                ["Each grows sharper and stronger at once", "The acid turns into a base in a flash", "Both grow gentler when they come together", "Both vanish and leave nothing behind"],
                 2,
                 "Acids and bases are opposites. Meeting does not sharpen them, it calms them, each one easing the other."),
               mkMatch("Match each case to the word it names.",
@@ -6773,7 +6773,7 @@ export const LEARNING_PATHS = [
                 1,
                 "Bases feel soapy and slippery to touch. The indicator color said base, so the feel should match a base."),
               mkNote("The payoff", "Opposites, told by color",
-                "Acids taste sour, bases feel soapy, and indicators tell them apart by color when tasting is not safe. All of that stuff is matter, and matter comes in three states, as a solid, a liquid, or a gas, each packed in its own way. Tomorrow: can you prove the whole unit, start to finish?")
+                "Acids taste sour, bases feel soapy, and indicators tell them apart by color when tasting is not safe. All of that stuff is matter, and matter comes in three states, as a solid, a liquid, or a gas, each packed in its own way.")
             ]
           },
           {
@@ -6860,7 +6860,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Smells ride in a gas, and a gas does not stay in one corner. Its pieces spread until they fill the space."),
               mkNote("The payoff", "One stuff, three packings",
-                "Solids, liquids, and gases are one stuff in three packings, named by how their pieces sit and move. Tomorrow: what loosens in a solid when heat melts it?")
+                "Solids, liquids, and gases are one stuff in three packings, named by how their pieces sit and move.")
             ]
           },
           {
@@ -6901,7 +6901,7 @@ export const LEARNING_PATHS = [
                 1,
                 "Cooling runs melting in reverse. The liquid loses heat, its pieces lock tight, and it is a solid again."),
               mkNote("The payoff", "One change, two directions",
-                "Melting and freezing are one change in two directions, run by heat coming in or heat going out. Tomorrow: how does sweat cool you as it escapes from your skin?")
+                "Melting and freezing are one change in two directions, run by heat coming in or heat going out.")
             ]
           },
           {
@@ -6942,7 +6942,7 @@ export const LEARNING_PATHS = [
                 3,
                 "Drying is evaporation, and evaporation needs room in the air above the surface. Wind clears that room by carrying the escaped gas away."),
               mkNote("The payoff", "Escaping at the surface, or everywhere",
-                "Evaporation escapes at the surface, boiling escapes through the whole liquid, and both send water into the air as a gas that spreads out and fills space. Tomorrow: why does the gas inside a balloon push back on every side?")
+                "Evaporation escapes at the surface, boiling escapes through the whole liquid, and both send water into the air as a gas that spreads out and fills space.")
             ]
           },
           {
@@ -6966,7 +6966,7 @@ export const LEARNING_PATHS = [
               mkVisualQ("Look at the diagram. What happens right after the gas is squeezed into less room?",
                 null,
                 { steps: ["Gas fills the space of the pump", "The handle squeezes it into less room", "Its pieces crowd closer together", "The pieces hit the walls more often", "The push of the gas grows stronger"], caption: "Less room, more hits, and a stronger push." },
-                ["Its pieces crowd closer together", "Its pieces spread to fill a bigger space", "Its pieces lock tight into a solid pack", "Its pieces stop moving and rest in place"],
+                ["The gas is packed tighter in the smaller space", "Its pieces spread to fill a bigger space", "Its pieces lock tight into a solid pack", "Its pieces stop moving and rest in place"],
                 0,
                 "The diagram crowds the pieces right after the squeeze. Crowded pieces hit the walls more often, and the push grows."),
               mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
@@ -6985,7 +6985,7 @@ export const LEARNING_PATHS = [
                 0,
                 "Pumping adds air, and more pieces in the same space hit the walls more often. That stronger push is what feels hard."),
               mkNote("The payoff", "Pushing on every side",
-                "A gas fills its space, pushes on every side, and can be squeezed into less room when its pieces crowd closer. Tomorrow: when sand and salt both hide in the same water, how can you get each one back?")
+                "A gas fills its space, pushes on every side, and can be squeezed into less room when its pieces crowd closer.")
             ]
           },
           {
@@ -7026,7 +7026,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Sand never dissolves, so the filter catches it first. The salt is dissolved, so only boiling the water away can leave it behind."),
               mkNote("The payoff", "Sorting it all back out",
-                "Dissolving spreads a solid through a liquid, filtering catches what never dissolved, and boiling the water away brings the dissolved solid back. Sorting mixtures out is just the states and their packing, put to work. Tomorrow: can you prove the whole unit, start to finish?")
+                "Dissolving spreads a solid through a liquid, filtering catches what never dissolved, and boiling the water away brings the dissolved solid back. Sorting mixtures out is just the states and their packing, put to work.")
             ]
           },
           {
@@ -7113,7 +7113,7 @@ export const LEARNING_PATHS = [
                 0,
                 "The pull started the cart moving, and the side push turned it. Starting and turning are two changes a force can make."),
               mkNote("The payoff", "Forces change things",
-                "A force is any push or pull. It can start, stop, speed, slow, turn, or reshape a thing, and every move you make uses one. Tomorrow: what is the pull from Earth that never quits?")
+                "A force is any push or pull. It can start, stop, speed, slow, turn, or reshape a thing, and every move you make uses one.")
             ]
           },
           {
@@ -7154,7 +7154,7 @@ export const LEARNING_PATHS = [
                 1,
                 "Mass is the amount of matter in the bag, and that travels with it. Weight is the pull on that mass, and a weaker pull means a smaller weight."),
               mkNote("The payoff", "The pull that never quits",
-                "Gravity pulls every thing toward Earth, all the time, with nothing needing to touch it. Weight is simply how hard that pull is on a thing, and it grows with the stuff a thing is made of. Tomorrow: why does a sliding box slow down where it rubs the floor?")
+                "Gravity pulls every thing toward Earth, all the time, with nothing needing to touch it. Weight is simply how hard that pull is on a thing, and it grows with the stuff a thing is made of.")
             ]
           },
           {
@@ -7195,7 +7195,7 @@ export const LEARNING_PATHS = [
                 1,
                 "Gritty ground is a rough surface, and rough surfaces make more friction where they rub. More friction means a faster stop."),
               mkNote("The payoff", "The force that fights sliding",
-                "Friction acts wherever surfaces rub, slowing sliding things down over time, gripping when grip is useful, and turning some motion into warmth as it works. Tomorrow: how does the distance a thing travels in a set time tell you its speed?")
+                "Friction acts wherever surfaces rub, slowing sliding things down over time, gripping when grip is useful, and turning some motion into warmth as it works.")
             ]
           },
           {
@@ -7219,7 +7219,7 @@ export const LEARNING_PATHS = [
               mkVisualQ("Look at the diagram. Two bikes ride for the same minute on the same road, and one ends far ahead of the other. How do you know which bike has the greater speed?",
                 null,
                 { steps: ["Two bikes leave at the same time", "Each bike covers its own distance", "One covers more ground in that time", "That bike has the greater speed"], caption: "Same time, more distance, greater speed." },
-                ["It covers more ground in that time", "It left the start a moment earlier", "It is the bike with the brighter color", "Its rider looks more tired at the end of the long ride down the road"],
+                ["It ends the minute farther along the road", "It left the start a moment earlier", "It was given a harder push at the start line", "Its rider looks more tired at the end of the long ride down the road"],
                 0,
                 "Both bikes had the same time, so the one covering more ground in that time is the one with the greater speed."),
               mkSpotError("One piece of this claim about speed is wrong. Tap the piece that does not belong.",
@@ -7238,7 +7238,7 @@ export const LEARNING_PATHS = [
                 0,
                 "The distance was the same in both stretches, so a longer time means a smaller speed. Dividing distance by time gives a lower speed for the second stretch."),
               mkNote("The payoff", "Fast means distance in time",
-                "Speed is distance covered in a given time, and forces change it. Pushes speed things up, friction slows them down, and side forces turn them. Tomorrow: why does a steel ship whose shape traps air inside float, while a solid steel coin sinks?")
+                "Speed is distance covered in a given time, and forces change it. Pushes speed things up, friction slows them down, and side forces turn them.")
             ]
           },
           {
@@ -7275,11 +7275,11 @@ export const LEARNING_PATHS = [
                 false,
                 "A solid steel coin sinks, because it packs more stuff than the same space of water. Steel alone decides nothing. The packing decides."),
               mkQuiz("A lump of clay dropped in a tub sinks. A child flattens the same clay into a wide hollow bowl shape and it floats. Why?",
-                ["The wide shape traps air and packs less in its space", "Flattening the clay took the weight out of it", "The water holds flat things up out of kindness", "The clay changed into a lighter stuff while the child was pressing and shaping it with both hands"],
+                ["The wide shape traps air and packs less in its space", "Flattening the clay took the weight out of it", "The bowl shape pushes the water down harder beneath it", "The clay changed into a lighter stuff while the child was pressing and shaping it with both hands"],
                 0,
                 "The clay itself never changed. Its new hollow shape traps air, so the whole shape packs less stuff into its space and floats."),
               mkNote("The payoff", "Packing decides",
-                "Floating and sinking are a contest of packing. More stuff than the same space of water sinks a thing, less stuff floats it, and a hollow shape with trapped air can float even heavy stuff like steel. Tomorrow: can you prove the whole unit, start to finish?")
+                "Floating and sinking are a contest of packing. More stuff than the same space of water sinks a thing, less stuff floats it, and a hollow shape with trapped air can float even heavy stuff like steel.")
             ]
           },
           {
@@ -7298,7 +7298,7 @@ export const LEARNING_PATHS = [
               mkVisualQ("Look at the diagram. A player kicks a resting ball gently in one trial and hard in the next, and the hard kick sends it off far faster. What does the harder push do to the ball in the diagram?",
                 null,
                 { steps: ["A ball sits still", "A push sets the ball moving", "A harder push makes it faster", "A pull in front slows it down", "A push from the side turns it"], caption: "One ball, and pushes and pulls change its motion step by step." },
-                ["It turns the ball onto a new path", "It makes the ball sit still again", "It squeezes the ball out of shape", "It makes the ball faster"],
+                ["It turns the ball onto a new path", "It makes the ball sit still again", "It squeezes the ball out of shape", "It sends the ball off at a greater speed"],
                 3,
                 "The diagram shows a harder push making the ball faster. Turning is the work of the side push, later in the diagram."),
               mkTrueFalse("Two hands rub together fast before a game and feel warm within seconds. Friction turned some of their sliding motion into warmth.",
@@ -7366,7 +7366,7 @@ export const LEARNING_PATHS = [
                 2,
                 "Each bounce turned some moving energy into sound and heat, in the ball, the floor, and the air. Spread out, it can no longer bounce the ball."),
               mkNote("The payoff", "The accounting always balances",
-                "Energy is never made and never lost. It moves, it changes form, and it spreads out, and the total always stays the same. Tomorrow: how does heat travel from a hot thing to a cold thing nearby?")
+                "Energy is never made and never lost. It moves, it changes form, and it spreads out, and the total always stays the same.")
             ]
           },
           {
@@ -7407,7 +7407,7 @@ export const LEARNING_PATHS = [
                 3,
                 "Both stood out all night, so both hold the same temperature. The gate feels colder because metal conducts, carrying heat away from the warm hand far faster than wood can."),
               mkNote("The payoff", "Three roads for heat",
-                "Heat travels from hot toward cold by conduction through touching things, by convection in flowing liquids and gases, and by radiation as rays. A blanket slows all three roads at once, which matters more than it sounds. Tomorrow: how can one blanket slow heat for a warm body and for a cold drink at the same time?")
+                "Heat travels from hot toward cold by conduction through touching things, by convection in flowing liquids and gases, and by radiation as rays. A blanket slows all three roads at once, which matters more than it sounds.")
             ]
           },
           {
@@ -7448,7 +7448,7 @@ export const LEARNING_PATHS = [
                 3,
                 "Foam traps still air in tiny gaps, and trapped air slows heat. Less heat reaching the ice means the ice melts more slowly and lasts longer."),
               mkNote("The payoff", "Slow the traveling",
-                "Keeping heat is never about making heat stay by force. It is about slowing its traveling, with trapped air in thick layers doing the quiet work in both directions. Tomorrow: where is energy locked in the joins of fuels, food, and batteries until it is freed?")
+                "Keeping heat is never about making heat stay by force. It is about slowing its traveling, with trapped air in thick layers doing the quiet work in both directions.")
             ]
           },
           {
@@ -7491,7 +7491,7 @@ export const LEARNING_PATHS = [
                 1,
                 "Heat appears when the two flows fail to balance. Forming the new joins pays out more energy than breaking the old joins cost, and the difference leaves as heat and light."),
               mkNote("The payoff", "Stores, filled and freed",
-                "Fuels, food, and batteries are one idea in three coats: energy locked in joins, filled earlier and freed on purpose, as heat, light, movement, or electricity. Tomorrow: how does sunlight energy get stored in a growing plant, then eaten and passed on to you?")
+                "Fuels, food, and batteries are one idea in three coats: energy locked in joins, filled earlier and freed on purpose, as heat, light, movement, or electricity.")
             ]
           },
           {
@@ -7515,7 +7515,7 @@ export const LEARNING_PATHS = [
               mkVisualQ("Look at the diagram. A goat in a field eats the grass in front of it at midday. What does the goat do with the plant it eats, in the chain the diagram shows?",
                 null,
                 { steps: ["Sunlight falls on a green plant", "The plant stores energy as it grows", "An animal eats the plant and stores some energy", "You eat and free the energy to move and warm"], caption: "Sunlight, plant, animal, you: one chain of stores." },
-                ["It turns the plant back into sunlight", "It plants the seeds of the plant", "It eats the plant and stores some energy", "It frees the plant from ever being eaten by anything else"],
+                ["It turns the plant back into sunlight", "It plants the seeds of the plant", "Part of the plant store becomes the goat's own store", "It frees the plant from ever being eaten by anything else"],
                 2,
                 "The third step of the diagram is the animal eating the plant. Some of the plant store becomes the animal store, and the rest spreads as heat."),
               mkMatch("Match each link of the chain to its job.",
@@ -7532,7 +7532,7 @@ export const LEARNING_PATHS = [
                 0,
                 "Corn is a plant, and plants store sunlight energy. The chicken passed some of that store into its eggs, and the chain reached you."),
               mkNote("The payoff", "You are the end of a chain",
-                "Sunlight filled a plant, eaters passed the store along link by link, and your body frees what reaches you to move and to stay warm. Every supper is the end of a chain that started with light. Tomorrow: can you prove the whole unit, start to finish?")
+                "Sunlight filled a plant, eaters passed the store along link by link, and your body frees what reaches you to move and to stay warm. Every supper is the end of a chain that started with light.")
             ]
           },
           {
@@ -7619,7 +7619,7 @@ export const LEARNING_PATHS = [
                 3,
                 "The rope stays in your hand and on the ground. The pattern travels its whole length and delivers energy at the far end."),
               mkNote("The payoff", "Patterns do the traveling",
-                "A wave is energy on the move inside a pattern, while the stuff the pattern moves through stays where it was. Tall waves carry more energy than small ones, and every ripple does its share. Tomorrow: what makes one sound higher or lower than another, and one louder or softer, as squeezes travel through the air?")
+                "A wave is energy on the move inside a pattern, while the stuff the pattern moves through stays where it was. Tall waves carry more energy than small ones, and every ripple does its share.")
             ]
           },
           {
@@ -7660,7 +7660,7 @@ export const LEARNING_PATHS = [
                 0,
                 "Frequency is the count of squeezes each second, and the higher count gives the higher pitch. Equal sized squeezes mean equal amplitude, so the loudness matches while the pitch differs."),
               mkNote("The payoff", "Squeezes you can hear",
-                "Sound is a wave of squeezes in air, built by shaking. Fast shaking gives a high pitch, big shaking gives a loud sound, and the two mix freely. Tomorrow: why does light travel in straight lines, leave shadows behind things, and bounce off a smooth mirror?")
+                "Sound is a wave of squeezes in air, built by shaking. Fast shaking gives a high pitch, big shaking gives a loud sound, and the two mix freely.")
             ]
           },
           {
@@ -7701,7 +7701,7 @@ export const LEARNING_PATHS = [
                 2,
                 "You blocked straight traveling sunlight, and the light that would have lit that patch never arrived. The unlit patch is your shadow."),
               mkNote("The payoff", "Straight, stopped, or bounced",
-                "Light travels straight, stops where it is blocked and leaves a shadow, and bounces cleanly off smooth shiny surfaces like mirrors. Those three habits run every shadow and reflection you have ever seen. Tomorrow: why does light bend as it enters water or glass, split into colors through a prism, and make a straw in water look bent?")
+                "Light travels straight, stops where it is blocked and leaves a shadow, and bounces cleanly off smooth shiny surfaces like mirrors. Those three habits run every shadow and reflection you have ever seen.")
             ]
           },
           {
@@ -7744,7 +7744,7 @@ export const LEARNING_PATHS = [
                 0,
                 "Light from the chair crosses from air into water at a slant and bends there. Eyes trusting straight lines place the chair where the bent light seems to come from."),
               mkNote("The payoff", "Bent light, honest eyes",
-                "Light bends where it crosses between air and water or glass at a slant, and a prism bends its colors apart into a rainbow. Your eyes never lie to you. They just trust straight lines in a world where light can bend. Tomorrow: what is charge, and why must it flow round a closed circuit loop pushed by a battery?")
+                "Light bends where it crosses between air and water or glass at a slant, and a prism bends its colors apart into a rainbow. Your eyes never lie to you. They just trust straight lines in a world where light can bend.")
             ]
           },
           {
@@ -7785,7 +7785,7 @@ export const LEARNING_PATHS = [
                 1,
                 "Equal readings on both sides mean the same charge flows past each meter. The bulb frees energy as light and heat, and the charge that carried it flows on round the loop."),
               mkNote("The payoff", "Loops, pushes, and flow",
-                "Electricity is flowing charge, a circuit is its closed loop, a battery pushes it around, conductors carry it, and insulators fence it safely in. One gap stops everything, which is exactly what a switch uses on purpose. Tomorrow: are you ready for the checkpoint on waves, light, and electricity?")
+                "Electricity is flowing charge, a circuit is its closed loop, a battery pushes it around, conductors carry it, and insulators fence it safely in. One gap stops everything, which is exactly what a switch uses on purpose.")
             ]
           },
           {
@@ -7914,7 +7914,7 @@ export const LEARNING_PATHS = [
                 0,
                 "Multiply each rate by its running time before comparing. Four hours at the smaller rate overtakes one hour at the larger rate, so the fan delivered the greater total."),
               mkNote("The payoff", "Count first, judge second",
-                "Counting turns arguments about energy into arithmetic. Joules state the amount, watts state the rate, and efficiency states the useful share, with the spreading rest accounted for and never lost. Tomorrow: why do some reactions crawl for days while others finish in a flash, and what settles which way a reaction leans?")
+                "Counting turns arguments about energy into arithmetic. Joules state the amount, watts state the rate, and efficiency states the useful share, with the spreading rest accounted for and never lost.")
             ]
           },
           {
@@ -7954,7 +7954,7 @@ export const LEARNING_PATHS = [
                 1,
                 "A rise in pressure favours the side with fewer gas particles, because that side presses back less. The mixture shifts forward until a new balance of rates settles."),
               mkNote("The payoff", "Still, but running",
-                "Rates explain pace, catalysts explain shortcuts, and equilibrium explains a stillness that is really two motions in balance. Conditions can move that balance, and counting the rates tells you which way it will go. Tomorrow: can you count a budget, read a balance, and catch a flawed claim about both, all in one checkpoint?")
+                "Rates explain pace, catalysts explain shortcuts, and equilibrium explains a stillness that is really two motions in balance. Conditions can move that balance, and counting the rates tells you which way it will go.")
             ]
           },
           {
@@ -8053,7 +8053,7 @@ export const TOPIC_COURSES = [
             1,
             "Both students had the same list and the same hours, and the awake student had more time with the words open. Recalling more after sleep points to the filing sleep does after learning, not to extra time awake."),
           mkNote("The payoff", "Sleep files the day",
-            "Sleep is a night of cycles traced in brain waves, and each stage files a different part of the day. Deep sleep files facts and events on its slow waves, while dreaming sleep files skills and feelings. Tomorrow: which part of the brain hands new memories to the archive for the long run?")
+            "Sleep is a night of cycles traced in brain waves, and each stage files a different part of the day. Deep sleep files facts and events on its slow waves, while dreaming sleep files skills and feelings.")
         ]
       },
       {
@@ -8091,7 +8091,7 @@ export const TOPIC_COURSES = [
             0,
             "Playing is a skill, and skills settle while dreaming. The passage ran cleanly because its movement pattern was filed overnight, not because the student practiced at breakfast."),
           mkNote("The payoff", "Weak at night, clear by morning",
-            "The front desk holds new memories, deep sleep replays them to the archive in compressed bursts, and each replay settles them more firmly. Feelings soften as facts are kept, and skills settle along the way. Tomorrow: can you prove the whole course, start to finish?")
+            "The front desk holds new memories, deep sleep replays them to the archive in compressed bursts, and each replay settles them more firmly. Feelings soften as facts are kept, and skills settle along the way.")
         ]
       },
       {
@@ -8171,7 +8171,7 @@ export const TOPIC_COURSES = [
             1,
             "Waiting was not an option: the ball moves faster than the signal is processed. The dive started from a prediction, and fresh reports corrected it on the way."),
           mkNote("The payoff", "The model runs the show",
-            "Experience is a model, checked against the senses and updated by every mismatch. Matching signals fade, errors do the teaching, and action rides on predictions made before the signal lands. Tomorrow: what does an illusion show you about the rules inside the model?")
+            "Experience is a model, checked against the senses and updated by every mismatch. Matching signals fade, errors do the teaching, and action rides on predictions made before the signal lands.")
         ]
       },
       {
@@ -8211,7 +8211,7 @@ export const TOPIC_COURSES = [
             0,
             "Nothing about the driver changed. The signal lost reliability, so its errors were trusted less, and the gap was judged from a model that updated weakly."),
           mkNote("The payoff", "Seeing the model at work",
-            "Illusions show the rules, attention chooses which errors get amplified, and trust follows how reliable a signal is. A good model updates neither too slowly nor too eagerly, and weighs each error before letting it teach. Tomorrow: can you prove the whole course, start to finish?")
+            "Illusions show the rules, attention chooses which errors get amplified, and trust follows how reliable a signal is. A good model updates neither too slowly nor too eagerly, and weighs each error before letting it teach.")
         ]
       },
       {
@@ -8291,7 +8291,7 @@ export const TOPIC_COURSES = [
             2,
             "Their eyes pointed at the scene the whole time. The miss sits in the selection, not in the eyes: full processing went to the count, and the rest of the scene stayed shallow."),
           mkNote("The payoff", "Selection has a price",
-            "The spotlight gives deep processing to a small part of the world, roughly four things at full strength, and leaves the rest shallow. That selection is why focus works, and why the obvious can be missed. Tomorrow: what does switching the spotlight between two jobs cost you each time?")
+            "The spotlight gives deep processing to a small part of the world, roughly four things at full strength, and leaves the rest shallow. That selection is why focus works, and why the obvious can be missed.")
         ]
       },
       {
@@ -8331,7 +8331,7 @@ export const TOPIC_COURSES = [
             1,
             "The phones were the only difference between the two hours. Each grab forced a switch, each switch forced a reload of rules and state, and the reloads are where the time and the errors went."),
           mkNote("The payoff", "Guard the spotlight",
-            "One spotlight means switching, and switching always charges its tax in reloads and residue. Removing grabs and resting on purpose give the top down aim a fair chance. Tomorrow: can you prove the whole course, start to finish?")
+            "One spotlight means switching, and switching always charges its tax in reloads and residue. Removing grabs and resting on purpose give the top down aim a fair chance.")
         ]
       },
       {
@@ -8411,7 +8411,7 @@ export const TOPIC_COURSES = [
             0,
             "Both volunteers dreamed; everyone does. The difference is the timing of the waking: caught inside the stage, the dream is still there to report, and attention at once holds it."),
           mkNote("The payoff", "Built, then lost",
-            "Dreams are vivid stories the active brain builds from pieces of the day while the body stays switched off. Their material is recent and emotional before it is routine, held only if you wake and attend in time. Tomorrow: which ideas could explain why the dreaming brain builds stories at all?")
+            "Dreams are vivid stories the active brain builds from pieces of the day while the body stays switched off. Their material is recent and emotional before it is routine, held only if you wake and attend in time.")
         ]
       },
       {
@@ -8449,7 +8449,7 @@ export const TOPIC_COURSES = [
             1,
             "Escaping a flood is practice against a threat. A conversation replayed until it dulls is an emotional event losing its charge, which is the feelings idea and not the others."),
           mkNote("The payoff", "An open question, honestly held",
-            "Four ideas compete to explain dreaming, and none has a knockout proof. Each is judged by whether it predicts what dreams contain, and so far each predicts some of it. Nightmares run too hot, lucid dreams turn awareness on, and the rest remains unsettled. Tomorrow: can you prove the whole course, start to finish?")
+            "Four ideas compete to explain dreaming, and none has a knockout proof. Each is judged by whether it predicts what dreams contain, and so far each predicts some of it. Nightmares run too hot, lucid dreams turn awareness on, and the rest remains unsettled.")
         ]
       },
       {
@@ -8465,7 +8465,7 @@ export const TOPIC_COURSES = [
           mkVisualQ("Look at the diagram. Which idea treats the dream as a story told about a tidying brain?",
             null,
             { steps: ["Memory idea: the filing system replays the day", "Feelings idea: emotional events replay until the charge fades", "Rehearsal idea: threats are practiced where failing costs nothing", "Side effect idea: a story narrates a tidying brain"], caption: "Four contenders, and none has won yet." },
-            ["Memory idea: the filing system replays the day", "Feelings idea: emotional events replay until the charge fades", "Rehearsal idea: threats are practiced where failing costs nothing", "Side effect idea: a story narrates a tidying brain"],
+            ["Memory idea: the filing system replays the day", "Feelings idea: emotional events replay until the charge fades", "Rehearsal idea: threats are practiced where failing costs nothing", "Side effect idea: the cortex tells a story about tidying signals"],
             3,
             "The side effect idea is the narration claim. The story is built to make sense of a tidying brain, and the story is not the purpose."),
           mkTrueFalse("A pupil dreams of fleeing a flood and wakes safe in bed, which fits the rehearsal idea, because the rehearsal idea says dreams practice threats in a place where failing costs nothing.",
@@ -8512,7 +8512,7 @@ export const TOPIC_COURSES = [
           mkVisualQ("Look at the diagram. A pupil takes up carrying heavy shopping up stairs twice a week, and months later her grip is firmer and a fall that would once have hurt her does not. Which pairing in the diagram explains the change?",
             null,
             { steps: ["Aerobic exercise trains the heart and lungs", "Strength training loads muscles and bones", "Muscles and bones grow denser and stronger", "Stronger muscles protect balance against falls"], caption: "Two kinds of training, two kinds of gain." },
-            ["The heart and lungs, which deliver oxygen to the body","The fat stores, which send their signals to the brain","Muscles and bones, which grow denser and stronger","The blood vessels, which stay supple and springy all day"],
+            ["The heart and lungs, which deliver oxygen to the body","The fat stores, which send their signals to the brain","Muscles and bones, made stronger and denser by loading","The blood vessels, which stay supple and springy all day"],
             2,
             "Read the pairing in the steps. Loading belongs to strength training, and denser, stronger muscle and bone is the answer it gets, which is what firmer grip and safer falls are made of."),
           mkMatch("Match each case to the term it shows.",
@@ -8529,7 +8529,7 @@ export const TOPIC_COURSES = [
             1,
             "Fewer beats for the same work is the signature of a stronger pump. Training grows the heart so each beat moves more blood, and rest then needs fewer beats, not more."),
           mkNote("The payoff", "Signals first, guidelines second",
-            "Working muscles are messengers, not just fuel burners, and their signals reach the heart, the liver, the fat stores, and the brain. The guideline is a floor with big benefits, not a cliff, and the largest gain comes from going from nothing to something. The gains fade when the pattern stops, so the floor is a habit to keep, not an event to finish. Tomorrow: when is the improvement from a workout actually built?")
+            "Working muscles are messengers, not just fuel burners, and their signals reach the heart, the liver, the fat stores, and the brain. The guideline is a floor with big benefits, not a cliff, and the largest gain comes from going from nothing to something. The gains fade when the pattern stops, so the floor is a habit to keep, not an event to finish.")
         ]
       },
       {
@@ -8567,7 +8567,7 @@ export const TOPIC_COURSES = [
             1,
             "Adaptation follows the pattern, not the memory of a pattern. Decades of repeated requests kept being answered, while a single year of requests stopped being asked long ago."),
           mkNote("The payoff", "The long game",
-            "The workout is the request and recovery is the construction, and the pattern you repeat is the pattern you become. The people who keep their strength for decades move a lot, moderately, break their stillness often, and let joints, mood, and immune function rest enough to answer. Tomorrow: can you prove the whole course, start to finish?")
+            "The workout is the request and recovery is the construction, and the pattern you repeat is the pattern you become. The people who keep their strength for decades move a lot, moderately, break their stillness often, and let joints, mood, and immune function rest enough to answer.")
         ]
       },
       {
@@ -8647,7 +8647,7 @@ export const TOPIC_COURSES = [
             1,
             "The pollen is the same in both towns; the training differed. Guards educated by few kinds of microbes mistake harmless things for danger more often."),
           mkNote("The payoff", "A trained border",
-            "The gut is the busiest border in the body, nine meters of it, and its microbes train the guards who patrol it. Trained well, the system leaves neighbors alone and answers danger, and the training never fully closes. Tomorrow: what do the microbes themselves eat, and what do they make from it?")
+            "The gut is the busiest border in the body, nine meters of it, and its microbes train the guards who patrol it. Trained well, the system leaves neighbors alone and answers danger, and the training never fully closes.")
         ]
       },
       {
@@ -8687,7 +8687,7 @@ export const TOPIC_COURSES = [
             1,
             "Each fiber feeds different residents. A month of one food trains a narrow community, while a month of many kinds feeds the breadth the guards learn from."),
           mkNote("The payoff", "An ecosystem at the border",
-            "Fiber feeds the microbes, the microbes make helpful acids, and the acids feed the lining and calm the border. The alliance is an ecosystem, renewed every few days and retrained at every meal, and ecosystems thrive on variety, not on a single hero food. Tomorrow: can you prove the whole course, start to finish?")
+            "Fiber feeds the microbes, the microbes make helpful acids, and the acids feed the lining and calm the border. The alliance is an ecosystem, renewed every few days and retrained at every meal, and ecosystems thrive on variety, not on a single hero food.")
         ]
       },
       {
@@ -8767,7 +8767,7 @@ export const TOPIC_COURSES = [
             0,
             "The wave is scheduled by habit, and ghrelin keeps the schedule. Different usual mealtimes mean different wave times, and a missed wave passes on its own."),
           mkNote("The payoff", "Two states, one switch",
-            "Fed and fasting are two normal states, and the body switches between them every day. Insulin works the switch: high means store, low means spend, a few hundred grams in the quick store and weeks in the long one. Tomorrow: if fasting works, is the reason the fuel switch itself, or something simpler?")
+            "Fed and fasting are two normal states, and the body switches between them every day. Insulin works the switch: high means store, low means spend, a few hundred grams in the quick store and weeks in the long one.")
         ]
       },
       {
@@ -8807,7 +8807,7 @@ export const TOPIC_COURSES = [
             2,
             "The window was different; the total was not. Matching totals produced matching results, which is the simple part doing the work: the window mainly helps people eat less overall."),
           mkNote("The payoff", "A tool, honestly sized",
-            "Fasting is one workable way to eat less, with a few extra effects and honest limits. Its window is structure, its tidying is a dial the body turns nightly, and its risks grow as it stretches. Tomorrow: can you prove the whole course, start to finish?")
+            "Fasting is one workable way to eat less, with a few extra effects and honest limits. Its window is structure, its tidying is a dial the body turns nightly, and its risks grow as it stretches.")
         ]
       },
       {
@@ -8873,7 +8873,7 @@ export const TOPIC_COURSES = [
           mkVisualQ("Look at the diagram. A player with a twisted ankle calms down, understands the injury, and feels the pain ease even though the ankle itself has not changed in that minute. What does the diagram say her brain just sent down the pathway?",
             null,
             { steps: ["Sensors fire and signals travel up", "The brain weighs the signals and the context", "The brain sends signals back down", "The volume turns up or down"], caption: "Pain is built at the top, and the top can turn the volume." },
-            ["Fresh nociceptors to replace every sensor in the skin, muscle, and organs at once","Chemicals from injured tissue, sent down","A full explanation of every scan, written out for the tissue to read","Signals that dampen or amplify the incoming traffic"],
+            ["Fresh nociceptors to replace every sensor in the skin, muscle, and organs at once","Chemicals from injured tissue, sent down","Fresh blood carrying extra oxygen down to the ankle","Signals that dampen or amplify the incoming traffic"],
             3,
             "The pathway is a two way street in the diagram. Downward signals are the hands on the volume control, and her calm used them to dampen the traffic coming up from the ankle."),
           mkOrder("A boy stubs his toe on a table leg: it stings sharply, fades, then returns as a dull ache. Put the building of a pain in order.",
@@ -8890,7 +8890,7 @@ export const TOPIC_COURSES = [
             1,
             "The damage and its signals were there during the carry. What changed was the construction: urgency and attention had set the volume, and they had set it low."),
           mkNote("The payoff", "Made at the top",
-            "Signals go up in two waves, but pain is made at the top, from signals plus context, with the volume set on the way. That is why fear and poor sleep can turn one injury up while calm turns it down. Tomorrow: what happens when pain stays long after the injury has healed?")
+            "Signals go up in two waves, but pain is made at the top, from signals plus context, with the volume set on the way. That is why fear and poor sleep can turn one injury up while calm turns it down.")
         ]
       },
       {
@@ -8928,7 +8928,7 @@ export const TOPIC_COURSES = [
             0,
             "The walk is evidence, delivered in doses the alarm can accept. Rest delivers none, so the resting alarm keeps its early, strong firing and its low threshold."),
           mkNote("The payoff", "The guard that never stands down",
-            "Acute pain guards, and chronic pain is the guard that never stands down. The alarm can learn in both directions, lowered thresholds by repetition and raised ones by graded, gentle evidence. Tomorrow: can you prove the whole course, start to finish?")
+            "Acute pain guards, and chronic pain is the guard that never stands down. The alarm can learn in both directions, lowered thresholds by repetition and raised ones by graded, gentle evidence.")
         ]
       },
       {
@@ -9008,7 +9008,7 @@ export const TOPIC_COURSES = [
             1,
             "The guide leads by matching, and matching can be fooled by resemblance. That is why the checking reads the whole text, not only the target spot."),
           mkNote("The payoff", "Borrowed scissors, careful hands",
-            "CRISPR is a bacterial defense turned into an editing tool: a guide reads an address of about twenty letters, Cas9 cuts, and the repair crew finishes. Used with care and checked letter by letter, it can change one instruction in the text of life. Tomorrow: what could editing fix first, in blood taken out of the body?")
+            "CRISPR is a bacterial defense turned into an editing tool: a guide reads an address of about twenty letters, Cas9 cuts, and the repair crew finishes. Used with care and checked letter by letter, it can change one instruction in the text of life.")
         ]
       },
       {
@@ -9046,7 +9046,7 @@ export const TOPIC_COURSES = [
             1,
             "The blood edit is a treatment for one living person. The embryo edit writes into every cell of someone who does not exist yet, and into the children who may follow."),
           mkNote("The payoff", "Medicine here, argument there",
-            "Editing body cells outside the body, checked letter by letter before return, is medicine at work, while editing embryos reaches future people who cannot agree, so it stays an argument for everyone. A precise cut is easy to make, and knowing all of what the cut will do is the hard part. Tomorrow: can you prove the whole course, start to finish?")
+            "Editing body cells outside the body, checked letter by letter before return, is medicine at work, while editing embryos reaches future people who cannot agree, so it stays an argument for everyone. A precise cut is easy to make, and knowing all of what the cut will do is the hard part.")
         ]
       },
       {
@@ -9126,7 +9126,7 @@ export const TOPIC_COURSES = [
             1,
             "Closing a cut is repair work: new cells must divide and worn ones must be cleared. Both run slower in old tissue, and lingering senescent cells add their inflammatory noise."),
           mkNote("The payoff", "A pileup, not a switch",
-            "Aging is many declines at once: damage arriving thousands of times a day, fading power, slow repair, and caps that count divisions down. Senescent cells guard against cancer yet trouble their neighbors by staying, and old bodies clear them too slowly. Tomorrow: why do the hungriest tissues feel failing power first?")
+            "Aging is many declines at once: damage arriving thousands of times a day, fading power, slow repair, and caps that count divisions down. Senescent cells guard against cancer yet trouble their neighbors by staying, and old bodies clear them too slowly.")
         ]
       },
       {
@@ -9166,7 +9166,7 @@ export const TOPIC_COURSES = [
             1,
             "Nothing in the contrast shows aging reversed or stopped. It shows the repair side backed for a decade, so the pileup grew at a slower rate."),
           mkNote("The payoff", "The race, and the honest aim",
-            "Power fades, repair slows, and damage wins the race a little more each year, which is aging in one line. The proven help is plain: exercise, sleep, and not smoking, aimed at more healthy years rather than at stopping the race. Tomorrow: can you prove the whole course, start to finish?")
+            "Power fades, repair slows, and damage wins the race a little more each year, which is aging in one line. The proven help is plain: exercise, sleep, and not smoking, aimed at more healthy years rather than at stopping the race.")
         ]
       },
       {
@@ -9246,7 +9246,7 @@ export const TOPIC_COURSES = [
             0,
             "The wait and the controls are what make it fair. With scent masked, cues removed, and the cups shuffled, going straight to the right cup is memory doing the work, not luck or leakage."),
           mkNote("The payoff", "Fit the test to the mind",
-            "A fair test fits the animal, guards against leaks and cues, and still shows how narrow even a good test can be. Failing proves little, and minds unlike ours are easy to miss. Tomorrow: which animals use tools, and which plan for a future need?")
+            "A fair test fits the animal, guards against leaks and cues, and still shows how narrow even a good test can be. Failing proves little, and minds unlike ours are easy to miss.")
         ]
       },
       {
@@ -9286,7 +9286,7 @@ export const TOPIC_COURSES = [
             1,
             "The only difference between the two birds is the watcher. Moving the food pays only against a rival who knows the place, so the move points at tracking what the rival saw."),
           mkNote("The payoff", "More minds than ours",
-            "Tools, planning, and memory for what, where, and when all show up outside our own species, once tests fit the animal and controls close the leaks. What animals know about other minds is still argued, and the argument is the method working, not failing. Tomorrow: can you prove the whole course, start to finish?")
+            "Tools, planning, and memory for what, where, and when all show up outside our own species, once tests fit the animal and controls close the leaks. What animals know about other minds is still argued, and the argument is the method working, not failing.")
         ]
       },
       {
@@ -9366,7 +9366,7 @@ export const TOPIC_COURSES = [
             0,
             "Energy is the ingredient the still pool lacks. With energy supplied, plain chemistry climbs the first step to building blocks; a living cell is several inventions further up the staircase."),
           mkNote("The payoff", "Ingredients are not life",
-            "The young Earth offered ingredients and energy in plenty, and plain chemistry turns some of that into building blocks by itself. Life itself waited on three inventions arriving together in one place: a boundary, a copier, and a way to tap an energy difference. Tomorrow: which came first, the instructions or the workers that read them?")
+            "The young Earth offered ingredients and energy in plenty, and plain chemistry turns some of that into building blocks by itself. Life itself waited on three inventions arriving together in one place: a boundary, a copier, and a way to tap an energy difference.")
         ]
       },
       {
@@ -9404,7 +9404,7 @@ export const TOPIC_COURSES = [
             1,
             "One of the three hard inventions turns out to be cheap. If boundaries assemble themselves, the remaining problem is getting a copying molecule inside one of them."),
           mkNote("The payoff", "One molecule, one ancestor",
-            "RNA could play both roles at the start, storing instructions and doing work as a ribozyme, and fatty spheres could supply the first boundaries for free. Behind everything alive stands one ancient population, already complex, whose descendants survived. Tomorrow: can you prove the whole course, start to finish?")
+            "RNA could play both roles at the start, storing instructions and doing work as a ribozyme, and fatty spheres could supply the first boundaries for free. Behind everything alive stands one ancient population, already complex, whose descendants survived.")
         ]
       },
       {
@@ -9484,7 +9484,7 @@ export const TOPIC_COURSES = [
             0,
             "Sunlight is set by latitude, but moving water redraws the map. One coast receives heat carried from the tropics, while the opposite coast is cooled by a returning cold flow."),
           mkNote("The payoff", "Rivers that warm the world",
-            "Surface currents are rivers inside the sea, started by steady winds, bent by the spin of the Earth, and fastest on the western side of each loop. Warm currents carry tropical heat toward the poles, and cold currents return along other coasts. Tomorrow: what makes cold and salty water grow dense and sink near the poles?")
+            "Surface currents are rivers inside the sea, started by steady winds, bent by the spin of the Earth, and fastest on the western side of each loop. Warm currents carry tropical heat toward the poles, and cold currents return along other coasts.")
         ]
       },
       {
@@ -9522,7 +9522,7 @@ export const TOPIC_COURSES = [
             0,
             "The wind moves surface water away, deep water replaces it, and the replacement carries nutrients into the light. Plankton multiply first, and the animals that eat plankton follow."),
           mkNote("The payoff", "Two engines, one ocean",
-            "Deep currents run on density, not wind: cold and salty water sinks at the poles, creeps along the floor, and returns through upwelling with nutrients gathered at depth. A full circuit takes about a thousand years, which is why change here is slow and hard to read. Together, the surface loops and the deep conveyor connect every ocean on Earth. Tomorrow: can you prove the whole course, start to finish?")
+            "Deep currents run on density, not wind: cold and salty water sinks at the poles, creeps along the floor, and returns through upwelling with nutrients gathered at depth. A full circuit takes about a thousand years, which is why change here is slow and hard to read. Together, the surface loops and the deep conveyor connect every ocean on Earth.")
         ]
       },
       {
@@ -9602,7 +9602,7 @@ export const TOPIC_COURSES = [
             0,
             "The twin bed is the control that makes the result readable: only the fungi differed. Without threads reaching into pores and delivering minerals and water, roots alone gather too little, and growth shows it."),
           mkNote("The payoff", "A crowded world underfoot",
-            "Living soil is a crowded community that digests dead matter, recycles nutrients, trades sugar for minerals at the root, and locks carbon into a vault underfoot. A teaspoon holds billions of microbes, most of that life crowds into the topsoil, and phosphorus barely moving is why the fungal traders matter. Tomorrow: why does turning soil over let buried carbon escape into the air?")
+            "Living soil is a crowded community that digests dead matter, recycles nutrients, trades sugar for minerals at the root, and locks carbon into a vault underfoot. A teaspoon holds billions of microbes, most of that life crowds into the topsoil, and phosphorus barely moving is why the fungal traders matter.")
         ]
       },
       {
@@ -9642,7 +9642,7 @@ export const TOPIC_COURSES = [
             0,
             "Both fields received the same rain, so supply cannot explain the gap. Storage can: crumbs and burrows held the water in the living field and metered it out, while the tilled field shed and lost its share early."),
           mkNote("The payoff", "Spendthrift or sponge",
-            "Tilling spends the vault, worms build the sponge, and gentle habits keep the workforce alive through droughts and floods, while rebuilding stays slow even under good care. Living soil holds water, trades minerals at the root, and keeps its carbon locked away. Tomorrow: can you prove the whole course, start to finish?")
+            "Tilling spends the vault, worms build the sponge, and gentle habits keep the workforce alive through droughts and floods, while rebuilding stays slow even under good care. Living soil holds water, trades minerals at the root, and keeps its carbon locked away.")
         ]
       },
       {
@@ -9722,7 +9722,7 @@ export const TOPIC_COURSES = [
             0,
             "Rate and total answer different questions. Intake can be rapid while the store is still tiny, and the released centuries of stored carbon return only as the new forest accumulates them, year by year."),
           mkNote("The payoff", "The sky, stored",
-            "A tree is built from the air, its carbon stacked into wood, roots, and forest soil over centuries, and counted honestly only when every layer is included. Young forests save fast, and old forests hold the most of all. Tomorrow: by which doors does stored carbon leave a forest, through fire, rot, or harvest?")
+            "A tree is built from the air, its carbon stacked into wood, roots, and forest soil over centuries, and counted honestly only when every layer is included. Young forests save fast, and old forests hold the most of all.")
         ]
       },
       {
@@ -9762,7 +9762,7 @@ export const TOPIC_COURSES = [
             0,
             "Time decides this comparison. Protection defends carbon that exists now, while planting creates a store that must accumulate for decades before it rivals the one already standing."),
           mkNote("The payoff", "Keep the vault shut",
-            "Stored carbon leaves by fire in hours, by rot over years, and by harvest into products whose lifetimes set the clock, while planting counts only for trees still living years later. Forests also cool their surroundings, shelter a large share of the species living on land, hold soil on slopes, and steady the flow of streams. Tomorrow: can you prove the whole course, start to finish?")
+            "Stored carbon leaves by fire in hours, by rot over years, and by harvest into products whose lifetimes set the clock, while planting counts only for trees still living years later. Forests also cool their surroundings, shelter a large share of the species living on land, hold soil on slopes, and steady the flow of streams.")
         ]
       },
       {
@@ -9825,7 +9825,7 @@ export const TOPIC_COURSES = [
           mkVisualQ("Look at the diagram. A farmer in a warming region plans for the decades ahead, using the steps shown. Which extreme should the farmer expect to meet less often than in the past?",
             null,
             { steps: ["Warmer air holds more water vapor", "Heavier rain falls in some regions", "Some regions dry instead of flooding", "Cold snaps become rarer in most places", "Snow can grow where air stays cold enough"], caption: "One warming, different results in different places." },
-            ["Heavier rain in the wettest regions", "Snow where the air stays cold enough", "Cold snaps become rarer in most places", "Longer droughts across the driest regions"],
+            ["Heavier rain in the wettest regions", "Snow where the air stays cold enough", "Cold snaps grow less common in most places", "Longer droughts across the driest regions"],
             2,
             "The diagram shows cold snaps becoming rarer in most places. Warming does not move every extreme the same way, and cold extremes retreat."),
           mkOrder("A degree of warming arrives over a region and the sky responds. Put the loading of the sky in order.",
@@ -9842,7 +9842,7 @@ export const TOPIC_COURSES = [
             0,
             "Length and consistency give the record its force. Dry years are expected throws even from loaded dice, so they do not cancel a rising frequency counted across decades."),
           mkNote("The payoff", "Odds, not scripts",
-            "A warmer sky holds about seven percent more water vapor per degree, heat waves grow likelier and longer, and sea level lifts the floor under storm floods, while cold snaps retreat and snowfall can grow where air stays cold enough. Warming loads the dice rather than scripting any single storm. Tomorrow: how can comparing two worlds, one warmed and one not, measure what warming did to one event?")
+            "A warmer sky holds about seven percent more water vapor per degree, heat waves grow likelier and longer, and sea level lifts the floor under storm floods, while cold snaps retreat and snowfall can grow where air stays cold enough. Warming loads the dice rather than scripting any single storm.")
         ]
       },
       {
@@ -9880,7 +9880,7 @@ export const TOPIC_COURSES = [
             0,
             "Drain capacity is a bet on future odds. If the odds have shifted, building for the old baseline underbuilds by design, and the measured fraction states the shift in usable percent terms."),
           mkNote("The payoff", "A number, not a slogan",
-            "Attribution runs one event through two worlds many times and reports the difference as a fraction or a multiplier, never as a slogan, with heat giving clearer signals than drought and model quality setting the limit. Strong fingerprints and muddy ones both get reported honestly, because the numbers guide drains, crops, and budgets. Tomorrow: can you prove the whole course, start to finish?")
+            "Attribution runs one event through two worlds many times and reports the difference as a fraction or a multiplier, never as a slogan, with heat giving clearer signals than drought and model quality setting the limit. Strong fingerprints and muddy ones both get reported honestly, because the numbers guide drains, crops, and budgets.")
         ]
       },
       {
@@ -9960,7 +9960,7 @@ export const TOPIC_COURSES = [
             0,
             "Distance is doing the protective work here. The collapse changed how compact the mass is, not how much mass there is, and a distant orbit responds to the amount, not the compactness."),
           mkNote("The payoff", "Trapped light and a glowing ring",
-            "A black hole traps even light inside an event horizon whose size scales with mass, while far away its pull is ordinary for its mass. We spot many of them by the bright ring of gas glowing as it falls in, and the largest shadows have been resolved directly. Tomorrow: how huge can a black hole grow at the center of a galaxy, and what happens to time near its edge?")
+            "A black hole traps even light inside an event horizon whose size scales with mass, while far away its pull is ordinary for its mass. We spot many of them by the bright ring of gas glowing as it falls in, and the largest shadows have been resolved directly.")
         ]
       },
       {
@@ -9998,7 +9998,7 @@ export const TOPIC_COURSES = [
             0,
             "The comparison is decided by rate, not by damage: nothing broke the close clock. It ran slow the whole time it sat deep in gravity, so its total comes up short."),
           mkNote("The payoff", "Giants and slow clocks",
-            "Giant black holes anchor the centers of galaxies, weighed by the stars racing around them, and time itself slows near their edges while the falling traveler crosses in ordinary time. At the center sits the singularity, where the theory reaches its limit and a deeper theory is still missing. Tomorrow: can you prove the whole course, start to finish?")
+            "Giant black holes anchor the centers of galaxies, weighed by the stars racing around them, and time itself slows near their edges while the falling traveler crosses in ordinary time. At the center sits the singularity, where the theory reaches its limit and a deeper theory is still missing.")
         ]
       },
       {
@@ -10078,7 +10078,7 @@ export const TOPIC_COURSES = [
             0,
             "The missing tug matters: with no extra mass to blame, geometry carries the explanation. Close to the star the bend is steepest, so each orbit closes slightly rotated compared with the force picture."),
           mkNote("The payoff", "Gravity is a shape",
-            "Gravity is the shape of spacetime, bent by mass and energy, with planets and light alike following the bends and Mercury turning extra deep in the curve. Tomorrow: does gravity change time itself, and can ripples travel through the fabric?")
+            "Gravity is the shape of spacetime, bent by mass and energy, with planets and light alike following the bends and Mercury turning extra deep in the curve.")
         ]
       },
       {
@@ -10118,7 +10118,7 @@ export const TOPIC_COURSES = [
             0,
             "The size checks out arithmetically: a net gain near forty microseconds, multiplied by the speed of light, lands near ten kilometers. Small clock errors become large position errors because positions are built from light travel times."),
           mkNote("The payoff", "A fabric that ripples",
-            "Time is part of the fabric, so gravity slows clocks by amounts precision instruments can measure, satellites must correct for a net gain that would cost kilometers a day, and the fabric can ripple when huge masses collide. Tomorrow: can you prove the whole course, start to finish?")
+            "Time is part of the fabric, so gravity slows clocks by amounts precision instruments can measure, satellites must correct for a net gain that would cost kilometers a day, and the fabric can ripple when huge masses collide.")
         ]
       },
       {
@@ -10198,7 +10198,7 @@ export const TOPIC_COURSES = [
             0,
             "Ordinary bits, however arranged, hold one combination at a time. Only the blend holds many at once, and interference is what turns that holding into a readable answer."),
           mkNote("The payoff", "Blends, links, and one careful reading",
-            "A qubit blends both values at once in a landscape that doubles with each added qubit, and entangled qubits behave as one system without carrying any signal. Reading a qubit collapses the blend, so interference must shape it first and many runs supply the pattern. Tomorrow: why do these machines forget, and how can a calculation outrun the forgetting?")
+            "A qubit blends both values at once in a landscape that doubles with each added qubit, and entangled qubits behave as one system without carrying any signal. Reading a qubit collapses the blend, so interference must shape it first and many runs supply the pattern.")
         ]
       },
       {
@@ -10238,7 +10238,7 @@ export const TOPIC_COURSES = [
             0,
             "Fit comes from matching the structure of the problem. The molecule landscape is quantum in nature, so hardware that holds blends natively tracks it without listing every combination."),
           mkNote("The payoff", "Fragile, protected, and specialized",
-            "Qubits forget when their surroundings learn their state, protection means spreading one logical qubit across hundreds or thousands of physical ones below an error threshold, and even then the machine stays a specialist for structured quantum shaped problems. Tomorrow: can you prove the whole course, start to finish?")
+            "Qubits forget when their surroundings learn their state, protection means spreading one logical qubit across hundreds or thousands of physical ones below an error threshold, and even then the machine stays a specialist for structured quantum shaped problems.")
         ]
       },
       {
@@ -10318,7 +10318,7 @@ export const TOPIC_COURSES = [
             0,
             "Agreement between separated instruments rules out local weather and equipment faults. What remains is a repeating shadow of fixed depth, and fixed depth plus fixed rhythm is the signature of an orbiting body crossing the face."),
           mkNote("The payoff", "Sketches of unseen worlds",
-            "Planets around other stars are caught by dips as small as a hundredth of a percent and wobbles as slow as a walk, never easily by eye, and the catalogue of finds is shaped by what is easiest to detect. Together, size and mass give density, the first sketch of a far away world. Tomorrow: where could liquid water last on such a world, and can its air be read from here?")
+            "Planets around other stars are caught by dips as small as a hundredth of a percent and wobbles as slow as a walk, never easily by eye, and the catalogue of finds is shaped by what is easiest to detect. Together, size and mass give density, the first sketch of a far away world.")
         ]
       },
       {
@@ -10356,7 +10356,7 @@ export const TOPIC_COURSES = [
             0,
             "Steadiness across readings is what lifts this above a one off detection. A mixture that should erase itself within centuries, yet persists, needs a source renewing both members at a matching rate."),
           mkNote("The payoff", "A filter and a barcode",
-            "The habitable zone only says where liquid water could last, its edges set by the brightness of the star, and the barcode of missing colors can name the gases in far away air when clouds do not block the view. A lasting pair of rival gases would be a strong hint of life, never instant proof. Tomorrow: can you prove the whole course, start to finish?")
+            "The habitable zone only says where liquid water could last, its edges set by the brightness of the star, and the barcode of missing colors can name the gases in far away air when clouds do not block the view. A lasting pair of rival gases would be a strong hint of life, never instant proof.")
         ]
       },
       {
@@ -10436,7 +10436,7 @@ export const TOPIC_COURSES = [
             0,
             "Holding the food constant is what makes the comparison readable. The treated group still eats, yet the cutting enzymes that came from its partners are missing, so the fiber passes through largely locked."),
           mkNote("The payoff", "Partners at the table",
-            "The insect provides the home and the harvest, and the microbes provide the staged chemistry that turns cellulose bundles into absorbable fuel, plus vitamins the food lacks. Together they are one combined organism, eating meals neither could manage alone. Tomorrow: where do the partners in a young insect gut come from?")
+            "The insect provides the home and the harvest, and the microbes provide the staged chemistry that turns cellulose bundles into absorbable fuel, plus vitamins the food lacks. Together they are one combined organism, eating meals neither could manage alone.")
         ]
       },
       {
@@ -10474,7 +10474,7 @@ export const TOPIC_COURSES = [
             0,
             "The shrinking tray is the conversion made visible: waste mass became larval mass. The harvest is the larvae themselves, which is why their protein and fat content is the number that matters."),
           mkNote("The payoff", "A community passed down and topped up",
-            "Gut partners arrive by inheritance on the egg, by gathering from food and soil, and by sharing among nestmates, and a living community that chemicals can damage does the rest. In the black soldier fly, that community turns waste nobody wants into protein rich feed everybody needs. Tomorrow: can you prove the whole course, start to finish?")
+            "Gut partners arrive by inheritance on the egg, by gathering from food and soil, and by sharing among nestmates, and a living community that chemicals can damage does the rest. In the black soldier fly, that community turns waste nobody wants into protein rich feed everybody needs.")
         ]
       },
       {
@@ -10554,7 +10554,7 @@ export const TOPIC_COURSES = [
             0,
             "All three changes point the same way: sugar falling, gas appearing, alcohol rising. That combination is the yeast discard pattern, not the souring pattern of the bacteria."),
           mkNote("The payoff", "Farming the leftovers",
-            "Fermentation is microbes eating sugar without oxygen for a low energy yield, and people farming the discards: acid, alcohol, or gas. Yeasts bubble and brew up to their own alcohol ceiling, while lactic acid bacteria sour and shield. Tomorrow: how does the sour acid protect a fermented food?")
+            "Fermentation is microbes eating sugar without oxygen for a low energy yield, and people farming the discards: acid, alcohol, or gas. Yeasts bubble and brew up to their own alcohol ceiling, while lactic acid bacteria sour and shield.")
         ]
       },
       {
@@ -10594,7 +10594,7 @@ export const TOPIC_COURSES = [
             0,
             "The comparison isolates acidity as the difference: same cabbage, same cellar, same jars. The jar that acidified early won the race, and the mild jar shows that sealing alone protects nothing."),
           mkNote("The payoff", "Sour, safe, and sometimes alive",
-            "Acid is flavor and fence at once: it sours the food, defeats the microbes that would rot it if it arrives in time, and never sterilizes what it protects. Some ferments arrive with the workforce still aboard as temporary guests, and others arrive finished, with the work intact. Tomorrow: can you prove the whole course, start to finish?")
+            "Acid is flavor and fence at once: it sours the food, defeats the microbes that would rot it if it arrives in time, and never sterilizes what it protects. Some ferments arrive with the workforce still aboard as temporary guests, and others arrive finished, with the work intact.")
         ]
       },
       {
@@ -10674,7 +10674,7 @@ export const TOPIC_COURSES = [
             0,
             "Poor soil rules out the usual explanation, a rich nitrogen supply from the ground. The nodules are the alternative supply made visible: housing, sugar, and a conversion the plant cannot perform itself."),
           mkNote("The payoff", "Sugar out, a harvest back",
-            "Roots pay sugar into the soil and buy back nutrients, water from pores too small for roots, and protection from the microbes that gather within millimeters of the root. Nitrogen fixation, worth on the order of a hundred kilograms per hectare from a good legume stand, and fungal highways are the two great stalls in that market. Tomorrow: how does a crowded root community protect a crop?")
+            "Roots pay sugar into the soil and buy back nutrients, water from pores too small for roots, and protection from the microbes that gather within millimeters of the root. Nitrogen fixation, worth on the order of a hundred kilograms per hectare from a good legume stand, and fungal highways are the two great stalls in that market.")
         ]
       },
       {
@@ -10695,7 +10695,7 @@ export const TOPIC_COURSES = [
           mkVisualQ("Look at the diagram. What happens at the root when a plant pays less sugar?",
             null,
             { steps: ["Fertilizer feeds the crop directly", "A flooded plant pays less sugar to its traders", "Fewer traders gather at the root", "The market for water and defense grows thin"], caption: "Fertilizer helps the crop, but too much can thin the root market." },
-            ["Fewer traders gather at the root", "More traders gather to share the sugar", "The fungal highways grow thicker at once", "Diseases build up in the leaves instead"],
+            ["The root draws a smaller crowd of traders", "More traders gather to share the sugar", "The fungal highways grow thicker at once", "Diseases build up in the leaves instead"],
             0,
             "Trade follows need. When the plant pays less sugar, fewer traders gather, and the market grows thin."),
           mkSpotError("One piece of this claim is wrong. Tap the piece that does not belong.",
@@ -10714,7 +10714,7 @@ export const TOPIC_COURSES = [
             0,
             "Two mechanisms compound here. A permanent host lets its own diseases accumulate without a break, and bare winters cut the sugar payments that would have kept a defending crowd in place."),
           mkNote("The payoff", "Feed the plant, keep the market",
-            "A crowded root is a defended root, proven by living soil transfers that heating destroys, and the market behind that defense lives on sugar payments from living roots. Fertilizer feeds the crop today and can thin the market when overused, while the market supplies and guards it in ways no bag can. Tomorrow: can you prove the whole course, start to finish?")
+            "A crowded root is a defended root, proven by living soil transfers that heating destroys, and the market behind that defense lives on sugar payments from living roots. Fertilizer feeds the crop today and can thin the market when overused, while the market supplies and guards it in ways no bag can.")
         ]
       },
       {
@@ -10794,7 +10794,7 @@ export const TOPIC_COURSES = [
             0,
             "Scale and timing separate the readings. Seaweed is anchored and coastal, sand settles within days near the bottom that supplied it, and only a multiplying surface population paints an area this large this fast."),
           mkNote("The payoff", "The meadow under everything",
-            "Phytoplankton are the grass of the sea: tiny, drifting, photosynthesizing in the top hundred meters, and making about half of the oxygen production of the planet. When they bloom, doubling daily for days, the whole ocean can see it, even from space. Tomorrow: who eats the meadow, and where does its carbon go?")
+            "Phytoplankton are the grass of the sea: tiny, drifting, photosynthesizing in the top hundred meters, and making about half of the oxygen production of the planet. When they bloom, doubling daily for days, the whole ocean can see it, even from space.")
         ]
       },
       {
@@ -10832,7 +10832,7 @@ export const TOPIC_COURSES = [
             0,
             "Sunlight is ruled out by the season itself, which is the point of the puzzle. The missing input comes from below, and a stable layer of warm water is a lid that stops it arriving."),
           mkNote("The payoff", "From meadow to giants to the deep",
-            "Krill package the meadow for giants, and marine snow, of which only a small fraction survives the fall, carries its carbon down to rest in the deep for centuries. The smallest life in the sea feeds the largest animals that have ever lived, and moves the carbon of the whole planet. Tomorrow: can you prove the whole course, start to finish?")
+            "Krill package the meadow for giants, and marine snow, of which only a small fraction survives the fall, carries its carbon down to rest in the deep for centuries. The smallest life in the sea feeds the largest animals that have ever lived, and moves the carbon of the whole planet.")
         ]
       },
       {
@@ -11212,6 +11212,16 @@ export function validateCurriculum(paths = LEARNING_PATHS) {
        never quantifier only filler. */
     const optionQuality = cardOptionQualityProblem(card);
     if (optionQuality) problems.push(where + ": " + card.kind + " " + optionQuality);
+    /* Visual question read off rule (2026-10-23, Nova quality
+       wave): a visualq correct option must not repeat one of its
+       own diagram steps, or the card tests reading the card
+       instead of the lesson it taught. */
+    if (card.kind === "visualq" && card.diagram && Array.isArray(card.diagram.steps)
+      && Array.isArray(card.options) && Number.isInteger(card.correct) && card.options[card.correct]) {
+      if (card.diagram.steps.some((step) => passagesRepeat(card.options[card.correct], step))) {
+        problems.push(where + ": visualq correct option repeats one of its own diagram steps");
+      }
+    }
   };
   for (const path of paths || []) {
     if (!path.id || !path.title) problems.push("a path is missing its id or title");
