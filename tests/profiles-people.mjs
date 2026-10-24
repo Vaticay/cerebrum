@@ -153,6 +153,15 @@ await test("main.jsx dispatches the profile route into the app", () => {
   assert.ok(mainSrc.includes('kind === "profile"'), "Root does not handle the profile kind");
   assert.ok(mainSrc.includes("profileHandle={route.handle}"), "Root does not pass the handle into the app");
 });
+await test("modernization copy: people search says the at sign works and explains an unavailable Message button", () => {
+  assert.ok(appSrc.includes("Searching with the @ sign works"), "the people search empty state does not say the at sign works");
+  assert.ok(appSrc.includes("They do not follow you yet"), "the people search row does not explain why Message is unavailable");
+  assert.ok(appSrc.includes("You cannot message this person yet. They only accept messages from people they follow"), "the public profile does not explain why Message is unavailable");
+  assert.ok(appSrc.includes("Your email address is never shown there"), "the profile editor does not say email stays private");
+  assert.ok(appSrc.includes("people follow you"), "the own profile follower count is not in plain words");
+  assert.ok(!appSrc.includes("Blocked. They can no longer message or call you."), "the block toast still claims a call scope");
+});
+
 await test("settings copy matches the follower exception behavior", () => {
   assert.ok(settingsSrc.includes("People already following you keep seeing your profile"), "settings copy does not promise the follower exception");
   assert.ok(settingsSrc.includes("stops working for anyone who does not already follow you"), "settings copy does not scope the link behavior");

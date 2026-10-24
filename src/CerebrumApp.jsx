@@ -15227,8 +15227,8 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               <div style={{ marginTop: 6, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6 }}>{contextLine}</div>
             )}
             {!editing && (
-              <div style={{ marginTop: 6, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-                {(profileMeta?.followers || 0)} follower{(profileMeta?.followers || 0) === 1 ? "" : "s"} · {(profileMeta?.followingCount || 0)} following
+              <div style={{ marginTop: 6, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums", lineHeight: 1.6 }}>
+                {(profileMeta?.followers || 0)} {(profileMeta?.followers || 0) === 1 ? "person follows you" : "people follow you"} · You follow {(profileMeta?.followingCount || 0)} {(profileMeta?.followingCount || 0) === 1 ? "person" : "people"}. These counts are numbers only. They do not open into lists.
               </div>
             )}
             {!editing && profileLink && (
@@ -15254,6 +15254,10 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
         <div style={{ marginTop: 18 }}>
           {editing ? (
             <div style={{ maxWidth: 620 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6, marginBottom: 10 }}>
+                This is what other people see on your public profile. Your email address is never shown there. Changes save on their own as you type.
+              </div>
+              <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)" }}>What you work on</div>
               <textarea
                 value={profile.bio || ""}
                 onChange={(e) => setProfile((p2) => ({ ...p2, bio: e.target.value.slice(0, 400) }))}
@@ -15290,11 +15294,12 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 {handleError && (
                   <div role="alert" style={{ marginTop: 6, fontSize: FONT_SIZES.caption, color: statusBad(P), fontFamily: "var(--cb-font)" }}>{handleError}</div>
                 )}
+                <div style={{ marginTop: 6, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>Your handle is your public name for links and search. People find you by typing it with the @ sign, and your profile link uses it too.</div>
                 <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>Degree</div>
                 <SuggestInput
                   value={profile.degree || ""}
                   onChange={(v) => setProfile((p) => ({ ...p, degree: v }))}
-                  placeholder="Degree, such as PhD or MSc"
+                  placeholder="For example, PhD or MSc"
                   ariaLabel="Degree"
                   matches={degreeMatches}
                   P={P} accent={accent} inputStyle={inputStyle}
@@ -15303,7 +15308,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 <SuggestInput
                   value={profile.affiliation || ""}
                   onChange={(v) => setProfile((p) => ({ ...p, affiliation: v }))}
-                  placeholder="Institution"
+                  placeholder="Where you work or study"
                   ariaLabel="Institution"
                   matches={affiliationMatches}
                   P={P} accent={accent} inputStyle={inputStyle}
@@ -15312,7 +15317,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 <input
                   value={profile.grad_year || ""}
                   onChange={(e) => setProfile((p) => ({ ...p, grad_year: e.target.value }))}
-                  placeholder="2024"
+                  placeholder="For example, 2024"
                   aria-label="Graduation year"
                   inputMode="numeric"
                   style={inputStyle}
@@ -15321,7 +15326,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 <input
                   value={profile.link_site || ""}
                   onChange={(e) => setProfile((p) => ({ ...p, link_site: e.target.value }))}
-                  placeholder="Your website address"
+                  placeholder="Paste the full address of your website"
                   aria-label="Website"
                   style={inputStyle}
                 />
@@ -15329,7 +15334,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 <input
                   value={profile.link_orcid || ""}
                   onChange={(e) => setProfile((p) => ({ ...p, link_orcid: e.target.value }))}
-                  placeholder="Your ORCID address"
+                  placeholder="Paste the full address of your ORCID page"
                   aria-label="ORCID link"
                   style={inputStyle}
                 />
@@ -15337,7 +15342,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 <input
                   value={profile.link_scholar || ""}
                   onChange={(e) => setProfile((p) => ({ ...p, link_scholar: e.target.value }))}
-                  placeholder="Your Scholar address"
+                  placeholder="Paste the full address of your Google Scholar page"
                   aria-label="Google Scholar link"
                   style={inputStyle}
                 />
@@ -15345,10 +15350,11 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 <input
                   value={interestsText}
                   onChange={(e) => onInterestsText(e.target.value)}
-                  placeholder="Topics you work on, separated by commas"
+                  placeholder="For example, sleep, memory, field ecology"
                   aria-label="Research interests"
                   style={inputStyle}
                 />
+                <div style={{ marginTop: 6, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>Write each topic separated by a comma. People can find you by these topics. You can list up to eight. The Website, ORCID, and Google Scholar fields above take the full address of each page, and those links show on your public profile.</div>
               </div>
             </div>
           ) : (
@@ -15380,7 +15386,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               type="button" onClick={() => setEditing(true)}
               style={{ minHeight: 44, marginTop: 6, background: "none", border: "none", padding: "12px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}
             >
-              <Icon name="edit" size={12} /> Add your degree and institution
+              <Icon name="edit" size={12} /> Add your degree and where you work or study
             </button>
           )}
 
@@ -15411,7 +15417,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Pinned papers</div>
           {pinnedPapers.length === 0 ? (
             <div style={{ fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
-              Nothing pinned yet. Pin up to four saved papers and they show here as your shelf.
+              Nothing pinned yet. Save a paper first, then choose Pin next to it in your saved papers below. You can pin up to four, and they show here at the top of your profile.
             </div>
           ) : (
             <div>
@@ -15440,7 +15446,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Saved papers</div>
           {(saved || []).length === 0 ? (
             <div style={{ fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
-              Save a paper from any answer and it lands in your library. From here you can pin the ones that stand for your work.
+              No saved papers yet. When you read an answer, choose Save on a paper and it will appear here and in your library.
             </div>
           ) : (
             <div>
@@ -15591,7 +15597,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
           <div style={{ padding: "16px 24px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${P.line}` }}>
             <div>
               <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink }}>Find people</div>
-              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>Search Cerebrum researchers</div>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>Search by name, by @username, or by research topic</div>
             </div>
             <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 13, display: "inline-flex" }}><Icon name="close" size={18} /></button>
           </div>
@@ -15619,8 +15625,8 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
               visibility setting. */}
           {trimmed.length < 2 && (
             <div style={{ padding: "16px 16px 8px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.65 }}>
-              <div style={{ fontWeight: 500, color: P.ink, marginBottom: 6, fontSize: FONT_SIZES.label }}>Find a researcher you already know</div>
-              Type their name or @username above. Cerebrum keeps people findable only by search. There's no public directory to scroll, so your profile stays yours until you share it. You control whether you're findable at all in Settings → Notifications &amp; data.
+              <div style={{ fontWeight: 500, color: P.ink, marginBottom: 6, fontSize: FONT_SIZES.label }}>Find someone you already know</div>
+              Type at least two letters of their name, their @username, or a topic they work on. Searching with the @ sign works, so @asmith and asmith find the same person. There is no list of everyone to scroll through. People show up only when you search for them, and only if they have chosen to be findable in their settings.
             </div>
           )}
           {trimmed.length >= 2 && loading && results.length === 0 && (
@@ -15628,7 +15634,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
           )}
           {trimmed.length >= 2 && !loading && results.length === 0 && (
             <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
-              Nobody matches that. They may not be on Cerebrum yet, or they've chosen not to be findable. Double check the spelling, or try their @username.
+              Nobody matches that. Check the spelling and try again. Try their full name, their @username, or a topic they work on. They may not be on Cerebrum yet, or they may have chosen not to be findable.
             </div>
           )}
           {results.map((r) => {
@@ -15690,13 +15696,18 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                   {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 1, lineHeight: 1.45, overflowWrap: "anywhere" }}>{subtitle}</div>}
                   {interestLine && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 1, lineHeight: 1.45, overflowWrap: "anywhere" }}>{interestLine}</div>}
                 </div>
+                <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 4, flexShrink: 0, maxWidth: 120 }}>
                 <button
                   onClick={(e) => { e.stopPropagation(); if (canMessage) messageResearcher(r); }}
                   disabled={isMessageBusy || !canMessage}
                   aria-label={canMessage ? `Message ${r.name}` : `You cannot message ${r.name} yet`}
-                  title={canMessage ? `Message ${r.name}` : "This person only accepts messages from people they follow"}
+                  title={canMessage ? `Message ${r.name}` : "You cannot message this person yet. They only accept messages from people they follow, and they do not follow you yet."}
                   style={{ width: 44, height: 44, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: canMessage ? P.ink2 : P.faint, cursor: canMessage ? (isMessageBusy ? "default" : "pointer") : "not-allowed", opacity: isMessageBusy ? 0.6 : (canMessage ? 1 : 0.55) }}
                 ><Icon name="mail" size={15} /></button>
+                {!canMessage && (
+                  <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.4, textAlign: "center" }}>They do not follow you yet</span>
+                )}
+                </span>
               </div>
             );
           })}
@@ -15906,7 +15917,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
     try {
       const res = await apiDataAction("toggle-block", { target_id: u.id });
       if (res && res.blocked) {
-        toast("Blocked. They can no longer message or call you.");
+        toast("Blocked. They can no longer message you.");
         onClose();
         return;
       }
@@ -15986,7 +15997,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
             <div style={{ padding: "52px 28px", textAlign: "center" }}>
               <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, marginBottom: 6 }}>{error}</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
-                It may have been removed, or the person may have chosen not to be found.
+                The account may not exist, or the person may have chosen not to be findable. Check the link or the spelling, or search for them in Find people.
               </div>
             </div>
           )}
@@ -16076,9 +16087,9 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                 )}
 
                 {!data.limited && (
-                  <div style={{ marginTop: 20, paddingTop: 14, borderTop: `1px solid ${P.line}`, display: "flex", gap: 22, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                    <span><span style={{ color: P.ink, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{data.followers || 0}</span> followers</span>
-                    <span><span style={{ color: P.ink, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{data.followingCount || 0}</span> following</span>
+                  <div style={{ marginTop: 20, paddingTop: 14, borderTop: `1px solid ${P.line}`, display: "flex", gap: 22, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6, flexWrap: "wrap" }}>
+                    <span><span style={{ color: P.ink, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{data.followers || 0}</span> {(data.followers || 0) === 1 ? "person follows them" : "people follow them"}</span>
+                    <span><span style={{ color: P.ink, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>They follow {data.followingCount || 0}</span> {(data.followingCount || 0) === 1 ? "person" : "people"}</span>
                   </div>
                 )}
 
@@ -16101,7 +16112,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                     onClick={message}
                     disabled={msgBusy || !data.canMessage}
                     className="cb-press"
-                    title={data.canMessage ? `Message ${displayName}` : "This person only accepts messages from people they follow"}
+                    title={data.canMessage ? `Message ${displayName}` : "You cannot message this person yet. They only accept messages from people they follow, and they do not follow you yet."}
                     style={{
                       padding: "12px 24px", minHeight: 48, borderRadius: RADIUS.viewport,
                       cursor: data.canMessage ? (msgBusy ? "default" : "pointer") : "not-allowed",
@@ -16110,6 +16121,11 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                       border: `1px solid ${P.line}`, opacity: data.canMessage ? 1 : 0.6,
                     }}
                   >{msgBusy ? "Opening\u2026" : "Message"}</button>
+                  {!data.canMessage && (
+                    <div style={{ flexBasis: "100%", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+                      You cannot message this person yet. They only accept messages from people they follow, and they do not follow you yet. Follow them first so they can find you and follow you back.
+                    </div>
+                  )}
                   {currentUser?.isFounder && !isFounder && (
                     <button
                       onClick={toggleVerify}
@@ -16176,7 +16192,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                 {/* Saying what a profile does NOT carry is part of the
                     product, not a disclaimer. */}
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6, marginTop: 20 }}>
-                  Profiles never show what someone searched, saved, or read. Follower counts do not open into lists.
+                  A profile never shows what this person searched, saved, or read, and it never shows their email address. The follower counts above are numbers only. They do not open into lists of people.
                 </div>
               </div>
           )}

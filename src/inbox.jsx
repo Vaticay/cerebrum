@@ -189,11 +189,12 @@ function PaperSharePicker({ P, accent, at, paper, threads, onClose, onSent }) {
         )}
         <div>
           <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.faint, marginBottom: 6 }}>Start a new conversation</div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6, lineHeight: 1.5 }}>Type a name or a @username. The @ sign works here.</div>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search a name or @username" aria-label="Search people to share with"
             style={{ width: "100%", padding: "12px 12px", borderRadius: RADIUS.md, fontSize: 16, background: P.surface, border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)", boxSizing: "border-box" }} />
           {searching && <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>}
           {!searching && query.trim().length >= 2 && results.length === 0 && (
-            <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Nobody matches that.</div>
+            <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>Nobody matches that. Try their full name or their @username.</div>
           )}
           {results.length > 0 && (
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
@@ -1572,17 +1573,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   };
 
   // Mute and unmute: muting silences notifications for this
-  // conversation, messages and calls alike (owner ruling,
-  // 2026-10-14: a mute that still rings is not a mute). The
-  // conversation stays in the list with its unread count. The
-  // server leaves muted recipients out of its message web push
-  // and its call web push, the incoming-calls resource never
-  // reports a call from a muted thread (so the client's ringing
-  // poll, incoming call card, and ringtone all stay silent), and
-  // both of this client's message polls (the list poll and the
-  // open thread poll) leave muted threads out of their message
-  // notifications, announcements, and sounds. The toast below
-  // claims exactly this scope, no more.
+  // conversation everywhere. The conversation stays in the list
+  // with its unread count. The server leaves muted recipients out
+  // of its message web push, and both of this client's message
+  // polls (the list poll and the open thread poll) leave muted
+  // threads out of their message notifications, announcements,
+  // and sounds. The toast below claims exactly this scope, no more.
   const toggleThreadMuted = async (tidArg) => {
     const tid = typeof tidArg === "string" ? tidArg : activeId;
     if (!tid || prefBusy) return;
@@ -1594,7 +1590,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       const res = await apiDataAction("set-thread-muted", { thread_id: tid, muted: next });
       setThreads((prev) => prev.map((t) => (t.id === tid ? { ...t, muted: !!res.muted } : t)));
       setActiveThread((t) => (t && t.id === tid ? { ...t, muted: !!res.muted } : t));
-      toast(res.muted ? "Notifications muted for this conversation, calls included." : "Notifications unmuted for this conversation.");
+      toast(res.muted ? "Notifications are off for this conversation." : "Notifications are on for this conversation.");
     } catch (e) {
       toast(e.message || "Couldn't mute that conversation.", { tone: "error" });
     } finally {
@@ -1885,18 +1881,21 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   // present; counting the loaded page is only a fallback for an
   // older payload, because the page is capped and would understate
   // any long conversation while claiming to speak for all of it.
+  // Voice notes are not counted here. Recording one is no longer
+  // offered, so a count of them read as a current feature. Old
+  // voice notes still play in the thread itself.
   const sharedCounts = (() => {
     const serverCounts = activeThread && activeThread.sharedCounts;
     if (serverCounts) {
-      return { paper: serverCounts.paper || 0, image: serverCounts.image || 0, audio: serverCounts.audio || 0 };
+      return { paper: serverCounts.paper || 0, image: serverCounts.image || 0 };
     }
-    const counts = { paper: 0, image: 0, audio: 0 };
+    const counts = { paper: 0, image: 0 };
     for (const m of (activeThread && activeThread.messages) || []) {
       if (m && counts[m.attachmentKind] != null) counts[m.attachmentKind] += 1;
     }
     return counts;
   })();
-  const sharedTotal = sharedCounts.paper + sharedCounts.image + sharedCounts.audio;
+  const sharedTotal = sharedCounts.paper + sharedCounts.image;
   // The first message this visit had not caught up with, anchored to
   // the read cursor captured before this visit's first acknowledgement
   // advanced it. A never opened thread reports a read cursor of 0,
@@ -1944,7 +1943,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
               <div style={{ minWidth: 0 }}>
                 <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, lineHeight: TYPE.heading.lineHeight }}>Inbox</h1>
-                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>Messages and shared papers</div>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>Your conversations and the papers shared in them</div>
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
@@ -2010,7 +2009,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               <div style={{ padding: "16px 12px", lineHeight: 1.6 }}>
                 <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, marginBottom: 5 }}>No conversations yet</div>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>
-                  Search for someone in Find people and start one. By default only people you follow can open a conversation with you.
+                  Find someone first, then start a conversation with them. People you follow can also start one with you.
                 </div>
                 <button onClick={onCompose} className="cb-press" style={{ minHeight: 44,
                   marginTop: 12, padding: "7px 16px", borderRadius: RADIUS.pill, cursor: "pointer",
@@ -2020,17 +2019,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               </div>
             )}
             {threads.length > 0 && !showArchived && filteredThreads.length === 0 && (
-              <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint }}>No conversations match "{threadQuery}".</div>
+              <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>No conversations match "{threadQuery}". Try a different name, or clear the search to see all of your conversations.</div>
             )}
             {showArchived && archivedThreads.length === 0 && (
-              <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint }}>No archived conversations.</div>
+              <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>No archived conversations. When you archive a conversation, it moves here and out of your main list.</div>
             )}
             {displayThreads.map((t) => {
               const initials = (t.name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
               const preview = !t.lastMessage
                 ? "No messages yet"
                 : t.lastMessage.encrypted
-                  ? (t.lastMessage.mine ? "You: " : "") + (decryptedPreviews[t.id] || "Encrypted message")
+                  ? (t.lastMessage.mine ? "You: " : "") + (decryptedPreviews[t.id] || "Locked. Open to read it on this device.")
                   : (t.lastMessage.mine
                     ? "You: "
                     : (t.kind === "group" && t.lastMessage.senderName ? t.lastMessage.senderName.split(" ")[0] + ": " : "")
@@ -2125,7 +2124,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   </button>
                 ))}
                 {msgSearchState === "done" && msgResults.length === 0 && localMsgResults.length === 0 && (
-                  <div style={{ padding: "10px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>No messages match "{threadQuery}".</div>
+                  <div style={{ padding: "10px 4px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>No messages match "{threadQuery}". Try different words, or check the spelling.</div>
                 )}
                 {(encryptedExcluded > 0 || threads.some((t) => t.encrypted)) && (
                   <div style={{ padding: "8px 4px 2px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
@@ -2242,13 +2241,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 <span>Shared in this conversation</span>
                 {sharedCounts.paper > 0 && <span style={{ color: P.ink2, fontWeight: 500 }}>{sharedCounts.paper} {sharedCounts.paper === 1 ? "paper" : "papers"}</span>}
                 {sharedCounts.image > 0 && <span style={{ color: P.ink2, fontWeight: 500 }}>{sharedCounts.image} {sharedCounts.image === 1 ? "image" : "images"}</span>}
-                {sharedCounts.audio > 0 && <span style={{ color: P.ink2, fontWeight: 500 }}>{sharedCounts.audio} voice {sharedCounts.audio === 1 ? "note" : "notes"}</span>}
               </div>
             )}
             {activeThread.blocked && (
               <div style={{ padding: "12px 24px", background: withAlpha(STATUS.bad, 0.08), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8 }}>
                 <Icon name="block" size={14} style={{ color: statusBad(P), flexShrink: 0 }} />
-                You've blocked {activeThread.name}. Neither of you can message here until you unblock.
+                You blocked {activeThread.name}. Neither of you can send messages here until you unblock them from the menu above.
               </div>
             )}
             {/* Commit 87 — messages sat at the TOP of the pane.
@@ -2261,7 +2259,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 long enough to scroll. */}
             <div ref={msgPaneRef} onScroll={handleMsgScroll} style={{ flex: 1, overflowY: "auto", padding: isMobile ? "18px 14px" : "22px 24px", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0, background: P.surface }}>
               {(activeThread.messages || []).length === 0 && (
-                <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.label, marginTop: 20 }}>No messages yet. Say hello.</div>
+                <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.label, marginTop: 20, lineHeight: 1.6 }}>No messages yet. Write the first one below.</div>
               )}
               {activeThread.hasMore && (
                 <button onClick={loadEarlier} disabled={loadingEarlier} style={{ alignSelf: "center", minHeight: 44, padding: "8px 18px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.ink2, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: loadingEarlier ? "default" : "pointer", opacity: loadingEarlier ? 0.6 : 1 }}>
@@ -2327,7 +2325,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 {showLegacyDivider && (
                   <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, border: `1px solid ${P.line}`, borderRadius: RADIUS.viewport, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
                     <Icon name="lock" size={11} style={{ flexShrink: 0 }} />
-                    Messages before encryption: these were readable by the server
+                    Messages sent before this conversation was locked. The server could read those older ones.
                   </div>
                 )}
                 {showDay && (
@@ -2558,7 +2556,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               )}
               {activeThread.blocked ? (
                 <div style={{ textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, padding: "8px 0" }}>
-                  You've blocked {activeThread.name}. Unblock above to send a message.
+                  You blocked {activeThread.name}. Unblock them from the menu above to send a message.
                 </div>
               ) : (<>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
@@ -2584,7 +2582,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   </button>
                 </div>
                 {!isMobile && !isTouch && (
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 52 }}>Enter to send · Shift + Enter for a new line · Drafts are kept per conversation</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 52 }}>Press Enter to send. Press Shift and Enter together for a new line. Your unfinished message is saved here if you switch conversations.</div>
                 )}
                 {(isMobile || isTouch) && (
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 52 }}>Return starts a new line. Tap Send to send.</div>
@@ -2627,7 +2625,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   }}><Icon name="mail" size={20} /></div>
                   <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Your conversations live here</div>
                   <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.65, maxWidth: 380 }}>
-                    Messages and shared papers with other researchers. Nothing you say here is used to train anything or shown on your profile.
+                    This is where your messages and shared papers will appear. Find someone first, then start a conversation with them.
                   </div>
                   <button onClick={onCompose} className="cb-press" style={{ minHeight: 44,
                     marginTop: 8, padding: "9px 24px", borderRadius: RADIUS.pill, cursor: "pointer",
@@ -2636,7 +2634,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   }}>Find someone to message</button>
                 </>
               ) : (
-                <div style={{ color: P.faint, fontSize: FONT_SIZES.label }}>Pick a conversation on the left.</div>
+                <div style={{ color: P.faint, fontSize: FONT_SIZES.label, lineHeight: 1.6 }}>Pick a conversation from the list to read it and reply.</div>
               )}
             </div>
           )}
@@ -2711,7 +2709,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             />
           </div>
           <div>
-            <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "normal", marginBottom: 6 }}>Add people ({groupMembers.length})</div>
+            <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: "normal", marginBottom: 6 }}>Add people ({groupMembers.length} added). Pick at least two.</div>
             {groupMembers.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
                 {groupMembers.map((m) => (
@@ -2742,7 +2740,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             />
             {groupSearching && <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>}
             {!groupSearching && groupQuery.trim().length >= 2 && groupResults.length === 0 && (
-              <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Nobody matches that.</div>
+              <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>Nobody matches that. Try their full name or their @username.</div>
             )}
             {groupResults.length > 0 && (
               <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
@@ -2761,7 +2759,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             )}
           </div>
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
-            Group messages aren't encrypted end to end yet.
+            Group messages are not locked the way one to one encrypted messages are, so the server can read them. Groups have no admins. Any member can rename the group or remove people.
           </div>
           <UIButton
             P={P} variant="primary" accent={accent} at={at}
@@ -2870,7 +2868,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             />
             {settingsSearching && <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>}
             {!settingsSearching && settingsQuery.trim().length >= 2 && settingsResults.length === 0 && (
-              <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Nobody matches that.</div>
+              <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>Nobody matches that. Try their full name or their @username.</div>
             )}
             {settingsResults.length > 0 && (
               <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
@@ -2890,7 +2888,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             )}
           </div>
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
-            Group messages aren't encrypted end to end yet. There are no admins: any member can rename the group or remove people.
+            Group messages are not locked the way one to one encrypted messages are, so the server can read them. There are no admins. Any member can rename the group or remove people.
           </div>
           <UIButton
             P={P} variant="ghost"

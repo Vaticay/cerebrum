@@ -104,10 +104,11 @@ await test("group modal searches people", async () => {
 });
 
 await test("group modal warns about no E2EE", async () => {
-  // Pin updated 2026-10-19 (S7b, item 11): the disclaimer copy lost its
-  // hyphenated compound under the no dashes rule; the sentence is the
-  // same claim in unhyphenated form.
-  srcHas(uiSrc, "Group messages aren't encrypted end to end yet", "E2EE disclaimer");
+  // Pin updated 2026-10-24 (modernization wave): the disclaimer now
+  // says in plain words what not being locked means, that the server
+  // can read group messages, and states the no admins rule at
+  // creation as well as in the info panel.
+  srcHas(uiSrc, "Group messages are not locked the way one to one encrypted messages are, so the server can read them. Groups have no admins. Any member can rename the group or remove people.", "E2EE disclaimer");
 });
 
 // ── Frontend: group thread rendering ────────────────────────────────────
@@ -255,9 +256,10 @@ await test("group info panel has leave button", async () => {
 });
 
 await test("group info panel keeps the honest disclaimer", async () => {
-  srcHas(uiSrc, "There are no admins: any member can rename the group or remove people", "no-admins honesty line");
-  // Pin updated 2026-10-19 (S7b, item 11): unhyphenated disclaimer copy.
-  srcHas(uiSrc, "Group messages aren't encrypted end to end yet", "plaintext disclaimer in panel");
+  srcHas(uiSrc, "There are no admins. Any member can rename the group or remove people.", "no-admins honesty line");
+  // Pin updated 2026-10-24 (modernization wave): plain words for what
+  // not being locked means, same honest claim.
+  srcHas(uiSrc, "Group messages are not locked the way one to one encrypted messages are, so the server can read them.", "plaintext disclaimer in panel");
 });
 
 await test("thread list and header refresh after roster changes", async () => {
