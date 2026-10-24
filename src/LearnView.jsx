@@ -322,17 +322,17 @@ function cortexCourseProblem(course) {
 }
 
 function cortexClaimProblem(claim) {
-  if (!cortexIsPlainObject(claim)) return "That file's review claims section holds an entry that is not a claim. Nothing was imported.";
+  if (!cortexIsPlainObject(claim)) return "That file's review questions section holds an entry that is not a question. Nothing was imported.";
   for (const field of ["reps", "lapses", "stability", "due", "last"]) {
     if (claim[field] != null && !cortexIsFiniteNumber(claim[field])) {
-      return "That file's review claims section holds a claim whose schedule is not readable. Nothing was imported.";
+      return "That file's review questions section holds a question whose schedule is not readable. Nothing was imported.";
     }
   }
   /* The review Player plays the stored card, so a claim without a
      readable card is a claim that cannot be reviewed. */
-  if (!cortexIsPlainObject(claim.card)) return "That file's review claims section holds a claim with no review card. Nothing was imported.";
-  if (claim.card.options != null && !Array.isArray(claim.card.options)) return "That file's review claims section holds a review card whose answers are not readable. Nothing was imported.";
-  if (claim.card.correct != null && !cortexIsFiniteNumber(claim.card.correct)) return "That file's review claims section holds a review card whose answer is not readable. Nothing was imported.";
+  if (!cortexIsPlainObject(claim.card)) return "That file's review questions section holds a question with no card to show. Nothing was imported.";
+  if (claim.card.options != null && !Array.isArray(claim.card.options)) return "That file's review questions section holds a question card whose answers are not readable. Nothing was imported.";
+  if (claim.card.correct != null && !cortexIsFiniteNumber(claim.card.correct)) return "That file's review questions section holds a question card whose answer is not readable. Nothing was imported.";
   return null;
 }
 
@@ -352,26 +352,26 @@ function cortexProgressRecordProblem(rec) {
 
 export function cortexLoopProblem(loop) {
   if (loop == null) return null;
-  if (!cortexIsPlainObject(loop)) return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
+  if (!cortexIsPlainObject(loop)) return "That file's profile section holds a daily record that is not readable. Nothing was imported.";
   if (loop.plan != null) {
     if (!cortexIsPlainObject(loop.plan) && !Array.isArray(loop.plan)) return "That file's profile section holds a daily plan that is not readable. Nothing was imported.";
     const descriptors = Array.isArray(loop.plan) ? loop.plan : Object.values(loop.plan);
     for (const q of descriptors) {
       if (q == null) continue;
-      if (!cortexIsPlainObject(q) || typeof q.title !== "string") return "That file's profile section holds a daily quest that is not readable. Nothing was imported.";
+      if (!cortexIsPlainObject(q) || typeof q.title !== "string") return "That file's profile section holds a daily goal that is not readable. Nothing was imported.";
     }
   }
-  if (loop.sessionDone != null && typeof loop.sessionDone !== "boolean") return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
-  if (loop.sessionPaid != null && typeof loop.sessionPaid !== "boolean") return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
-  if (loop.done != null && !cortexIsPlainObject(loop.done)) return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
-  if (loop.paid != null && !cortexIsPlainObject(loop.paid)) return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
+  if (loop.sessionDone != null && typeof loop.sessionDone !== "boolean") return "That file's profile section holds a daily record that is not readable. Nothing was imported.";
+  if (loop.sessionPaid != null && typeof loop.sessionPaid !== "boolean") return "That file's profile section holds a daily record that is not readable. Nothing was imported.";
+  if (loop.done != null && !cortexIsPlainObject(loop.done)) return "That file's profile section holds a daily record that is not readable. Nothing was imported.";
+  if (loop.paid != null && !cortexIsPlainObject(loop.paid)) return "That file's profile section holds a daily record that is not readable. Nothing was imported.";
   if (loop.events != null) {
-    if (!cortexIsPlainObject(loop.events)) return "That file's profile section holds daily loop events that are not readable. Nothing was imported.";
+    if (!cortexIsPlainObject(loop.events)) return "That file's profile section holds daily events that are not readable. Nothing was imported.";
     for (const key of ["lessons", "perfect", "checkpoints", "paidPerfect", "paidCheckpoints"]) {
-      if (loop.events[key] != null && !cortexIsStringArray(loop.events[key])) return "That file's profile section holds daily loop events that are not readable. Nothing was imported.";
+      if (loop.events[key] != null && !cortexIsStringArray(loop.events[key])) return "That file's profile section holds daily events that are not readable. Nothing was imported.";
     }
   }
-  if (loop.dueAtStart != null && !cortexIsFiniteNumber(loop.dueAtStart)) return "That file's profile section holds a daily loop record that is not readable. Nothing was imported.";
+  if (loop.dueAtStart != null && !cortexIsFiniteNumber(loop.dueAtStart)) return "That file's profile section holds a daily record that is not readable. Nothing was imported.";
   return null;
 }
 
@@ -400,7 +400,7 @@ export function parseCortexImport(text) {
     if (problem) return cortexImportFailure(problem);
   }
   if (!cortexIsPlainObject(data.claims)) {
-    return cortexImportFailure("That file is missing its review claims section. Nothing was imported.");
+    return cortexImportFailure("That file is missing its review questions section. Nothing was imported.");
   }
   for (const claim of Object.values(data.claims)) {
     const problem = cortexClaimProblem(claim);
@@ -11374,7 +11374,7 @@ export function buildDailyQuests({ day, profile, progress, dueCount } = {}) {
   const session = {
     slot: "session", kind: "session",
     title: "Finish today's session",
-    detail: "Play the daily session from warmup to payoff.",
+    detail: "Play today's session: a few review questions first if any are due, then your next lesson, then a short summary of where you stand.",
     targetId: null, pathId: null, dueAtStart: due,
   };
   let target = null;
@@ -11391,7 +11391,7 @@ export function buildDailyQuests({ day, profile, progress, dueCount } = {}) {
       target = {
         slot: "target", kind: "fading",
         title: "Revisit " + fading[0].lesson.title,
-        detail: "This finished lesson is fading. A visit brings it back.",
+        detail: "You finished this lesson a while ago and it is starting to slip from memory. Answering its questions again brings it back.",
         targetId: fading[0].lesson.id, pathId: fading[0].path.id, dueAtStart: due,
       };
     } else {
@@ -11438,7 +11438,7 @@ export function buildDailyQuests({ day, profile, progress, dueCount } = {}) {
       stretch = {
         slot: "stretch", kind: "checkpoint",
         title: "Pass the checkpoint " + next.title,
-        detail: "The checkpoint lesson on " + path.title + " is your next stop there.",
+        detail: "A checkpoint is a lesson that quizzes you on the lessons before it, with nothing new in it. This one is the next lesson waiting on " + path.title + ".",
         targetId: next.id, pathId: path.id, dueAtStart: due,
       };
       break;
@@ -12739,6 +12739,9 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: "0 0 10px" }}>
                 XP is a progress count for finishing lessons and answering checks. It measures learning done, nothing more.
               </p>
+              <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: "0 0 10px" }}>
+                Your rank is a title that rises as your XP grows. It marks how far you have come, and it never goes down.
+              </p>
               <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>
                 Review brings back what you learned later, just as it starts to fade. That timing is the point.
               </p>
@@ -13407,8 +13410,8 @@ function memoryState(course, claims) {
   const now = Date.now();
   const avg = mine.reduce((sum, c) => sum + retrievability(c, now), 0) / mine.length;
   const due = mine.filter((c) => c.due <= now).length;
-  if (due > 0) return { label: due + " fading", pct: Math.round(avg * 100) };
-  return { label: "Holding", pct: Math.round(avg * 100) };
+  if (due > 0) return { label: due + " slipping", pct: Math.round(avg * 100) };
+  return { label: "Still fresh", pct: Math.round(avg * 100) };
 }
 
 function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
@@ -13430,11 +13433,14 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
         </p>
         <div style={{ margin: "14px 0 30px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>
-            <span>Memory strength</span><span>{mem.label}</span>
+            <span>How fresh it still is</span><span>{mem.label}</span>
           </div>
           <div style={{ height: 8, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden" }}>
             <div className="lv-fill" style={{ width: mem.pct + "%", height: "100%", background: accent, borderRadius: RADIUS.pill }} />
           </div>
+          <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "10px 0 0" }}>
+            Nova keeps track of each question you answered in this course. When an answer is close to being forgotten it counts as slipping and comes back in review. Answer it in review and it counts as fresh again.
+          </p>
         </div>
       </div>
 
@@ -13518,7 +13524,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
           {pp.total} lessons · {path.units.length} unit{path.units.length === 1 ? "" : "s"} · about {pace.minutes} min · {pace.word} · taught directly
         </p>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "6px 0 0" }}>
-          {"Written for Nova from standard textbook material covering " + path.title + ". These lessons teach the ideas directly. Courses built from your searches teach the same way: plain statements first, then quizzes on the ideas."}
+          {"Written for Nova from standard textbook material covering " + path.title + ". These lessons teach the ideas directly. Courses built from your searches teach the same way: plain statements first, then quizzes on the ideas. A unit is a group of lessons on one part of the subject. The pace word above is about how much work the whole path holds: Gentle is the least, then Steady, then Demanding."}
         </p>
         <div style={{ margin: "16px 0 6px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.faint, marginBottom: 6 }}>
@@ -13529,7 +13535,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
           </div>
         </div>
         <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.55, margin: "10px 0 0" }}>
-          A filled stop is a lesson you finished. A stop marked fading is due for review. It is still yours, and a short review session from the Nova home brings it back to full strength.
+          A filled stop is a lesson you finished. A stop marked fading is due for review. It is still yours, and a short review session from the Nova home brings it back to full strength. {"Mastered means a best score of " + MASTERY_MIN_PCT + " percent or better on that lesson, or clearing the review of what you missed in it."}
         </p>
       </div>
 
@@ -13754,7 +13760,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           <>
             <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "26px 0 10px", lineHeight: 1.3 }}>What are you curious about?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-              Pick the one that pulls at you. It sets your first path. Every path stays open to you afterwards.
+              Pick the one that pulls at you. It sets your first path. A path is one whole subject taught in order, in short lessons, and every path stays open to you afterwards.
             </p>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {ONBOARDING_CHOICES.map((c) => (
@@ -13798,7 +13804,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
           <>
             <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "26px 0 10px", lineHeight: 1.3 }}>When should Nova remind you?</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-              Pick a time. Nova will have your streak waiting when you come back. You can change it later in settings.
+              Pick a time. Nova will have your streak waiting when you come back. Your streak is your count of days in a row you have learned. You can change it later in settings.
             </p>
             <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
               {[{ label: "No reminder", value: null }, { label: "Morning 8 AM", value: 8 }, { label: "Midday 1 PM", value: 13 }, { label: "Evening 7 PM", value: 19 }].map((opt) => (
@@ -13962,7 +13968,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    setProgressMsg("Saved. The file holds your paths, courses, review claims, streak, and sound setting.");
+    setProgressMsg("Saved. The file holds your paths, courses, the questions set for your review, your streak, and your sound setting.");
   };
 
   const importProgressFile = (file) => {
@@ -13987,7 +13993,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       if (parsed.retired && (parsed.retired.courses > 0 || parsed.retired.claims > 0)) {
         const retiredParts = [];
         if (parsed.retired.courses > 0) retiredParts.push(parsed.retired.courses + " old paper based course" + (parsed.retired.courses === 1 ? "" : "s"));
-        if (parsed.retired.claims > 0) retiredParts.push(parsed.retired.claims + " old paper based review claim" + (parsed.retired.claims === 1 ? "" : "s"));
+        if (parsed.retired.claims > 0) retiredParts.push(parsed.retired.claims + " old paper based review question" + (parsed.retired.claims === 1 ? "" : "s"));
         const retiredVerb = retiredParts.length === 1 && (parsed.retired.courses === 1 || parsed.retired.claims === 1) && !(parsed.retired.courses > 0 && parsed.retired.claims > 0) ? " was" : " were";
         progressMessage += " " + retiredParts.join(" and ") + retiredVerb + " retired and not restored.";
       }
@@ -14307,7 +14313,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     if (warm.length) {
       setScreen({
         name: "player", fromPath: false, bundleStage: "warmup",
-        course: { id: "bundle-warmup", title: "Daily session", lessons: [{ id: "bundle-warmup", title: "Review warmup", subtitle: "Questions that are due, while they are still fresh enough to fix", cards: warm }], doneLessons: [] },
+        course: { id: "bundle-warmup", title: "Daily session", lessons: [{ id: "bundle-warmup", title: "Review questions", subtitle: "Questions that are due for review today, while they are still fresh enough to fix", cards: warm }], doneLessons: [] },
         startLesson: 0,
       });
       return;
@@ -14325,7 +14331,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     if (!cards.length) return;
     setScreen({
       name: "player", fromPath: false,
-      course: { id: "review-bench", title: "Review bench", lessons: [{ id: "review-bench", title: "Review bench", subtitle: "What is due, brought back while it can still be fixed", cards }], doneLessons: [] },
+      course: { id: "review-bench", title: "Review session", lessons: [{ id: "review-bench", title: "Review session", subtitle: "The questions and lessons that are due, brought back while they can still be fixed", cards }], doneLessons: [] },
       startLesson: 0,
     });
   };
@@ -14545,6 +14551,16 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     : bandCourse
       ? () => setScreen({ name: "path", courseId: bandCourse.id })
       : () => setScreen({ name: "bpath", pathId: LEARNING_PATHS[0].id });
+  /* Where the learner stands on the band's subject, in plain
+     words (2026-10-24, plain words wave): how many of its
+     lessons are finished, out of how many, on this path or
+     course alone. The old line counted every path together,
+     which told a new learner nothing about the subject the
+     band is actually showing. */
+  const bandProg = bandPath ? lastPathProg : bandCourse ? null : pathProgress(LEARNING_PATHS[0], builtinProgress);
+  const bandDone = bandProg ? bandProg.done : (bandCourse.doneLessons || []).length;
+  const bandTotal = bandProg ? bandProg.total : bandCourse.lessons.length;
+  const bandPct = bandTotal > 0 ? Math.round((bandDone / bandTotal) * 100) : 0;
   const showReturnGreeting = !!profile && lastGapDays >= 2;
 
   /* The header Nova's mood (home restructure wave): the living
@@ -14569,7 +14585,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     const doneTotal = allBuiltinSets.reduce((n, p) => n + pathProgress(p, builtinProgress).done, 0);
     const openQuest = todayQuests.find((q) => !questState(q, { loop: todayLoop, dueCount: due.length, progress: builtinProgress }).done);
     const hook = openQuest
-      ? "Tomorrow, one quest is still open: " + openQuest.title + "."
+      ? "Tomorrow, one daily goal is still open: " + openQuest.title + "."
       : bundleStop
         ? "Tomorrow, your next stop is " + bundleStop.lesson.title + " on " + bundleStop.path.title + "."
         : fadingAll.length > 0
@@ -14585,7 +14601,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.14em", color: ink, marginBottom: 10 }}>DAILY SESSION COMPLETE</div>
           <h2 style={{ fontFamily: SANS, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 12px", lineHeight: 1.2 }}>That is today, done properly.</h2>
           <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 26px", maxWidth: 440 }}>
-            Warmup, new ground, and a clear head to end on. Here is where today leaves you.
+            You answered the review questions, learned something new, and finished. Here is where today leaves you.
           </p>
           <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 26, flexWrap: "wrap" }}>
             <div style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: "16px 24px", minWidth: 130 }}>
@@ -14603,6 +14619,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>{doneTotal} lessons finished</div>
             </div>
           </div>
+          <p style={{ color: P.ink2, fontSize: FONT_SIZES.body, lineHeight: 1.6, margin: "0 auto 26px", maxWidth: 440 }}>
+            {"Mastered means you scored " + MASTERY_MIN_PCT + " percent or better on a lesson, or you cleared the review of what you missed in it. Your streak is the count of days in a row you have learned."}
+          </p>
           <div style={{ background: P.raised, border: "1px solid " + accent, borderRadius: 2, padding: "18px 20px", margin: "0 auto 30px", maxWidth: 440, textAlign: "left" }}>
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 7 }}>TOMORROW</div>
             <p style={{ fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink, margin: 0 }}>{hook}</p>
@@ -14692,6 +14711,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
 
         <div style={{ marginTop: 30 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>SPARKS AND LEAGUES</div>
+          <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
+            Sparks are points you earn as you learn: for sessions, daily goals, perfect lessons, and new ranks. They buy streak protection only. A freeze covers one missed day so your streak does not end. A repair puts back a streak that just ended.
+          </p>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, margin: "0 0 14px" }}>
             You hold {profile ? profile.sparks || 0 : 0} Sparks.
           </p>
@@ -14747,7 +14769,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             {"Sparks never buy " + SPARKS_NEVER_BUYS.join(", ") + "."}
           </p>
           <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 6px" }}>
-            Leagues start when enough learners are active in the same week. Until then there is nobody to rank you against, so the board stays shut. When it opens, you are put in a group of 30 and ranked on points from first time lessons and review accuracy, with a daily cap. Replays earn nothing. Joining is your choice.
+            A league is a group of learners ranked against each other for a week. Leagues start when enough learners are active in the same week. Until then there is nobody to rank you against, so the board stays shut. When it opens, you are put in a group of 30 and ranked on points from first time lessons and review accuracy, with a daily cap. Replays earn nothing. Joining is your choice.
           </p>
           <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "0 0 14px" }}>
             League points come from lessons and reviews. Meanwhile, your paths and daily practice are where those happen.
@@ -14876,6 +14898,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           <div style={{ flex: "1 1 260px", minWidth: 0 }}>
             <h1 className="lv-stage-word" style={{ fontFamily: WORDMARK, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h1>
             <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "10px 0 0" }}>{CORTEX_TAGLINE}</p>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "12px 0 0", maxWidth: 460 }}>
+              Nova teaches science in short lessons. A path is one whole subject taught in order. Each lesson teaches first, then quizzes you on what it just taught.
+            </p>
           </div>
         </div>
         <div style={{ borderTop: "1px solid " + P.line, marginTop: 22, paddingTop: 18 }}>
@@ -14890,10 +14915,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div className="lv-band">
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>DAILY PRACTICE</div>
-            <button onClick={bandGo} aria-label={"Open " + bandTitle}
-              style={{ background: "none", border: "none", padding: 0, margin: "0 0 10px", cursor: "pointer", fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, lineHeight: 1.3, textAlign: "left", display: "block" }}>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 12px", maxWidth: 460 }}>
+              Daily practice is one short session for today. It starts with a few review questions if any are due, then takes you to your next lesson.
+            </p>
+            <div style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, lineHeight: 1.3, margin: "0 0 10px" }}>
               {bandTitle}
-            </button>
+            </div>
             <div className="lv-nodes" role="list" aria-label="Progress on this path">
               {bandNodes.map((n, i) => (
                 <span key={n.id} role="listitem" style={{ display: "inline-flex", alignItems: "flex-start", flexShrink: 0 }}>
@@ -14917,17 +14944,25 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               ))}
             </div>
             <span style={{ display: "block", height: 4, background: P.line, overflow: "hidden", marginTop: 10, maxWidth: 340 }}>
-              <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, width: (totalPathLessons > 0 ? Math.round((totalPathDone / totalPathLessons) * 100) : 0) + "%" }} />
+              <span className="lv-fill" style={{ display: "block", height: "100%", background: accent, width: bandPct + "%" }} />
             </span>
-            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "8px 0 0" }}>
-              {totalPathDone} of {totalPathLessons} path lessons done.
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.6, margin: "10px 0 0" }}>
+              {bandDone === 0
+                ? "You have not finished any lessons in " + bandTitle + " yet."
+                : bandDone >= bandTotal
+                  ? "You have finished all " + bandTotal + " lessons in " + bandTitle + "."
+                  : "You have finished " + bandDone + " of " + bandTotal + " lessons in " + bandTitle + "."}
             </p>
-            <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5, margin: "4px 0 0" }}>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "6px 0 0" }}>
               {due.length > 0
-                ? due.length + " question" + (due.length === 1 ? " is" : "s are") + " due for the warmup."
-                : "Nothing is due. The session starts at your next stop."}
+                ? due.length + " review question" + (due.length === 1 ? " is" : "s are") + " due today, so the session starts with those."
+                : "No review questions are due today. The session goes straight to your next lesson."}
               {bundleStop ? " Next stop: " + bundleStop.lesson.title + " on " + bundleStop.path.title + "." : " Every path is finished. This session is a review round."}
             </p>
+            <button onClick={bandGo} aria-label={"Open " + bandTitle}
+              style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, padding: "9px 16px", marginTop: 14, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, minHeight: 44 }}>
+              {"Open " + bandTitle + " and see all its lessons"}
+            </button>
           </div>
           <div className="lv-band-primary" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <button className="lv-btn" onClick={startBundle} disabled={!bundleReady}
@@ -14938,20 +14973,26 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               }}>
               Start daily practice
             </button>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: 0 }}>
+              Start here. This is the one thing to do today. Everything else on this page is optional.
+            </p>
           </div>
         </div>
-          <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 16, fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.label, color: P.ink2 }}>
-            <span>{(profile ? profile.streak || 0 : 0) + " day streak"}</span>
-            <span>{rankForXp(profile ? profile.xp : 0).name}</span>
-          </div>
+          <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "16px 0 0" }}>
+            {"You have learned " + (profile ? profile.streak || 0 : 0) + ((profile ? profile.streak || 0 : 0) === 1 ? " day" : " days") + " in a row. That run of days is your streak. Your rank is " + rankForXp(profile ? profile.xp : 0).name + ". A rank is a title that rises as you earn XP, the points Nova gives for right answers and finished lessons."}
+          </p>
         </div>
         <div data-tour-anchor="shelf" style={{ borderTop: "1px solid " + P.line, marginTop: 22, paddingTop: 18 }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 12 }}>NOVA'S SHELF</div>
           {shelf.length === 0 ? (
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: 0 }}>
-              Nothing on the shelf yet. Finish a path and its object lands here, and stays.
+              Nothing on the shelf yet. Finish a path and its object lands here, and stays. The shelf is only a record of paths you finished completely. You do not need to collect anything here to learn.
             </p>
           ) : (
+            <>
+            <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
+              One object for each path you finished completely. The shelf is a record of finished work, not a step you need to learn.
+            </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
               {shelf.map((o) => (
                 <div key={o.pathId} style={{ width: 64, textAlign: "center" }}>
@@ -14962,6 +15003,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 </div>
               ))}
             </div>
+            </>
           )}
           {shelfLine && (
             <NovaTip id="shelf" bare state="pleased" armed={!!shelfLine} repeatAfterMs={14 * 24 * 3600 * 1000} style={{ marginTop: 14 }}>
@@ -15005,7 +15047,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             </div>
             <h2 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Due for review</h2>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
-              {reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". One tap plays exactly what is due."}
+              {reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". The bench is this list of what is due. Scheduled questions are ones Nova set a date for when you first answered them. A fading lesson is a finished lesson you have not revisited in days, so it is starting to slip. One tap plays exactly what is due."}
             </p>
             {(
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
@@ -15024,7 +15066,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                     style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: 64, boxSizing: "border-box", textAlign: "left", background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl, padding: "12px 16px", cursor: "pointer", fontFamily: "var(--cb-font)" }}>
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500 }}>{f.lesson.title}</span>
-                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: CREAM_FAINT, marginTop: 2 }}>{"Finished lesson on " + f.path.title + ", fading"}</span>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: CREAM_FAINT, marginTop: 2 }}>{"Finished lesson on " + f.path.title + ", not revisited in days and starting to slip"}</span>
                     </span>
                     <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: CREAM_INK, flexShrink: 0 }}>Review</span>
                   </button>
@@ -15062,7 +15104,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEARNING PATHS</div>
         <h2 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Your journey</h2>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-          Whole subjects, in order. Every lesson teaches first, then checks what stuck. None of it needs a search to start. Open a path to see its map and pick up where you stopped.
+          A path is one whole subject, taught in order. Every lesson teaches first, then checks what stuck. None of it needs a search to start. Open a path to see its lessons and pick up where you stopped.
         </p>
         {LEARNING_PATHS.map((path) => {
           const pp = pathProgress(path, builtinProgress);
@@ -15076,7 +15118,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 <span style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
                   <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, lineHeight: 1.3 }}>{path.title}</span>
                   <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: ink, flexShrink: 0 }}>
-                    {pp.complete ? "Complete" : pp.done + " of " + pp.total + " stops"}
+                    {pp.complete ? "Complete" : pp.done + " of " + pp.total + " lessons done"}
                   </span>
                 </span>
                 <span style={{ display: "block", fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.5, marginTop: 4 }}>{path.blurb}</span>
@@ -15099,7 +15141,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div style={{ marginBottom: 4 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>TOPIC COURSES</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-          Twenty four topics, each a full course of lessons and quizzes. Pick one and start. No searching needed.
+          The catalog is the list of ready made courses. It holds twenty four topics, each a full course of lessons and quizzes. Pick one and start. No searching needed. Mastery level on a card runs from 1 to 5. It rises as you finish and master more of that topic, and 5 means you have mastered the whole topic.
         </p>
       </div>
 
@@ -15142,7 +15184,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   )}
                   <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
                     <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.08em", color: P.faint }}>{cat.name.toUpperCase()}</span>
-                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: ink }}>{tpp && tpp.complete ? "Complete" : tpp && tpp.done > 0 ? tpp.done + " of " + tpp.total : "Start"}</span>
+                    <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: ink }}>{tpp && tpp.complete ? "Complete" : tpp && tpp.done > 0 ? tpp.done + " of " + tpp.total + " lessons done" : "Start"}</span>
                   </span>
                 </span>
               </button>
@@ -15194,7 +15236,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div style={{ marginBottom: 4, marginTop: 24 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>COURSES FROM YOUR SEARCHES</div>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
-          The courses you build live here. Ask in Search and turn the answer into a course, or name a topic on the Create screen.
+          The courses you build live here. Ask in Search and turn the answer into a course, or name a topic on the Create screen. The label on each course says how fresh its questions still are. Slipping means some answers are close to being forgotten and are due for review.
         </p>
       </div>
 
@@ -15256,7 +15298,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                   <span style={{ display: "block", padding: "15px 18px 17px" }}>
                     <span style={{ fontFamily: SANS, fontSize: FONT_SIZES.subhead, fontWeight: 500, lineHeight: 1.3, display: "block", minHeight: 48 }}>{course.title}</span>
                     <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, display: "block", marginTop: 4 }}>
-                      {course.lessons.length} lessons · {(course.vocab || []).length} terms
+                      {course.lessons.length} lessons · {(course.vocab || []).length} key words
                     </span>
                     <span style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
                       <span style={{ flex: 1, height: 7, borderRadius: RADIUS.pill, background: P.line, overflow: "hidden", display: "block" }}>

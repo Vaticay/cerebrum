@@ -1167,7 +1167,8 @@ await test("claims are validated entry by entry, naming review claims", () => {
   doc.claims = { c1: "not a claim" };
   const parsed = parseCortexImport(JSON.stringify(doc));
   assert.equal(parsed.ok, false);
-  assert.ok(parsed.error.includes("review claims"), `reason does not name the section: ${parsed.error}`);
+  /* Pin updated 2026-10-24 (plain words wave): the import errors now name the section review questions, not review claims. */
+  assert.ok(parsed.error.includes("review questions"), `reason does not name the section: ${parsed.error}`);
   const doc2 = deepDoc();
   doc2.claims = { c1: { id: "c1", reps: 1 } };
   assert.equal(parseCortexImport(JSON.stringify(doc2)).ok, false, "a claim with no review card was accepted");
@@ -3401,7 +3402,8 @@ await test("the home carries quests, the Sparks shop, reminders, leagues, share 
     "You are in for opening day. Your place is saved.",
     "function ShareCardButton", "Share card", "shareCardModel(",
     "When should Nova remind you?", "OF 3", "onDone({ curiosity, minutes, reminderHour })",
-    "Tomorrow, one quest is still open: ",
+    /* Pin updated 2026-10-24 (plain words wave): the payoff hook now says daily goal, not quest. */
+    "Tomorrow, one daily goal is still open: ",
   ]) {
     assert.ok(learnSrc.includes(needle), `the loop surface is missing: ${needle}`);
   }
