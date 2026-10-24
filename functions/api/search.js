@@ -535,6 +535,57 @@ export function synthesisDeadlineFor(nowMs, requestDeadlineMs, factCheckOn) {
   );
 }
 
+/* WAVE WINDOW AND LEG TIMEOUTS (2026-10-23, race budget lane,
+ * from the live burnout probe): the synthesis deadline above
+ * was only ever enforced by each wave's outer Promise.race
+ * timer, while the per leg timeouts were clamped against the
+ * REQUEST budget (clampLegTimeout reads msLeft), never against
+ * the synthesis window. On the probe the pre synthesis stages
+ * had consumed the request down to the synthesis deadline
+ * itself, so wave 1 fired legs carrying roughly 8,500 ms
+ * timeouts into an outer race timer of Math.max(1, window),
+ * which was 1 ms: the timer rejected at 1 ms, the wave's
+ * finally aborted every fetch leg, and raceEntry recorded
+ * four healthy legs as "timed out" at ms 1. Those fake
+ * timeouts also feed recordLegOutcome, so two such waves park
+ * a healthy leg for five minutes under the timeout streak
+ * rule. The Workers AI legs, which take no abort signal,
+ * were the only legs that ran their real cap (3,000 ms),
+ * which is the split the probe's failedLegs list shows.
+ * The rules below end that by construction:
+ *   - a wave fires only when the synthesis window left is at
+ *     least MIN_WAVE_WINDOW_MS, the standard capped leg time:
+ *     a leg that cannot be given at least that long has no
+ *     real chance, and the wave is skipped by name in the
+ *     attempt trail instead of firing legs to die at 1 ms;
+ *   - every fired leg's timeout is clamped to the window
+ *     itself (waveLegTimeoutMs), so a leg's own clock and the
+ *     wave's outer race finally read the same deadline.
+ * The rescue wave keeps its one structural exception (it runs
+ * outside the synthesis deadline, the slow retrieval case it
+ * exists for) but it is now bounded by rescueDeadlineFor: it
+ * may spend the 2,500 ms assembly reserve behind the synthesis
+ * deadline, and it may never spend the fact check's reserved
+ * window, which is funded first at request start and is no
+ * longer synthesis overrun money. */
+export const MIN_WAVE_WINDOW_MS = 3000;
+export function synthesisWindowMs(deadlineMs, nowMs) {
+  const left = Number(deadlineMs) - Number(nowMs);
+  return Number.isFinite(left) ? Math.max(0, Math.floor(left)) : 0;
+}
+export function waveWindowViable(windowMs) {
+  return Math.max(0, Math.floor(Number(windowMs) || 0)) >= MIN_WAVE_WINDOW_MS;
+}
+export function waveLegTimeoutMs(wantedMs, windowMs) {
+  const window = Math.max(0, Math.floor(Number(windowMs) || 0));
+  if (window <= 0) return 0;
+  const wanted = Math.max(0, Math.floor(Number(wantedMs) || 0));
+  return Math.min(wanted, window);
+}
+export function rescueDeadlineFor(requestDeadlineMs, factCheckOn) {
+  return Number(requestDeadlineMs) - (factCheckOn ? FACT_CHECK_RESERVE_MS : 2500);
+}
+
 /* RETRY RACE CLOSE (2026-10-14, wave sixteen, eighth panel,
  * Infrastructure defect 2): after a synthesis winner lands,
  * the post winner retries (quality, citation, minimum
@@ -35189,7 +35240,16 @@ async function runSearchPipeline(pctx) {
     // against the synthesis deadline: even if a leg's abort misbehaves,
     // the wave cannot outlive the budget. Skipped when the definition fast
     // path already served (skipWavesForDefinition).
-    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {
+    // Window gate (2026-10-23, race budget lane): wave 1 used to
+    // fire with whatever window remained, down to the 1 ms the
+    // burnout probe recorded. When the window cannot give a leg
+    // a real chance the wave is not fired at all and the trail
+    // says so by name; the rescue wave below, which runs on its
+    // own bounded window, is the path that remains.
+    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && !waveWindowViable(synthesisWindowMs(synthesisDeadline, Date.now()))) {
+      aiAttempts.push({ wave: 1, ok: false, summary: "synthesis-deadline: wave 1 not fired, only " + synthesisWindowMs(synthesisDeadline, Date.now()) + "ms of synthesis window remained and a leg needs at least " + MIN_WAVE_WINDOW_MS + "ms" });
+    }
+    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && waveWindowViable(synthesisWindowMs(synthesisDeadline, Date.now()))) {
       // 2026-09-14 scale fix: ONE AbortController for the whole wave. The
       // moment the race is decided the losers' in-flight HTTP is aborted .
       // without this every search burns ~15 AI legs of quota for one
@@ -35202,7 +35262,12 @@ async function runSearchPipeline(pctx) {
       // well past the free 10s budget. A Detailed request gets the same
       // runway on the free fleet: its 6400 token budget cannot land inside
       // the standard 10s, so the budget would be theatre without it.
-      const wave1Timeout = clampLegTimeout(isProSearch || answerLength === "long" ? 14000 : 10000);
+      // Race budget lane (2026-10-23): the leg timeout is also
+      // clamped to the synthesis window itself, not only to the
+      // request budget, so a leg's own clock and the wave's
+      // outer race read the same deadline (see the window rules
+      // above synthesisDeadlineFor).
+      const wave1Timeout = waveLegTimeoutMs(clampLegTimeout(isProSearch || answerLength === "long" ? 14000 : 10000), synthesisWindowMs(synthesisDeadline, Date.now()));
       // Nuance #33 cheap-first: when the router judged this request
       // low-complexity, the fastpath leg leads with the cheap model instead
       // of the domain favorite . the wave race still lets a better answer
@@ -35240,7 +35305,7 @@ async function runSearchPipeline(pctx) {
         // within 6 points, a cheap judge model breaks the tie. Only wired
         // when there's a token and enough budget left . the judge is a
         // tie-breaker, not a second synthesis pass.
-        const w1Grace = Math.min(1500, Math.max(0, msLeft() - 2000));
+        const w1Grace = Math.min(1500, Math.max(0, synthesisWindowMs(synthesisDeadline, Date.now())));
         // No LLM judge (2026-10-23, audit L4-14): close calls are
         // decided by the binding gated score, and race eligibility
         // reads the per claim binding against the evidence set.
@@ -35271,7 +35336,7 @@ async function runSearchPipeline(pctx) {
     // 2026-09-12: the old gate (Date.now() < 90s synthesisDeadline) let
     // wave 2 start with seconds left and 12s legs, blowing the 20s ceiling.
     // Skipped when the definition fast path already served.
-    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 6000) {
+    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 6000 && waveWindowViable(synthesisWindowMs(synthesisDeadline, Date.now()))) {
       // Bounded wait for the speculative brief: the brief starts HERE (not
       // alongside wave 1 . see startBrief above), and the small wave-2
       // models do far better composing from pre-digested claims than from
@@ -35282,7 +35347,12 @@ async function runSearchPipeline(pctx) {
       // below, but legs with <2s are near-guaranteed failures . skip the
       // wait instead of burning it).
       try {
-        const briefWaitMs = Math.min(4000, Math.max(0, msLeft() - 6000));
+        // Race budget lane (2026-10-23): the brief wait is also
+        // clamped to the synthesis window, keeping at least the
+        // minimum leg window behind it. The old clamp read only
+        // the request budget, so the wait alone could consume
+        // the whole window and the legs behind it died at once.
+        const briefWaitMs = Math.min(4000, Math.max(0, msLeft() - 6000), Math.max(0, synthesisWindowMs(synthesisDeadline, Date.now()) - MIN_WAVE_WINDOW_MS));
         const r = await Promise.race([
           // Subrequest budget: the brief is speculative spend ahead
           // of the wave it feeds. It starts only while more than the
@@ -35315,7 +35385,14 @@ async function runSearchPipeline(pctx) {
       // wave 1.
       // Pro depth: same longer-runway treatment as wave 1. Detailed
       // requests ride along for the same reason.
-      const wave2Timeout = clampLegTimeout(isProSearch || answerLength === "long" ? 12000 : 8000);
+      const wave2Timeout = waveLegTimeoutMs(clampLegTimeout(isProSearch || answerLength === "long" ? 12000 : 8000), synthesisWindowMs(synthesisDeadline, Date.now()));
+      // The brief wait may have closed the window since the
+      // gate above: in that case the wave does not fire, and
+      // the trail says so instead of recording dead legs.
+      const wave2WindowViable = waveWindowViable(synthesisWindowMs(synthesisDeadline, Date.now()));
+      if (!wave2WindowViable) {
+        aiAttempts.push({ wave: 2, ok: false, summary: "synthesis-deadline: wave 2 not fired, the brief wait left only " + synthesisWindowMs(synthesisDeadline, Date.now()) + "ms of synthesis window" });
+      }
       // Wave 2 abort (2026-10-16, finding 12): the same one
       // controller per wave discipline as wave 1. Wave 2 used to
       // pass an undefined signal to its compat descriptors and no
@@ -35327,7 +35404,7 @@ async function runSearchPipeline(pctx) {
       // cannot be cancelled; every fetch leg now aborts the
       // moment the wave is decided.
       const w2Abort = new AbortController();
-      const wave2Calls = fireWaveLegs([
+      const wave2Calls = !wave2WindowViable ? [] : fireWaveLegs([
         // WAVE TEN (item 15): wave 2's array leads with the
         // compat and Workers AI legs and puts OpenRouter last.
         // Wave 1 has just measured the OpenRouter bucket's state;
@@ -35350,7 +35427,7 @@ async function runSearchPipeline(pctx) {
         try {
           // raceBest with a tighter grace (wave 2 runs on a thinner budget).
           // LLM judge also wired here . same close-call tie-breaking as wave 1.
-          const w2Grace = Math.min(1000, Math.max(0, msLeft() - 2000));
+          const w2Grace = Math.min(1000, Math.max(0, synthesisWindowMs(synthesisDeadline, Date.now())));
           // No LLM judge (2026-10-23, audit L4-14): same binding
           // gated scoring as wave 1.
           const winner = await Promise.race([
@@ -35401,7 +35478,7 @@ async function runSearchPipeline(pctx) {
     // clamped to it, and raced against the synthesis deadline like waves
     // 1-2. A last resort that can't fit in the budget is skipped, not run.
     // Skipped when the definition fast path already served.
-    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 4000) {
+    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 4000 && waveWindowViable(synthesisWindowMs(synthesisDeadline, Date.now()))) {
       const bulletproofSystem = buildBulletproofSystemPrompt({
         id: ID, structure: STRUCTURE, useEvidence,
         // EXISTENCE SCOPE, wave 3 parity (2026-10-22, logic audit
@@ -35474,7 +35551,7 @@ async function runSearchPipeline(pctx) {
       formattingRelaxed = true;
       // 2026-09-12: legs clamped to the remaining budget (6s wanted, not
       // 24s/18s) and the tier raced against the synthesis deadline.
-      const bpTimeout = clampLegTimeout(6000);
+      const bpTimeout = waveLegTimeoutMs(clampLegTimeout(6000), synthesisWindowMs(synthesisDeadline, Date.now()));
       // Wave 3 abort (2026-10-16, finding 12): same controller
       // and finally abort as waves 1 and 2. This tier's legs
       // previously received no wave signal at all, so a decided
@@ -35514,7 +35591,7 @@ async function runSearchPipeline(pctx) {
         // raceBest with a short grace: this is the last-resort tier so speed
         // matters, but a low-quality answer here is worse than falling
         // through to Wave 4's honest extractive fallback . quality still wins.
-        const w3Grace = Math.min(800, Math.max(0, msLeft() - 2000));
+        const w3Grace = Math.min(800, Math.max(0, synthesisWindowMs(synthesisDeadline, Date.now())));
         const winner = await Promise.race([
           raceBest(bulletproofLegs, query, w3Grace),
           new Promise((_, reject) => setTimeout(
@@ -35565,6 +35642,30 @@ async function runSearchPipeline(pctx) {
       const rescueCall = groqProvider ? callCompat(groqProvider) : null;
       if (rescueCall || cfBound || token) {
         const rescueMsgs = compactMessages || messages;
+        // Bounded rescue window (2026-10-23, race budget lane):
+        // the rescue used to race 12,000 ms legs with no outer
+        // deadline and no abort, on the theory that the stages
+        // behind it were already lost. On the burnout probe that
+        // is exactly how the fact check starved: the rescue
+        // winner landed, and the check's gate then found less
+        // than its reserve left and skipped as no-time. The
+        // rescue now runs to rescueDeadlineFor: it may spend
+        // the assembly reserve behind the synthesis deadline,
+        // never the fact check window, and when even the
+        // minimum leg window does not fit before that deadline
+        // it does not fire, and the trail says why. Its fetch
+        // legs take a wave signal like every other wave, so a
+        // decided or deadline closed rescue aborts its losers
+        // instead of leaving them to record late timeouts
+        // against the leg health store.
+        const rescueDeadlineMs = rescueDeadlineFor(requestDeadline, !!(settings && settings.factCheck));
+        const rescueWindowMs = synthesisWindowMs(rescueDeadlineMs, Date.now());
+        const rescueViable = waveWindowViable(rescueWindowMs);
+        const rescueLegTimeoutMs = waveLegTimeoutMs(12000, rescueWindowMs);
+        const rescueAbort = new AbortController();
+        if (!rescueViable) {
+          aiAttempts.push({ wave: 5, ok: false, rescue: true, summary: "rescue not fired: only " + rescueWindowMs + "ms remained before the fact check reserve, and a leg needs at least " + MIN_WAVE_WINDOW_MS + "ms" });
+        }
         // Subrequest budget: the rescue may spend to zero (the post
         // synthesis stages it would starve are already lost when it
         // runs), but it cannot spend past zero . a leg the allowance
@@ -35576,11 +35677,11 @@ async function runSearchPipeline(pctx) {
         // between the two Groq legs; planWaveLegs still caps the
         // fired set at what remains, so the worst case spend is
         // unchanged.
-        const rescueDescriptors = [
-          ...(rescueCall ? [{ label: "groq:openai/gpt-oss-120b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, 12000) }] : []),
-          ...(cfBound ? [{ label: CF_WAVE1[0], bucket: "workers-ai", fetchCost: 1, wave: 5, fire: () => callCF(CF_WAVE1[0], rescueMsgs, maxTokens, cfLegTimeoutMs(CF_WAVE1[0], 12000)) }] : []),
-          ...(rescueCall ? [{ label: "groq:openai/gpt-oss-20b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-20b", rescueMsgs, maxTokens, 12000) }] : []),
-          ...(token ? [{ label: OR_FREE_MODELS[3], bucket: "openrouter", fetchCost: 1, wave: 5, fire: () => callOR(OR_FREE_MODELS[3], rescueMsgs, maxTokens, 12000) }] : []),
+        const rescueDescriptors = !rescueViable ? [] : [
+          ...(rescueCall ? [{ label: "groq:openai/gpt-oss-120b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-120b", rescueMsgs, maxTokens, rescueLegTimeoutMs, rescueAbort.signal) }] : []),
+          ...(cfBound ? [{ label: CF_WAVE1[0], bucket: "workers-ai", fetchCost: 1, wave: 5, fire: () => callCF(CF_WAVE1[0], rescueMsgs, maxTokens, cfLegTimeoutMs(CF_WAVE1[0], rescueLegTimeoutMs)) }] : []),
+          ...(rescueCall ? [{ label: "groq:openai/gpt-oss-20b", bucket: "compat:groq", fetchCost: 1, wave: 5, fire: () => rescueCall("openai/gpt-oss-20b", rescueMsgs, maxTokens, rescueLegTimeoutMs, rescueAbort.signal) }] : []),
+          ...(token ? [{ label: OR_FREE_MODELS[3], bucket: "openrouter", fetchCost: 1, wave: 5, fire: () => callOR(OR_FREE_MODELS[3], rescueMsgs, maxTokens, rescueLegTimeoutMs, rescueAbort.signal) }] : []),
         ];
         const rescuePlan = planWaveLegs(rescueDescriptors, ledger.remaining());
         for (const d of rescuePlan.skipped) {
@@ -35590,16 +35691,33 @@ async function runSearchPipeline(pctx) {
           .map((d) => guardedRaceEntry(5, d.label, d.fire))
           .filter(Boolean);
         if (rescueLegs.length === 0) {
-          aiAttempts.push({ wave: 5, ok: false, rescue: true, summary: rescuePlan.selected.length === 0
-            ? SUBREQUEST_EXHAUSTED_REASON + "; rescue not fired"
-            : "both rescue legs parked by the per-leg health store; rescue not fired" });
+          // The window closed case already recorded its own
+          // summary above; it must not also be stamped as a
+          // subrequest exhaustion it was not.
+          if (rescueViable) {
+            aiAttempts.push({ wave: 5, ok: false, rescue: true, summary: rescuePlan.selected.length === 0
+              ? SUBREQUEST_EXHAUSTED_REASON + "; rescue not fired"
+              : "both rescue legs parked by the per-leg health store; rescue not fired" });
+          }
         } else {
           try {
-            const winner = await raceBest(rescueLegs, query, 1000);
+            // The grace shrinks as the window does, so a winner
+            // inside the window is not discarded by a grace that
+            // would end past the rescue deadline.
+            const rescueGraceMs = Math.min(1000, Math.max(0, rescueWindowMs - 2000));
+            const winner = await Promise.race([
+              raceBest(rescueLegs, query, rescueGraceMs),
+              new Promise((_, reject) => setTimeout(
+                () => reject(new Error("rescue-deadline: rescue exceeded its window before the fact check reserve")),
+                Math.max(1, rescueDeadlineMs - Date.now())
+              )),
+            ]);
             answer = winner.answer; aiOK = true;
             recordWin(winner.model);
           } catch (agg) {
             aiAttempts.push({ wave: 5, ok: false, rescue: true, summary: errMsgs(agg) });
+          } finally {
+            rescueAbort.abort();
           }
         }
       }

@@ -884,7 +884,13 @@ await test("search.js gates all four AI waves on the Pro gate", async () => {
   // serve gate (nothing citable means no synthesis at all). The Pro
   // gate still binds — the lever's definition is pinned below so the
   // rename cannot quietly unchain the waves from the authorization.
-  assert.equal(waveGuards.length, 5, `expected 5 gated wave guards, found ${waveGuards.length}`);
+  // PIN UPDATED (2026-10-23, race budget lane): wave 1 now has a
+  // sixth guard in the same gated shape, the named skip that
+  // records the wave not firing when the synthesis window is too
+  // small for a leg to answer in. It burns no inference and sits
+  // behind the same lever, so the count is six and every one of
+  // them must stay gated.
+  assert.equal(waveGuards.length, 6, `expected 6 gated wave guards, found ${waveGuards.length}`);
   assert.ok(src.includes("const wavesAllowed = aiSynthesisAllowed && !serveGateNoEvidence;"),
     "the wave lever no longer derives from the Pro gate authorization");
   assert.match(src, /aiQuota:\s*\{/, "search response missing aiQuota");

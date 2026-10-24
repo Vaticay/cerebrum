@@ -516,8 +516,13 @@ await test("search: budget authorized once before wave 1; every wave gated on de
   // pinned in tests/pro.mjs).
   for (const gate of [
     "if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {",
-    "if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 6000) {",
-    "if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 4000) {",
+    // PIN UPDATED (2026-10-23, race budget lane): waves 2 and 3
+    // also require a viable synthesis window (waveWindowViable),
+    // so a wave cannot fire into a window too small for a leg to
+    // answer in. The deadline and request budget conditions the
+    // pin protects are unchanged and still lead the gate.
+    "if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 6000 && waveWindowViable(synthesisWindowMs(synthesisDeadline, Date.now()))) {",
+    "if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition && Date.now() < synthesisDeadline && msLeft() > 4000 && waveWindowViable(synthesisWindowMs(synthesisDeadline, Date.now()))) {",
   ]) {
     assert.ok(src.includes(gate), `wave gate present: ${gate.slice(0, 60)}…`);
   }
