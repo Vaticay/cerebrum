@@ -18051,7 +18051,16 @@ export function subjectConceptGroup(query, groups, dynLookup) {
     // negation is untouched: "does not sleeping enough make..."
     // still names a clause and still yields no subject, and a
     // gerund with nothing after it strips to nothing and fails.
-    const GERUND_OPENERS = new Set(["taking", "eating", "using", "drinking", "getting", "having"]);
+    // CITATION WAVE LANE 1 (2026-10-24): "putting" joins the
+    // opener set. The honey question's frame span is "putting
+    // honey on a cut": with "putting" absent, the head in group
+    // amendment below resolved the subject to the deterministic
+    // fallback group containing only "putting", an activity verb
+    // no wound paper can engage, and the subject serve killed
+    // every cited answer to the question. Stripping the opener
+    // leaves "honey" as the span head, which is the entity the
+    // question is about.
+    const GERUND_OPENERS = new Set(["taking", "eating", "using", "drinking", "getting", "having", "putting"]);
     if (spanTokens.length >= 2 && GERUND_OPENERS.has(spanTokens[0])) {
       spanTokens = spanTokens.slice(1);
       if (spanTokens[0] === "the" || spanTokens[0] === "a" || spanTokens[0] === "an") {
@@ -18170,7 +18179,11 @@ export function keyPhraseHeadTerm(phrase) {
  * "taking creatine"). They frame a concept; they are never
  * one. Used by the central concept resolution to keep a frame
  * verb from being admitted as a phrase's topical token. */
-const GERUND_OPENER_WORDS = new Set(["taking", "eating", "using", "drinking", "getting", "having"]);
+// CITATION WAVE LANE 1 (2026-10-24): "putting" is an opener
+// here too, matching subjectConceptGroup above, so central
+// concept resolution never admits the honey question's frame
+// verb as a topical token either.
+const GERUND_OPENER_WORDS = new Set(["taking", "eating", "using", "drinking", "getting", "having", "putting"]);
 
 /* Bare nutrient and supplement names (2026-10-14, wave eight
  * round three, Job 4b). The concept machinery tokenizes a
