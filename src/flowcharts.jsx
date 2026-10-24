@@ -501,7 +501,7 @@ function fcSvgString(nodes, edges, title, colors) {
     return `<path d="${g.d}" fill="none" stroke="${C.edge}" stroke-width="1.6" marker-end="url(#fcArrow)"/>${lbl}`;
   }).join("");
   const nodeSvg = nodes.map((n) => fcNodeSvg(n, C)).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(b.w)}" height="${Math.ceil(b.h)}" viewBox="${b.x} ${b.y} ${b.w} ${b.h}"><title>${fcEsc(title || "Flowchart")}</title><defs><marker id="fcArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="${C.edge}"/></marker></defs><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${C.bg}"/>${edgeSvg}${nodeSvg}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(b.w)}" height="${Math.ceil(b.h)}" viewBox="${b.x} ${b.y} ${b.w} ${b.h}"><title>${fcEsc(title || "Untitled diagram")}</title><defs><marker id="fcArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="${C.edge}"/></marker></defs><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${C.bg}"/>${edgeSvg}${nodeSvg}</svg>`;
 }
 function fcToMarkdown(nodes, edges, title) {
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -515,7 +515,7 @@ function fcToMarkdown(nodes, edges, title) {
   }
   const roots = nodes.filter((n) => incoming.get(n.id) === 0);
   const startNodes = roots.length ? roots : nodes.slice(0, 1);
-  const lines = [`# ${title || "Flowchart"}`, ""];
+  const lines = [`# ${title || "Untitled diagram"}`, ""];
   const seen = new Set();
   const tag = { start: "Start", end: "End", decision: "Decision", io: "Input/Output", evidence: "Evidence", process: "Step" };
   const walk = (n, depth, viaLabel) => {
@@ -862,7 +862,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
   const resetRef = useRef(resetStudio);
   resetRef.current = resetStudio;
 
-  /* The command palette New diagram command bumps resetSignal. The
+  /* The command palette new diagram command bumps resetSignal. The
      studio answers by resetting, through the same unsaved work guard
      as every other load (huge audit Bug 15). */
   const resetSeenRef = useRef(resetSignal);
@@ -935,7 +935,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
       const fresh = dsBuild(steps, direction);
       let result = null;
       if (onSave) {
-        result = await onSave({ id: currentId, title: title.trim() || "Diagram", nodes: fresh.nodes, edges: fresh.edges, sources: activeSources, direction });
+        result = await onSave({ id: currentId, title: title.trim() || "Untitled diagram", nodes: fresh.nodes, edges: fresh.edges, sources: activeSources, direction });
       }
       if (result === false) { setSaveState("blocked"); return; }
       if (result && typeof result === "object") {
@@ -951,7 +951,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
         baselineRef.current = snapOf(steps, title, activeSources, result.id || currentId, direction, readOnly);
         if (result.synced) { setSaveState("saved"); setSaveNote(""); }
         else if (result.syncError) { setSaveState("savedLocal"); setSaveNote("Saved in this browser. It did not reach your account. Check your connection, then save again."); }
-        else if (result.pending) { setSaveState("savedLocal"); setSaveNote("Saved in this browser. Account sync is not ready yet, so this copy stays local for now."); }
+        else if (result.pending) { setSaveState("savedLocal"); setSaveNote("Saved in this browser. Your account is not ready to receive it yet, so this copy stays in this browser for now."); }
         else { setSaveState("savedLocal"); setSaveNote("Saved in this browser only."); }
         return;
       }
@@ -1091,12 +1091,12 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
       if (typeof navigator.canShare === "function") {
         const file = new File([fcSvgString(fresh.nodes, fresh.edges, title, exportColors())], fcSlug(title) + ".svg", { type: "image/svg+xml" });
         if (navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: title || "Diagram" });
+          await navigator.share({ files: [file], title: title || "Untitled diagram" });
           setExportOpen(false);
           return;
         }
       }
-      await navigator.share({ title: title || "Diagram", text: fcToMarkdown(fresh.nodes, fresh.edges, title) });
+      await navigator.share({ title: title || "Untitled diagram", text: fcToMarkdown(fresh.nodes, fresh.edges, title) });
     } catch (shareErr) { /* the user closed the share sheet: nothing to report */ }
     setExportOpen(false);
   };
@@ -1121,10 +1121,10 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
   };
 
   const quotaLine = tier === "pro"
-    ? "Pro accounts save unlimited diagrams."
+    ? "Pro plan: you can save as many new diagrams as you want. There is no limit."
     : tier === "lite"
-      ? "Lite accounts can save 10 diagrams every 5 days."
-      : "Free accounts can save 1 diagram every 5 days.";
+      ? "Lite plan: you can save 10 new diagrams every 5 days. Saving changes to a diagram you already saved does not count."
+      : "Free plan: you can save 1 new diagram every 5 days. Saving changes to a diagram you already saved does not count.";
 
   const selectedDoi = selectedSource ? (selectedSource.doi || "") : "";
   const selectedHref = selectedSource
@@ -1147,25 +1147,25 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
           <input
             value={title}
             onChange={(e) => { setTitle(e.target.value); setSaveState("idle"); }}
-            placeholder="Diagram title"
-            aria-label="Diagram title"
+            placeholder="Give your diagram a title"
+            aria-label="Give your diagram a title"
             disabled={readOnly}
             style={{ ...fieldStyle, flex: "1 1 180px", minWidth: 0, background: P.surface }}
           />
-          <div role="group" aria-label="Direction" style={{ display: "inline-flex", border: `1px solid ${P.line2}`, borderRadius: RADIUS.sm, padding: 3, gap: 2 }}>
+          <div role="group" aria-label="Which way the steps run" style={{ display: "inline-flex", border: `1px solid ${P.line2}`, borderRadius: RADIUS.sm, padding: 3, gap: 2 }}>
             <button type="button" aria-pressed={direction === "down"}
               onClick={() => { pushHistory(); setDirection("down"); setSaveState("idle"); }}
               style={{ minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "down" ? accent : "transparent", color: direction === "down" ? at : P.ink }}>
-              Down
+              Top to bottom
             </button>
             <button type="button" aria-pressed={direction === "across"}
               onClick={() => { pushHistory(); setDirection("across"); setSaveState("idle"); }}
               style={{ minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "across" ? accent : "transparent", color: direction === "across" ? at : P.ink }}>
-              Across
+              Left to right
             </button>
           </div>
           <button type="button" onClick={() => guardLoad("a new diagram", resetStudio)} style={btnStyle}>
-            New diagram
+            Make a diagram in Diagram Studio
           </button>
           <div ref={exportWrapRef} style={{ position: "relative" }}>
             <button type="button" onClick={() => setExportOpen((v) => !v)} aria-expanded={exportOpen} style={btnStyle}>
@@ -1173,8 +1173,8 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
             </button>
             {exportOpen && (
               <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 6, padding: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, minWidth: 160 }}>
-                <button type="button" onClick={doExportSVG} style={btnStyle}>SVG</button>
-                <button type="button" onClick={doExportPNG} style={btnStyle}>PNG</button>
+                <button type="button" onClick={doExportSVG} style={btnStyle}>SVG file</button>
+                <button type="button" onClick={doExportPNG} style={btnStyle}>PNG image</button>
                 <button type="button" onClick={doExportText} style={btnStyle}>Text outline</button>
                 {canShare && (
                   <button type="button" onClick={doShare} style={btnStyle}>Share</button>
@@ -1194,10 +1194,10 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
           {quotaLine}
         </div>
         {dirty && saveState !== "saving" && (
-          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.4 }}>You have work that is not saved yet.</div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.4 }}>You have changes that are not saved yet. Press Save to keep them.</div>
         )}
         {saveState === "saving" && (
-          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>Saving</div>
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>Saving your diagram…</div>
         )}
         {saveState === "saved" && (
           <div style={{ fontSize: FONT_SIZES.body, color: accent, fontWeight: 500 }}>Saved to your account.</div>
@@ -1208,17 +1208,17 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
         {saveState === "network" && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>Save did not go through. The connection failed, so nothing was counted against your plan.</span>
-            <button type="button" onClick={doSave} style={smallBtnStyle}>Try save again</button>
+            <button type="button" onClick={doSave} style={smallBtnStyle}>Try saving again</button>
           </div>
         )}
         {saveState === "blocked" && (
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>
-            Save did not go through. Check that you are signed in and that your plan still has room.
+            Save did not go through. You may need to sign in first, or your plan may have no room left for a new diagram.
           </div>
         )}
         {saveState === "empty" && (
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>
-            Add at least one step with words first. Empty diagrams are not saved or exported.
+            Write words in at least one step first. A diagram whose steps have no words cannot be saved or exported.
           </div>
         )}
       </div>
@@ -1227,15 +1227,15 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
       {pendingLoad && (
         <div role="alertdialog" aria-label="Unsaved work" style={{ background: P.surface, border: `1px solid ${accent}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
-            {`Loading ${pendingLoad.label} will replace work that is not saved.`}
+            {pendingLoad.label === "closing" ? "Closing now will leave work that is not saved." : `Loading ${pendingLoad.label} will replace work that is not saved.`}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" style={{ ...smallBtnStyle, background: accent, color: at, border: `1px solid ${accent}` }}
               onClick={() => { const run = pendingLoad.run; setPendingLoad(null); run(); }}>
-              Replace my work
+              {pendingLoad.label === "closing" ? "Close without saving" : "Replace my work"}
             </button>
             <button type="button" style={smallBtnStyle} onClick={() => setPendingLoad(null)}>
-              Keep my work
+              {pendingLoad.label === "closing" ? "Keep working" : "Keep my work"}
             </button>
           </div>
         </div>
@@ -1245,16 +1245,16 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
       {readOnly && (
         <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
-            This diagram was made in an older format, with branches or labelled arrows this studio cannot hold. It is open read only so nothing is lost by accident.
+            This diagram was made with an older version of Diagram Studio. It uses branches or words on its arrows. This version works as one list of steps in order, so it cannot keep those parts. It is open for reading only, so nothing gets changed by accident.
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" style={{ ...smallBtnStyle, background: accent, color: at, border: `1px solid ${accent}` }}
               onClick={() => { setReadOnly(false); setSaveState("idle"); }}>
-              Convert to a step list
+              Turn it into a list of steps
             </button>
           </div>
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.4 }}>
-            Converting keeps the steps in order as one chain. Branches, arrow labels, and input or output boxes do not carry over. Saving after converting replaces the old format.
+            This keeps the steps in the order they are in now. Branches, words on arrows, and special boxes will not be kept. If you then save, the saved copy will use the new list instead of the old one.
           </div>
         </div>
       )}
@@ -1266,19 +1266,19 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
             <button type="button" aria-pressed={false} disabled={!latestAnswer}
               onClick={loadLatest}
               style={{ ...tabStyle(false), opacity: latestAnswer ? 1 : 0.5, cursor: latestAnswer ? "pointer" : "not-allowed" }}>
-              From your last answer
+              Start from your last answer
             </button>
             <button type="button" aria-pressed={sourceTab === "paper"} onClick={() => setSourceTab(sourceTab === "paper" ? null : "paper")} style={tabStyle(sourceTab === "paper")}>
-              From a saved paper
+              Start from a saved paper
             </button>
             <button type="button" aria-pressed={sourceTab === "saved"} onClick={() => setSourceTab(sourceTab === "saved" ? null : "saved")} style={tabStyle(sourceTab === "saved")}>
-              Saved diagrams
+              Open a diagram you saved
             </button>
           </div>
           {sourceTab === "paper" && (
             eligiblePapers.length === 0 ? (
               <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.5 }}>
-                You have no saved papers with text yet. Save a paper from an answer first, then pick it here.
+                None of your saved papers has the words we need yet. Save a paper from an answer first, then pick it here.
               </div>
             ) : (
               <select
@@ -1293,7 +1293,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                 }}
                 style={{ ...fieldStyle, width: "100%", background: P.surface }}
               >
-                <option value="">Choose a paper</option>
+                <option value="">Pick a paper</option>
                 {eligiblePapers.map((paper, i) => (
                   <option key={paper.id || paper.title || i} value={i}>{paper.title || "Untitled"}</option>
                 ))}
@@ -1303,14 +1303,14 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
           {sourceTab === "saved" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {diagrams.length === 0 && (
-                <div style={{ fontSize: FONT_SIZES.body, color: P.faint }}>No saved diagrams yet.</div>
+                <div style={{ fontSize: FONT_SIZES.body, color: P.faint }}>You have not saved a Diagram Studio diagram yet. When you save one, it will appear here and in your Library.</div>
               )}
               {diagrams.map((chart, i) => {
                 const count = dsStepsFromChart(chart).length;
                 return (
                   <button key={chart.id || chart.title || i} type="button" onClick={() => loadDiagram(chart)}
                     style={{ ...btnStyle, justifyContent: "flex-start" }}>
-                    {`${chart.title || "Diagram"} · ${count} step${count === 1 ? "" : "s"}`}
+                    {`${chart.title || "Untitled diagram"} · ${count} step${count === 1 ? "" : "s"}`}
                   </button>
                 );
               })}
@@ -1321,10 +1321,10 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
       {dialog && (
         <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.5 }}>
           {boot.usedAnswer
-            ? "Diagram from this answer. Check each box before you save it."
+            ? "This diagram came from this answer. Read each step, fix any words that are wrong, then press Save."
             : initial
-              ? `Reopened diagram: ${initial.title || title || "Diagram"}`
-              : "Add steps below. Check each box before you save it."}
+              ? `You reopened a saved diagram: ${initial.title || title || "Untitled diagram"}`
+              : "Add steps in the Steps list, then press Save when you are ready."}
         </div>
       )}
 
@@ -1334,8 +1334,8 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
         <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
             {steps.length === 0
-              ? "We could not pull any steps out of this text. It may be written in long sentences with no list. The text is below, and you can pick sentences to use as steps."
-              : "We could only pull one step out of this text. The text it came from is below, and you can pick more sentences to use as steps."}
+              ? "We could not find any steps in this text. It may be written as long sentences with no list. The text is below. Press Use this as a step next to any sentence you want in your diagram."
+              : "We found only one step in this text. The text it came from is below. Press Use this as a step next to any other sentences you want in your diagram."}
           </div>
           <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.55, maxHeight: 140, overflowY: "auto", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: 10 }}>
             {extractNote.text}
@@ -1348,7 +1348,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                   <span style={{ flex: "1 1 auto", minWidth: 0, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.45 }}>{sent.text}</span>
                   <button type="button" disabled={used || readOnly} onClick={() => addSentenceStep(i)}
                     style={{ ...smallBtnStyle, flexShrink: 0, opacity: used ? 0.5 : 1 }}>
-                    {used ? "Added" : "Add as step"}
+                    {used ? "Added" : "Use this as a step"}
                   </button>
                 </div>
               );
@@ -1361,7 +1361,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", gap: 16, alignItems: "stretch" }}>
         <div style={{ order: isMobile ? 3 : 1, flex: "1 1 auto", minWidth: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-            <button type="button" onClick={fitZoom} style={smallBtnStyle}>Fit</button>
+            <button type="button" onClick={fitZoom} style={smallBtnStyle}>Fit whole diagram</button>
             <button type="button" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(0.3, Math.round((z - 0.1) * 100) / 100))} style={smallBtnStyle}>Zoom out</button>
             <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, minWidth: 44, textAlign: "center" }}>{`${Math.round(zoom * 100)}%`}</span>
             <button type="button" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(2, Math.round((z + 0.1) * 100) / 100))} style={smallBtnStyle}>Zoom in</button>
@@ -1369,18 +1369,25 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
           {acrossTooSmall && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
               <span style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.45 }}>
-                {`This diagram runs across, and at this size its words are about ${Math.max(1, Math.round(labelPx))} px tall, too small to read. Zoom in or switch it to Down.`}
+                {`This diagram runs left to right, and at this size its words are about ${Math.max(1, Math.round(labelPx))} px tall, too small to read. Zoom in or switch it to Top to bottom.`}
               </span>
               <button type="button" onClick={() => setZoom((z) => Math.min(2, z * 1.5))} style={smallBtnStyle}>Zoom in</button>
             </div>
           )}
           <div ref={canvasBoxRef} onTouchStart={onCanvasTouchStart} onTouchMove={onCanvasTouchMove} style={{ overflow: "auto", overscrollBehavior: "contain", touchAction: "none", maxHeight: isMobile ? "62vh" : "76vh" }}>
             {steps.length === 0 ? (
-              <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.55, padding: 12 }}>
-                Nothing here yet. Use the Add step button in the steps panel to add your first step, or load a source above.
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start", padding: 12 }}>
+                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4 }}>No steps yet</div>
+                <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.55 }}>
+                  A diagram here is a list of steps in order. Add a step and write what happens first.{dialog ? " Then add more steps for what happens next." : " Or start from your last answer or from a saved paper, using the choices above."}
+                </div>
+                <button type="button" onClick={addStep} disabled={readOnly}
+                  style={{ ...btnStyle, background: accent, color: at, border: `1px solid ${accent}`, opacity: readOnly ? 0.5 : 1 }}>
+                  Add your first step
+                </button>
               </div>
             ) : (
-              <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} width={Math.max(1, displayW)} height={Math.max(1, displayH)} style={{ display: "block" }} role="img" aria-label={title || "Diagram"}>
+              <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} width={Math.max(1, displayW)} height={Math.max(1, displayH)} style={{ display: "block" }} role="img" aria-label={title || "Untitled diagram"}>
                 <defs>
                   <marker id="dsArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                     <path d="M 0 1 L 9 5 L 0 9 z" fill={P.faint} />
@@ -1419,9 +1426,12 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
             kind, detail, and source as one unit. */}
         <div style={{ order: isMobile ? 1 : 2, width: isMobile ? "auto" : 360, flexShrink: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, flex: "1 1 auto" }}>Steps</span>
+            <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, flex: "1 1 auto" }}>Steps, in order</span>
             <button type="button" onClick={undo} disabled={!past.length} style={{ ...smallBtnStyle, opacity: past.length ? 1 : 0.5 }}>Undo</button>
             <button type="button" onClick={redo} disabled={!future.length} style={{ ...smallBtnStyle, opacity: future.length ? 1 : 0.5 }}>Redo</button>
+          </div>
+          <div style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.55, marginBottom: 10 }}>
+            The picture is drawn from this list, in order. Step 1 is at the top, and an arrow joins each step to the next one. Pick Plain step for your own words, or Step backed by a paper when the words come from a paper.
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {steps.map((step, i) => {
@@ -1434,8 +1444,8 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                   disabled={readOnly}
                   style={{ ...fieldStyle, flexShrink: 0, fontSize: 16, background: P.surface }}
                 >
-                  <option value="process">Step</option>
-                  <option value="evidence">Evidence</option>
+                  <option value="process">Plain step</option>
+                  <option value="evidence">Step backed by a paper</option>
                 </select>
               );
               return (
@@ -1448,6 +1458,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                       aria-label={`Step ${i + 1} label`}
                       maxLength={FC_LABEL_MAX}
                       disabled={readOnly}
+                      placeholder="Write this step in a few words"
                       style={{ ...fieldStyle, flex: "1 1 auto", minWidth: 0, fontSize: 16, background: P.surface }}
                     />
                     {!isMobile && kindSelect}
@@ -1456,7 +1467,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                     value={step.detail}
                     onChange={(e) => updateStep(step.id, { detail: e.target.value })}
                     aria-label={`Step ${i + 1} detail`}
-                    placeholder="Source sentence or note"
+                    placeholder="The full sentence this step came from, or your own note"
                     disabled={readOnly}
                     style={{ ...fieldStyle, width: "100%", fontSize: 16, background: P.surface }}
                   />
@@ -1493,11 +1504,13 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
           own full width row under both. */}
       {selectedStep && (selectedStep.detail || selectedSource) && (
         <div style={{ order: isMobile ? 2 : 3, flex: isMobile ? undefined : "1 1 100%", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink }}>More about the step you picked</div>
           {selectedStep.detail && (
             <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55 }}>{selectedStep.detail}</div>
           )}
           {selectedSource && (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>From this paper</div>
               <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink }}>{selectedSource.title || "Untitled"}</div>
               {(selectedSource.year || selectedSource.journal || selectedSource.source) && (
                 <div style={{ fontSize: FONT_SIZES.label, color: P.faint }}>

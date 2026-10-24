@@ -9769,7 +9769,7 @@ function DiscoveryChips({ t, P, accent, onSaveInvestigation, onCreateDiagram, on
     });
   }
   if (onCreateDiagram && looksLikeMechanismQuestion(t.q)) {
-    chips.push({ key: "diagram", icon: "flowchart", label: "Create diagram", onClick: () => onCreateDiagram(t) });
+    chips.push({ key: "diagram", icon: "flowchart", label: "Make a diagram in Diagram Studio", onClick: () => onCreateDiagram(t) });
   }
   if (onAnalyzeDocument && (t.sources || []).length > 0) {
     chips.push({ key: "document", icon: "external", label: "Analyze a related document", onClick: onAnalyzeDocument });
@@ -10024,7 +10024,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
            both live here now, nothing lost. Paper composes the formal
            academic reformat (buildAcademicPaperBlocks) first, then prints —
            a real reformat of what's on screen, not a second AI call. */
-        id: "flowchart", label: "Diagram", icon: "flowchart", hint: "diagram",
+        id: "flowchart", label: "Make a diagram in Diagram Studio", icon: "flowchart", hint: "from this answer",
         onClick: () => onShowFlowchart(t),
       }, {
         /* 2026-10-19 (S2, tail 14): no fixed composing delay. Setting
@@ -11011,7 +11011,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
           ? { width: "100%", flexShrink: 0, borderBottom: `1px solid ${P.line}`, padding: 16 }
           : { width: 210, flexShrink: 0, borderRight: `1px solid ${P.line}`, padding: 16, overflowY: "auto" }}>
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 12 }}>Collections</div>
-          {[{ id: "all", name: "All saved" }, { id: "uncategorized", name: "Uncategorized" }, ...collections].map((c) => (
+          {[{ id: "all", name: "All saved" }, { id: "uncategorized", name: "Not in a collection" }, ...collections].map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
               {renamingId === c.id ? (
                 <span style={{ display: "flex", flex: 1, minWidth: 0, alignItems: "center", gap: 6 }}>
@@ -11045,19 +11045,19 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
             </div>
           ))}
           <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
-            <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} placeholder="New collection…" aria-label="New collection name" style={{ flex: 1, padding: "7px 8px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink }} />
+            <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} placeholder="Name a new collection" aria-label="New collection name" style={{ flex: 1, padding: "7px 8px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink }} />
             <UIButton P={P} variant="ghost" onClick={() => { if (newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} aria-label="Create collection" style={{ background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: RADIUS.md, padding: "0 12px", cursor: "pointer" }}><Icon name="plus" size={13} /></UIButton>
           </div>
         </div>
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "16px 24px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink }}>{activeId === "all" ? "All saved" : activeId === "uncategorized" ? "Uncategorized" : collections.find((c) => c.id === activeId)?.name || "Collection"}</div>
+            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink }}>{activeId === "all" ? "All saved" : activeId === "uncategorized" ? "Not in a collection" : collections.find((c) => c.id === activeId)?.name || "Collection"}</div>
             {!page && <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 13, display: "inline-flex" }}><Icon name="close" size={18} /></button>}
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
             {visible.length === 0 ? (
               <div style={{ fontSize: FONT_SIZES.label, color: P.faint, textAlign: "center", padding: "40px 0" }}>
-                {activeId === "all" ? "Nothing saved yet." : "Nothing here yet: move a saved source in with the dropdown next to it on “All saved.”"}
+                {activeId === "all" ? "Nothing saved yet. Save a paper from an answer first, and it will show up here." : "Nothing is in this group yet. Go to All saved, then use the collection list next to a paper to put it here."}
               </div>
             ) : visible.map((s, i) => (
               <div key={sourceKey(s)} style={{ padding: "12px 4px", borderTop: i ? `1px solid ${P.line}` : "none", display: "flex", alignItems: "center", gap: 12 }}>
@@ -11068,7 +11068,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
                   </span>
                 </span>
                 <UISelect P={P} accent={accent} value={s.collectionId || ""} onChange={(v) => onMoveSource(s, v || null)}
-                  options={[{ value: "", label: "Uncategorized" }, ...collections.map((c) => ({ value: c.id, label: c.name }))]}
+                  options={[{ value: "", label: "Not in a collection" }, ...collections.map((c) => ({ value: c.id, label: c.name }))]}
                   ariaLabel={`Move "${s.title}" to a collection`} style={{ fontSize: FONT_SIZES.caption, flexShrink: 0 }} />
               </div>
             ))}
@@ -12070,12 +12070,12 @@ function trendKind(item) {
   // Type is its own field now (paper, preprint, press, review). Older
   // cached payloads without one fall back to the category guess.
   const t = String((item && item.type) || "").toLowerCase();
-  if (t === "press") return "Press item";
+  if (t === "press") return "News report";
   if (t === "preprint") return "Preprint";
   if (t === "review") return "Review";
   if (t === "paper") return "Paper";
   const cat = String((item && item.category) || "").toLowerCase();
-  if (cat === "space") return "Press item";
+  if (cat === "space") return "News report";
   if (cat === "preprints") return "Preprint";
   return "Paper";
 }
@@ -12092,8 +12092,8 @@ function trendProvenance(item, generatedAt) {
   // whole edition's build time as this article's indexing time; an
   // indexed time is only shown when the source reports one per item.
   if (item.publishedAt) parts.push(`Published ${relativeTime(new Date(item.publishedAt).getTime())}`);
-  if (item.indexedAt) parts.push(`Indexed ${relativeTime(new Date(item.indexedAt).getTime())}`);
-  if (kind === "Press item") parts.push("not synthesized");
+  if (item.indexedAt) parts.push(`Added ${relativeTime(new Date(item.indexedAt).getTime())}`);
+  if (kind === "News report") parts.push("Not checked by Cerebrum");
   if (item.citedByCount > 0) parts.push(`Cited by ${item.citedByCount}`);
   // A reported zero is a state of its own — the count was checked and
   // nobody has cited the work yet — so it is named, while a missing
@@ -12236,7 +12236,7 @@ function TrendThumb({ P, media, title }) {
   );
 }
 
-function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = false, heroLabel = "Lead story", onSaveStory, isStorySaved }) {
+function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = false, heroLabel = "Top story", onSaveStory, isStorySaved }) {
   // The lead story is a briefing card: the words on one side, the
   // verified lead media in its own frame on the other, never a scrim
   // behind text. Text over bright footage drowned. No media, and the
@@ -12276,7 +12276,7 @@ function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = f
             </div>
           ) : (
             <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.65, marginTop: 12, fontStyle: "italic" }}>
-              No summary was published with this record.
+              No summary came with this story.
             </div>
           )}
           <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14 }}>
@@ -12288,7 +12288,7 @@ function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = f
             </div>
           )}
           <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: accentInk(P, accent), fontFamily: "var(--cb-font)", marginTop: 14 }}>
-            Read the story brief
+            Read a short version of this story
           </div>
         </div>
         {media && (
@@ -12382,7 +12382,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
           {(publishedLabel || persistenceLabel || typeof item.citedByCount === "number") && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8 }}>{[publishedLabel ? `Published ${publishedLabel}` : null, item.citedByCount > 0 ? `Cited by ${item.citedByCount}` : item.citedByCount === 0 ? "No citations yet" : null, persistenceLabel].filter(Boolean).join(" · ")}</div>}
           {item.summary
             ? <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.7, marginTop: 18 }}>{renderInlineMdLite(item.summary, P)}</div>
-            : <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.7, marginTop: 18, fontStyle: "italic" }}>No summary was published with this record. The full text is at the source.</div>}
+            : <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.7, marginTop: 18, fontStyle: "italic" }}>No summary came with this story. Use Read at source below to read the whole story.</div>}
           {Array.isArray(item.coverage) && item.coverage.length > 1 && (
             <div style={{ marginTop: 22 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.eyebrow, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>More coverage of this story · {item.coverage.length} reports</div>
@@ -12407,7 +12407,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
                 fontSize: FONT_SIZES.label, fontWeight: 500, color: at, background: accent,
                 borderRadius: RADIUS.viewport, border: "none", cursor: "pointer", fontFamily: "var(--cb-font)",
               }}
-            ><Icon name="bookOpen" size={14} /> Explain with papers</UIButton>
+            ><Icon name="bookOpen" size={14} /> Ask Cerebrum what the research says</UIButton>
             <UIButton P={P} variant="ghost"
               onClick={() => onSaveStory && onSaveStory(item)}
               aria-pressed={isStorySaved ? !!isStorySaved(item) : false}
@@ -13190,13 +13190,13 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
   const [hero, ...rest] = visibleItems;
   const categories = ["All", ...Array.from(new Set(stories.map((x) => x.category).filter(Boolean)))];
   const categoryCount = (cat) => (cat === "All" ? stories.length : stories.filter((x) => x.category === cat).length);
-  const paperCount = stories.filter((x) => trendKind(x) !== "Press item").length;
+  const paperCount = stories.filter((x) => trendKind(x) !== "News report").length;
   const pressCount = stories.length - paperCount;
   /* Hero and digest only. There is no Newest rail: the rail repeated
      stories the hero and the digest already showed, so a story could
      appear twice on one page. */
   const isDefaultView = !query && trendCat === "All" && effectiveSort === "trend";
-  const heroLabel = isDefaultView ? "Lead story" : query ? "First match" : "First in this view";
+  const heroLabel = isDefaultView ? "Top story" : query ? "First match" : "First in this view";
   const pubTimes = stories.map((x) => new Date(x.publishedAt || 0).getTime()).filter((t) => t > 0);
   const fmtDay = (ts) => new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const pubRange = pubTimes.length > 1 && Math.max(...pubTimes) - Math.min(...pubTimes) > 86400000
@@ -13292,7 +13292,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
           style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16 }} />
       </div>
       <div role="group" aria-label="Sort stories" style={{ display: "inline-flex", flexWrap: "wrap", gap: 4 }}>
-        {[{ id: "trend", label: "Longest running" }, { id: "edition", label: "Edition order" }, { id: "newest", label: "Newest" }].map((o) => {
+        {[{ id: "trend", label: "Stayed in the edition longest" }, { id: "edition", label: "Order they came in" }, { id: "newest", label: "Newest first" }].map((o) => {
           const on = effectiveSort === o.id;
           return (
             <button key={o.id} type="button" onClick={() => setTrendSort(o.id)} aria-pressed={on}
@@ -13332,18 +13332,18 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
           <h1 style={{ margin: 0, fontSize: FONT_SIZES.display * 0.7, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1 }}>Today in Science</h1>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>
-              {dateline}{dateline ? "  ·  " : ""}Refreshed hourly from real science press
+              {dateline}{dateline ? "  ·  " : ""}New stories are gathered every hour
             </span>
           </div>
           <div style={{ fontSize: FONT_SIZES.label, color: P.faint, marginTop: 8, maxWidth: 640, lineHeight: 1.6 }}>
-            A daily edition of new science from four sources. Stories that stay in the edition day after day come first. Not fact checked like an answer, so read the source before you cite it.
+            A daily edition of new science from four sources. Stories that stay in the edition day after day come first. These stories are not checked the way an answer is checked, so open the story itself before you rely on it.
           </div>
           {/* One plain health line. Everything else about the health
               of this edition lives behind the toggle below it. */}
           {status === "ready" && stories.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 12 }}>
               <span role="status" style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.55 }}>
-                {stories.length} stories in this edition.{missingSources.length > 0 ? " One or more sections did not answer this round." : ""}{(feedMeta.degraded || feedMeta.stale) ? " This is the last good edition while the live feed recovers." : ""}{citationHealth && !citationHealth.ok && citationHealth.attempted > 0 ? " Citation counts are partial this round." : ""}
+                {stories.length} stories in this edition.{missingSources.length > 0 ? " One or more of the four sources gave no stories this time." : ""}{(feedMeta.degraded || feedMeta.stale) ? " This is the last good edition while the live feed recovers." : ""}{citationHealth && !citationHealth.ok && citationHealth.attempted > 0 ? " Citation counts are partial this round." : ""}
               </span>
               <button type="button" onClick={() => setHealthOpen((v) => !v)} aria-expanded={healthOpen}
                 style={{ minHeight: 44, padding: "6px 12px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, cursor: "pointer" }}>
@@ -13362,7 +13362,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
                 {generatedAt > 0 && <span>Updated {relativeTime(generatedAt)}</span>}
               </div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8, maxWidth: 640, lineHeight: 1.6 }}>
-                How this edition is built: recent stories from four sources, gathered into one daily edition. The order is persistence across editions. Stories that have stayed in the edition the most days come first. It is not ranked by clicks or shares.
+                How this edition is built: new stories from four sources, gathered into one daily edition. Stories that have stayed in the edition the most days come first. They are not put first because of clicks or shares, which this page does not count.
               </div>
               {/* The full warning texts live here, inside the details,
                   not as boxes above the stories. The one health line
@@ -13373,13 +13373,13 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
                   story, which is why the long forms moved in here. */}
               {missingSources.length > 0 && (
                 <div role="status" style={{ marginTop: 12, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "9px 13px", maxWidth: 640, lineHeight: 1.55 }}>
-                  Missing this round: {missingSources.join(", ")}. That section is absent because its source did not answer, not because nothing was published.
+                  Missing this round: {missingSources.join(", ")}. There are no stories from it here because that source gave us nothing this time, not because it published nothing.
                 </div>
               )}
               {citationHealth && !citationHealth.ok && citationHealth.attempted > 0 && (
                 <div role="status" style={{ marginTop: 12, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "9px 13px", maxWidth: 640, lineHeight: 1.55 }}>
                   {citationHealth.resolved > 0 ? (
-                    <>Citation counts are partial this round: {citationHealth.resolved} of {citationHealth.attempted} counts resolved{citationHealth.error ? ` (${citationHealth.error})` : ""}{/429/.test(citationHealth.error || "") ? ". A provider was rate limited, so the rest could not be checked" : ""}. Stories without a count below are ones their own sources did not report either.</>
+                    <>Citation counts are partial this round: {citationHealth.resolved} of {citationHealth.attempted} counts resolved{citationHealth.error ? ` (${citationHealth.error})` : ""}{/429/.test(citationHealth.error || "") ? ". One of the services that counts citations hit its limit, so the rest could not be checked" : ""}. Stories without a count below are ones their own sources did not report either.</>
                   ) : (
                     <>Citation counts could not be completed this round{citationHealth.error ? `: ${citationHealth.error}` : ""}. The counts on the stories below are the ones their own sources reported.</>
                   )}
@@ -13389,7 +13389,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
                 <div role="status" style={{ marginTop: 12, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(STATUS.warn, 0.1), border: `1px solid ${withAlpha(STATUS.warn, 0.3)}`, borderRadius: RADIUS.md, padding: "9px 13px", maxWidth: 640, lineHeight: 1.55 }}>
                   {feedMeta.degraded
                     ? "The live feed did not answer, so this is the last good edition. Stories stay readable while it recovers."
-                    : "A fresher edition is being gathered in the background. This one stays up until it lands."}
+                    : "A newer edition is being put together now. This one stays on screen until the new one is ready."}
                 </div>
               )}
             </div>
@@ -13397,17 +13397,17 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
           {status === "ready" && editions.length > 1 && (
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 14, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
               <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                Edition
+                Pick an edition
                 <select aria-label="Choose an edition" value={viewingEdition || ""}
                   onChange={(e) => { const v = e.target.value; if (v) openEdition(v); else backToCurrent(); }}
                   style={{ minHeight: 44, padding: "6px 10px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, cursor: "pointer" }}>
-                  <option value="">Current edition</option>
+                  <option value="">Latest edition</option>
                   {editions.slice(1).map((e) => (
                     <option key={e.id} value={e.id}>{fmtEditionDay(e.generatedAt)}</option>
                   ))}
                 </select>
               </label>
-              {newEdition && !viewingEdition && <span style={{ color: P.ink2, fontWeight: 500 }}>New edition since your last visit</span>}
+              {newEdition && !viewingEdition && <span style={{ color: P.ink2, fontWeight: 500 }}>A new edition has come out since your last visit</span>}
             </div>
           )}
           {status === "ready" && viewingEdition && (
@@ -13415,7 +13415,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
               <span>You are reading a past edition, as it was gathered on {fmtEditionDay(generatedAt)}. It does not update.</span>
               <button type="button" onClick={backToCurrent}
                 style={{ minHeight: 44, padding: "6px 12px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer" }}>
-                Back to the current edition
+                Back to the latest edition
               </button>
             </div>
           )}
@@ -13465,8 +13465,8 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
               Today in Science didn&apos;t load
             </div>
             <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, marginBottom: 22 }}>
-              The upstream science feed didn&apos;t answer. It&apos;s usually busy rather than
-              down, so a retry in a few seconds normally works.
+              The service that sends us the stories did not answer. It is usually just busy,
+              not broken, so trying again in a few seconds normally works.
             </div>
             <UIButton P={P} variant="ghost"
               onClick={() => setReloadTick((t) => t + 1)}
@@ -13485,8 +13485,8 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
             {isMobile && controlsBlock}
             {visibleItems.length === 0 && (
               <WorkspaceEmpty P={P} accent={accent} icon="chart" isMobile={isMobile}
-                title="Nothing in this edition matches"
-                body={query ? `No story here matches "${trendQuery.trim()}". Clear the search or pick another section.` : "This section has no stories in the current edition. Pick another section above, or read the whole edition."}
+                title="No stories match what you picked"
+                body={query ? `No story here matches "${trendQuery.trim()}". Try different words, or show the whole edition.` : "This part of the edition has no stories today. Pick a different part above, or show the whole edition."}
                 action={(
                   <UIButton P={P} variant="ghost" onClick={() => { setTrendQuery(""); setTrendCat("All"); }}
                     style={{ minHeight: 44, padding: "10px 20px", borderRadius: RADIUS.pill, background: accent, color: at, border: "none", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}
@@ -13506,7 +13506,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
                 ══════════════════════════════════════════════════ */}
             {rest.length > 0 && (
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, margin: "2px 0 2px" }}>
-                <h2 style={{ margin: 0, fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>The digest</h2>
+                <h2 style={{ margin: 0, fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>More stories</h2>
                 <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{rest.length} more {rest.length === 1 ? "story" : "stories"}</span>
               </div>
             )}
@@ -13531,7 +13531,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
                       {item.summary ? (
                         <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{renderInlineMdLite(item.summary, P)}</span>
                       ) : (
-                        <span style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.6, marginTop: 6, display: "block", fontStyle: "italic" }}>No summary was published with this record.</span>
+                        <span style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.6, marginTop: 6, display: "block", fontStyle: "italic" }}>No summary came with this story.</span>
                       )}
                       <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 8 }}>
                         {trendProvenance(item, generatedAt)}
@@ -21642,7 +21642,7 @@ function App({ profileHandle = null } = {}) {
   };
   const [libraryQuery, setLibraryQuery] = useState("");
   const [librarySort, setLibrarySort] = useState("recent");
-  /* One Library, three tabs: Papers, Maps, Collections. The old
+  /* One Library, three tabs: Papers and answers, Diagram Studio, Collections. The old
      Collections page and the Exports category fold in here: maps and
      collections are tabs of this page, and export receipts are a
      short recent activity list at the foot of the Papers tab. */
@@ -24358,25 +24358,25 @@ function App({ profileHandle = null } = {}) {
           <WorkspacePage
             P={P} accent={accent} isMobile={isMobile} wide
             title="Your library" count={saved.length + history.length + flowcharts.length}
-            description="Papers, answers, and diagrams you have kept, in one place. The count above counts those records together. Collections are folders for papers, and their tab counts the folders."
+            description="Everything you have saved, in one place: papers, answers, and Diagram Studio diagrams. The number at the top is all of those added together. Collections are folders you can put papers in, and the Collections tab number is how many folders you have."
             actions={saved.length > 0 ? (
               <div style={{ display: "flex", gap: 8, flexWrap: isMobile ? "nowrap" : "wrap", overflowX: isMobile ? "auto" : "visible", maxWidth: "100%", paddingBottom: isMobile ? 4 : 0 }}>
-                <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); libDownload("RIS", "cerebrum-saved.ris", toRIS(saved)); }}>Download RIS</UIButton>
-                <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); libDownload("BibTeX", "cerebrum-saved.bib", toBibTeX(saved)); }}>Export BibTeX</UIButton>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); libDownload("RIS", "cerebrum-saved.ris", toRIS(saved)); }}>Download citations as RIS</UIButton>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); libDownload("BibTeX", "cerebrum-saved.bib", toBibTeX(saved)); }}>Download citations as BibTeX</UIButton>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="upload" onClick={() => { sfx(); setImportOpen(true); setImportPreview(null); setImportSelected(new Set()); }}
-                  title="Import papers from Zotero, Mendeley, or any reference manager (BibTeX .bib or RIS .ris)">Import</UIButton>
+                  title="Import papers from Zotero, Mendeley, or any reference manager (BibTeX .bib or RIS .ris)">Import papers</UIButton>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="download" disabled={excelBusy}
-                  title="Export your top 20 saved papers to a branded Excel workbook"
+                  title="Download your top 20 saved papers as an Excel file"
                   onClick={async () => { sfx(); if (excelBusy) return; setExcelBusy(true); try { await exportTopPapersExcel(saved, { accent, title: "Cerebrum Top saved papers", filename: "cerebrum-saved-papers.xlsx" }); logExport("Excel", "cerebrum-saved-papers.xlsx"); bumpExports(); } catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); } setExcelBusy(false); }}>
-                  {excelBusy ? "Building…" : "Excel"}
+                  {excelBusy ? "Making your Excel file…" : "Download Excel file"}
                 </UIButton>
                 {confirmClearSaved ? (
                   <>
-                    <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setConfirmClearSaved(false)}>Cancel</UIButton>
-                    <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { const removedAll = saved; setSaved([]); setConfirmClearSaved(false); parkLibUndo({ papers: removedAll, text: `Removed all ${removedAll.length} paper${removedAll.length === 1 ? "" : "s"} from your library.` }); sfx(); }}>Delete everything</UIButton>
+                    <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => setConfirmClearSaved(false)}>Keep my papers</UIButton>
+                    <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { const removedAll = saved; setSaved([]); setConfirmClearSaved(false); parkLibUndo({ papers: removedAll, text: `Removed all ${removedAll.length} paper${removedAll.length === 1 ? "" : "s"} from your library.` }); sfx(); }}>Yes, remove all papers</UIButton>
                   </>
                 ) : (
-                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setConfirmClearSaved(true)}>Clear all</UIButton>
+                  <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setConfirmClearSaved(true)}>Remove all papers</UIButton>
                 )}
               </div>
             ) : null}
@@ -24389,8 +24389,8 @@ function App({ profileHandle = null } = {}) {
                 activity at the foot of the Papers tab. */}
             <div role="tablist" aria-label="Library sections" style={{ display: "flex", flexWrap: "wrap", border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, marginBottom: 30, overflow: "hidden" }}>
               {[
-                { key: "papers", label: "Papers", count: saved.length + history.length },
-                { key: "maps", label: "Maps", count: flowcharts.length },
+                { key: "papers", label: "Papers and answers", count: saved.length + history.length },
+                { key: "maps", label: "Diagram Studio", count: flowcharts.length },
                 { key: "collections", label: "Collections", count: collections.length },
               ].map((c, i) => {
                 const on = libraryTab === c.key;
@@ -24404,7 +24404,7 @@ function App({ profileHandle = null } = {}) {
                       minHeight: 44,
                     }}>
                     <div className="cb-mono" style={{ fontSize: 20, fontWeight: 500, color: P.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{c.count}</div>
-                    <div style={{ fontSize: FONT_SIZES.caption, color: on ? P.ink : P.faint, marginTop: 3 }}>{c.label}{c.key === "papers" ? " and answers" : ""}</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: on ? P.ink : P.faint, marginTop: 3 }}>{c.label}</div>
                   </button>
                 );
               })}
@@ -24423,15 +24423,15 @@ function App({ profileHandle = null } = {}) {
             <div id="lib-papers" style={{ scrollMarginTop: 80 }}>
             {saved.length === 0 && history.length === 0 ? (
               <WorkspaceEmpty P={P} accent={accent} icon="bookmark"
-                title="Nothing saved yet"
-                body="Save a paper from any answer and it lands here. Authors, journal and year come with it, so exports stay citable."
-                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Start an investigation</UIButton>} />
+                title="You have not saved anything yet"
+                body="When you read an answer, press Save on a paper you want to keep. It will show up here with its authors, journal, and year, ready to use in your own writing."
+                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Ask a question</UIButton>} />
             ) : (
               <>
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
                   <div style={{ flex: "1 1 240px", minWidth: 0 }}>
                     <UIField P={P} accent={accent} value={libraryQuery} onChange={setLibraryQuery}
-                      placeholder="Filter by title, author or journal…" aria-label="Filter your library" />
+                      placeholder="Search by title, author, or journal" aria-label="Search your library" />
                   </div>
                   {/* A library sorts by when you saved it or by how old the
                       work is — two genuinely different questions, and the
@@ -24444,32 +24444,33 @@ function App({ profileHandle = null } = {}) {
                     store as records, with title, date, and cited
                     paper count, and open back into the investigation. */}
                 <div style={{ marginBottom: 18 }}>
-                  <SegControl small value={libraryKind} onChange={setLibraryKind} P={P} accent={accent} ariaLabel="Record type"
-                    options={[{ id: "all", label: "All records" }, { id: "papers", label: `Papers (${saved.length})` }, { id: "answers", label: `Answers (${history.length})` }]} />
+                  <SegControl small value={libraryKind} onChange={setLibraryKind} P={P} accent={accent} ariaLabel="What to show"
+                    options={[{ id: "all", label: "Everything" }, { id: "papers", label: `Papers (${saved.length})` }, { id: "answers", label: `Answers (${history.length})` }]} />
                 </div>
                 {libraryKind !== "answers" && visibleSaved.length === 0 && saved.length > 0 ? (
                   <WorkspaceEmpty P={P} accent={accent} icon="search"
                     title="No matches"
-                    body={`Nothing in your library matches "${libraryQuery}". Try an author surname or part of the journal name.`} />
+                    body={`Nothing in your library matches "${libraryQuery}". Try part of a title, an author last name, or part of a journal name.`}
+                    action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setLibraryQuery("")}>Clear the search</UIButton>} />
                 ) : (
                   <>
                     {/* Bulk bar: appears the moment anything is selected. Export,
                         file, or remove the selection as one operation. */}
                     {selectedSavedKeys.size > 0 && (
                       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12, padding: "12px 16px", borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: withAlpha(accent, 0.07) }}>
-                        <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>{selectedSavedKeys.size} selected</span>
-                        <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); libDownload("RIS", "cerebrum-selected.ris", toRIS(sel)); }}>Download RIS</UIButton>
-                        <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); libDownload("BibTeX", "cerebrum-selected.bib", toBibTeX(sel)); }}>Export BibTeX</UIButton>
+                        <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>{selectedSavedKeys.size} picked</span>
+                        <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); libDownload("RIS", "cerebrum-selected.ris", toRIS(sel)); }}>Download citations as RIS</UIButton>
+                        <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); libDownload("BibTeX", "cerebrum-selected.bib", toBibTeX(sel)); }}>Download citations as BibTeX</UIButton>
                         {collections.length > 0 && (
                           <UISelect P={P} accent={accent} value="" onChange={(cid) => { setSaved((prev) => prev.map((s) => selectedSavedKeys.has(sourceKey(s)) ? { ...s, collectionId: cid } : s)); setSelectedSavedKeys(new Set()); sfx(); }}
-                            options={[{ value: "", label: "Move to collection…" }, ...collections.map((c) => ({ value: c.id, label: c.name }))]}
-                            ariaLabel="Move selected to collection" style={{ fontSize: FONT_SIZES.caption }} />
+                            options={[{ value: "", label: "Put in a collection…" }, ...collections.map((c) => ({ value: c.id, label: c.name }))]}
+                            ariaLabel="Put the papers you picked in a collection" style={{ fontSize: FONT_SIZES.caption }} />
                         )}
                         {/* Removal is one press now, with the undo
                             window above the list as the safety net,
                             instead of an arm and confirm pair. */}
-                        <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { const removed = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); setSaved((prev) => prev.filter((s) => !selectedSavedKeys.has(sourceKey(s)))); setSelectedSavedKeys(new Set()); parkLibUndo({ papers: removed, text: `Removed ${removed.length} paper${removed.length === 1 ? "" : "s"} from your library.` }); sfx(); }}>Remove selected</UIButton>
-                        <button onClick={() => setSelectedSavedKeys(new Set())} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", minHeight: 44, padding: "0 8px" }}>Clear</button>
+                        <UIButton P={P} accent={accent} at={at} size="sm" variant="destructive" onClick={() => { const removed = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); setSaved((prev) => prev.filter((s) => !selectedSavedKeys.has(sourceKey(s)))); setSelectedSavedKeys(new Set()); parkLibUndo({ papers: removed, text: `Removed ${removed.length} paper${removed.length === 1 ? "" : "s"} from your library.` }); sfx(); }}>Remove the papers you picked</UIButton>
+                        <button onClick={() => setSelectedSavedKeys(new Set())} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", minHeight: 44, padding: "0 8px" }}>Clear choices</button>
                       </div>
                     )}
                     {/* The ledger: one row per paper, dense and scannable.
@@ -24484,7 +24485,7 @@ function App({ profileHandle = null } = {}) {
                             style={{ width: 18, height: 18, accentColor: accent, cursor: "pointer", flexShrink: 0 }} />
                           <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TITLE</span>
                           <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TYPE</span>
-                          <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>SOURCE / JOURNAL</span>
+                          <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>JOURNAL OR SOURCE</span>
                           <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>SAVED</span>
                           <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>Used in</span>
                           <span style={{ width: 76, flexShrink: 0 }} />
@@ -24639,16 +24640,16 @@ function App({ profileHandle = null } = {}) {
                 drops, so the name is never squeezed to nothing. */}
             <div style={{ marginTop: 44 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-                <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Recent activity</h2>
+                <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Your downloads and imports</h2>
                 {exportLog.length > 0 && (
                   <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.ink2, background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, padding: "4px 11px", borderRadius: RADIUS.pill, fontVariantNumeric: "tabular-nums" }}>{exportLog.length}</span>
                 )}
               </div>
-              <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>Exports made in this browser: the file, the format, and when it left. Receipts stay in this browser and do not sync.</p>
+              <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>A short list of the files this browser has made for you, and any citation files you brought in. Each line gives the file name, what kind of file it is, and when it happened. This list lives in this browser only. It does not follow your account.</p>
               {exportLog.length === 0 ? (
-                <p style={{ margin: 0, fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>Nothing exported yet. Export a bibliography, your saved papers, an investigation, or a diagram and the receipt lands here.</p>
+                <p style={{ margin: 0, fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>You have not downloaded or imported anything in this browser yet. When you download your saved papers, an answer, or a Diagram Studio diagram, a line about it will appear here.</p>
               ) : (
-                <div role="list" aria-label="Recent export activity" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, overflow: "hidden" }}>
+                <div role="list" aria-label="Your downloads and imports" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, overflow: "hidden" }}>
                   {exportLog.slice(0, 8).map((r, i) => (
                     <div key={`${r.at ?? r.ts}-${i}`} role="listitem"
                       style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
@@ -24676,22 +24677,22 @@ function App({ profileHandle = null } = {}) {
           {libraryTab === "maps" && (
           <div id="lib-maps" style={{ scrollMarginTop: 80 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-              <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Diagrams</h2>
+              <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Diagram Studio</h2>
               {flowcharts.length > 0 && (
                 <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.ink2, background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, padding: "4px 11px", borderRadius: RADIUS.pill, fontVariantNumeric: "tabular-nums" }}>{flowcharts.length}</span>
               )}
               <div style={{ marginLeft: isMobile ? 0 : "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" variant="primary" onClick={() => { sfx(); setView("studio"); }}>New diagram</UIButton>
+                <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" variant="primary" onClick={() => { sfx(); setView("studio"); }}>Make a diagram in Diagram Studio</UIButton>
               </div>
             </div>
-            <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>Diagrams you've built from answers, papers, and your own steps. They sync to your account when you're signed in, and stay in this browser when you're not.</p>
+            <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>Things you have built in Diagram Studio, from answers, from papers, and from steps you wrote yourself. When you are signed in they are saved to your account too. When you are not, they stay in this browser.</p>
             {flowcharts.length === 0 ? (
               <WorkspaceEmpty P={P} accent={accent} icon="flowchart"
-                title="No diagrams yet"
-                body="Diagram a mechanism, a method, or a decision the literature describes. You can draft one straight from any answer, or write the steps yourself."
-                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => { sfx(); setView("studio"); }}>Open Diagram Studio</UIButton>} />
+                title="No Diagram Studio diagrams yet"
+                body="Build a picture of a process, a method, or a decision, as a list of steps in order. You can start from an answer, or write the steps yourself."
+                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => { sfx(); setView("studio"); }}>Make a diagram in Diagram Studio</UIButton>} />
             ) : (
-              <div role="list" aria-label="Saved diagrams" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflow: "hidden", background: P.surface }}>
+              <div role="list" aria-label="Diagram Studio diagrams you have saved" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflow: "hidden", background: P.surface }}>
                 {flowcharts.map((fc, i) => (
                   <div key={fc.id} role="listitem" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", padding: "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
                     <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }} aria-label={`Open ${fc.title || "untitled diagram"}`}
@@ -24714,13 +24715,13 @@ function App({ profileHandle = null } = {}) {
                     </span>
                     <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", maxWidth: "100%", flexBasis: isMobile ? "100%" : "auto", justifyContent: isMobile ? "flex-end" : "flex-start" }}>
                       <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }}>Open</UIButton>
-                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", fcSvgString(fc.nodes || [], fc.edges || [], fc.title)); }}>SVG</UIButton>
+                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", fcSvgString(fc.nodes || [], fc.edges || [], fc.title)); }}>SVG file</UIButton>
                       {/* Delete is one press with the undo window as
                           the safety net. The old armed pair was wider
                           than the row on a phone and clipped outside
                           it; nothing here can render wider than the
                           row now, because the row wraps. */}
-                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); setFlowcharts((prev) => prev.filter((c) => c.id !== fc.id)); parkLibUndo({ maps: [fc], text: `Deleted the diagram "${fc.title || "Untitled diagram"}".` }); }}>Delete</UIButton>
+                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); setFlowcharts((prev) => prev.filter((c) => c.id !== fc.id)); parkLibUndo({ maps: [fc], text: `Removed "${fc.title || "Untitled diagram"}" from Diagram Studio.` }); }}>Remove</UIButton>
                     </span>
                   </div>
                 ))}
@@ -24758,17 +24759,22 @@ function App({ profileHandle = null } = {}) {
                 {String(peekSaved.abstract || peekSaved.tldr || peekSaved.summary || "").replace(/\s+/g, " ").trim()}
               </p>
             )}
+            {!String(peekSaved.abstract || peekSaved.tldr || peekSaved.summary || "").trim() && (
+              <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, margin: "0 0 18px", fontFamily: "var(--cb-font)", lineHeight: 1.65 }}>
+                No summary is saved for this paper. Use Read at source below to see the paper itself.
+              </p>
+            )}
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
               <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>Your rating</span>
               <StarRating P={P} value={peekSaved.rating || 0} onRate={(r) => rateSavedPaper(peekSaved, r)} disabled={libRatingSaving === sourceKey(peekSaved)} size={18} />
               {peekSaved.rating ? <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{peekSaved.rating} of 5. Tap it again to clear.</span> : <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Not rated yet.</span>}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
-              <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>Collection</span>
+              <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>Put it in a collection</span>
               {collections.length > 0 ? (
-                <UISelect P={P} accent={accent} value={peekSaved.collectionId || ""} ariaLabel="File this paper in a collection"
+                <UISelect P={P} accent={accent} value={peekSaved.collectionId || ""} ariaLabel="Put this paper in a collection"
                   onChange={(cid) => { const k = sourceKey(peekSaved); setSaved((prev) => prev.map((s) => (sourceKey(s) === k ? { ...s, collectionId: cid || null } : s))); sfx(); }}
-                  options={[{ value: "", label: "Not filed" }, ...collections.map((c) => ({ value: c.id, label: c.name }))]} />
+                  options={[{ value: "", label: "Not in a collection" }, ...collections.map((c) => ({ value: c.id, label: c.name }))]} />
               ) : (
                 <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>No collections yet. Create one in the Collections tab of the Library.</span>
               )}
@@ -24792,12 +24798,12 @@ function App({ profileHandle = null } = {}) {
       )}
       {/* Citation import modal — BibTeX/RIS from Zotero, Mendeley, etc. */}
       {importOpen && (
-        <Dialog label="Import citations" onClose={() => { setImportOpen(false); setImportPreview(null); }} zIndex={Z.modal} width={640}>
+        <Dialog label="Import papers" onClose={() => { setImportOpen(false); setImportPreview(null); }} zIndex={Z.modal} width={640}>
           <div style={{ padding: 24 }}>
-            <h2 style={{ fontSize: 20, fontWeight: 500, color: P.ink, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>Import citations</h2>
+            <h2 style={{ fontSize: 20, fontWeight: 500, color: P.ink, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>Import papers</h2>
             <p style={{ fontSize: FONT_SIZES.label, color: P.faint, margin: "0 0 16px", fontFamily: "var(--cb-font)" }}>
-              From Zotero, Mendeley, or any reference manager. Export as BibTeX (.bib) or RIS (.ris), then drop the file here.
-              Imported papers arrive without abstracts. Those formats don't carry them.
+              If you keep papers in Zotero, Mendeley, or a similar app, save them there as a BibTeX file (.bib) or an RIS file (.ris), then choose that file here.
+              Those file types do not include summaries, so the papers you bring in will arrive without one.
             </p>
             {!importPreview ? (
               <label style={{
@@ -24829,7 +24835,7 @@ function App({ profileHandle = null } = {}) {
                   {importBusy ? "Reading…" : "Choose a .bib or .ris file"}
                 </span>
                 <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)" }}>
-                  Works with Zotero and Mendeley exports
+                  Works with files from Zotero and Mendeley
                 </span>
               </label>
             ) : (
@@ -24837,15 +24843,15 @@ function App({ profileHandle = null } = {}) {
                 {importPreview.errors.length > 0 && (
                   <div style={{ background: withAlpha("#f59e0b", 0.1), border: `1px solid ${withAlpha("#f59e0b", 0.3)}`, borderRadius: RADIUS.md, padding: "12px 16px", marginBottom: 16 }}>
                     <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 4 }}>
-                      {importPreview.errors.length} entr{importPreview.errors.length === 1 ? "y" : "ies"} couldn't be read
+                      {importPreview.errors.length} paper{importPreview.errors.length === 1 ? "" : "s"} in this file could not be read
                     </div>
                     <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                      The rest imported fine. {importPreview.errors[0]}
+                      The rest are ready to import. {importPreview.errors[0]}
                     </div>
                   </div>
                 )}
                 <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, marginBottom: 12, fontFamily: "var(--cb-font)" }}>
-                  {importPreview.papers.length} papers found ({importPreview.format})
+                  {importPreview.papers.length} papers found in this {importPreview.format} file
                 </div>
                 <div style={{ maxHeight: 300, overflowY: "auto", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, marginBottom: 16 }}>
                   {importPreview.papers.map((p, i) => (

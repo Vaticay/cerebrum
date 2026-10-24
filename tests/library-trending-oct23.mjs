@@ -128,7 +128,7 @@ await test("saved sync reads the response counts and reports skips by count", ()
 // ══════════════════════════════════════════════════════════════════════════
 group("one Library, three tabs");
 
-await test("the Library is one page with Papers, Maps, and Collections tabs", () => {
+await test("the Library is one page with Papers and answers, Diagram Studio, and Collections tabs", () => {
   assert.ok(appSrc.includes('role="tablist" aria-label="Library sections"'), "no Library tab bar");
   assert.ok(appSrc.includes('libraryTab === "collections"'), "no Collections tab");
   assert.ok(!appSrc.includes('{view === "collections"'), "the standalone Collections page still exists");
@@ -138,20 +138,21 @@ await test("the Library is one page with Papers, Maps, and Collections tabs", ()
 
 await test("the header count and the tab counts are one accounting", () => {
   assert.ok(appSrc.includes("count={saved.length + history.length + flowcharts.length}"), "the header count is not the whole record count");
-  assert.ok(appSrc.includes('{ key: "papers", label: "Papers", count: saved.length + history.length }'), "the Papers tab does not count papers and answers together");
+  assert.ok(appSrc.includes('{ key: "papers", label: "Papers and answers", count: saved.length + history.length }'), "the Papers tab does not count papers and answers together");
+  assert.ok(appSrc.includes('{ key: "maps", label: "Diagram Studio", count: flowcharts.length }'), "the diagram tab does not carry the one Diagram Studio name");
 });
 
 await test("answers are first class records from the investigations store", () => {
-  const lib = slice(appSrc, 'aria-label="Saved answers"', "Recent activity");
+  const lib = slice(appSrc, 'aria-label="Saved answers"', "Your downloads and imports");
   assert.ok(lib.includes("cited paper"), "answer records do not state their cited paper count");
   assert.ok(lib.includes("openHistoryItem(h)"), "answer records do not open the investigation");
-  assert.ok(appSrc.includes('ariaLabel="Record type"'), "no record type filter on the Papers tab");
+  assert.ok(appSrc.includes('ariaLabel="What to show"'), "no record type filter on the Papers tab");
 });
 
-await test("export receipts are recent activity at the foot of the Papers tab", () => {
+await test("export receipts are a downloads and imports list at the foot of the Papers tab", () => {
   assert.ok(!appSrc.includes('id="lib-exports"'), "Exports is still a top level section");
-  assert.ok(appSrc.includes("Recent activity"), "no recent activity list");
-  const receipts = slice(appSrc, "Recent activity", 'id="lib-maps"');
+  assert.ok(appSrc.includes("Your downloads and imports"), "no downloads and imports list");
+  const receipts = slice(appSrc, "Your downloads and imports", 'id="lib-maps"');
   assert.ok(receipts.includes("exportLog.slice(0, 8)"), "the activity list is not a short list");
   assert.ok(receipts.includes("!isMobile && ("), "the fixed date span still renders on phones");
 });
@@ -179,7 +180,7 @@ await test("the peek holds the source link, the star rating, and the collection 
   assert.ok(peek.includes("<StarRating"), "the peek does not reuse the star rating control");
   assert.ok(peek.includes("rateSavedPaper(peekSaved, r)"), "the peek rating does not write a rating");
   assert.ok(peek.includes("Read at source"), "the peek has no source link");
-  assert.ok(peek.includes("File this paper in a collection"), "the peek has no collection picker");
+  assert.ok(peek.includes("Put this paper in a collection"), "the peek has no collection picker");
   assert.ok(appSrc.includes('apiDataAction("set-rating", { resource: "saved", id: paperId, rating })'), "ratings do not ride the stored rating path");
 });
 
@@ -252,7 +253,7 @@ await test("on a phone the hero comes before the edition controls, and the sort 
   const controls = slice(appSrc, "const controlsBlock =", "const heroBlock =");
   assert.ok(controls.includes("Search this edition"), "the edition search left the controls block");
   assert.ok(controls.includes("Filter by section"), "the section pills left the controls block");
-  assert.ok(controls.includes('{ id: "edition", label: "Edition order" }'), "Edition order left the sort");
+  assert.ok(controls.includes('{ id: "edition", label: "Order they came in" }'), "Order they came in left the sort");
   assert.ok(!controls.includes("Most cited"), "the Most cited sort is back in the controls");
 });
 
