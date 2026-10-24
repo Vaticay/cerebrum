@@ -28468,7 +28468,11 @@ async function gatherPapersBody(rawQuery, opts) {
   // engaging almost nothing still fails); and one central concept
   // is engaged in BOTH its title and its abstract, judged by
   // centralConceptHits over a single concept at a time, the same
-  // accounting the topicality cap and the rescues use. A paper
+  // accounting the topicality cap and the rescues use. (The
+  // study type and one concept conditions in this paragraph are
+  // the 2026-10-23 shape; the GENERALIZED note below the helper
+  // records the 2026-10-24 widening to reviews as a class plus
+  // the two concept route.) A paper
   // with no subject engagement (the probe's Hopetimize pilot,
   // which engages no central concept at all) gains nothing, a
   // non review paper with the same one hit profile (the probe's
@@ -28482,12 +28486,45 @@ async function gatherPapersBody(rawQuery, opts) {
   // Passing the floor changes the shelf only. The relevance
   // floor and the citation gate judge the paper downstream
   // exactly like any other shelf paper.
+  // GENERALIZED (2026-10-24, citation wave, Lane 2): the pass
+  // above was calibrated on the two systematic reviews of the
+  // first probe, and the continuation probes measured the two
+  // shapes it still classed weak. First, a NARRATIVE review
+  // engaging the subject in title and abstract (the biomedical
+  // scientists burnout review) failed on study type alone: the
+  // pass admitted one review class and not the other, though
+  // both are reviews of the same literature. Second, papers
+  // whose engagement is SPLIT across the fields, the population
+  // concept in the title and the subject concept in the abstract
+  // (the PhD students systematic review; primary studies of
+  // burnout in medical and doctoral students), failed the one
+  // concept in both fields test though they engage two of the
+  // question's central concepts between them. The pass now has
+  // two routes over the same nearest miss bound. Route A is the
+  // 2026-10-23 route, widened to reviews as a class (systematic
+  // or narrative): one central concept engaged in BOTH title
+  // and abstract. Route B is study type blind: at least two
+  // central concepts engaged across title and abstract, at
+  // least one of them in the abstract, the same engagement
+  // shape the citation standard asks of a cited paper. A paper
+  // engaging the subject alone, in the wrong population (the
+  // mining workers and dietitians papers of the probes), engages
+  // one concept and gains nothing from either route; a paper
+  // engaging no central concept gains nothing, exactly as
+  // before.
   const reviewSubjectFloorPass = (p, coreHits, required) => {
     try {
-      if (!p || p.studyTypeKey !== "SYSTEMATIC_REVIEW") return false;
+      if (!p) return false;
       if (typeof coreHits !== "number" || typeof required !== "number") return false;
       if (coreHits < required - 1) return false;
       if (!Array.isArray(scorerCentralConcepts) || scorerCentralConcepts.length === 0) return false;
+      // Route B: two central concepts engaged, one in the
+      // abstract, whatever the study type.
+      const all = centralConceptHits(p, scorerCentralConcepts);
+      if (all.total >= 2 && all.inAbstract >= 1) return true;
+      // Route A: a review engaging one central concept in both
+      // title and abstract.
+      if (p.studyTypeKey !== "SYSTEMATIC_REVIEW" && p.studyTypeKey !== "NARRATIVE_REVIEW") return false;
       for (const c of scorerCentralConcepts) {
         if (!c) continue;
         const hits = centralConceptHits(p, [c]);
@@ -28992,10 +29029,12 @@ async function gatherPapersBody(rawQuery, opts) {
         else required = 3;
         const titleStrong = coreTitleHits >= 2;
         // REVIEW SUBJECT FLOOR PASS (2026-10-23, see the helper
-        // above): a systematic review or meta analysis that
-        // engages a central concept in title and abstract and
-        // misses the requirement by at most one hit is not weak
-        // for missing a secondary population concept alone.
+        // above; generalized 2026-10-24, Lane 2): a review that
+        // engages a central concept in title and abstract, or
+        // any paper that engages two central concepts with one
+        // in the abstract, and misses the requirement by at
+        // most one hit is not weak for missing a secondary
+        // population concept alone.
         if (coreHits < required && !titleStrong && !reviewSubjectFloorPass(p, coreHits, required)) return false;
       }
 
