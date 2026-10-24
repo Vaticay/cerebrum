@@ -36,20 +36,27 @@ async function test(name, fn) {
   }
 }
 
-await test("the mute toast claims the full mute scope, calls included, in both directions", () => {
-  // Corrected contract, wave eleven (2026-10-14): the owner ruled
-  // that a muted thread must not ring for calls from that thread on
-  // any path, and the gates landed with this wave (incoming-calls
-  // excludes muted threads; the call push filters muted callees).
-  // The wave eight pin that stood here required the message only
-  // scope, which was the honest copy while ringing genuinely sat
-  // outside the mute; it is replaced, not loosened: the message
-  // only strings are the forbidden ones now, because they would
-  // underclaim what the mute actually does.
-  assert.ok(inboxSrc.includes("\"Notifications muted for this conversation, calls included.\""), "the mute toast does not claim the call scope");
-  assert.ok(inboxSrc.includes("\"Notifications unmuted for this conversation.\""), "the unmute toast is missing");
+await test("the mute toast says notifications are off, in plain words, in both directions", () => {
+  // Modernization wave (2026-10-24): calls were removed from the
+  // product, so the old toast claiming a call scope described a
+  // feature that no longer exists. The binding mute contract is
+  // unchanged: muting silences that thread's notifications
+  // everywhere, and the server and poll gates below still pin that
+  // behavior. The toast now says exactly that, in plain words.
+  assert.ok(inboxSrc.includes("\"Notifications are off for this conversation.\""), "the mute toast does not say notifications are off");
+  assert.ok(inboxSrc.includes("\"Notifications are on for this conversation.\""), "the unmute toast is missing");
+  assert.ok(!inboxSrc.includes("calls included"), "the mute toast still claims a call scope for a removed feature");
   assert.ok(!inboxSrc.includes("\"Message notifications muted for this conversation.\""), "the message only mute toast is back");
   assert.ok(!inboxSrc.includes("\"Message notifications unmuted for this conversation.\""), "the message only unmute toast is back");
+});
+
+await test("modernization copy: encrypted preview explains itself, the shelf drops voice notes, groups state no admins plainly", () => {
+  assert.ok(inboxSrc.includes("\"Locked. Open to read it on this device.\"") || inboxSrc.includes("Locked. Open to read it on this device."), "the encrypted preview does not explain itself");
+  assert.ok(!inboxSrc.includes("|| \"Encrypted message\""), "the bare encrypted preview is back");
+  assert.ok(!inboxSrc.includes("sharedCounts.audio"), "the shared shelf still counts voice notes");
+  assert.ok(inboxSrc.includes("Groups have no admins. Any member can rename the group or remove people."), "group creation does not state the no admins rule plainly");
+  assert.ok(inboxSrc.includes("There are no admins. Any member can rename the group or remove people."), "group info does not state the no admins rule plainly");
+  assert.ok(inboxSrc.includes("Notifications are off for this conversation."), "mute toast pin missing");
 });
 
 await test("composer is a growing textarea, not a single line input", () => {
