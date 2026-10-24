@@ -1851,7 +1851,7 @@ function ConfigStatus({ P, accent }) {
 
 function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro, onProChanged, onRegisterPasskey }) {
   const isMobile = useIsMobile();
-  const [tab, setTab] = useState(initialTab || "answers");
+  const [tab, setTab] = useState(initialTab || "account");
   // Wave 3 — the three destructive confirmations used to be inline
   // expanders inside their rows (Delete/Cancel pairs that shifted the
   // whole list down and broke the one-row-one-action anatomy). They are

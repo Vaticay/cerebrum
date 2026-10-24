@@ -6076,7 +6076,15 @@ function InfoPage({ page }) {
     .trim().replace(/\s+/g, "-").slice(0, 60);
   const isLegal = page === "terms" || page === "privacy" || page === "disclosures";
   const toc = isLegal ? data.blocks.map((b2) => ({ h: b2.h, id: slug(b2.h) })) : [];
-  const NAV = [["about", "About"], ["privacy", "Privacy"], ["terms", "Terms"], ["disclosures", "Disclosures"], ["contact", "Contact"]];
+  /* Every public route, in the order a new visitor needs them (2026 10 24,
+     shell lane): the five pages about the product first, then the five
+     company and legal pages. This list used to hold only the legal five,
+     so Pricing and Features existed but no public page linked to them,
+     and Document Mode, Diagram Studio, and Investigations were missing
+     too. The routes are the ten in INFO_SLUGS (src/routeClassify.js):
+     five in LEGAL_PAGES and five in MARKETING_PAGES. Header and footer
+     below both render this one list. */
+  const NAV = [["about", "About"], ["features", "Features"], ["pricing", "Pricing"], ["document-mode", "Document Mode"], ["diagram-studio", "Diagram Studio"], ["investigations", "Investigations"], ["privacy", "Privacy"], ["terms", "Terms"], ["disclosures", "Disclosures"], ["contact", "Contact"]];
   return (
     <div style={{ minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", position: "relative", display: "flex", flexDirection: "column", overflowX: "clip" }}>
       <style>{`
@@ -6091,7 +6099,7 @@ function InfoPage({ page }) {
         .cb-info-block li:last-child { border-bottom: none; }
         .cb-info-block li:before { content: ""; position: absolute; left: 6px; top: 18px; width: 5px; height: 5px; border-radius: 50%; background: ${accent}; }
         .cb-info-navlink { position: relative; transition: color .15s ease; }
-        .cb-info-navlink::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 1px; height: 2px; background: ${accent}; border-radius: 2px; transform: scaleX(0); transform-origin: left; transition: transform .25s cubic-bezier(0.16, 1, 0.3, 1); }
+        .cb-info-navlink::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 1px; height: 2px; background: ${accent}; border-radius: 2px; transform: scaleX(0); transform-origin: left; transition: transform .25s cubic-bezier(0.16, 1, 0.3, 1); }
         .cb-info-navlink:hover { color: ${accentInk(P, accent)} !important; }
         .cb-info-navlink:hover::after, .cb-info-navlink[aria-current="page"]::after { transform: scaleX(1); }
         .cb-fadein { animation: cbInfoFade .6s cubic-bezier(0.16, 1, 0.3, 1) both; }
@@ -6107,13 +6115,13 @@ function InfoPage({ page }) {
             reasoning), but the layer is now just an opaque background
             with the hairline border. */}
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: Z.behind, pointerEvents: "none", background: P.bg, borderBottom: `1px solid ${P.line}` }} />
-        <div style={{ maxWidth: 760, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+        <div style={{ maxWidth: 1080, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px 16px", flexWrap: "wrap" }}>
           <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 500, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, padding: 0 }}>
             <Mark size={18} accent={accent} /> Cerebrum
           </button>
-          <nav style={{ display: "flex", gap: 6 }}>
+          <nav aria-label="Public pages" style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: isMobile ? "flex-start" : "flex-end" }}>
             {NAV.map(([slug, label]) => (
-              <a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: FONT_SIZES.body, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "6px 12px", fontWeight: page === slug ? 500 : 500, letterSpacing: TYPE.heading.letterSpacing }}>{label}</a>
+              <a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: FONT_SIZES.body, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "6px 8px", fontWeight: page === slug ? 500 : 500, letterSpacing: TYPE.heading.letterSpacing, whiteSpace: "nowrap" }}>{label}</a>
             ))}
           </nav>
         </div>
@@ -6223,9 +6231,9 @@ function InfoPage({ page }) {
         </div>
       </main>
       <footer style={{ borderTop: `1px solid ${P.line}`, padding: "28px 24px", textAlign: "center", position: "relative", zIndex: Z.content }}>
-        <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+        <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 500, color: P.ink, fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)" }}><Mark size={16} accent={accent} /> Cerebrum</div>
-          <nav style={{ alignItems: "center", display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
+          <nav aria-label="Public pages" style={{ alignItems: "center", display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
             {NAV.map(([slug, label]) => (<a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: FONT_SIZES.label, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "5px 12px", fontWeight: page === slug ? 500 : 500 }}>{label}</a>))}
           </nav>
           <div style={{ fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)" }}>© 2026 Cerebrum</div>
@@ -12677,9 +12685,9 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
     const d = Math.floor(m / 1440);
     const h = Math.floor((m % 1440) / 60);
     const mm = m % 60;
-    if (d > 0) return `${d}d ${h}h`;
-    if (h > 0) return `${h}h ${mm}m`;
-    return `${mm}m`;
+    if (d > 0) return `${d} day${d === 1 ? "" : "s"} and ${h} hour${h === 1 ? "" : "s"}`;
+    if (h > 0) return `${h} hour${h === 1 ? "" : "s"} and ${mm} minute${mm === 1 ? "" : "s"}`;
+    return `${mm} minute${mm === 1 ? "" : "s"}`;
   };
   const refillDate = new Date(resetsAt).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
   const refillTime = new Date(resetsAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
@@ -12689,7 +12697,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
       <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "64px 24px" : "48px 24px", textAlign: "center" }}>
         <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</div>
         <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
-          Sign in to see your meters: AI answers, document reads, and flowcharts, with exact refill times.
+          Sign in to see how much you have used and how much is left for AI answers, document reads, and diagrams, and when it all refills.
         </div>
         <UIButton P={P} variant="ghost" onClick={() => onOpenAuth && onOpenAuth("signin")} style={{ marginTop: 20, padding: "12px 28px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, color: at, background: accent, border: "none", borderRadius: RADIUS.lg, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
           Sign in
@@ -12708,7 +12716,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
       <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "64px 24px" : "48px 24px", textAlign: "center" }}>
         <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</div>
         <div role="alert" style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)", lineHeight: 1.55 }}>
-          Your plan status could not be loaded, so your meters are not shown. Nothing about your plan has changed.
+          Your plan details could not be loaded, so your usage numbers are not shown. Nothing about your plan has changed.
         </div>
         {onRetryPro && (
           <UIButton P={P} variant="ghost" onClick={onRetryPro} style={{ marginTop: 20, padding: "12px 28px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, color: at, background: accent, border: "none", borderRadius: RADIUS.lg, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
@@ -12724,7 +12732,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
       <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "64px 24px" : "48px 24px", textAlign: "center" }}>
         <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</div>
         <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
-          Loading your plan details. Your meters appear here as soon as your plan status arrives.
+          Loading your plan details. Your usage numbers appear here as soon as your plan loads.
         </div>
       </div>
     );
@@ -12748,7 +12756,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
     const left = unlimited ? null : Math.max(0, cap - used);
     const state = unlimited ? "unlimited" : left === 0 ? "empty" : pct >= 80 ? "low" : "ok";
     const fill = state === "low" ? "#e8a13c" : accent;
-    const stateLine = state === "unlimited" ? `${used} this period. No cap.`
+    const stateLine = state === "unlimited" ? `${used} so far. No limit.`
       : state === "empty" ? `Empty. Refills in ${fmtRemaining(remainingMs)}`
       : state === "low" ? `${left} remaining. Running low.`
       : `${left} remaining`;
@@ -12839,7 +12847,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
       <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 8, fontFamily: "var(--cb-font)" }}>
         {isPro
           ? "Your plan has no limits."
-          : <>Everything below refills <strong style={{ color: P.ink }}>{refillDate}{refillTime ? ` at ${refillTime}` : ""}</strong> ({fmtRemaining(remainingMs)} left in this period).</>}
+          : <>Everything below refills <strong style={{ color: P.ink }}>{refillDate}{refillTime ? ` at ${refillTime}` : ""}</strong>. You have {fmtRemaining(remainingMs)} until then.</>}
       </div>
 
       <div style={{ marginTop: 12 }}>
@@ -12856,9 +12864,9 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
           sub={isPro ? null : isLite ? "Pro removes this limit." : "Lite gives 30 reads per 5 days."}
           upgrade={isLite ? "Go Pro: unlimited reads" : "Get Lite: 30 reads per 5 days"}
           upgradePlan={isLite ? "annual" : "lite-monthly"} />
-        <Gauge label="FLOWCHARTS" used={fq?.used || 0} cap={isPro ? null : (fq?.cap ?? (isLite ? 10 : 1))}
-          sub={isPro ? null : isLite ? "Pro removes this limit." : "Lite gives 10 flowcharts per 5 days."}
-          upgrade={isLite ? "Go Pro: unlimited flowcharts" : "Get Lite: 10 flowcharts per 5 days"}
+        <Gauge label="DIAGRAMS" used={fq?.used || 0} cap={isPro ? null : (fq?.cap ?? (isLite ? 10 : 1))}
+          sub={isPro ? null : isLite ? "Pro removes this limit." : "Lite gives 10 diagrams per 5 days."}
+          upgrade={isLite ? "Go Pro: unlimited diagrams" : "Get Lite: 10 diagrams per 5 days"}
           upgradePlan={isLite ? "annual" : "lite-monthly"} />
       </div>
 
@@ -12883,11 +12891,11 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                {tok.calls} AI {tok.calls === 1 ? "call" : "calls"} this month · {fmtT(tok.promptTokens)} in · {fmtT(tok.completionTokens)} out
+                {tok.calls} AI {tok.calls === 1 ? "request" : "requests"} this month. {fmtT(tok.promptTokens)} tokens came in with your questions and papers, and {fmtT(tok.completionTokens)} tokens went out in the answers.
               </span>
             </div>
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 4, opacity: 0.75 }}>
-              Token counts are estimated from provider reports and character counts.
+              A token is a small piece of text, about a short word. These counts are estimated from provider reports and character counts.
             </div>
           </div>
         );
@@ -12910,7 +12918,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
             </tr>
           </thead>
           <tbody>
-            {[["AI answers", "ai"], ["Document reads", "docs"], ["Flowcharts", "flow"]].map(([label, key]) => (
+            {[["AI answers", "ai"], ["Document reads", "docs"], ["Diagrams", "flow"]].map(([label, key]) => (
               <tr key={key}>
                 <td style={{ padding: "12px 16px", fontSize: FONT_SIZES.label, color: P.ink2, borderBottom: `1px solid ${P.line}` }}>{label}</td>
                 {tiers.map((t) => (
@@ -12951,7 +12959,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
               <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4, fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)" }}>
                 <span>AI answers: <strong style={{ color: P.ink, fontWeight: 500 }}>{t.ai}</strong></span>
                 <span>Document reads: <strong style={{ color: P.ink, fontWeight: 500 }}>{t.docs}</strong></span>
-                <span>Flowcharts: <strong style={{ color: P.ink, fontWeight: 500 }}>{t.flow}</strong></span>
+                <span>Diagrams: <strong style={{ color: P.ink, fontWeight: 500 }}>{t.flow}</strong></span>
               </div>
               <div style={{ marginTop: 10, fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>{t.price}</div>
               <div style={{ marginTop: 10 }}>{tierAction(t.id)}</div>
@@ -12967,7 +12975,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
             <ProBadge />
           </div>
           <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
-            Pro gives you unlimited AI answers, document reads, and flowcharts, plus the gold badge and the black and bronze theme.
+            Pro gives you unlimited AI answers, document reads, and diagrams, plus the gold badge and the black and bronze theme.
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap", alignItems: "center" }}>
             <button onClick={onOpenPro} style={{ padding: "12px 26px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, color: PRO.emeraldInk, background: PRO.emerald, border: "none", borderRadius: RADIUS.lg, cursor: "pointer", fontFamily: "var(--cb-font)" }}>
@@ -12991,7 +12999,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
       )}
       {isPro && (
         <div style={{ marginTop: 32, fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", textAlign: "center" }}>
-          Pro includes unlimited AI answers, document reads, and flowcharts.
+          Pro includes unlimited AI answers, document reads, and diagrams.
         </div>
       )}
     </div>
@@ -18696,7 +18704,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // the `Ctrl+K` shortcut chip both set the body face; the chip keeps
     // its key-cap border and padding, which is what makes it read as a
     // key, not the typeface.
-    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: glassBorder, color: P.ink2, padding: "none", borderRadius: RADIUS.md, cursor: "pointer", fontSize: FONT_SIZES.label, fontFamily: font, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, boxShadow: P.shadowSm, marginRight: 4 },
+    cmdHint: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: glassBorder, color: P.ink2, padding: "8px 12px", borderRadius: RADIUS.md, cursor: "pointer", fontSize: FONT_SIZES.label, fontFamily: font, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, boxShadow: P.shadowSm, marginRight: 4 },
     kbd: { fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", color: P.faint, background: P.dark ? withAlpha(P.raised, 0.6) : P.bg, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, padding: "2px 6px", fontWeight: 500 },
     ghostBtn: { background: "transparent", border: "none", color: P.ink2, padding: isMobile ? "8px" : "8px 12px", borderRadius: RADIUS.md, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: font },
     iconBtn: { background: "transparent", border: "none", color: P.ink2, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, height: 44, minWidth: 44, padding: isMobile ? "0 8px" : "0 12px", borderRadius: RADIUS.md, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", position: "relative" },
@@ -19353,7 +19361,7 @@ function CommandPalette({ open, onClose, P, accent, query, setQuery, groups, act
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "2px 2px 16px", borderBottom: `1px solid ${P.line}`, marginBottom: 6 }}>
         <Icon name="search" size={17} style={{ color: P.faint, flexShrink: 0 }} />
         <input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKeyDown}
-          placeholder="Search your work or type a command" aria-label="Command palette"
+          placeholder="Search pages, your saved work, and commands" aria-label="Command palette"
           style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: FONT_SIZES.subhead, color: P.ink, fontFamily: "var(--cb-font)" }} />
         <kbd style={kbdStyle}>esc</kbd>
       </div>
@@ -19382,7 +19390,7 @@ function CommandPalette({ open, onClose, P, accent, query, setQuery, groups, act
           </div>
         ))}
         {groups.length === 0 && (
-          <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.label, color: P.faint, textAlign: "center", fontFamily: "var(--cb-font)" }}>No matches. Try a different search.</div>
+          <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.label, color: P.faint, textAlign: "center", fontFamily: "var(--cb-font)" }}>Nothing matches that. Try different words.</div>
         )}
       </div>
     </ModalChrome>
@@ -19520,9 +19528,9 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
         </div>
       </div>
       <nav aria-label="Account" style={{ borderTop: `1px solid ${P.line}` }}>
-        {menuRow("Your profile", "Name, photo, research interests, pinned papers", () => { onClose(); onNavigate("profile"); })}
+        {menuRow("Your profile", "Your name, photo, interests, and papers", () => { onClose(); onNavigate("profile"); })}
         {menuRow("Membership", usageLine, () => { onClose(); onOpenPro(); })}
-        {menuRow("Settings", "Appearance, answers, notifications, data", () => { onClose(); onNavigate("settings"); })}
+        {menuRow("Settings", "How it looks, how answers work, alerts, and your data", () => { onClose(); onNavigate("settings"); })}
         <button
           onClick={() => { onClose(); onSignOut(); }}
           className="cb-row"
@@ -19667,7 +19675,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             }}
             onMouseEnter={hoverIn} onMouseLeave={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}>
             <Icon name="search" size={15} />
-            <span style={{ flex: 1, textAlign: "left" }}>Search or command</span>
+            <span style={{ flex: 1, textAlign: "left" }}>Find pages and your work</span>
             <kbd style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.faint, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "2px 7px" }}>{typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K"}</kbd>
           </button>
         </div>
@@ -21030,7 +21038,8 @@ function App({ profileHandle = null } = {}) {
     else if (view === "settings") t = "Settings · Cerebrum";
     else if (view === "trending") t = "Today in Science · Cerebrum";
     else if (view === "usage") t = "Usage · Cerebrum";
-    else if (view === "inbox") t = "Messages · Cerebrum";
+    else if (view === "library") t = "Library · Cerebrum";
+    else if (view === "inbox") t = "Inbox · Cerebrum";
     if (document.title !== t) document.title = t;
   }, [view, turns]);
   // Aborts the in-flight /api/search (+videos) request when a new question
@@ -21793,7 +21802,18 @@ function App({ profileHandle = null } = {}) {
   const [mobilePanel, setMobilePanel] = useState(false);
   /* Chosen once per mount, not per render — a line that reshuffled every
      time React re-rendered would flicker while you type. */
-  const [settingsInitialTab, setSettingsInitialTab] = useState("answers");
+  /* One Settings landing for every door (2026 10 24, shell lane): the rail,
+     the command palette, the keyboard shortcut, the numbered shortcut, and
+     the profile page all open Settings on Account, the first section, where
+     who you are, your plan, and sign out live. Before this, the rail forced
+     Answers, the palette kept whatever section was left open last time, and
+     the profile page landed on Account, so the same word Settings meant
+     three different screens. The nonce bumps on every open so SettingsView
+     remounts on the landing even when it is already on screen. */
+  const SETTINGS_LANDING_TAB = "account";
+  const [settingsInitialTab, setSettingsInitialTab] = useState(SETTINGS_LANDING_TAB);
+  const [settingsOpenNonce, setSettingsOpenNonce] = useState(0);
+  const openSettings = () => { setSettingsInitialTab(SETTINGS_LANDING_TAB); setSettingsOpenNonce((n) => n + 1); setView("settings"); };
   /* 2026-10-16 (audit finding 3): the PaperDrawer component no longer
      exists anywhere in the tree, so its state is gone too. Source cards
      and the answer paper openers used to set it, and it fed
@@ -22741,7 +22761,7 @@ function App({ profileHandle = null } = {}) {
       // search, and the two confirm-states are cleared so a half-armed
       // "delete everything" never survives a navigation.
       else if (e.key === "Escape") { setCmdOpen(false); setMobilePanel(false); setConfirmClearSaved(false); setHistoryConfirmId(null); setView((v) => (v === "search" ? v : "search")); }
-      else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setView((v) => (v === "settings" ? "search" : "settings")); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === "/") { e.preventDefault(); setSettingsInitialTab("account"); setSettingsOpenNonce((n) => n + 1); setView((v) => (v === "settings" ? "search" : "settings")); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "j") { e.preventDefault(); newSession(); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "d") { e.preventDefault(); setPaletteName(P.dark ? "Light" : "Dark"); }
       else if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setView((v) => (v === "library" ? "search" : "library")); }
@@ -23080,7 +23100,7 @@ function App({ profileHandle = null } = {}) {
       case "learn": setView("learn"); break;
       case "usage": if (user) setView("usage"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       case "collections": setLibraryTab("collections"); setView("library"); break;
-      case "settings": setSettingsInitialTab("answers"); setView("settings"); break;
+      case "settings": openSettings(); break;
       case "people": if (user) setView("people"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       case "inbox": if (user) setView("inbox"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       case "profile": if (user) setView("profile"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
@@ -23201,17 +23221,17 @@ function App({ profileHandle = null } = {}) {
     // the mobile header), but this palette is available on every viewport —
     // it's a signed-in-only feature, hence gated on `user` here.
     { label: "Open collections", run: () => { setCmdOpen(false); setLibraryTab("collections"); setView("library"); } },
-    { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); setView("settings"); } },
+    { label: "Open settings", hint: kbdLabel("/"), run: () => { setCmdOpen(false); openSettings(); } },
     { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
-    { label: "Toggle light / dark", hint: kbdLabel("D"), run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
+    { label: "Switch between light and dark", hint: kbdLabel("D"), run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
     { label: factCheck ? "Turn off fact check" : "Turn on fact check", run: () => { setFactCheck(!factCheck); setCmdOpen(false); } },
-    { label: "Export saved as BibTeX", run: () => { download("cerebrum.bib", toBibTeX(saved.length ? saved : allSources)); setCmdOpen(false); } },
+    { label: "Download your papers as a BibTeX file", run: () => { download("cerebrum.bib", toBibTeX(saved.length ? saved : allSources)); setCmdOpen(false); } },
     ...(history.length >= 2 ? [{ label: "Compare investigations", run: () => { setCmdOpen(false); setCompareOpen(true); } }] : []),
     ...(turns.length && turns[turns.length - 1].sources && turns[turns.length - 1].sources.length >= 2
-      ? [{ label: "View source network", run: () => { setCmdOpen(false); setNetworkGraphSources(turns[turns.length - 1].sources); } }]
+      ? [{ label: "See how these papers connect", run: () => { setCmdOpen(false); setNetworkGraphSources(turns[turns.length - 1].sources); } }]
       : []),
     ...(turns.length && turns[turns.length - 1].sources && turns[turns.length - 1].sources.length >= 2
-      ? [{ label: "View literature timeline", run: () => { setCmdOpen(false); setTimelineSources(turns[turns.length - 1].sources); } }]
+      ? [{ label: "See these papers on a timeline", run: () => { setCmdOpen(false); setTimelineSources(turns[turns.length - 1].sources); } }]
       : []),
     /* Commit 92 removed concept illustrations; the palette entry below was
        left behind referencing setIllustrateQuery, which no longer exists —
@@ -23261,7 +23281,7 @@ function App({ profileHandle = null } = {}) {
   })) : [];
   const paletteGroups = [
     ...(paletteRecents.length ? [{ title: "Recent", items: paletteRecents }] : []),
-    ...(cmdSuggest.length ? [{ title: "Ask", items: cmdSuggest.map((s) => ({ type: "ask", icon: "search", label: s, run: () => ask(s) })) }] : []),
+    ...(cmdSuggest.length ? [{ title: "Ask a question", items: cmdSuggest.map((s) => ({ type: "ask", icon: "search", label: s, run: () => ask(s) })) }] : []),
     ...(navResults.length ? [{ title: "Your work", items: navResults }] : []),
     ...(filteredCmds.length ? [{ title: "Commands", items: filteredCmds.map((c) => ({ type: "cmd", icon: c.icon, label: c.label, hint: c.hint, run: c.run })) }] : []),
   ];
@@ -24272,14 +24292,14 @@ function App({ profileHandle = null } = {}) {
             onOpenHistory={(h) => { openHistoryItem(h); setView("search"); }}
             onGoSearch={() => setView("search")}
             onGoInvestigations={() => setView("investigations")}
-            onManageAccount={() => { setSettingsInitialTab("account"); setView("settings"); }}
+            onManageAccount={() => { openSettings(); }}
             proStatus={proStatus} onOpenPro={openPro}
           />
         </Reveal>
       )}
       {view === "settings" && (
         <Reveal deps={[view]} style={S.pageView}>
-        <SettingsView {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: openPro, onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, onRegisterPasskey: registerPasskey }} />
+        <SettingsView key={settingsOpenNonce} {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: openPro, onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, onRegisterPasskey: registerPasskey }} />
         </Reveal>
       )}
       {view === "trending" && (
