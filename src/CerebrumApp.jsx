@@ -23230,7 +23230,7 @@ function App({ profileHandle = null } = {}) {
 
   const commands = [
     { label: "New search", hint: kbdLabel("J"), run: () => newSession() },
-    { label: "New diagram", run: () => { setCmdOpen(false); setView("studio"); setStudioResetNonce((n) => n + 1); } },
+    { label: "Make a diagram in Diagram Studio", run: () => { setCmdOpen(false); setView("studio"); setStudioResetNonce((n) => n + 1); } },
     { label: "Open your library", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setView("library"); } },
     { label: "Open your investigations", run: () => { setCmdOpen(false); setView("investigations"); } },
     // Collections' header button is desktop-only (there's no room for it in
