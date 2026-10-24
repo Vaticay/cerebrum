@@ -6166,10 +6166,10 @@ function InfoPage({ page }) {
             {page === "pricing" && (
               <div className="cb-fadein" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
                 {[
-                  { persona: "For the curious", name: "Free", price: "$0", line: "50 AI answers, 3 document reads, 1 flowchart every 5 days with a free account. Searching needs no account at all.", recommended: false, cta: "Start free →" },
-                  { persona: "For the steady researcher", name: "Pro Lite", price: "$3.99/month or $39/year", line: "500 AI answers, 30 document reads, and 10 flowcharts every 5 days. Ten times the free allowances, with a fixed allowance rather than unlimited use.", recommended: false, cta: "Upgrade in the app →" },
-                  { persona: "For the working researcher", name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and flowcharts. 7 day money back guarantee. Cancel anytime.", recommended: true, cta: "Upgrade in the app →" },
-                  { persona: "For college students", name: "Pro Student", price: "$7.99/month for the first 12 months", line: "Full Cerebrum Pro at a student price: unlimited answers, document reads, and flowcharts. Verified college email (.edu or .ac.uk) required. Renews at $20 per month after the first 12 months.", recommended: false, cta: "Upgrade in the app →" },
+                  { persona: "For the curious", name: "Free", price: "$0", line: "50 AI answers, 3 document reads, 1 diagram every 5 days with a free account. Searching needs no account at all.", recommended: false, cta: "Start free →" },
+                  { persona: "For the steady researcher", name: "Pro Lite", price: "$3.99/month or $39/year", line: "500 AI answers, 30 document reads, and 10 diagrams every 5 days. Ten times the free allowances, with a fixed allowance rather than unlimited use.", recommended: false, cta: "Upgrade in the app →" },
+                  { persona: "For the working researcher", name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and diagrams. 7 day money back guarantee. Cancel anytime.", recommended: true, cta: "Upgrade in the app →" },
+                  { persona: "For college students", name: "Pro Student", price: "$7.99/month for the first 12 months", line: "Full Cerebrum Pro at a student price: unlimited answers, document reads, and diagrams. Verified college email (.edu or .ac.uk) required. Renews at $20 per month after the first 12 months.", recommended: false, cta: "Upgrade in the app →" },
                 ].map((tier) => (
                   <div key={tier.name} style={{
                     position: "relative", padding: "24px 24px 16px", borderRadius: RADIUS.lg,
@@ -7090,7 +7090,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
             </div>
             <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>You're Lite.</div>
             <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 6, fontFamily: "var(--cb-font)" }}>
-              500 AI answers · 30 document reads · 10 flowcharts, every 5 days. Metered, never unlimited.
+              500 AI answers · 30 document reads · 10 diagrams, every 5 days. Metered, never unlimited.
             </div>
             <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 10, fontFamily: "var(--cb-font)" }}>
               Want the deep end? Pro is unlimited on all three, plus the badge and theme.
@@ -7153,7 +7153,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                 <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>10x the free usage, metered</span>
               </div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.5, marginBottom: 12 }}>
-                500 AI answers · 30 document reads · 10 flowcharts, every 5 days. None of Pro's badge or theme.
+                500 AI answers · 30 document reads · 10 diagrams, every 5 days. None of Pro's badge or theme.
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 {[
@@ -7182,13 +7182,13 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
               {(plan === "lite-monthly" || plan === "lite-annual" ? [
                 ["500 AI answers every 5 days", "Free: 50 every 5 days"],
                 ["30 document reads every 5 days", "Free: 3 every 5 days"],
-                ["10 flowchart saves every 5 days", "Free: 1 every 5 days"],
+                ["10 diagram saves every 5 days", "Free: 1 every 5 days"],
                 ["A set allowance, not unlimited", "Pro removes the limit entirely"],
                 ["No Pro badge or theme", "Those are part of Pro"],
               ] : [
                 ["Answer as many questions as you want", "Free: 50 every 5 days"],
                 ["Read as many documents as you want", "Free: 3 every 5 days"],
-                ["Save as many flowcharts as you want", "Free: 1 every 5 days"],
+                ["Save as many diagrams as you want", "Free: 1 every 5 days"],
                 ["A Pro badge on your profile", "Shows wherever your name appears"],
                 ["Four Pro themes", "Pro, Pro Violet, Pro Abyss, Pro Ember. Members only."],
                 ["Deeper Pro search", "Searches a wider pool of papers and ranks them more carefully, so the strongest sources surface first"],
@@ -7288,7 +7288,7 @@ function ProModal({ P, accent, at, user, proStatus, onClose, onSignIn, initialPl
                 {[
                   "7 day money back guarantee: a full refund on your first charge, no questions asked.",
                   "Cancel anytime from the billing portal. You keep Pro until the end of the paid period.",
-                  "The free account today: 50 AI answers, 3 document reads, 1 flowchart every 5 days. Searching needs no account.",
+                  "The free account today: 50 AI answers, 3 document reads, 1 diagram every 5 days. Searching needs no account.",
                   "Secure checkout by Stripe. Your card details never touch Cerebrum's servers.",
                 ].map((line) => (
                   <li key={line} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: FONT_SIZES.caption, color: P.ink2, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
@@ -19490,7 +19490,7 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
   const rank = tier === "pro" || user?.isPro ? "pro" : tier === "lite" || proStatus?.isLite ? "lite" : "free";
   const q = proStatus?.quota;
   const usageLine = rank === "pro"
-    ? "Unlimited AI answers, document reads, flowcharts"
+    ? "Unlimited AI answers, document reads, diagrams"
     : q && q.cap != null
       ? `${q.used} of ${q.cap} AI answers · refills every 5 days`
       : rank === "lite" ? "500 AI answers every 5 days" : "50 AI answers every 5 days";
