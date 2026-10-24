@@ -118,12 +118,12 @@ export const TOUR_STEPS = [
   },
   {
     title: "The catalog",
-    body: "The catalog holds twenty four topics, written for Nova from standard textbook material and taught exactly the way the paths are. A course built from a search? Same lessons, same standards, same me.",
+    body: "The catalog is my list of courses: twenty four topics, each written for Nova from standard textbook material and taught in lessons and quizzes. A course built from a search? Same lessons, same standards, same me.",
     tab: "paths", anchor: "paths", quiz: 0, app: 0, celebrate: false,
   },
   {
     title: "Review brings it back",
-    body: "Finishing a lesson earns you XP, and every answer you give goes on my review schedule, so daily practice brings the due ones back before they fade. Forgetting is data leaving, and I don't allow leaks.",
+    body: "Finishing a lesson earns you XP, points that count how much you have learned. Every answer you give goes on my review schedule, a list that brings questions back in daily practice just before you would forget them.",
     tab: "today", anchor: "stage", quiz: 0, app: 0, celebrate: false,
   },
   {
@@ -133,7 +133,7 @@ export const TOUR_STEPS = [
   },
   {
     title: "Streaks",
-    body: "Come back day after day and your streak grows. A freeze bought with Sparks covers one missed day, because life happens. Miss a second one, though? That one's on you.",
+    body: "Come back day after day and your streak, the count of days in a row you learned, grows. Sparks are points you earn as you learn. A freeze bought with Sparks covers one missed day. Miss a second one? That one's on you.",
     tab: "today", anchor: "stage", quiz: 5, app: 0, celebrate: false,
   },
   {
