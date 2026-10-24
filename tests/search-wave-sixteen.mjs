@@ -1021,8 +1021,17 @@ await test("the retry race closes on its window: slow legs close, fast legs land
   assert.ok(fastResult && fastResult.answer === "fast", "the fast winner was closed out");
   const failing = new Promise((_, rej) => setTimeout(() => rej(new Error("leg failed")), 5));
   assert.equal(await raceWithCloseWindow(failing, 1000), null, "a rejected race did not read as no retry");
-  assert.ok(src.includes("raceWithCloseWindow(raceBest(legs, query, 500), RETRY_RACE_CLOSE_MS)"),
+  // PIN UPDATED (2026-10-23, continuation lane): the race now
+  // closes on a caller supplied window whose DEFAULT is
+  // RETRY_RACE_CLOSE_MS, so the quality and minimum support
+  // retries close exactly as this test's live races above do;
+  // the citation repair passes a reserve bounded close
+  // (retryCloseWindowMs) so its success cannot spend the fact
+  // check reserve. Both halves of the new shape are pinned.
+  assert.ok(src.includes("raceWithCloseWindow(raceBest(legs, query, 500), closeWindowMs)"),
     "plannedRetryRace does not close on the window");
+  assert.ok(src.includes("closeWindowMs = RETRY_RACE_CLOSE_MS"),
+    "plannedRetryRace's default close is no longer the standard close");
 });
 
 await test("the trace summary and stage wiring name the new tier (source pins)", () => {
