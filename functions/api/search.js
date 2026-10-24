@@ -4268,6 +4268,50 @@ const CONCEPT_GROUPS = [
    "upper respiratory tract infection", "respiratory infection"],
   ["waste oil", "waste cooking oil", "used cooking oil", "cooking oil",
    "used oil"],
+  // 2026-10-24 (citation wave, Lane 2): the burnout bridge. A
+  // person asks about being "burned out"; the literature indexes
+  // the same state under the single word "burnout", and no stem
+  // connects them (the stemmers strip plural and s endings, never
+  // the ed of "burned", and "burnout" is a compound, not an
+  // inflection). On the live burnout probes the subject therefore
+  // scored ZERO gate hits and zero concept engagement for every
+  // paper that used the field's own word, while title only news
+  // items carrying the population words rode phrase bonuses into
+  // the cited set. The group is the Lane A bridge pattern: the
+  // asker's phrasal forms and the literature's word as one
+  // concept, so a citable paper must still engage a second
+  // concept beside it. Bare "burned"/"burnt" are members so the
+  // bare head term a key phrase yields ("burned" out of "burned
+  // out") resolves the group; a thermal burns question resolves
+  // the wound group through "burn"/"burns", different members,
+  // and is untouched.
+  ["burnout", "burned out", "burnt out", "burn out", "burning out",
+   "burned-out", "burnt-out", "burned", "burnt"],
+  // 2026-10-24 (citation wave, Lane 2): the graduate population
+  // bridge. A question names its population once, in one wording
+  // ("graduate school", "phd students"); the literature names the
+  // same population a dozen ways (graduate students, doctoral
+  // students, medical students, postgraduates, postdoctoral
+  // trainees), and the floor's word counting treated the
+  // question's wording as the only one that exists: on the live
+  // burnout probes, papers engaging the subject plus this
+  // population under any other wording scored one core hit and
+  // were classed weak beside papers in mining and other
+  // occupations that scored the same one hit. The members are
+  // the standard wordings of the graduate and trainee
+  // population, as one concept: engaging it satisfies the
+  // population half of a question, never the subject half, so
+  // the two concept standard still demands the subject beside
+  // it.
+  ["graduate student", "graduate students", "grad student",
+   "grad students", "graduate school", "phd student",
+   "phd students", "doctoral student", "doctoral students",
+   "doctoral candidate", "doctoral candidates",
+   "postgraduate student", "postgraduate students",
+   "postgraduate", "medical student", "medical students",
+   "postdoctoral student", "postdoctoral students",
+   "postdoctoral researcher", "postdoctoral researchers",
+   "graduate", "grad", "phd", "doctoral"],
   // 2026-10-21 (search fix wave, Lane A): honey and wound groups.
   // The honey probes had NO group at all: every central concept
   // resolved bare, and "honey" separately sits in ORGANISM_WORDS
@@ -18680,7 +18724,31 @@ export function paperClearsCitationGate(paper, standard) {
       ? std.centralConcepts : judged;
     const allHits = centralConceptHits(paper, centralSet);
     let verdict;
-    if (allHits.subjectInTitle && allHits.inTitle >= 2) {
+    // Title exception, real second concept (2026-10-24,
+    // citation wave, Lane 2): the exception lets a paper in on
+    // its title alone, so the second title concept it requires
+    // must be a real content concept: backed by a group or the
+    // subject flag, or carrying the specificity the centrality
+    // screens themselves demand of a concept (0.5, the bar
+    // centralContentTerms and the weak head admission in
+    // questionCentralConcepts both use). Judged over the raw
+    // central set, the exception completed on a generic framing
+    // head: on the continuation probe's PhD wording the
+    // question's central concepts included "time" (the head of
+    // "burned out time", specificity 0.15, a generic science
+    // word), and a Nature news item whose title names the
+    // population and a time limit, and no word of the subject,
+    // cleared the standard on subject plus "time" in the title
+    // while every burnout paper in the pool was classed weak.
+    // A bare concept that is genuinely central still counts,
+    // exactly as L3-11 ruled: the baby in the coffee question
+    // (specificity 0.65) and antibiotics in the yogurt question
+    // (0.8) both pass this bar. When no concept in the set
+    // passes it, the exception reads the full set exactly as
+    // before.
+    const exceptionSet = centralSet.filter((c) => c && (c.subject || (c.group && c.group.size > 0) || termSpecificity(String(c.term || "")) >= 0.5));
+    const exceptionHits = exceptionSet.length > 0 ? centralConceptHits(paper, exceptionSet) : allHits;
+    if (exceptionHits.subjectInTitle && exceptionHits.inTitle >= 2) {
       verdict = true;
     } else {
       // WAVE SEVENTEEN (2026-10-15, citation depth diagnosis,
@@ -28538,7 +28606,11 @@ async function gatherPapersBody(rawQuery, opts) {
   // engaging almost nothing still fails); and one central concept
   // is engaged in BOTH its title and its abstract, judged by
   // centralConceptHits over a single concept at a time, the same
-  // accounting the topicality cap and the rescues use. A paper
+  // accounting the topicality cap and the rescues use. (The
+  // study type and one concept conditions in this paragraph are
+  // the 2026-10-23 shape; the GENERALIZED note below the helper
+  // records the 2026-10-24 widening to reviews as a class plus
+  // the two concept route.) A paper
   // with no subject engagement (the probe's Hopetimize pilot,
   // which engages no central concept at all) gains nothing, a
   // non review paper with the same one hit profile (the probe's
@@ -28552,12 +28624,45 @@ async function gatherPapersBody(rawQuery, opts) {
   // Passing the floor changes the shelf only. The relevance
   // floor and the citation gate judge the paper downstream
   // exactly like any other shelf paper.
+  // GENERALIZED (2026-10-24, citation wave, Lane 2): the pass
+  // above was calibrated on the two systematic reviews of the
+  // first probe, and the continuation probes measured the two
+  // shapes it still classed weak. First, a NARRATIVE review
+  // engaging the subject in title and abstract (the biomedical
+  // scientists burnout review) failed on study type alone: the
+  // pass admitted one review class and not the other, though
+  // both are reviews of the same literature. Second, papers
+  // whose engagement is SPLIT across the fields, the population
+  // concept in the title and the subject concept in the abstract
+  // (the PhD students systematic review; primary studies of
+  // burnout in medical and doctoral students), failed the one
+  // concept in both fields test though they engage two of the
+  // question's central concepts between them. The pass now has
+  // two routes over the same nearest miss bound. Route A is the
+  // 2026-10-23 route, widened to reviews as a class (systematic
+  // or narrative): one central concept engaged in BOTH title
+  // and abstract. Route B is study type blind: at least two
+  // central concepts engaged across title and abstract, at
+  // least one of them in the abstract, the same engagement
+  // shape the citation standard asks of a cited paper. A paper
+  // engaging the subject alone, in the wrong population (the
+  // mining workers and dietitians papers of the probes), engages
+  // one concept and gains nothing from either route; a paper
+  // engaging no central concept gains nothing, exactly as
+  // before.
   const reviewSubjectFloorPass = (p, coreHits, required) => {
     try {
-      if (!p || p.studyTypeKey !== "SYSTEMATIC_REVIEW") return false;
+      if (!p) return false;
       if (typeof coreHits !== "number" || typeof required !== "number") return false;
       if (coreHits < required - 1) return false;
       if (!Array.isArray(scorerCentralConcepts) || scorerCentralConcepts.length === 0) return false;
+      // Route B: two central concepts engaged, one in the
+      // abstract, whatever the study type.
+      const all = centralConceptHits(p, scorerCentralConcepts);
+      if (all.total >= 2 && all.inAbstract >= 1) return true;
+      // Route A: a review engaging one central concept in both
+      // title and abstract.
+      if (p.studyTypeKey !== "SYSTEMATIC_REVIEW" && p.studyTypeKey !== "NARRATIVE_REVIEW") return false;
       for (const c of scorerCentralConcepts) {
         if (!c) continue;
         const hits = centralConceptHits(p, [c]);
@@ -29062,10 +29167,12 @@ async function gatherPapersBody(rawQuery, opts) {
         else required = 3;
         const titleStrong = coreTitleHits >= 2;
         // REVIEW SUBJECT FLOOR PASS (2026-10-23, see the helper
-        // above): a systematic review or meta analysis that
-        // engages a central concept in title and abstract and
-        // misses the requirement by at most one hit is not weak
-        // for missing a secondary population concept alone.
+        // above; generalized 2026-10-24, Lane 2): a review that
+        // engages a central concept in title and abstract, or
+        // any paper that engages two central concepts with one
+        // in the abstract, and misses the requirement by at
+        // most one hit is not weak for missing a secondary
+        // population concept alone.
         if (coreHits < required && !titleStrong && !reviewSubjectFloorPass(p, coreHits, required)) return false;
       }
 
