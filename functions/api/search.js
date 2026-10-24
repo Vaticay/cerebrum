@@ -14145,35 +14145,67 @@ function buildBackgroundAnswer(items, pool, ctx, quality) {
     // retrieved study examines the question, and the paper shown
     // only under a Closest match heading. The existence branch
     // is exempt: its direct report test is stricter already.
+    //
+    // CITATION WAVE, LANE 4 (2026-10-24): the wave ten test
+    // judged ONLY the lead paper (the paper picked[0] came
+    // from), and its hit floor was Math.max(2, half the
+    // concepts): a floor of two hits demanded from a question
+    // that resolved ONE central concept is a floor no paper
+    // can reach. The 2026-10-24 continuation probe asked "does
+    // exercise help people who feel depressed"; the standard
+    // resolved one central concept (exercise, the subject),
+    // both retrieved reviews clear the citation gate and
+    // engage that concept in title and abstract, and both were
+    // still shipped under the no study head as "closest
+    // matches" while standing as the answer's cited sources.
+    // The same head also dressed the genuinely off point case:
+    // on the maggot feeding probe the one retrieved paper (a
+    // wound care paper engaging one of the question's two
+    // central concepts, and that one only as the thing that
+    // eats necrotic flesh) was paraded as a closest match with
+    // a quoted passage, as if adjacency were near answering.
+    // The split: engagement is judged over the whole set this
+    // tier would cite (paperItems), with the gate's own
+    // machinery (citationGateStandard, paperClearsCitationGate,
+    // centralConceptHits), and the hit floor is clamped to the
+    // number of concepts the question actually resolved, so a
+    // one concept question asks for that one concept. If ANY
+    // paper in the set engages, the answer falls through to
+    // the normal limited frame below and presents the papers
+    // as the real sources they are. If NONE engages, the
+    // plain statement stands alone: no closest match section,
+    // no passage, no retrieved title dressed as near. A
+    // retrieval that found nothing on point stays visible as
+    // exactly that, the way the no results path records what
+    // was tried instead of papering over the gap.
     if (picked.length > 0 && !isExistenceQuestion(q)) {
       let addresses = true;
       try {
         const std = citationGateStandard(q, (ctx && ctx.dynLookup) || null);
-        const leadItem = paperItems.find((it) => it.idx === picked[0].idx);
-        if (leadItem && Array.isArray(std.centralConcepts) && std.centralConcepts.length > 0) {
-          const hits = centralConceptHits(leadItem.p, std.centralConcepts);
-          addresses = paperClearsCitationGate(leadItem.p, std) &&
-            hits.total >= Math.max(2, Math.ceil(std.centralConcepts.length / 2));
+        if (Array.isArray(std.centralConcepts) && std.centralConcepts.length > 0) {
+          const conceptCount = std.centralConcepts.length;
+          const need = Math.min(conceptCount, Math.max(2, Math.ceil(conceptCount / 2)));
+          addresses = paperItems.some((it) => {
+            if (!it || !it.p) return false;
+            const hits = centralConceptHits(it.p, std.centralConcepts);
+            return paperClearsCitationGate(it.p, std) && hits.total >= need;
+          });
         }
       } catch { addresses = true; }
       if (!addresses) {
         let md = "## No study here examines this\n\n";
-        md += "No retrieved study examines \"" + q + "\". The closest paper found is shown below as a closest match only. It does not answer the question.\n";
-        md += "\n### Closest match\n\n";
-        for (const it of paperItems) {
-          const p = it.p || {};
-          const title = extractTitleClaim(p.title) || "Untitled";
-          const venue = [p.journal, extractiveYearText(p.year)].filter(Boolean).join(", ");
-          md += "- **" + title + "**" + (venue ? " . " + venue : "") + " [" + it.idx + "]\n";
-        }
-        md += "\nPassage from the closest match:\n\n" + picked[0].text + " [" + picked[0].idx + "]\n";
+        md += "No retrieved study examines \"" + q + "\". Cerebrum searched for \"" + q + "\" and retrieved " +
+          paperItems.length + (paperItems.length === 1 ? " paper" : " papers") +
+          ", but " + (paperItems.length === 1 ? "that paper does not engage" : "none of them engages") +
+          " the concepts the question asks about, so there is nothing on point to assemble an answer from. " +
+          "The retrieved papers are not shown as matches: a paper about a different topic is not a near answer, and listing one would dress it up as one.\n";
         let reforms = [];
         try { reforms = deriveReformulations(q) || []; } catch { reforms = []; }
         if (reforms.length > 0) {
           md += "\n### Try asking it this way\n\n" +
             reforms.slice(0, 3).map((r, i) => (i + 1) + ". **" + r.label + ":** \"" + r.query + "\"").join("\n") + "\n";
         }
-        md += "\n*Assembled from the sources above without AI interpretation" + gateClosing(ctx) + "*\n";
+        md += "\n*No answer was assembled from the retrieved papers, because none of them examines the question" + gateClosing(ctx) + "*\n";
         return { md, tier: "limited" };
       }
     }
