@@ -4268,6 +4268,50 @@ const CONCEPT_GROUPS = [
    "upper respiratory tract infection", "respiratory infection"],
   ["waste oil", "waste cooking oil", "used cooking oil", "cooking oil",
    "used oil"],
+  // 2026-10-24 (citation wave, Lane 2): the burnout bridge. A
+  // person asks about being "burned out"; the literature indexes
+  // the same state under the single word "burnout", and no stem
+  // connects them (the stemmers strip plural and s endings, never
+  // the ed of "burned", and "burnout" is a compound, not an
+  // inflection). On the live burnout probes the subject therefore
+  // scored ZERO gate hits and zero concept engagement for every
+  // paper that used the field's own word, while title only news
+  // items carrying the population words rode phrase bonuses into
+  // the cited set. The group is the Lane A bridge pattern: the
+  // asker's phrasal forms and the literature's word as one
+  // concept, so a citable paper must still engage a second
+  // concept beside it. Bare "burned"/"burnt" are members so the
+  // bare head term a key phrase yields ("burned" out of "burned
+  // out") resolves the group; a thermal burns question resolves
+  // the wound group through "burn"/"burns", different members,
+  // and is untouched.
+  ["burnout", "burned out", "burnt out", "burn out", "burning out",
+   "burned-out", "burnt-out", "burned", "burnt"],
+  // 2026-10-24 (citation wave, Lane 2): the graduate population
+  // bridge. A question names its population once, in one wording
+  // ("graduate school", "phd students"); the literature names the
+  // same population a dozen ways (graduate students, doctoral
+  // students, medical students, postgraduates, postdoctoral
+  // trainees), and the floor's word counting treated the
+  // question's wording as the only one that exists: on the live
+  // burnout probes, papers engaging the subject plus this
+  // population under any other wording scored one core hit and
+  // were classed weak beside papers in mining and other
+  // occupations that scored the same one hit. The members are
+  // the standard wordings of the graduate and trainee
+  // population, as one concept: engaging it satisfies the
+  // population half of a question, never the subject half, so
+  // the two concept standard still demands the subject beside
+  // it.
+  ["graduate student", "graduate students", "grad student",
+   "grad students", "graduate school", "phd student",
+   "phd students", "doctoral student", "doctoral students",
+   "doctoral candidate", "doctoral candidates",
+   "postgraduate student", "postgraduate students",
+   "postgraduate", "medical student", "medical students",
+   "postdoctoral student", "postdoctoral students",
+   "postdoctoral researcher", "postdoctoral researchers",
+   "graduate", "grad", "phd", "doctoral"],
   // 2026-10-21 (search fix wave, Lane A): honey and wound groups.
   // The honey probes had NO group at all: every central concept
   // resolved bare, and "honey" separately sits in ORGANISM_WORDS
