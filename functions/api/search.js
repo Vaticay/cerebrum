@@ -18711,7 +18711,31 @@ export function paperClearsCitationGate(paper, standard) {
       ? std.centralConcepts : judged;
     const allHits = centralConceptHits(paper, centralSet);
     let verdict;
-    if (allHits.subjectInTitle && allHits.inTitle >= 2) {
+    // Title exception, real second concept (2026-10-24,
+    // citation wave, Lane 2): the exception lets a paper in on
+    // its title alone, so the second title concept it requires
+    // must be a real content concept: backed by a group or the
+    // subject flag, or carrying the specificity the centrality
+    // screens themselves demand of a concept (0.5, the bar
+    // centralContentTerms and the weak head admission in
+    // questionCentralConcepts both use). Judged over the raw
+    // central set, the exception completed on a generic framing
+    // head: on the continuation probe's PhD wording the
+    // question's central concepts included "time" (the head of
+    // "burned out time", specificity 0.15, a generic science
+    // word), and a Nature news item whose title names the
+    // population and a time limit, and no word of the subject,
+    // cleared the standard on subject plus "time" in the title
+    // while every burnout paper in the pool was classed weak.
+    // A bare concept that is genuinely central still counts,
+    // exactly as L3-11 ruled: the baby in the coffee question
+    // (specificity 0.65) and antibiotics in the yogurt question
+    // (0.8) both pass this bar. When no concept in the set
+    // passes it, the exception reads the full set exactly as
+    // before.
+    const exceptionSet = centralSet.filter((c) => c && (c.subject || (c.group && c.group.size > 0) || termSpecificity(String(c.term || "")) >= 0.5));
+    const exceptionHits = exceptionSet.length > 0 ? centralConceptHits(paper, exceptionSet) : allHits;
+    if (exceptionHits.subjectInTitle && exceptionHits.inTitle >= 2) {
       verdict = true;
     } else {
       // WAVE SEVENTEEN (2026-10-15, citation depth diagnosis,
