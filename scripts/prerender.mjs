@@ -170,6 +170,11 @@ function renderPage(slug, data, shell) {
       <hr style="border:0;border-top:1px solid #e0ddd8;margin:2.5rem 0 1.5rem" />
       <p style="font:400 13px/1.6 system-ui,sans-serif;color:#6b6b6b">
         <a href="/about" style="color:#6b6b6b">About</a> &middot;
+        <a href="/features" style="color:#6b6b6b">Features</a> &middot;
+        <a href="/pricing" style="color:#6b6b6b">Pricing</a> &middot;
+        <a href="/document-mode" style="color:#6b6b6b">Document Mode</a> &middot;
+        <a href="/diagram-studio" style="color:#6b6b6b">Diagram Studio</a> &middot;
+        <a href="/investigations" style="color:#6b6b6b">Investigations</a> &middot;
         <a href="/privacy" style="color:#6b6b6b">Privacy</a> &middot;
         <a href="/terms" style="color:#6b6b6b">Terms</a> &middot;
         <a href="/disclosures" style="color:#6b6b6b">Disclosures</a> &middot;
