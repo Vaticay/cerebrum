@@ -42,7 +42,7 @@ await test("the view reads the feed health fields the endpoint sends", () => {
 await test("the edition can be searched and sorted", () => {
   assert.ok(appSrc.includes("Search this edition"), "edition search missing");
   assert.ok(appSrc.includes("trendSort"), "sort state missing");
-  assert.ok(appSrc.includes("Longest running") && appSrc.includes("Newest"), "sort options missing");
+  assert.ok(appSrc.includes("Stayed in the edition longest") && appSrc.includes("Newest first"), "sort options missing");
   // The surface is called what it is, everywhere it is named: the
   // daily edition of new science. One name in the nav, the page
   // heading, the phone title, and the tab title.
@@ -54,7 +54,7 @@ await test("the edition can be searched and sorted", () => {
 });
 
 await test("a filter that matches nothing gets a real empty state", () => {
-  assert.ok(appSrc.includes("Nothing in this edition matches"), "empty state missing");
+  assert.ok(appSrc.includes("No stories match what you picked"), "empty state missing");
   assert.ok(appSrc.includes("Show the whole edition"), "empty state has no way back");
 });
 
@@ -66,7 +66,7 @@ await test("the edition is hero and digest only, with no rail repeating stories"
   assert.ok(!appSrc.includes("TrendRailList"), "the rail component is still present");
   assert.ok(!appSrc.includes("Newest in this edition"), "the newest rail title is still present");
   assert.ok(appSrc.includes("TrendingHero"), "the hero is missing");
-  assert.ok(appSrc.includes("The digest"), "the digest is missing");
+  assert.ok(appSrc.includes(">More stories</h2>"), "the more stories heading is missing");
 });
 
 await test("the most cited rail stays hidden while the feed sends no counts", () => {
@@ -239,8 +239,8 @@ await test("past editions are archived and offered in the masthead", async () =>
   assert.ok(trendingSrc.includes("editionIdOf"), "no edition identifier derived from generatedAt");
   assert.ok(trendingSrc.includes('searchParams.get("edition")'), "endpoint cannot serve a past edition");
   assert.ok(appSrc.includes("Choose an edition"), "no edition selector in the masthead");
-  assert.ok(appSrc.includes("Back to the current edition"), "no way back from an archived edition");
-  assert.ok(appSrc.includes("New edition since your last visit"), "no new since last visit marker");
+  assert.ok(appSrc.includes("Back to the latest edition"), "no way back from an archived edition");
+  assert.ok(appSrc.includes("A new edition has come out since your last visit"), "no new since last visit marker");
   const sourceSrc = await readFile(join(root, "functions/lib/trendingSource.js"), "utf8");
   assert.ok(sourceSrc.includes("resultType=core"), "Europe PMC fetch does not ask for abstracts");
   const { editionIdOf } = await import(join(root, "functions/api/trending.js")).catch(() => ({}));
@@ -677,12 +677,12 @@ await test("persistence marker: named only above the first day", async () => {
 
 await test("the view offers the trend ordering and renders the persistence marker", () => {
   assert.ok(appSrc.includes("compareByTrend(a, b)"), "the client sort never calls the trend comparator");
-  assert.ok(appSrc.includes('{ id: "trend", label: "Longest running" }'), "no persistence sort option");
+  assert.ok(appSrc.includes('{ id: "trend", label: "Stayed in the edition longest" }'), "no persistence sort option");
   // Persistence is the default order under the new name, not an
   // option behind the edition order, and it is not gated on
   // citation data it does not need.
   assert.ok(appSrc.includes('useState("trend")'), "the default sort is not persistence");
-  const optionsAt = appSrc.indexOf('id: "trend", label: "Longest running"');
+  const optionsAt = appSrc.indexOf('id: "trend", label: "Stayed in the edition longest"');
   const optionsSlice = appSrc.slice(optionsAt, optionsAt + 240);
   assert.ok(optionsSlice.indexOf('id: "edition"') > -1, "the persistence option does not lead the sort group");
   // The marker reaches every story surface through one helper: the

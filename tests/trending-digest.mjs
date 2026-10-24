@@ -505,7 +505,7 @@ await test("citation health is rendered, not just shipped in the payload", () =>
     "a partial citation completion is not disclosed on screen");
   assert.match(appSrc, /\{citationHealth\.resolved\} of \{citationHealth\.attempted\} counts resolved/,
     "the partial disclosure does not name the resolved and attempted counts");
-  assert.match(appSrc, /A provider was rate limited/,
+  assert.match(appSrc, /hit its limit/,
     "the partial disclosure does not name the rate limit");
 });
 
