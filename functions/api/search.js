@@ -18511,18 +18511,60 @@ function stemFamilyOf(w) {
   return fam;
 }
 
-function termStemHitInText(lowText, term) {
+/* Field stem index (2026-10-24, citation wave, Lane 3): one
+ * tokenization of a field text, with each token's stem computed
+ * once, shared by every term and group member judged against
+ * that field. The hit test this replaces (termStemHitInText in
+ * its original form) re split and re stemmed EVERY token of the
+ * text for EVERY term it was asked about, and the concept
+ * machinery asks once per concept term plus once per member of
+ * the concept's gating group (13 members for "sleep", 12 for
+ * "brain" on the sleep probe's question), per field, per paper,
+ * per gate consumer. The live sleep probe ("what happens to
+ * your brain if you only sleep six hours every night for two
+ * weeks straight") died with a Cloudflare "Worker exceeded
+ * resource limits" 503 at 8,712 ms while every sibling probe
+ * returned 200; local profiling of the same shape (stubbed
+ * fetchers, mixed on and off topic pool, gathered 400) put
+ * ~80 percent of total request CPU in this one scan family,
+ * and ~75 percent in countOnTopicPapers' repeated whole pool
+ * gate passes through it. The index changes no verdict: the
+ * per token rules below are the original rules verbatim, only
+ * the token stems are computed once per field instead of once
+ * per term. Pinned by tests/worker-resource-budget.mjs. */
+function fieldStemIndex(lowText) {
+  const text = String(lowText || "");
+  const entries = [];
+  const tokSet = new Set();
+  const stemSet = new Set();
+  for (const tok of text.split(/[^a-z0-9]+/)) {
+    if (!tok) continue;
+    const stem = extractiveStem(tok);
+    entries.push({ tok, stem, fam: null });
+    tokSet.add(tok);
+    stemSet.add(stem);
+  }
+  return { text, entries, tokSet, stemSet };
+}
+
+function termStemHitInIndex(index, term) {
   const t = String(term || "").toLowerCase().trim();
-  if (!t || !lowText) return false;
-  if (t.indexOf(" ") !== -1) return lowText.indexOf(t) >= 0;
+  if (!t || !index || !index.text) return false;
+  if (t.indexOf(" ") !== -1) return index.text.indexOf(t) >= 0;
   const stem = extractiveStem(t);
   const fam = stemFamilyOf(t);
-  for (const tok of lowText.split(/[^a-z0-9]+/)) {
-    if (!tok) continue;
-    if (tok === t) return true;
+  // The two exact rules first, as set lookups (the original
+  // loop's first two checks, tok === t and stem equality):
+  if (index.tokSet.has(t)) return true;
+  if (stem.length >= 3 && index.stemSet.has(stem)) return true;
+  // The remaining original rules, over the index's entries
+  // (token stems precomputed once, token families computed
+  // lazily and cached on the entry across every term judged
+  // against this field):
+  for (const e of index.entries) {
+    const tok = e.tok;
     if (stem.length >= 3) {
-      const ts = extractiveStem(tok);
-      if (ts === stem) return true;
+      const ts = e.stem;
       if (stem.length >= 4 && ts.startsWith(stem)) return true;
       // The term carrying an inflection the text's base form
       // lacks ("sprained" the term, "sprain" in the text) is
@@ -18538,7 +18580,8 @@ function termStemHitInText(lowText, term) {
           /^(ed|ing|es|s|d|en|er|est)$/.test(stem.slice(ts.length))) return true;
     }
     if (fam.size > 1 || tok.endsWith("ves") || tok.endsWith("f") || tok.endsWith("fe")) {
-      const tokFam = stemFamilyOf(tok);
+      if (e.fam === null) e.fam = stemFamilyOf(tok);
+      const tokFam = e.fam;
       for (const f of fam) {
         if (f.length >= 3 && tokFam.has(f)) return true;
       }
@@ -18547,16 +18590,59 @@ function termStemHitInText(lowText, term) {
   return false;
 }
 
-function textTouchesConceptGroup(lowText, group) {
-  if (!group || !lowText) return false;
+function termStemHitInText(lowText, term) {
+  if (!lowText) return false;
+  return termStemHitInIndex(fieldStemIndex(lowText), term);
+}
+
+function groupTouchesIndex(index, group) {
+  if (!group || !index || !index.text) return false;
   for (const member of group) {
     const m = String(member || "").toLowerCase().trim();
     if (!m) continue;
     if (m.indexOf(" ") !== -1) {
-      if (lowText.indexOf(m) >= 0) return true;
-    } else if (termStemHitInText(lowText, m)) return true;
+      if (index.text.indexOf(m) >= 0) return true;
+    } else if (termStemHitInIndex(index, m)) return true;
   }
   return false;
+}
+
+function textTouchesConceptGroup(lowText, group) {
+  if (!group || !lowText) return false;
+  return groupTouchesIndex(fieldStemIndex(lowText), group);
+}
+
+/* One concept's hits against a paper's two field indexes:
+ * engaged in title, engaged in abstract, and whether the
+ * concept is the subject. The per concept record every
+ * aggregate below is summed from, so a consumer judging
+ * several overlapping concept sets over one paper (the
+ * citation gate judges the central set, the title exception
+ * set, and the backed set, which overlap almost entirely)
+ * evaluates each concept once instead of once per set
+ * (2026-10-24, citation wave, Lane 3; verdicts unchanged). */
+function conceptFieldHits(titleIndex, absIndex, c) {
+  // Gate touches use the typed gate set (2026-10-23, L1-8).
+  const gateGroup = gateConceptSetFor(c.group);
+  const inTitle = termStemHitInIndex(titleIndex, c.term) || groupTouchesIndex(titleIndex, gateGroup);
+  const inAbstract = termStemHitInIndex(absIndex, c.term) || groupTouchesIndex(absIndex, gateGroup);
+  return { inTitle, inAbstract, subject: !!c.subject };
+}
+
+function aggregateConceptHits(perConcept) {
+  let total = 0, inTitle = 0, inAbstract = 0;
+  let subjectHit = false, subjectInTitle = false;
+  for (const r of perConcept) {
+    if (!r) continue;
+    if (r.inTitle || r.inAbstract) total++;
+    if (r.inTitle) inTitle++;
+    if (r.inAbstract) inAbstract++;
+    if (r.subject) {
+      if (r.inTitle || r.inAbstract) subjectHit = true;
+      if (r.inTitle) subjectInTitle = true;
+    }
+  }
+  return { total, inTitle, inAbstract, subjectHit, subjectInTitle };
 }
 
 /* centralConceptHits(paper, concepts): which of the question's
@@ -18590,23 +18676,32 @@ export function centralConceptHits(paper, concepts) {
   const list = Array.isArray(concepts) ? concepts : [];
   const titleLow = String((paper && paper.title) || "").toLowerCase();
   const absLow = String(usableAbstract(paper) || (paper && paper.snippet) || "").toLowerCase();
-  let total = 0, inTitle = 0, inAbstract = 0;
-  let subjectHit = false, subjectInTitle = false;
-  for (const c of list) {
-    if (!c) continue;
-    // Gate touches use the typed gate set (2026-10-23, L1-8).
-    const gateGroup = gateConceptSetFor(c.group);
-    const th = termStemHitInText(titleLow, c.term) || textTouchesConceptGroup(titleLow, gateGroup);
-    const ah = termStemHitInText(absLow, c.term) || textTouchesConceptGroup(absLow, gateGroup);
-    if (th || ah) total++;
-    if (th) inTitle++;
-    if (ah) inAbstract++;
-    if (c.subject) {
-      if (th || ah) subjectHit = true;
-      if (th) subjectInTitle = true;
+  const titleIndex = fieldStemIndex(titleLow);
+  const absIndex = fieldStemIndex(absLow);
+  return aggregateConceptHits(list.map((c) => (c ? conceptFieldHits(titleIndex, absIndex, c) : null)));
+}
+
+/* Per concept hit records for one paper, keyed by concept
+ * object, computed once over the paper's two field indexes.
+ * Consumers judging several overlapping sets over the same
+ * paper share the records through the cache map they pass in
+ * (2026-10-24, citation wave, Lane 3). */
+function conceptHitsCacheFor(paper, state) {
+  return (c) => {
+    if (!state.records.has(c)) {
+      if (!state.indexes) {
+        const titleLow = String((paper && paper.title) || "").toLowerCase();
+        const absLow = String(usableAbstract(paper) || (paper && paper.snippet) || "").toLowerCase();
+        state.indexes = { title: fieldStemIndex(titleLow), abs: fieldStemIndex(absLow) };
+      }
+      state.records.set(c, conceptFieldHits(state.indexes.title, state.indexes.abs, c));
     }
-  }
-  return { total, inTitle, inAbstract, subjectHit, subjectInTitle };
+    return state.records.get(c);
+  };
+}
+
+function aggregateConceptSetHits(set, recordFor) {
+  return aggregateConceptHits((set || []).map((c) => (c ? recordFor(c) : null)));
 }
 
 // The citation standard for one question: its gating groups, the
@@ -18722,7 +18817,17 @@ export function paperClearsCitationGate(paper, standard) {
     // exactly as before.
     const centralSet = Array.isArray(std.centralConcepts) && std.centralConcepts.length > 0
       ? std.centralConcepts : judged;
-    const allHits = centralConceptHits(paper, centralSet);
+    // One evaluation per concept for the whole gate call
+    // (2026-10-24, citation wave, Lane 3): the central set, the
+    // title exception set, and the backed set below overlap
+    // almost entirely, and each used to be scored by its own
+    // centralConceptHits pass over the paper. The records are
+    // shared through this state; every aggregate the gate
+    // reads is summed from the same per concept records
+    // centralConceptHits itself sums, so no verdict changes.
+    const gateHitState = { records: new Map(), indexes: null };
+    const gateRecordFor = conceptHitsCacheFor(paper, gateHitState);
+    const allHits = aggregateConceptSetHits(centralSet, gateRecordFor);
     let verdict;
     // Title exception, real second concept (2026-10-24,
     // citation wave, Lane 2): the exception lets a paper in on
@@ -18747,7 +18852,7 @@ export function paperClearsCitationGate(paper, standard) {
     // passes it, the exception reads the full set exactly as
     // before.
     const exceptionSet = centralSet.filter((c) => c && (c.subject || (c.group && c.group.size > 0) || termSpecificity(String(c.term || "")) >= 0.5));
-    const exceptionHits = exceptionSet.length > 0 ? centralConceptHits(paper, exceptionSet) : allHits;
+    const exceptionHits = exceptionSet.length > 0 ? aggregateConceptSetHits(exceptionSet, gateRecordFor) : allHits;
     if (exceptionHits.subjectInTitle && exceptionHits.inTitle >= 2) {
       verdict = true;
     } else {
@@ -18776,7 +18881,7 @@ export function paperClearsCitationGate(paper, standard) {
       // and the subject serve still judges the shipped set.
       const backed = judged.filter((c) => c && (c.subject || (c.group && c.group.size > 0)));
       const useSet = backed.length > 0 ? backed : judged;
-      const hits = centralConceptHits(paper, useSet);
+      const hits = aggregateConceptSetHits(useSet, gateRecordFor);
       // Diagnosis amendment (2026-10-21, search diagnosis): the
       // abstract engagement requirement below cannot be judged
       // for a paper that HAS no abstract — and the index that
@@ -18811,7 +18916,7 @@ export function paperClearsCitationGate(paper, standard) {
         // stimulation) and still clears.
         const only = useSet[0];
         let abstractServe = false;
-        try { abstractServe = centralConceptHits(paper, [only]).inAbstract >= 1; } catch { abstractServe = false; }
+        try { abstractServe = aggregateConceptSetHits([only], gateRecordFor).inAbstract >= 1; } catch { abstractServe = false; }
         if (!hasAbstract) abstractServe = hits.total >= 1;
         verdict = hits.total >= 1 && depthEngaged && (abstractServe || hits.subjectInTitle);
       }
