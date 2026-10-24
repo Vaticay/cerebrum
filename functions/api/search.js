@@ -586,6 +586,77 @@ export function rescueDeadlineFor(requestDeadlineMs, factCheckOn) {
   return Number(requestDeadlineMs) - (factCheckOn ? FACT_CHECK_RESERVE_MS : 2500);
 }
 
+/* RETRIEVAL SLICE (2026-10-23, continuation lane, from the
+ * owner's photographed burnout answer): the synthesis deadline
+ * above is an absolute point on the request clock, but nothing
+ * upstream of synthesis was anchored to it. Retrieval's stage
+ * backstop read the request budget (msLeft() - 6000) and
+ * gatherPapers' own budget is 20,000 ms from gather start, so
+ * on the probe retrieval lawfully ran 7,076 ms, validation
+ * followed, and synthesis opened with about 685 ms against its
+ * 8,500 ms deadline: under MIN_WAVE_WINDOW_MS, so no wave
+ * fired, no leg was recorded, and the extractive fallback
+ * served a question the fleet could have answered. The fix is
+ * the same shape as the fact check reserve: retrieval gets a
+ * bounded slice of the request, derived at request start from
+ * the same landmarks. The slice ends early enough that the
+ * work between retrieval and wave 1 (validation and the
+ * evidence passes, measured at 739 to 1,195 ms on the
+ * acceptance probes, plus synthesis prep) fits inside
+ * POST_RETRIEVAL_PREP_MS and wave 1 still opens with at least
+ * MIN_WAVE_WINDOW_MS of synthesis window. When the slice
+ * expires mid rung, the rung returns the sources that already
+ * answered (settleByDeadline below) and the ladder stops:
+ * sources cut by the slice are recorded as not answered in
+ * time, never as sources that answered with zero. */
+export const POST_RETRIEVAL_PREP_MS = 1500;
+export const MIN_RETRIEVAL_SLICE_MS = 1500;
+export function retrievalDeadlineFor(requestStartMs, requestDeadlineMs, factCheckOn) {
+  return synthesisDeadlineFor(requestStartMs, requestDeadlineMs, factCheckOn)
+    - MIN_WAVE_WINDOW_MS - POST_RETRIEVAL_PREP_MS;
+}
+/* The deadline a gather actually runs under: the caller's
+ * slice, floored so a request whose pre retrieval work already
+ * overran still gives the primary rung MIN_RETRIEVAL_SLICE_MS
+ * of its own (the same starve protection the stage backstop's
+ * 3,000 ms floor has always given retrieval). Null when the
+ * caller named no deadline: the gather then runs on its own
+ * internal budget exactly as before. */
+export function effectiveRetrievalDeadlineMs(deadlineMs, gatherStartMs) {
+  if (deadlineMs == null || !Number.isFinite(Number(deadlineMs))) return null;
+  return Math.max(Number(deadlineMs), Number(gatherStartMs) + MIN_RETRIEVAL_SLICE_MS);
+}
+/* settleByDeadline(promises, deadlineMs): Promise.allSettled
+ * with a wall clock. Every input's outcome is recorded as it
+ * lands; when the deadline passes, the call resolves with the
+ * outcomes recorded so far and a rejected slot (reason named
+ * for the retrieval deadline) for every input still in flight.
+ * The in flight fetches are not cancelled (the fetchers own
+ * their abort controllers); their late outcomes are simply
+ * never read, the same abandonment runStage already applies
+ * to a timed out stage. A null deadline is plain allSettled. */
+export function settleByDeadline(promises, deadlineMs) {
+  const list = Array.isArray(promises) ? promises : [];
+  if (deadlineMs == null || !Number.isFinite(Number(deadlineMs))) {
+    return Promise.allSettled(list);
+  }
+  const slots = list.map(() => ({ settled: false, result: null }));
+  const tracked = list.map((p, i) => Promise.resolve(p).then(
+    (value) => { slots[i].settled = true; slots[i].result = { status: "fulfilled", value }; },
+    (reason) => { slots[i].settled = true; slots[i].result = { status: "rejected", reason }; }
+  ));
+  const snapshot = () => slots.map((s) => (s.settled ? s.result : {
+    status: "rejected",
+    reason: new Error("retrieval deadline: source did not answer inside the retrieval slice"),
+  }));
+  const left = Number(deadlineMs) - Date.now();
+  if (left <= 0) return Promise.resolve(snapshot());
+  let timer = null;
+  const cut = new Promise((resolve) => { timer = setTimeout(() => resolve(snapshot()), left); });
+  const all = Promise.all(tracked).then(() => snapshot());
+  return Promise.race([all, cut]).then((v) => { if (timer) clearTimeout(timer); return v; });
+}
+
 /* RETRY RACE CLOSE (2026-10-14, wave sixteen, eighth panel,
  * Infrastructure defect 2): after a synthesis winner lands,
  * the post winner retries (quality, citation, minimum
@@ -607,6 +678,37 @@ export function raceWithCloseWindow(racePromise, windowMs) {
     Promise.resolve(racePromise).then((v) => v, () => null),
     new Promise((res) => setTimeout(() => res("closed"), Math.max(0, windowMs))),
   ]);
+}
+
+/* RETRY CLOSE AGAINST THE FACT CHECK RESERVE (2026-10-23,
+ * continuation lane, from acceptance probe 3): the quality
+ * and minimum support retries gate on the synthesis window,
+ * so their close always lands before the synthesis deadline
+ * and can never reach the check's reserve. The citation
+ * repair retry is the one exception, deliberately: its gate
+ * is the request budget alone (msLeft() > 9000), because an
+ * uncited draft never ships as an AI answer either way. But
+ * when the repair SUCCEEDS the calculus flips: the request
+ * now holds a written AI answer whose claim check is the
+ * only verification left, and on probe 3 the repair race ran
+ * about 3,615 ms past the winner (stage 6,726 ms, winner at
+ * 3,111 ms) and closed with under the reserve left, so the
+ * check's admission gate recorded no-time and the written
+ * answer shipped unchecked. The repair keeps its request
+ * budget gate; its CLOSE is now bounded so the race must end
+ * with the fact check reserve (plus RETRY_RESERVE_MARGIN_MS
+ * for the synchronous passes between the stage close and the
+ * gate) intact whenever the request carries the check. With
+ * the check off there is no reserve to protect and the close
+ * is the standard RETRY_RACE_CLOSE_MS, unchanged. A close
+ * under MIN_RETRY_CLOSE_MS is no real chance for a leg, so
+ * the caller stands the repair down instead of firing it. */
+export const RETRY_RESERVE_MARGIN_MS = 250;
+export const MIN_RETRY_CLOSE_MS = 1500;
+export function retryCloseWindowMs(msLeftMs, factCheckOn) {
+  if (!factCheckOn) return RETRY_RACE_CLOSE_MS;
+  const left = Math.max(0, Math.floor(Number(msLeftMs) || 0));
+  return Math.max(0, Math.min(RETRY_RACE_CLOSE_MS, left - FACT_CHECK_RESERVE_MS - RETRY_RESERVE_MARGIN_MS));
 }
 
 /* Plan the delayed rescue from the recorded attempt trail. Pure over
@@ -26182,7 +26284,19 @@ async function gatherPapers(rawQuery, opts) {
 
 async function gatherPapersBody(rawQuery, opts) {
   const _searchStart = Date.now();
-  const _budgetLeft = () => GATHER_PAPERS_BUDGET_MS - (Date.now() - _searchStart) > 0;
+  // Retrieval slice (2026-10-23, continuation lane): the caller
+  // may name an absolute deadline (retrievalDeadlineFor, derived
+  // from the request's own synthesis deadline). The ladder's
+  // stage gates read it through _budgetLeft, and every fanout
+  // settles through _settle so an in flight rung returns the
+  // sources that already answered when the slice expires
+  // instead of waiting out its slowest source past the point
+  // where synthesis can still fire. No deadline named: the
+  // gather behaves exactly as it did on its internal budget.
+  const _retrievalDeadlineMs = effectiveRetrievalDeadlineMs(opts && opts.deadlineMs, _searchStart);
+  const _budgetLeft = () => GATHER_PAPERS_BUDGET_MS - (Date.now() - _searchStart) > 0
+    && (_retrievalDeadlineMs == null || Date.now() < _retrievalDeadlineMs);
+  const _settle = (promises) => settleByDeadline(promises, _retrievalDeadlineMs);
   // Wrap the entire function so ANY thrown error still returns a diagnostic
   // rather than being swallowed by the outer .catch and losing all context.
   const _outerDiag = { entered: true, phase: "start", rawQuery: (rawQuery || "").slice(0, 200) };
@@ -26256,7 +26370,7 @@ async function gatherPapersBody(rawQuery, opts) {
     // Primary source parallel fetch. Each source returns papers with a full
     // author list in _allAuthors (this is the bug that was previously silently
     // dropping real matches . the strict filter was checking a truncated field).
-    const results = await Promise.allSettled([
+    const results = await _settle([
       europePMC(quoted, 25, ledger),                        // best full-text index for biomed
       // PubMed (2026-10-23, L2-13): the principal biomedical
       // author index was a fanout source for topic search but
@@ -26970,12 +27084,12 @@ async function gatherPapersBody(rawQuery, opts) {
     const fundedPairs = pairs.filter((p) => fundedNames.has(p.name));
     let fundedResults;
     if (!sequenceFirst) {
-      fundedResults = await Promise.allSettled(fundedPairs.map(fire));
+      fundedResults = await _settle(fundedPairs.map(fire));
     } else {
       const head = fundedPairs.filter((p) => FANOUT_PRIORITY_NAMES.includes(p.name));
       const tail = fundedPairs.filter((p) => !FANOUT_PRIORITY_NAMES.includes(p.name));
-      const headResults = await Promise.allSettled(head.map(fire));
-      const tailResults = await Promise.allSettled(tail.map(fire));
+      const headResults = await _settle(head.map(fire));
+      const tailResults = await _settle(tail.map(fire));
       const byPair = new Map();
       head.forEach((p, i) => byPair.set(p, headResults[i]));
       tail.forEach((p, i) => byPair.set(p, tailResults[i]));
@@ -27048,6 +27162,11 @@ async function gatherPapersBody(rawQuery, opts) {
   // The ledger's trim record rides the diag: which retrieval rounds
   // the subrequest budget cut on this gather, in cut order.
   if (budgetTrims.length || ledger) diag.budgetTrims = budgetTrims;
+  // The retrieval slice this gather ran under (continuation
+  // lane): how much wall clock the slice allowed from gather
+  // start, so a probe can tell a slice cut from a ladder that
+  // simply finished. Absent when no caller named a deadline.
+  if (_retrievalDeadlineMs != null) diag.retrievalSliceMs = Math.max(0, _retrievalDeadlineMs - _searchStart);
   // Gate for one optional retrieval round: true when there is no
   // ledger or the round may start inside the reserve rule; when the
   // ledger denies, the round's name joins the trim record. Used as
@@ -27328,7 +27447,7 @@ async function gatherPapersBody(rawQuery, opts) {
     const rawQ = organismTerm
       ? organismTerm.replace(/"/g, "") + " " + surfaceQuery
       : surfaceQuery;
-    const rawFallback = await Promise.allSettled([
+    const rawFallback = await _settle([
       europePMC(rawQ, 12, ledger, { structuredQuery: booleanQuery }),
       semanticScholar(rawQ, 10, s2Key, ledger),
       openAlex(rawQ, 10, openAlexKey, ledger),
@@ -27454,7 +27573,7 @@ async function gatherPapersBody(rawQuery, opts) {
     // Fire expanded queries in parallel across the most reliable engines
     const expandedArr = [...expandedQueries].slice(0, 6);
     if (expandedArr.length) {
-      const expandedResults = await Promise.allSettled(
+      const expandedResults = await _settle(
         expandedArr.flatMap((eq) => [
           europePMC(eq, 8, ledger, { structuredQuery: booleanQuery }),
           semanticScholar(eq, 6, s2Key, ledger),
@@ -27491,7 +27610,7 @@ async function gatherPapersBody(rawQuery, opts) {
   if (stillUncoveredTerms.length > 0 && onTopicBeforeBroad < RETRIEVAL_CITABLE_FLOOR && _budgetLeft() && (yieldBroad || roomOrTrim("broad-terms-rung", SUBREQUEST_RAW_NET_COST))) {
     if (yieldBroad) diag.cascadeYield = "broad-terms-rung";
     const broadQuery = stillUncoveredTerms.join(" OR ");
-    const broadResults = await Promise.allSettled([
+    const broadResults = await _settle([
       europePMC(broadQuery, 12, ledger, { structuredQuery: booleanQuery }),
       semanticScholar(broadQuery, 10, s2Key, ledger),
       openAlex(broadQuery, 10, openAlexKey, ledger),
@@ -27526,7 +27645,7 @@ async function gatherPapersBody(rawQuery, opts) {
     const recalled = await recallTopicMemory(topicForRecall, opts.db, ledger).catch(() => null);
     if (recalled && recalled.bestTerms && recalled.bestTerms.length > 0) {
       const recalledQueries = recalled.bestTerms.slice(0, 4);
-      const memResults = await Promise.allSettled(
+      const memResults = await _settle(
         recalledQueries.flatMap((eq) => [
           europePMC(eq, 8, ledger),
           semanticScholar(eq, 6, s2Key, ledger),
@@ -27561,7 +27680,7 @@ async function gatherPapersBody(rawQuery, opts) {
   const yieldNl = beginCascadeYield(totalAfterExpand, SUBREQUEST_NL_NET_COST);
   if (onTopicAfterExpand < RETRIEVAL_CITABLE_FLOOR && _budgetLeft() && (yieldNl || roomOrTrim("natural-language-fallback", SUBREQUEST_NL_NET_COST))) {
     if (yieldNl) diag.cascadeYield = "natural-language-fallback";
-    const nlFallback = await Promise.allSettled([
+    const nlFallback = await _settle([
       semanticScholar(rawQuery.slice(0, 200), 15, s2Key, ledger),
       europePMC(rawQuery.slice(0, 200), 12, ledger, { structuredQuery: booleanQuery }),
       openAlex(rawQuery.slice(0, 200), 10, openAlexKey, ledger),
@@ -27624,7 +27743,7 @@ async function gatherPapersBody(rawQuery, opts) {
       // topic terms, no boolean text. Europe PMC keeps the
       // boolean it parses.
       const relaxedNaturalQ = ((orgNames[0] || "") + " " + topicOr.join(" ")).trim() || surfaceQuery;
-      const relaxedResults = await Promise.allSettled([
+      const relaxedResults = await _settle([
         europePMC(relaxedBoolQ, 12, ledger, { structuredQuery: relaxedBoolQ }),
         pubmed(relaxedNaturalQ, 12, ncbiKey, ledger, { structuredQuery: relaxedBoolQ }),
       ]);
@@ -27805,7 +27924,7 @@ async function gatherPapersBody(rawQuery, opts) {
             openAlex(foundingForm, 12, openAlexKey, ledger, { sort: "cited_by_count:desc" }),
           );
         }
-        const laneResults = await Promise.allSettled(laneCalls);
+        const laneResults = await _settle(laneCalls);
         // Tag the lane's papers: the record of which papers the
         // foundational search brought in rides the record
         // copies the way the NL net's tag does (_nlNet above).
@@ -27864,7 +27983,7 @@ async function gatherPapersBody(rawQuery, opts) {
         (diag.clauseQueries || (diag.clauseQueries = [])).push(sub.join(" "));
         diag["clause:" + sub.join("+")] = subRes.reduce(
           (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0);
-      } catch (cbErr) { console.error("[Cerebrum] search.js for: const subRes = await Promise.allSettled(fanout(sub, false));:", cbErr); }
+      } catch (cbErr) { console.error("[Cerebrum] search.js for: const subRes = await _settle(fanout(sub, false));:", cbErr); }
     }
   }
 
@@ -27895,7 +28014,7 @@ async function gatherPapersBody(rawQuery, opts) {
         for (let qi = 0; qi < subs.length; qi++) {
           if (!_budgetLeft()) break;
           const sq = subs[qi];
-          const decompRes = await Promise.allSettled([
+          const decompRes = await _settle([
             europePMC(sq, 8, ledger),
             semanticScholar(sq, 6, s2Key, ledger),
             openAlex(sq, 6, openAlexKey, ledger),
@@ -27938,7 +28057,7 @@ async function gatherPapersBody(rawQuery, opts) {
       }
       const orgQuoted2 = '"' + sciName + '"';
       try {
-        const secResults = await Promise.allSettled([
+        const secResults = await _settle([
           europePMC(orgQuoted2 + " AND (" + topicStr2 + ")", 10, ledger),
           pubmed(sciName + " " + topicStr2, 10, ncbiKey, ledger),
           openAlex(sciName + " " + topicStr2, 10, openAlexKey, ledger),
@@ -29738,7 +29857,7 @@ async function gatherPapersBody(rawQuery, opts) {
       try {
         const reviewTopic = (organismTerm ? organismTerm.replace(/"/g, "") + " " : "") + ranked.slice(0, 4).join(" ");
         const reviewQ = (reviewTopic + " systematic review meta-analysis").trim();
-        const reviewResults = await Promise.allSettled([
+        const reviewResults = await _settle([
           openAlex(reviewQ, 10, openAlexKey, ledger, { types: "review" }),
           europePMC("(" + surfaceQuery + ') AND (PUB_TYPE:"Systematic Review" OR PUB_TYPE:"Meta-Analysis")', 10, ledger),
           semanticScholar(reviewQ, 8, s2Key, ledger),
@@ -29773,7 +29892,7 @@ async function gatherPapersBody(rawQuery, opts) {
     if (citableCount < SHELF_FLOOR_MINIMUM && _budgetLeft()
       && roomOrTrim("citation-ordered-leg", SUBREQUEST_FOUNDATIONAL_LANE_COST)) {
       try {
-        const citationResults = await Promise.allSettled([
+        const citationResults = await _settle([
           europePMC(surfaceQuery, 12, ledger, { sort: "CITED desc" }),
           openAlex(surfaceQuery, 12, openAlexKey, ledger, { sort: "cited_by_count:desc" }),
           semanticScholar(surfaceQuery, 10, s2Key, ledger, { sort: "citationCount:desc" }),
@@ -29800,7 +29919,7 @@ async function gatherPapersBody(rawQuery, opts) {
       try {
         const forms = shiftedQueryForms(rawQuery, ranked);
         if (forms.length > 0) {
-          const shiftedResults = await Promise.allSettled(forms.slice(0, 2).flatMap((form) => [
+          const shiftedResults = await _settle(forms.slice(0, 2).flatMap((form) => [
             europePMC(form, 12, ledger),
             openAlex(form, 12, openAlexKey, ledger, { page: 2 }),
             semanticScholar(form, 10, s2Key, ledger),
@@ -31848,6 +31967,13 @@ async function runSearchPipeline(pctx) {
         searchQuery: String(searchQuery).slice(0, 200),
         requestId,
       });
+      // Retrieval slice (2026-10-23, continuation lane): the
+      // gather runs under an absolute deadline derived from the
+      // synthesis deadline, so a slow retrieval can no longer
+      // consume the writing window and leave the waves unfired
+      // (see retrievalDeadlineFor). The minimum results
+      // guarantee re gathers below run under the same deadline.
+      const retrievalDeadlineMs = retrievalDeadlineFor(requestT0, requestDeadline, !!(settings && settings.factCheck));
       const retrievalStage = await runStage("retrieval", () => gatherPapers(searchQuery, {
         openAlexKey: env.OPENALEX_KEY || "",
         ncbiKey: env.NCBI_API_KEY || "",
@@ -31858,6 +31984,7 @@ async function runSearchPipeline(pctx) {
         db: env.DB,
         env,
         ledger,
+        deadlineMs: retrievalDeadlineMs,
         /* The Dive: real per-database progress. Each rung completion
            re-emits finding_papers with the answered count; the client maps
            repeated events for the same stage key onto its depth rail (same
@@ -31887,13 +32014,17 @@ async function runSearchPipeline(pctx) {
       }), {
         // 2026-09-12: was GATHER_PAPERS_BUDGET_MS + 10000 (30s) . a single
         // phase must never be allowed to consume the whole request budget.
-        // Retrieval takes whatever time remains after pre-work, always
-        // leaving ≥6s for synthesis + assembly (synthesis has its own
-        // deadline from requestDeadline). The 3s floor keeps a slow
-        // pre-work phase from starving retrieval to zero; gatherPapers' own
-        // internal 20s budget is now moot (this backstop always fires
-        // first), kept as defense in depth.
-        timeoutMs: Math.max(3000, msLeft() - 6000),
+        // Continuation lane (2026-10-23): the backstop is now
+        // derived from the retrieval slice itself (deadline plus
+        // a 1,000 ms grace), not from msLeft() - 6000. The old
+        // derivation read the request deadline, so the backstop
+        // sat minutes past the synthesis deadline in slice terms
+        // and never bound the failure it existed for; the gather
+        // now returns its partial pool at its own deadline first,
+        // and this race remains only as the disaster backstop
+        // behind it. The 3s floor keeps a slow pre-work phase
+        // from starving retrieval to zero.
+        timeoutMs: Math.max(3000, retrievalDeadlineMs - Date.now() + 1000),
         fallback: { papers: [], _diag: { fatalError: "retrieval stage timed out", errorType: "StageTimeout" } },
         health: stageHealth,
       });
@@ -31978,6 +32109,7 @@ async function runSearchPipeline(pctx) {
                 s2Key: env.SEMANTIC_SCHOLAR_KEY || "",
                 limit: 10, isPro: false, db: env.DB, env,
                 ledger,
+                deadlineMs: retrievalDeadlineMs,
               });
             } catch (cbErr) { _res = { papers: [] }; }
             const _rp = (_res.papers || []).filter((p) => !isEncyclopediaSource(p));
@@ -34966,7 +35098,7 @@ async function runSearchPipeline(pctx) {
      * caller's acceptance test decides what ships. Returns the
      * raceBest winner { answer, model } or null when no leg
      * could fire. */
-    const plannedRetryRace = async (msgs, maxTok, timeoutMs, wave, excludeLabels = []) => {
+    const plannedRetryRace = async (msgs, maxTok, timeoutMs, wave, excludeLabels = [], closeWindowMs = RETRY_RACE_CLOSE_MS) => {
       const labels = [];
       if (activeProviders.some((p) => p.id === "groq")) labels.push("groq:openai/gpt-oss-120b");
       if (cfBound) labels.push(CF_WAVE1[0]);
@@ -35001,7 +35133,7 @@ async function runSearchPipeline(pctx) {
       // rescue a defective draft, not to hold the stage open
       // to its deadline; on closure the caller keeps the
       // draft it already has.
-      const retryResult = await raceWithCloseWindow(raceBest(legs, query, 500), RETRY_RACE_CLOSE_MS);
+      const retryResult = await raceWithCloseWindow(raceBest(legs, query, 500), closeWindowMs);
       if (retryResult === "closed") {
         // Flag FIRST, so any leg settling from this point on
         // drops its bookkeeping, then abort the legs the
@@ -36083,8 +36215,28 @@ async function runSearchPipeline(pctx) {
       // ship when the retry is skipped, an uncited one does
       // not. The ledger tail reserve still applies inside
       // plannedRetryRace through fireWaveLegs.
+      // Continuation lane (2026-10-23): the gate above still
+      // reads the request budget alone, exactly as probe 17
+      // required. What changed is the race's CLOSE: it is now
+      // bounded by retryCloseWindowMs, so the 5,000 the gate
+      // arithmetic assumed is a ceiling the reserve can cut
+      // short, never a sum the race may always spend. When the
+      // repair succeeds late in the request, the shipped AI
+      // answer's claim check is funded first; the repair gets
+      // what is left, down to standing down entirely.
       let citationRetryAttempted = false;
       const runCitationRetry = async () => {
+        // Reserve bound (2026-10-23, continuation lane): the
+        // race's close is bounded by retryCloseWindowMs so a
+        // successful repair cannot spend the fact check's
+        // reserved window on its way to shipping (acceptance
+        // probe 3: the unbounded close is how a landed winner
+        // starved its own check into a no-time skip). Under
+        // MIN_RETRY_CLOSE_MS the race has no real chance and
+        // stands down without counting as attempted, so the
+        // post strip site below can still take its own reading.
+        const closeMs = retryCloseWindowMs(msLeft(), !!(settings && settings.factCheck));
+        if (closeMs < MIN_RETRY_CLOSE_MS) return null;
         citationRetryAttempted = true;
         try {
           const retryMsgs2 = [
@@ -36096,7 +36248,7 @@ async function runSearchPipeline(pctx) {
           // with a 12s cap like the quality retry above.
           // WAVE TEN (item 15): planned retry race, as above.
           try {
-            const r = await plannedRetryRace(retryMsgs2, maxTokens, 12000, "citation");
+            const r = await plannedRetryRace(retryMsgs2, maxTokens, 12000, "citation", [], closeMs);
             const cleaned = r && typeof r.answer === "string" ? postProcessAnswer(r.answer) : "";
             // Accepted only when it fixed the defect: real citations
             // to the shelf. A longer uncited draft is not an upgrade.
