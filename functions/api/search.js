@@ -21798,6 +21798,64 @@ function recordDatabasesOf(raw) {
   return out.length ? out : null;
 }
 
+/* CITATION WAVE LANE 1 (2026-10-24): one funnel stage snapshot.
+ * Every stage between gathering and citation records its paper
+ * count AND the titles it held, plus the titles it dropped (with
+ * the paper's stamped filter reason where one exists), so a pool
+ * that shrinks between stages can be audited paper by paper from
+ * the record instead of inferred from two bare counts. Bounds:
+ * at most 40 titles and 40 drops per stage, each title capped at
+ * 120 characters and each reason at 160, so a stage record stays
+ * small even on a wide pool. Titles are the identity the record
+ * already uses for excluded papers (excludedWeakTitles). */
+export const FUNNEL_STAGE_TITLES_CAP = 40;
+export function funnelStageOf(stage, papers, dropped) {
+  const list = Array.isArray(papers) ? papers : [];
+  const titles = [];
+  for (const p of list) {
+    if (titles.length >= FUNNEL_STAGE_TITLES_CAP) break;
+    const t = p && typeof p.title === "string" ? p.title.trim() : "";
+    if (t) titles.push(t.slice(0, 120));
+  }
+  const drops = [];
+  for (const d of Array.isArray(dropped) ? dropped : []) {
+    if (drops.length >= FUNNEL_STAGE_TITLES_CAP) break;
+    const p = d && d.paper ? d.paper : d;
+    const t = p && typeof p.title === "string" ? p.title.trim() : "";
+    if (!t) continue;
+    const reason = d && typeof d.reason === "string" && d.reason
+      ? d.reason
+      : p && typeof p._filteredReason === "string" ? p._filteredReason : "";
+    drops.push(reason
+      ? { title: t.slice(0, 120), reason: String(reason).slice(0, 160) }
+      : { title: t.slice(0, 120) });
+  }
+  return {
+    stage: String(stage || "").slice(0, 40),
+    count: list.length,
+    titles,
+    ...(drops.length ? { dropped: drops } : {}),
+  };
+}
+
+/* The papers in `before` that are not in `after`, by normalized
+ * title (the same identity the funnel stages account by). A paper
+ * whose title repeats in both lists is matched once per copy. */
+export function funnelDroppedBetween(before, after) {
+  const afterCounts = new Map();
+  for (const p of Array.isArray(after) ? after : []) {
+    const k = String((p && p.title) || "").toLowerCase().trim();
+    if (k) afterCounts.set(k, (afterCounts.get(k) || 0) + 1);
+  }
+  const dropped = [];
+  for (const p of Array.isArray(before) ? before : []) {
+    const k = String((p && p.title) || "").toLowerCase().trim();
+    if (k && (afterCounts.get(k) || 0) > 0) { afterCounts.set(k, afterCounts.get(k) - 1); continue; }
+    if (p) dropped.push(p);
+  }
+  return dropped;
+}
+
 /* Normalize a funnel to the public _funnel shape. Accepts the public
  * shape directly (excludedWeak present) or the internal diag.funnel
  * shape (gathered, deduped, ranked, nonEnglishInner), converting the
@@ -21818,9 +21876,51 @@ function recordFunnelOf(raw, diag, sourceCount) {
     ? n(f.excludedNonEnglish)
     : n(f.nonEnglishInner);
   const cited = typeof f.cited === "number" ? n(f.cited) : n(sourceCount);
+  // CITATION WAVE LANE 1 (2026-10-24): the RECORD carries up to
+  // 25 excluded titles (the internal funnel's own bound, raised
+  // in gatherPapers), so the floor's drops are accounted by
+  // title in the record. The public _funnel keeps its five title
+  // bound at its own assembly site; this is the record shape.
   const excludedWeakTitles = Array.isArray(f.excludedWeakTitles)
-    ? f.excludedWeakTitles.filter((t) => typeof t === "string" && t).slice(0, 5).map((t) => t.slice(0, 120))
+    ? f.excludedWeakTitles.filter((t) => typeof t === "string" && t).slice(0, 25).map((t) => t.slice(0, 120))
     : [];
+  // CITATION WAVE LANE 1 (2026-10-24): the per stage snapshots
+  // the handler recorded on the diag (funnelStageOf), normalized
+  // defensively like every other record field: stage names and
+  // titles capped, drop reasons capped, at most 16 stages. A run
+  // whose handler recorded no stages carries none, exactly as
+  // before this wave.
+  const funnelStages = (() => {
+    if (!diag || !Array.isArray(diag.funnelStages)) return null;
+    const out = [];
+    for (const s of diag.funnelStages.slice(0, 16)) {
+      if (!s || typeof s !== "object") continue;
+      const stage = String(s.stage || "").slice(0, 40);
+      if (!stage) continue;
+      const titles = Array.isArray(s.titles)
+        ? s.titles.filter((t) => typeof t === "string" && t).slice(0, FUNNEL_STAGE_TITLES_CAP).map((t) => t.slice(0, 120))
+        : [];
+      const entry = {
+        stage,
+        count: typeof s.count === "number" && Number.isFinite(s.count) ? Math.max(0, Math.floor(s.count)) : titles.length,
+        titles,
+      };
+      if (Array.isArray(s.dropped) && s.dropped.length > 0) {
+        entry.dropped = s.dropped.slice(0, FUNNEL_STAGE_TITLES_CAP).map((d) => {
+          if (typeof d === "string") return { title: d.slice(0, 120) };
+          if (!d || typeof d !== "object") return null;
+          const title = String(d.title || "").slice(0, 120);
+          if (!title) return null;
+          return typeof d.reason === "string" && d.reason
+            ? { title, reason: d.reason.slice(0, 160) }
+            : { title };
+        }).filter(Boolean);
+      }
+      if (typeof s.note === "string" && s.note) entry.note = s.note.slice(0, 160);
+      out.push(entry);
+    }
+    return out.length ? out : null;
+  })();
   // WAVE TEN (parent order, from the wave nine live probes):
   // the foundational lane's outcome rides the funnel so a live
   // verification can see whether the lane fired, what it
@@ -21923,6 +22023,7 @@ function recordFunnelOf(raw, diag, sourceCount) {
     gathered, deduped, excludedWeak, excludedWeakTitles, excludedNonEnglish,
     excludedRetracted: n(f.excludedRetracted), cited,
     counts,
+    ...(funnelStages ? { stages: funnelStages } : {}),
     ...(foundationalLane ? { foundationalLane } : {}),
     ...(foundationalFates ? { foundationalFates } : {}),
     ...(foundationalNearMisses ? { foundationalNearMisses } : {}),
@@ -29384,7 +29485,13 @@ async function gatherPapersBody(rawQuery, opts) {
     const excludedByFloor = scoredAllCapture
       .filter((p) => p && p.title && !paperDedupeKeys(p).some((k) => shelfKeys.has(k)))
       .sort((a, b) => (b.score || 0) - (a.score || 0));
-    funnel.excludedWeakTitles = excludedByFloor.slice(0, 5).map((p) => String(p.title).slice(0, 120));
+    // CITATION WAVE LANE 1 (2026-10-24): the internal funnel
+    // carries up to 25 excluded titles, not 5, so the record can
+    // account for the floor's drops by title at shelf scale. The
+    // public _funnel still slices its own five at ship time
+    // (publicFunnel below); this bound governs only the internal
+    // diag funnel the search record is built from.
+    funnel.excludedWeakTitles = excludedByFloor.slice(0, 25).map((p) => String(p.title).slice(0, 120));
   }
 
   for (const p of scoredFinal) {
@@ -32315,6 +32422,31 @@ async function runSearchPipeline(pctx) {
 
     // `let`, not `const` . the English-language filter below reassigns it.
     let papers = gResult.papers || [];
+    // CITATION WAVE LANE 1 (2026-10-24): funnel stage accounting.
+    // Every stage between the gathered shelf and the shipped
+    // citations snapshots its count and titles (and the titles it
+    // dropped) onto the diag, where recordFunnelOf carries them
+    // into the search record's funnel.stages. Before this, the
+    // record held only gathered/deduped/excludedWeak/cited, so a
+    // pool could shrink from 19 shelf papers to 3 candidates with
+    // no stage owning the shrink (the 2026-10-24 honey probe:
+    // gathered 22, excludedWeak 3, cited 0, and no recorded stage
+    // between the weak floor and the citation gate). The snapshots
+    // are diagnostics only: they never filter, reorder, or gate.
+    const funnelStages = [];
+    let funnelPrevPapers = papers;
+    const snapFunnelStage = (stage, after, note) => {
+      try {
+        const s = funnelStageOf(stage, after, funnelDroppedBetween(funnelPrevPapers, after));
+        if (note) s.note = String(note).slice(0, 160);
+        funnelStages.push(s);
+        funnelPrevPapers = after;
+      } catch { /* diagnostics must never break the run */ }
+    };
+    if (gResult && gResult._diag) {
+      try { gResult._diag.funnelStages = funnelStages; } catch { /* diagnostics only */ }
+    }
+    snapFunnelStage("shelf", papers);
     const foundationalFates = (gResult && gResult._diag && Array.isArray(gResult._diag.foundationalFates) && gResult._diag.foundationalFates.length > 0) ? gResult._diag.foundationalFates : null;
     // Counted for the public retrieval funnel (_funnel.excludedNonEnglish).
     let excludedNonEnglishOuter = 0;
@@ -32515,6 +32647,7 @@ async function runSearchPipeline(pctx) {
         papers = englishOnly;
       }
     }
+    snapFunnelStage("englishFilter", papers);
 
     // Commit 58 . drop non-scholarly archive records. A search for "Saho"
     // returned a Della Reese concert cassette, a 1930 quilt from a library
@@ -32534,6 +32667,7 @@ async function runSearchPipeline(pctx) {
       if (pp.doi || (pp.url || "").includes("doi.org")) return true;
       return !NON_SCHOLARLY_CONTAINER.test(container);
     });
+    snapFunnelStage("nonScholarlyFilter", papers);
 
     // Bug 4 fix (2026-10-08): the evidence filter is real now. The client
     // sends settings.evidenceFilter ("systematic-review" | "rct" |
@@ -32564,6 +32698,7 @@ async function runSearchPipeline(pctx) {
         evidenceFilteredOut = Math.max(0, before - papers.length);
       }
     }
+    snapFunnelStage("evidenceFilter", papers, evidenceFilterApplied ? "filter=" + evidenceFilterApplied : "no filter");
 
     // CONSTRAINT ENFORCEMENT (2026-10-09): If the query has load-bearing
     // constraints (e.g. "waste oil"), papers that don't mention them are
@@ -32589,6 +32724,7 @@ async function runSearchPipeline(pctx) {
         if (constraintKept.length > 0) papers = constraintKept;
       }
     } catch (cbErr) { console.error("[Cerebrum] search.js constraint filter:", cbErr); }
+    snapFunnelStage("constraintFilter", papers);
 
     // ═══════════════════════════════════════════════════════════════
     // CHEAP VALIDATION BEFORE THE EVIDENCE CUT (2026-10-13, reorder).
@@ -32671,6 +32807,8 @@ async function runSearchPipeline(pctx) {
         } catch { /* the diagnostic must never break retrieval */ }
       }
     }
+    snapFunnelStage("programmaticPasses", papers,
+      passesEmptiedShelf ? "passes emptied the shelf" : "organism filter then topic overlap filter");
 
     // METHOD INTENT (2026-10-14): detected once here, where the
     // shelf is chosen, and read again by the synthesis prompt and
@@ -32887,6 +33025,15 @@ async function runSearchPipeline(pctx) {
       try { gResult._diag.unscoredCitable = citablePapers.filter((p) => paperIsUnscored(p)).length; } catch { /* diagnostics only */ }
     }
     if (foundationalFates) advanceFoundationalFates(foundationalFates, "gate", citablePapers);
+    // CITATION WAVE LANE 1 (2026-10-24): the citation gate's own
+    // accounting, recorded on every run, not only on the runs
+    // the gate audit's narrow trigger (citable 0 or 1) covers.
+    // citableBefore here is the count the probe's citableBefore
+    // reads; on the 2026-10-24 honey run the gate audit never
+    // built (citable was 2, outside its trigger), so the record
+    // shipped gateAudit null and no citable count anywhere.
+    snapFunnelStage("citationGate", citablePapers,
+      "citableBefore=" + citablePapers.length + " gateAudit=" + (gateAudit ? "built" : "not built"));
     let evidencePapers;
     if (serveGateNoEvidence) {
       evidencePapers = [];
@@ -32915,6 +33062,7 @@ async function runSearchPipeline(pctx) {
       evidencePapers = [];
     }
     if (foundationalFates) advanceFoundationalFates(foundationalFates, "slice", evidencePapers);
+    snapFunnelStage("evidenceSlice", evidencePapers, "maxEvidence=" + maxEvidence);
     // Papers the binding withheld: reported in the answer envelope as
     // relevanceGatedOut so the UI can say so honestly ("3 more papers were
     // too tangential to cite") instead of silently dropping them. The
@@ -33127,6 +33275,8 @@ async function runSearchPipeline(pctx) {
       evidencePapers = applyRelevanceGate(evidencePapers);
       relevanceGatedOut += beforeGate - evidencePapers.length;
     }
+    snapFunnelStage("validation", evidencePapers,
+      validationDiag && validationDiag.llmValidatedVia ? "validator via " + validationDiag.llmValidatedVia : "validator did not answer");
 
     // CONTRADICTION-FIRST RETRIEVAL (2026-10-08 groundbreaking intelligence).
     // When the screened papers disagree, averaging them into mush is the
@@ -33268,6 +33418,7 @@ async function runSearchPipeline(pctx) {
       } catch { /* the selection binding already ran; a choke point failure must not zero the run */ }
     }
 
+    snapFunnelStage("finalGate", evidencePapers, "dedupe, relevance gate, stamped pass verdicts, citation choke point");
     // The gate can empty the list even when papers were retrieved: in that
     // state there is no evidence to synthesize FROM, so the answer takes the
     // no-evidence path (answer from knowledge, zero citations, suggest better
@@ -37936,6 +38087,17 @@ async function runSearchPipeline(pctx) {
       } catch { /* the subject serve must never break the serve */ }
     }
 
+    // CITATION WAVE LANE 1 (2026-10-24): the subject serve's
+    // accounting. When the serve fired and did not rebuild, the
+    // shipped cited set is empty whatever evidencePapers still
+    // holds for the limits below, so the stage records the
+    // evidence titles as dropped at this step, with the subject
+    // term the serve judged against in the note.
+    snapFunnelStage("subjectServe",
+      subjectServeDiag && subjectServeDiag.fired && !subjectServeDiag.rebuilt ? [] : evidencePapers,
+      subjectServeDiag && subjectServeDiag.fired
+        ? "fired subject=" + (subjectServeDiag.subject || "?") + " cited=" + subjectServeDiag.cited + (subjectServeDiag.rebuilt ? " rebuilt over " + subjectServeDiag.rebuiltOver : " not rebuilt")
+        : "not fired");
     // The body's claim check sentence (2026-10-14, answer package
     // defect 1): an extractive or definition answer printed its
     // confidence line before the claim check ran, with the check's
@@ -38692,6 +38854,12 @@ async function runSearchPipeline(pctx) {
     const labeledSources = furtherReadingTail.length > 0
       ? [...labelUncitedSources(sourceList, answer), ...labelUncitedSources(furtherReadingTail, "")]
       : labelUncitedSources(sourceList, answer);
+    // CITATION WAVE LANE 1 (2026-10-24): the shipped stage. The
+    // funnel's accounting closes on what the response actually
+    // cites: the labeled evidence entries the final answer's
+    // markers resolve to, by title.
+    snapFunnelStage("shipped", labeledSources.filter((s) => s && !s.uncited),
+      "responseKind=" + responseKind + " synthesisMode=" + (extractiveOK ? "extractive" : aiOK ? "ai" : "none"));
     const publicFunnel = (() => {
       const f = gResult && gResult._diag && gResult._diag.funnel;
       if (!f || typeof f.gathered !== "number") return null;
