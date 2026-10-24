@@ -1108,7 +1108,7 @@ await test("in-app pricing surfaces present every tier, not just Free and Pro", 
   // Pricing page hero cards: Lite and Pro Student stand next to Free and
   // Cerebrum Pro, with the verified prices from proEntitlement/legalContent.
   assert.match(src, /persona: "For the steady researcher", name: "Pro Lite", price: "\$3\.99\/month or \$39\/year"/, "pricing hero cards missing the Pro Lite card");
-  assert.match(src, /500 AI answers, 30 document reads, and 10 flowcharts every 5 days/, "Pro Lite hero card must carry the real Lite allowances");
+  assert.match(src, /500 AI answers, 30 document reads, and 10 diagrams every 5 days/, "Pro Lite hero card must carry the real Lite allowances");
   assert.match(src, /persona: "For college students", name: "Pro Student", price: "\$7\.99\/month for the first 12 months"/, "pricing hero cards missing the Pro Student card");
   assert.match(src, /Full Cerebrum Pro at a student price/, "student hero card must say it grants full Pro");
   assert.match(src, /Renews at \$20 per month after the first 12 months/, "student hero card must state the renewal price");

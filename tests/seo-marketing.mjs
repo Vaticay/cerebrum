@@ -171,17 +171,17 @@ t("pricing copy presents every verified tier and its headline allowances", () =>
   const required = [
     "Free",
     "Cost: $0, with no payment required.",
-    "50 AI answers, 3 document reads, and 1 flowchart every 5 days",
+    "50 AI answers, 3 document reads, and 1 diagram every 5 days",
     "Pro Lite",
     "Lite Monthly costs $3.99 per month",
     "Lite Annual costs $39 per year",
-    "500 AI answers, 30 document reads, and 10 flowcharts every 5 days",
+    "500 AI answers, 30 document reads, and 10 diagrams every 5 days",
     "Pro Student",
     "$7.99 per month for the first 12 months",
     "standard $20 monthly price",
     "Cerebrum Pro",
     "$20 per month or $144 per year",
-    "Unlimited AI answers, document reads, and flowcharts",
+    "Unlimited AI answers, document reads, and diagrams",
   ];
   for (const text of required) {
     assert.ok(pricingCopy.includes(text), `pricing copy is missing: ${text}`);

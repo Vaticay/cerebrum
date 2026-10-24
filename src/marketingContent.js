@@ -112,7 +112,7 @@ export const MARKETING_PAGES = {
     faq: [
       {
         q: "Is Cerebrum free?",
-        a: "Yes. Searching and AI answers are free with no account at all. A free account carries 50 AI answers, 3 document reads, and 1 flowchart every 5 days, and document reads need that account. Cerebrum Pro ($20/month or $144/year) removes the limits.",
+        a: "Yes. Searching and AI answers are free with no account at all. A free account carries 50 AI answers, 3 document reads, and 1 diagram every 5 days, and document reads need that account. Cerebrum Pro ($20/month or $144/year) removes the limits.",
       },
       {
         q: "Where do the answers come from?",
@@ -120,7 +120,7 @@ export const MARKETING_PAGES = {
       },
       {
         q: "Do I need an account?",
-        a: "Not to search, and not for AI answers: anonymous use is metered by network up to the same 50 AI answers every 5 days. A free account carries those allowances under your name on any device, adds 3 document reads and 1 saved flowchart every 5 days (document reads and saved flowcharts need an account), and syncs what you save: articles, collections, history, and your Pro status.",
+        a: "Not to search, and not for AI answers: anonymous use is metered by network up to the same 50 AI answers every 5 days. A free account carries those allowances under your name on any device, adds 3 document reads and 1 saved diagram every 5 days (document reads and saved diagrams need an account), and syncs what you save: articles, collections, history, and your Pro status.",
       },
       {
         q: "What is the Search record?",
@@ -153,7 +153,7 @@ export const MARKETING_PAGES = {
     blocks: [
       {
         h: "Free",
-        p: "50 AI answers, 3 document reads, and 1 flowchart every 5 days with a free account. No ads, no tracking pixels, no sale of personal information.",
+        p: "50 AI answers, 3 document reads, and 1 diagram every 5 days with a free account. No ads, no tracking pixels, no sale of personal information.",
         list: [
           "Cost: $0, with no payment required.",
           "Searching works with no account at all, and AI answers too, metered by network up to the same free cap.",
@@ -167,7 +167,7 @@ export const MARKETING_PAGES = {
         h: "Cerebrum Pro",
         list: [
           "$20 per month or $144 per year, renewing automatically until you cancel.",
-          "Unlimited AI answers, document reads, and flowcharts.",
+          "Unlimited AI answers, document reads, and diagrams.",
           "The Pro badge, four Pro themes, and deeper Pro search.",
           "Investigation templates for Pro members, priority search queue, and API access with personal keys.",
           "Cancel anytime from the billing portal. A 7 day money back guarantee covers the first charge of a new subscription. Email dusty@askcerebrum.org within 7 days for a full refund, no questions asked.",
@@ -177,7 +177,7 @@ export const MARKETING_PAGES = {
         h: "Pro Lite",
         p: "Lite Monthly costs $3.99 per month. Lite Annual costs $39 per year.",
         list: [
-          "500 AI answers, 30 document reads, and 10 flowcharts every 5 days.",
+          "500 AI answers, 30 document reads, and 10 diagrams every 5 days.",
           "Ten times the free allowances, with a fixed allowance rather than unlimited use.",
           "The Pro badge and the Pro themes stay with Cerebrum Pro.",
         ],
@@ -186,7 +186,7 @@ export const MARKETING_PAGES = {
         h: "Pro Student",
         p: "Verified college students can get Cerebrum Pro for $7.99 per month for the first 12 months. Verification uses the email address on your account, and only addresses ending in .edu or .ac.uk qualify.",
         list: [
-          "Full Cerebrum Pro while subscribed, including unlimited AI answers, document reads, and flowcharts.",
+          "Full Cerebrum Pro while subscribed, including unlimited AI answers, document reads, and diagrams.",
           "After the first 12 months, the subscription renews at the standard $20 monthly price unless cancelled.",
         ],
       },
@@ -207,7 +207,7 @@ export const MARKETING_PAGES = {
       },
       {
         q: "What is Pro Lite?",
-        a: "A paid plan with larger allowances than Free: 500 AI answers, 30 document reads, and 10 flowcharts every 5 days. Lite Monthly is $3.99 per month, and Lite Annual is $39 per year.",
+        a: "A paid plan with larger allowances than Free: 500 AI answers, 30 document reads, and 10 diagrams every 5 days. Lite Monthly is $3.99 per month, and Lite Annual is $39 per year.",
       },
       {
         q: "How does Pro Student pricing work?",
@@ -227,7 +227,7 @@ export const MARKETING_PAGES = {
       },
       {
         q: "Are the Search record and MCP access Pro only?",
-        a: "No. The coverage line and the Search record ship on answers generally, free answers included, and every record keeps its own permanent page. The MCP endpoint is open, and search results there carry the record with them. Pro removes the limits on answers, reads, and flowcharts; it does not gate the record.",
+        a: "No. The coverage line and the Search record ship on answers generally, free answers included, and every record keeps its own permanent page. The MCP endpoint is open, and search results there carry the record with them. Pro removes the limits on answers, reads, and diagrams; it does not gate the record.",
       },
     ],
   },

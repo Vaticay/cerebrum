@@ -270,20 +270,20 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
   };
 
   const capacityLine = isPro
-    ? (user?.proSource === "lifetime" ? "Lifetime member: unlimited AI answers, document reads and flowcharts. No billing, ever."
-      : proStatus?.billing?.plan === "annual" ? "Annual billing · unlimited AI answers, document reads and flowcharts."
-      : proStatus?.billing?.plan === "monthly" ? "Monthly billing · unlimited AI answers, document reads and flowcharts."
-      : "Unlimited AI answers, document reads and flowcharts.")
+    ? (user?.proSource === "lifetime" ? "Lifetime member: unlimited AI answers, document reads and diagrams. No billing, ever."
+      : proStatus?.billing?.plan === "annual" ? "Annual billing · unlimited AI answers, document reads and diagrams."
+      : proStatus?.billing?.plan === "monthly" ? "Monthly billing · unlimited AI answers, document reads and diagrams."
+      : "Unlimited AI answers, document reads and diagrams.")
     : isLite
     ? (proStatus?.billing?.plan === "annual" ? "Annual billing · " : proStatus?.billing?.plan === "monthly" ? "Monthly billing · " : "")
-      + "500 AI answers, 30 document reads and 10 flowcharts every 5 days: 10 times the free plan."
-    : "50 AI answers, 3 document reads and 1 flowchart every 5 days.";
+      + "500 AI answers, 30 document reads and 10 diagrams every 5 days: 10 times the free plan."
+    : "50 AI answers, 3 document reads and 1 diagram every 5 days.";
   const tierName = isPro ? "Pro" : isLite ? "Pro Lite" : "Free";
 
   return (
     <Section title="Membership">
       {!user ? (
-        <Row label="Cerebrum Pro" desc="Unlimited AI answers, document reads and flowcharts, the Pro badge and the Pro themes."
+        <Row label="Cerebrum Pro" desc="Unlimited AI answers, document reads and diagrams, the Pro badge and the Pro themes."
           control={proBtn("See plans", onOpenPro)} last />
       ) : (
         <>
@@ -295,11 +295,11 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
           />
           {!isPro && meterRow("AI answers", q?.used || 0, q?.cap || (isLite ? 500 : 50), false)}
           {!isPro && meterRow("Document reads", dq?.used || 0, dq?.cap || (isLite ? 30 : 3), false)}
-          {!isPro && meterRow("Flowcharts", fq?.used || 0, fq?.cap || (isLite ? 10 : 1), rank === "free")}
+          {!isPro && meterRow("Diagrams", fq?.used || 0, fq?.cap || (isLite ? 10 : 1), rank === "free")}
           {rank === "free" && (
             <Row
               label="Pro Lite"
-              desc="500 AI answers every 5 days: 10 times your current limit, plus 30 document reads and 10 flowcharts. $3.99/month or $39/year."
+              desc="500 AI answers every 5 days: 10 times your current limit, plus 30 document reads and 10 diagrams. $3.99/month or $39/year."
               control={proBtn("See plans", onOpenPro)}
             />
           )}
@@ -313,7 +313,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
           {rank !== "pro" && (
             <Row
               label="Pro"
-              desc="No meter. Unlimited AI answers, document reads and flowcharts, deeper Pro search, investigation templates, API access, the badge, and four Pro themes. $20/month or $144/year."
+              desc="No meter. Unlimited AI answers, document reads and diagrams, deeper Pro search, investigation templates, API access, the badge, and four Pro themes. $20/month or $144/year."
               control={rank === "free" ? proBtn("Go Pro", onOpenPro) : quietBtn("Go Pro", onOpenPro)}
               last
             />
