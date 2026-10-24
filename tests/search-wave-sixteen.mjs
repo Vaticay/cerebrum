@@ -1000,8 +1000,16 @@ await test("gpt-oss-20b takes the standard cap, in the map and at the rescue cal
     "an existing cap moved");
   assert.equal(cfLegTimeoutMs("@cf/meta/llama-3.3-70b-instruct-fp8-fast", 3500), 3500,
     "an unlisted leg no longer passes its timeout through");
-  assert.ok(src.includes("callCF(CF_WAVE1[0], rescueMsgs, maxTokens, cfLegTimeoutMs(CF_WAVE1[0], 12000))"),
-    "the rescue wave still passes its 12 second timeout raw");
+  // PIN UPDATED (2026-10-23, race budget lane): the rescue no
+  // longer passes its 12 second timeout raw. Its legs are
+  // clamped to the rescue window (waveLegTimeoutMs over the
+  // 12 second want), which ends before the fact check reserve,
+  // so the rescue cannot spend the check's window the way the
+  // burnout probe recorded. The cap map behaviour above is
+  // unchanged: whatever window the rescue is given, this leg
+  // still takes its 3,000 ms standard cap from the map.
+  assert.ok(src.includes("callCF(CF_WAVE1[0], rescueMsgs, maxTokens, cfLegTimeoutMs(CF_WAVE1[0], rescueLegTimeoutMs))"),
+    "the rescue wave does not clamp its Workers AI leg to the rescue window");
 });
 
 await test("the retry race closes on its window: slow legs close, fast legs land, failures read as no retry", async () => {
