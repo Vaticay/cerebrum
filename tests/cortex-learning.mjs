@@ -82,12 +82,18 @@ const WANTED = [
      the quantifier only option screen that validateCurriculum,
      cortexCourseProblem, and quizCard now call. */
   "QUANTIFIER_OPTION_WORDS", "QUANTIFIER_SINGLE_WORDS", "quantifierOnlyOption", "cardOptionQualityProblem",
-  "NUMBER_RE", "numbersIn", "hasAttributionShape", "claimSeq",
-  "FLIP_WORDS", "flipDirection", "scaleNumberIn", "mutatedVariants", "nearestClaims",
+  "NUMBER_RE", "numbersIn", "parseNumberValue", "hasAttributionShape", "claimSeq",
+  /* Nova quality wave (2026-10-23): nearestClaims is gone from the
+     builders entirely (another taught claim is never a distractor),
+     and the mutation builders, the because clause move, the true
+     or false builder, and the course duplicate gate join the list. */
+  "FLIP_WORDS", "flipDirection", "flipDirectionDetail", "scaleNumberIn", "scaleNumberDetail", "mutatedVariants", "mutatedVariantDetails",
+  "negateCopula", "negateCopulaDetail", "swapVocabTerm", "swapVocabTermDetail",
   "RESTATE_WORDS", "firstWordsOf", "swapRestateWords", "stripReportFrame",
-  "moveFrontClause", "rotateMidClause", "moveTrailingPhrase", "restateClaim", "withinOptionBand",
+  "DANGLING_END_WORDS", "endsWithDangling", "lowerFirstWord",
+  "moveFrontClause", "rotateMidClause", "moveTrailingPhrase", "moveBecauseClause", "restateClaim", "withinOptionBand",
   "shuffledOptionsForCard",
-  "quizCard", "clozeCard",
+  "quizCard", "clozeCard", "trueFalseCard", "cardCourseSignature", "courseDuplicateProblem",
   "VOCAB_STOP", "extractVocab", "vocabCard",
   "loadJSON", "saveJSON", "loadClaims", "saveClaims", "createCourseFromResults",
   "todayKey", "cortexLoopProblem",
@@ -179,8 +185,10 @@ const {
   matchScore, lessonXpScale, scaleXp,
   COURSES_KEY, CLAIMS_KEY, PROFILE_KEY, SOUND_KEY, BUILTIN_PROGRESS_KEY,
   CORTEX_EXPORT_FORMAT, CORTEX_EXPORT_VERSION, buildCortexExport, parseCortexImport,
-  applyCortexImport, restateClaim, quizCard, clozeCard, extractClaims, firstWordsOf, normKey,
+  applyCortexImport, restateClaim, quizCard, clozeCard, trueFalseCard, extractClaims, firstWordsOf, normKey,
   hasAttributionShape, createCourseFromResults, looksLikeFragment,
+  mutatedVariantDetails, mutatedVariants, negateCopula, swapVocabTerm, moveBecauseClause, parseNumberValue,
+  courseDuplicateProblem, cardCourseSignature, extractVocab, vocabCard, NUMBER_RE,
   quantifierOnlyOption, cardOptionQualityProblem,
   QUIZ_SIMILARITY_MAX, cardTextSimilarity, textContainsPassage, passagesRepeat, cardInternalRepeat, lessonRepeatProblem,
   hashStr, seededShuffle, shuffledOptionsForCard,
@@ -1579,6 +1587,45 @@ await test("catalog blurbs describe coverage instead of asserting facts", () => 
   }
 });
 
+/* Nova quality wave fixtures (2026-10-23): the four sample answers
+   from the builder audit harness, embedded here so the generated
+   course gates below run over the same material the audit scored
+   at 260 of 1000. The texts are the harness inputs verbatim. */
+const NOVA_SAMPLE_ANSWERS = [
+  { query: "How does photosynthesis work in plants?", sources: [
+    { title: "Photosynthesis pathways and light reactions in leaves" },
+    { title: "Chloroplast structure and carbon fixation" },
+    { title: "Gas exchange and stomatal regulation in plants" }],
+    answer: `## The short answer
+Photosynthesis is the process plants use to turn light energy into chemical energy stored in sugars [1]. Chlorophyll in the leaves absorbs mostly blue and red light and reflects green light, which is why most leaves look green [1].
+## What happens
+Inside chloroplasts, water molecules are split apart, releasing oxygen into the air as a byproduct [2]. The light reactions produce **ATP** and NADPH, and those two carriers supply the energy and electrons for building sugars [2]. In the Calvin cycle, carbon dioxide from the air is fixed into a three carbon compound that the plant converts into glucose [2]. A typical leaf fixes carbon about 12% faster in bright sunlight than in shade [1]. Stomata open during the day to let carbon dioxide in, but open stomata also lose water vapour to the dry air outside [3]. When water is scarce, plants close their stomata and photosynthesis slows because carbon dioxide can no longer reach the leaf cells [3]. Some desert plants open their stomata only at night, storing carbon dioxide as an acid until daylight returns [3].` },
+  { query: "What do black soldier fly larvae eat and how fast do they grow?", sources: [
+    { title: "Black soldier fly larvae bioconversion of organic waste" },
+    { title: "Hermetia illucens growth on food waste substrates" },
+    { title: "Larval gut microbiome and waste reduction" }],
+    answer: `## The short answer
+Black soldier fly larvae eat decaying organic matter, including food waste, manure, and spoiled fruit and vegetables [1]. The larvae of *Hermetia illucens* can reduce the mass of food waste by about 55% in under two weeks [2].
+## What happens
+Young larvae feed almost continuously, and a single larva can eat roughly twice its own body weight in food each day [1]. The larval gut carries bacteria that help break down tough fibres and proteins the larva cannot digest alone [3]. Under warm conditions near 27°C, larvae reach the prepupal stage in about 14 days after hatching [2]. Mature larvae are rich in protein and fat, with protein making up about 40% of their dry body mass [2]. As prepupae, the larvae stop feeding and their gut empties, which makes them cleaner to harvest for animal feed [1]. The residue left after feeding, called frass, still holds nitrogen and works as a slow release soil fertiliser [3].` },
+  { query: "How does sleep help memory?", sources: [
+    { title: "Sleep dependent memory consolidation in adults" },
+    { title: "Slow wave sleep and hippocampal replay" },
+    { title: "Sleep deprivation and learning performance" }],
+    answer: `## The short answer
+Sleep helps memory because the sleeping brain replays new experiences and moves fragile memories into longer lasting storage [1]. During deep slow wave sleep, the hippocampus replays the patterns of activity that occurred during waking learning [2].
+## What happens
+People who nap for 90 minutes after learning recall more word pairs the next day than people who stay awake [1]. Memory consolidation is stronger after a full night of sleep than after the same number of hours spent awake [1]. During sleep, brain waves called sleep spindles carry replayed information from the hippocampus toward the cortex for storage [2]. Losing sleep the night after learning reduces recall by about 40% compared with sleeping normally [3]. Older adults get less deep sleep than younger adults, and their overnight memory improvement is smaller as a result [3]. New motor skills also improve overnight, with typing speed rising by about 20% after sleep without extra practice [2].` },
+  { query: "What causes ocean tides?", sources: [
+    { title: "Lunar gravitation and tidal bulges" },
+    { title: "Tidal patterns and coastal geography" },
+    { title: "The Sun, the Moon, and spring and neap tides" }],
+    answer: `## The short answer
+Ocean tides are caused mainly by the gravitational pull of the Moon on the water in the oceans [1]. The Moon pulls harder on the water closest to it than on the solid Earth, and that difference stretches the oceans into two bulges [1].
+## What happens
+One bulge faces the Moon and the second bulge sits on the opposite side of the Earth, where the pull is weakest [1]. As the Earth rotates, a coastline passes through both bulges, so most places get two high tides and two low tides each day [2]. The Sun also raises tides, but its effect is smaller because it is much farther away despite its greater mass [3]. When the Sun, the Moon, and the Earth line up, their pulls add together and produce higher spring tides [3]. When the Sun and Moon pull at right angles, their effects partly cancel and produce lower neap tides [3]. In narrow bays the incoming tide can be funnelled upward, and the Bay of Fundy sees tidal ranges over 12 metres [2].` },
+];
+
 group("Quiz options: restatements, not lifts");
 
 /* Dusty's 2026-10-13 ruling: quiz options were the papers' own
@@ -1638,8 +1685,17 @@ await test("a generated quiz offers restatements only, with the verbatim finding
    fixture claim (the supplement claim) no longer builds a card at
    all: its only restatement is a rotation of its own why passage
    (similarity 0.875 against the 0.85 maximum), so quizCard drops
-   it, which the new repeat group below pins directly. */
-const BUILDABLE_CLAIMS = [CLAIM_TRIAL, CLAIM_DREAM, CLAIM_RESIDENT];
+   it, which the new repeat group below pins directly.
+   Changed again 2026-10-23 (Nova quality wave): a statement quiz
+   now needs three false variants of its own claim, since another
+   taught claim may never serve as a distractor. The dream claim
+   builds one variant (a direction flip) and the resident claim
+   two (number scalings), so neither builds a statement quiz any
+   more; both are covered by the true or false form in a course.
+   Only the trial claim, with a flip and two scalings, still
+   builds, so the band and opening pins run over it alone, and
+   the position pin below runs over the quality wave fixtures. */
+const BUILDABLE_CLAIMS = [CLAIM_TRIAL];
 
 await test("quiz options sit in one length band around the answer", () => {
   // The stated band: every option is at least half and at most
@@ -1671,12 +1727,31 @@ await test("no generated option opens with any course finding's words", () => {
 
 await test("the correct option's position is not fixed across questions", () => {
   // Buildable subset only (changed 2026-10-18, see BUILDABLE_CLAIMS).
-  const positions = new Set(BUILDABLE_CLAIMS.map((c) => quizCard(c, QUIZ_CLAIMS, QUIZ_SOURCES).correct));
+  // Rebuilt 2026-10-23 (Nova quality wave): only one of the older
+  // fixtures still builds a statement quiz under the three false
+  // variant rule, so the pin runs over claims shaped to build one
+  // (a direction word, a scalable value, and a restatement that
+  // clears the why gate), each with three or more false variants.
+  const POSITION_CLAIMS = [
+    CLAIM_TRIAL,
+    { text: "In a crossover study, nurses who worked night shifts showed reaction times that were 15% slower after the shift, compared with nurses who worked day shifts in the same hospital.", sourceIdx: 1 },
+    { text: "In a field trial, plots watered with the drip system used 30% less water across the season, compared with plots watered by sprinklers on the same farm each week.", sourceIdx: 1 },
+  ];
+  const cards = POSITION_CLAIMS.map((c) => quizCard(c, POSITION_CLAIMS, QUIZ_SOURCES));
+  assert.ok(cards.every(Boolean), "a position fixture claim no longer builds a statement quiz");
+  const positions = new Set(cards.map((c) => c.correct));
   assert.ok(positions.size >= 2, `the answer sat in the same slot for every question: ${[...positions]}`);
 });
 
 await test("extracted claims flow into restated quizzes while feedback stays verbatim", () => {
-  const md = "## Summary\n\nAdults who slept under six hours showed a 23% higher rate of infection over the following winter in the trial cohort. [1]\n";
+  // Fixture lengthened 2026-10-23 (Nova quality wave): the shorter
+  // sentence's only safe restatement was a single trailing phrase
+  // move scoring 0.857 against its why, over the 0.85 maximum, so
+  // its quiz now drops honestly. The added compared clause gives
+  // the rotation a second move, and the flow this pin exists for
+  // (extraction into a restated quiz, verbatim feedback) is
+  // unchanged.
+  const md = "## Summary\n\nAdults who slept under six hours showed a 23% higher rate of infection over the following winter, compared with adults who slept eight hours or more, in a trial cohort followed across two sites. [1]\n";
   const claims = extractClaims(md);
   assert.equal(claims.length, 1, "the fixture answer should yield exactly one claim");
   const pool = [...claims, ...QUIZ_CLAIMS];
@@ -5420,8 +5495,19 @@ ${CLAIM_RESIDENT.text} [1]
   const teachCards = course.lessons
     .filter((l) => l.id === "basics" || l.id === "deeper")
     .flatMap((l) => l.cards);
-  assert.ok(teachCards.some((c) => typeof c.vocab === "string"),
-    "no teach check asks a term in context");
+  /* Changed 2026-10-23 (Nova quality wave): the teach check order
+     is now cloze, true or false, statement quiz, then term, so
+     the two term carrying claims above are taught as true or
+     false (each carries a term swap mutation) and terms in
+     context are checked in the vocabulary lesson instead of the
+     teach lessons. The pin follows the terms to where they are
+     checked now, and keeps the changed form review pin. */
+  assert.ok(teachCards.some((c) => c.kind === "truefalse"),
+    "no teach check asks a true or false judgement");
+  const vocabLesson = course.lessons.find((l) => l.id === "vocab");
+  assert.ok(vocabLesson, "the fixture course built no vocabulary lesson");
+  assert.ok(vocabLesson.cards.some((c) => typeof c.vocab === "string"),
+    "no vocabulary check asks a term in context");
   const clozeTaught = teachCards.find((c) => c.kind === "cloze");
   assert.ok(clozeTaught, "the numbered claims earned no cloze check");
   // A card's claim id carries its claim's hash ahead of a sequence
@@ -5837,8 +5923,269 @@ Regular sleep at steady hours helps the body keep its daily rhythm aligned, so w
   assert.equal(typeof course.droppedChecks, "number", "dropped checks are not counted on the course record");
   const checks = course.lessons[0].cards.filter((c) => c.kind !== "note");
   assert.ok(checks.length >= 2, "the fixture lesson built too few checks to judge its opener");
-  assert.equal(checks[0].kind, "cloze",
-    "the first check is a bare restatement quiz even though a value prediction was available in the same lesson");
+  /* Changed 2026-10-23 (Nova quality wave): a cloze card now needs
+     three same unit distractors, and this fixture carries exactly
+     one value in the whole answer, so no cloze can build for it
+     any more. The opener is the true or false judgement the first
+     claim's direction flip supports, which is still a thinking
+     form and not the bare restatement this pin guards against. */
+  assert.equal(checks[0].kind, "truefalse",
+    "the first check is a bare restatement quiz even though a judgement form was available in the same lesson");
+  assert.ok(checks.every((c) => c.kind !== "quiz" || !!c.vocab),
+    "a bare restatement quiz shipped in the fixture lesson");
+});
+
+/* ── Nova quality wave (2026-10-23) ───────────────────────────────
+   The builder audit scored the generated course pipeline 260 of
+   1000: statement quizzes whose distractors were other true
+   claims, restatements that stranded grammar, review lessons
+   that rebuilt teach cards byte for byte, cloze cards mixing
+   units, vocabulary cards built on proper nouns, an empty teach
+   lesson, and a summary announcing terms no lesson taught. The
+   pins below run over the audit's own four sample answers,
+   embedded above as NOVA_SAMPLE_ANSWERS, and over the new
+   builders directly. */
+group("Nova quality wave: truthful distractors, honest assembly (2026-10-23)");
+
+const NOVA_COURSES = NOVA_SAMPLE_ANSWERS.map((t) => ({
+  topic: t, claims: extractClaims(t.answer),
+  course: createCourseFromResults(t.query, t.sources, t.answer, []),
+}));
+
+await test("the four audit sample answers still build courses", () => {
+  for (const { topic, course } of NOVA_COURSES) {
+    assert.ok(course, `no course built for ${topic.query}`);
+  }
+});
+
+await test("no statement quiz distractor is a taught claim, in courses or direct builds", () => {
+  const checkCard = (card, taughtClaims) => {
+    if (!card || card.kind !== "quiz" || card.vocab) return;
+    const others = taughtClaims.filter((t) => t !== card.why);
+    card.options.forEach((opt, i) => {
+      if (i === card.correct) return;
+      for (const t of others) {
+        assert.ok(cardTextSimilarity(opt, t) < QUIZ_SIMILARITY_MAX,
+          `a distractor repeats a taught claim at ${cardTextSimilarity(opt, t)}: ${opt.slice(0, 50)}`);
+        assert.ok(!textContainsPassage(opt, t) && !textContainsPassage(t, opt),
+          `a distractor contains a taught claim: ${opt.slice(0, 50)}`);
+      }
+      // A distractor is a variant of the card's own claim: same
+      // frame, one fact changed, never an unrelated statement.
+      assert.ok(cardTextSimilarity(opt, card.why) > 0.3,
+        `a distractor is not a variant of its own claim: ${opt.slice(0, 50)}`);
+    });
+  };
+  for (const { claims, course } of NOVA_COURSES) {
+    const taught = claims.map((c) => c.text);
+    for (const lesson of course.lessons) for (const card of lesson.cards) checkCard(card, taught);
+    for (const c of claims) checkCard(quizCard(c, claims, QUIZ_SOURCES), taught);
+  }
+});
+
+await test("quizCard with only true claim neighbours returns null", () => {
+  // The target claim builds no mutation of its own, and its only
+  // neighbours are true claims. The old builder filled the card
+  // from those neighbours; the card must now drop instead.
+  const target = { text: "Sleep helps memory because the sleeping brain replays new experiences and moves fragile memories into longer lasting storage.", sourceIdx: 1 };
+  const neighbours = [
+    target,
+    { text: "During deep slow wave sleep, the hippocampus replays the patterns of activity that occurred during waking learning.", sourceIdx: 2 },
+    { text: "During sleep, brain waves called sleep spindles carry replayed information from the hippocampus toward the cortex for storage.", sourceIdx: 2 },
+  ];
+  assert.equal(mutatedVariants(target, neighbours).length, 0, "the fixture target unexpectedly builds a mutation");
+  assert.equal(quizCard(target, neighbours, QUIZ_SOURCES), null,
+    "a quiz shipped whose only possible distractors were true claims");
+});
+
+await test("copula negation and term swap mutations exist and produce false variants", () => {
+  const isClaim = { text: "Photosynthesis is the process plants use to turn light energy into chemical energy stored in sugars.", sourceIdx: 1 };
+  const neg = mutatedVariantDetails(isClaim, [isClaim]);
+  assert.ok(neg.some((d) => d.kind === "negation" && d.changed === "not" && d.text.includes("is not the process")),
+    `no copula negation variant built: ${JSON.stringify(neg)}`);
+  assert.equal(negateCopula("Plants do not photosynthesise at night when light is absent."), null,
+    "a claim already carrying a negation was negated again");
+  const swapPool = [
+    { text: "The residue left after feeding still holds nitrogen and works as a slow release soil fertiliser for crops.", sourceIdx: 1 },
+    { text: "Consolidation moves fragile memories into longer lasting storage during deep sleep each night.", sourceIdx: 2 },
+  ];
+  const swap = mutatedVariantDetails(swapPool[0], swapPool);
+  assert.ok(swap.some((d) => d.kind === "termswap" && d.text.includes("consolidation") && !d.text.includes("nitrogen")),
+    `no term swap variant built: ${JSON.stringify(swap)}`);
+  for (const d of [...neg, ...swap]) assert.ok(d.text && d.changed, "a mutation does not report its changed span");
+});
+
+await test("mutated true or false cards build in the mkTrueFalse shape", () => {
+  const claim = { text: "Losing sleep the night after learning reduces recall by about 40% compared with sleeping normally.", sourceIdx: 3 };
+  const card = trueFalseCard(claim, [claim], QUIZ_SOURCES);
+  assert.ok(card, "a claim with mutations built no true or false card");
+  assert.equal(card.kind, "truefalse");
+  assert.deepEqual([...card.options], ["True", "False"]);
+  assert.equal(typeof card.answer, "boolean");
+  assert.equal(card.correct, card.answer ? 0 : 1, "the correct index disagrees with the boolean answer");
+  assert.equal(card.why, claim.text, "the why is not the taught claim text");
+  if (card.answer) assert.equal(card.statement, claim.text, "a true card's statement is not the claim itself");
+  else assert.ok(mutatedVariants(claim, [claim]).includes(card.statement),
+    "a false card's statement is not one of the claim's mutations");
+  assert.ok(card.claimId, "a generated true or false card carries no claim id for spaced review");
+  const reviewed = trueFalseCard(claim, [claim], QUIZ_SOURCES, { salt: 104729 });
+  assert.notEqual(reviewed.statement, card.statement,
+    "the review salt namespace did not change the true or false build");
+  const noMutation = { text: "Sleep helps memory because the sleeping brain replays new experiences and moves fragile memories into storage.", sourceIdx: 1 };
+  assert.equal(trueFalseCard(noMutation, [noMutation], QUIZ_SOURCES), null,
+    "a true or false card built for a claim with no mutation");
+});
+
+await test("restateClaim never strands a comparative on a dangling than", () => {
+  const comparatives = [
+    "Memory consolidation is stronger after a full night of sleep than after the same number of hours spent awake.",
+    "People who nap for 90 minutes after learning recall more word pairs the next day than people who stay awake.",
+    "A typical leaf fixes carbon about 12% faster in bright sunlight than in shade.",
+    "Older adults get less deep sleep than younger adults, and their overnight memory improvement is smaller as a result.",
+  ];
+  for (const text of comparatives) {
+    const out = restateClaim(text);
+    assert.ok(!/than\.$/.test(out), `a restatement ends on a dangling than: ${out}`);
+    assert.ok(!/\b(than|to|of|in|on|with|by|for|and|or|the|a|an)\.$/.test(out),
+      `a restatement ends on a dangling word: ${out}`);
+  }
+  // The because move parses in both directions.
+  const fronted = restateClaim("Because the sleeping brain replays new experiences, sleep helps memory consolidate overnight in adults who learned a new skill during the day.");
+  assert.ok(fronted.includes("because the sleeping brain replays"), `the fronted because clause did not move back: ${fronted}`);
+  const backed = restateClaim("Sleep helps memory because the sleeping brain replays new experiences and moves fragile memories into longer lasting storage.");
+  assert.ok(backed.startsWith("Because the sleeping brain replays"), `the because clause did not front: ${backed}`);
+  // The population a claim is about survives its restatement:
+  // the word stays adults (its capital may drop when a clause
+  // move carries it mid sentence), and never becomes people.
+  const adults = restateClaim("Adults who slept under six hours showed a 23% higher rate of infection over the following winter, compared with adults who slept eight hours or more, in a trial cohort followed across two sites.");
+  assert.ok(adults.toLowerCase().includes("adults"), `the restatement lost the claim's population: ${adults}`);
+  assert.ok(!/\bpeople\b/i.test(adults), `the restatement rewrote adults as people: ${adults}`);
+});
+
+await test("no duplicate card signatures anywhere in a generated course", () => {
+  for (const { topic, course } of NOVA_COURSES) {
+    assert.equal(courseDuplicateProblem(course.lessons), null,
+      `${topic.query}: ${courseDuplicateProblem(course.lessons)}`);
+    const seen = new Set();
+    for (const lesson of course.lessons) {
+      for (const card of lesson.cards) {
+        const sig = cardCourseSignature(card);
+        if (!sig) continue;
+        assert.ok(!seen.has(sig), `${topic.query}: a card signature repeats inside the course`);
+        seen.add(sig);
+      }
+    }
+  }
+});
+
+await test("no teach lesson ships with zero checks, and the third chunk teaches", () => {
+  for (const { topic, course } of NOVA_COURSES) {
+    for (const lesson of course.lessons) {
+      if (!["basics", "deeper", "further"].includes(lesson.id)) continue;
+      const checks = lesson.cards.filter((c) => c.kind !== "note" && c.kind !== "summary");
+      assert.ok(checks.length >= 1, `${topic.query}: teach lesson ${lesson.id} shipped with no checks`);
+    }
+  }
+  const sleep = NOVA_COURSES[2].course;
+  assert.ok(sleep.lessons.some((l) => l.id === "further"),
+    "the eight claim sleep course taught no third lesson for claims seven and eight");
+  const photo = NOVA_COURSES[0].course;
+  assert.ok(!photo.lessons.some((l) => l.id === "further"),
+    "the photosynthesis third chunk built no checks, so its lesson should have folded, not shipped empty");
+});
+
+await test("every cloze card's options share one unit, and the new units blank", () => {
+  for (const { topic, course } of NOVA_COURSES) {
+    for (const lesson of course.lessons) {
+      for (const card of lesson.cards) {
+        if (card.kind !== "cloze") continue;
+        const units = new Set(card.options.map((o) => parseNumberValue(o).unit));
+        assert.equal(units.size, 1, `${topic.query}: a cloze card mixes units ${[...units].join(", ")}`);
+        assert.equal(card.options.length, 4, "a cloze card shipped without three distractors");
+      }
+    }
+  }
+  assert.ok("People who nap for 90 minutes after learning recall more.".match(NUMBER_RE)[1].includes("minutes"),
+    "NUMBER_RE still cannot see minutes");
+  assert.ok("the Bay of Fundy sees tidal ranges over 12 metres.".match(NUMBER_RE)[1].includes("metres"),
+    "NUMBER_RE still cannot see metres");
+  const warm = { text: "Under warm conditions near 27°C, larvae reach the prepupal stage in about 14 days after hatching.", sourceIdx: 2 };
+  const pct = { text: "Larvae can reduce the mass of food waste by about 55% in under two weeks at peak feeding rates.", sourceIdx: 2 };
+  assert.equal(clozeCard(warm, [warm, pct], QUIZ_SOURCES), null,
+    "a temperature cloze built with only two same unit distractors available");
+});
+
+await test("no vocabulary card is built on proper nouns only", () => {
+  const tides = extractVocab(NOVA_COURSES[3].claims);
+  assert.deepEqual([...tides.map((v) => v.term)], [],
+    `proper nouns survived as tides vocabulary: ${tides.map((v) => v.term).join(", ")}`);
+  const photoTerms = extractVocab(NOVA_COURSES[0].claims).map((v) => v.term);
+  assert.ok(!photoTerms.includes("Calvin"), "Calvin survived as vocabulary");
+  const sleepTerms = extractVocab(NOVA_COURSES[2].claims).map((v) => v.term);
+  assert.ok(!sleepTerms.includes("information"), "information survived as vocabulary");
+  for (const { course } of NOVA_COURSES) {
+    for (const lesson of course.lessons) {
+      for (const card of lesson.cards) {
+        if (!card.vocab) continue;
+        assert.ok(!["Moon", "Earth", "Fundy", "Calvin"].includes(card.vocab),
+          `a vocab card teaches the proper noun ${card.vocab}`);
+      }
+    }
+  }
+});
+
+await test("extractClaims drops first person paper voice and figure or table pointers", () => {
+  const md = `## Summary
+
+We measured recall in adults after one night of sleep and found clear gains by morning testing sessions. [1]
+Our results show that deep sleep raises recall in adults after learning new word pairs each evening. [1]
+Recall rose after sleep, as shown in Figure 2 of the supplement for the first cohort of adults. [1]
+Deep sleep raises recall of word pairs in adults who learn them the evening before the test. [1]
+`;
+  const claims = extractClaims(md);
+  assert.deepEqual([...claims.map((c) => c.text)],
+    ["Deep sleep raises recall of word pairs in adults who learn them the evening before the test."],
+    "a paper voice or figure pointing sentence reached the claim pool, or the clean one was lost");
+});
+
+await test("the summary announces terms only when a vocabulary lesson ships, and counts shipped lessons", () => {
+  for (const { topic, course } of NOVA_COURSES) {
+    const review = course.lessons.find((l) => l.id === "review");
+    const summary = review.cards.find((c) => c.kind === "summary");
+    assert.ok(summary, `${topic.query}: the review lesson carries no summary`);
+    assert.ok(summary.text.includes(course.lessons.length + " lessons"),
+      `${topic.query}: the summary counts lessons that do not ship: ${summary.text}`);
+    const vocabLesson = course.lessons.find((l) => l.id === "vocab");
+    if (!vocabLesson) {
+      assert.ok(!summary.text.includes("terms from the field"),
+        `${topic.query}: the summary announces terms with no vocabulary lesson: ${summary.text}`);
+    }
+    assert.ok(!/\d+ terms? from the field/.test(summary.text) || vocabLesson,
+      `${topic.query}: a term count is announced with no vocabulary lesson`);
+    assert.ok(!summary.text.includes("1 terms"), `the summary pluralises one term: ${summary.text}`);
+  }
+});
+
+await test("generated true or false cards register for spaced review with their kind kept", () => {
+  const { topic, course } = NOVA_COURSES[2];
+  const stored = Object.values(loadClaims()).filter((c) => c.courseId === course.id);
+  const tf = stored.filter((c) => c.card && c.card.kind === "truefalse");
+  assert.ok(tf.length >= 1, `no true or false claim registered for ${topic.query}`);
+  for (const claim of tf) {
+    assert.equal(typeof claim.card.statement, "string", "the stored true or false card lost its statement");
+    assert.equal(typeof claim.card.answer, "boolean", "the stored true or false card lost its boolean answer");
+    assert.deepEqual([...claim.card.options], ["True", "False"], "the stored true or false card lost its options");
+  }
+});
+
+await test("the course builder refuses excerpt tier answers in plain words", () => {
+  assert.ok(learnSrc.includes("data.answerTier"), "buildCourseFrom does not read the answer tier");
+  for (const tier of ["limited", "weak", "background", "definition"]) {
+    assert.ok(learnSrc.includes(`"${tier}"`), `the excerpt tier ${tier} is not refused by the builder`);
+  }
+  const sentence = "The search could only pull source excerpts together for this topic right now and a course built from excerpts would teach nothing, so try again in a little while.";
+  assert.ok(learnSrc.includes(sentence), "the excerpt refusal sentence is not what the builder shows");
+  assert.ok(!sentence.includes("-"), "the excerpt refusal sentence carries a dash");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

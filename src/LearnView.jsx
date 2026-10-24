@@ -992,6 +992,15 @@ function extractClaims(answerMd) {
       if (/oxford academic|all rights reserved|copyright|sign in|privacy policy|terms of use|cookie/i.test(text)) continue;
       if (looksLikeFragment(text)) continue;
       if (hasAttributionShape(text)) continue;
+      /* Claim hygiene (2026-10-23, Nova quality wave): a sentence in
+         first person paper voice ("we measured", "our findings")
+         speaks as the paper, not as the lesson, and a sentence that
+         points at a figure or a table points at something the
+         lesson does not hold. Neither becomes a claim. The year
+         screen and the attribution screens above are untouched. */
+      if (/\bwe\s+(?:found|showed|measured|observed|tested)\b/i.test(text)) continue;
+      if (/\bour\s+(?:study|results|data|findings)\b/i.test(text)) continue;
+      if (/\b(?:figure|fig\.|table)\s*\d+\b/i.test(text)) continue;
       claims.push({ text, sourceIdx: useCites[0] });
     }
   }
@@ -1004,7 +1013,22 @@ function extractClaims(answerMd) {
   });
 }
 
-const NUMBER_RE = /(\d[\d,]*(?:\.\d+)?\s?%|\d[\d,]*(?:\.\d+)?\s?-fold|p\s?<\s?0\.\d+|\d[\d,]*(?:\.\d+)?\s?(?:mg\/kg|mg|kg|°C|days|weeks|months|hours|participants|patients|subjects|volunteers|athletes|adults|children|men|women)|\d[\d,]*(?:\.\d+)?-(?:day|week|month|year|hour|minute))/;
+/* Unit list widened 2026-10-23 (Nova quality wave): minutes,
+   seconds, metres, kilometres, centimetres, grams, litres, and
+   years are values a lesson can blank, and cloze discipline below
+   needs the unit spelled out in the match so values are only ever
+   compared inside their own unit. */
+const NUMBER_RE = /(\d[\d,]*(?:\.\d+)?\s?%|\d[\d,]*(?:\.\d+)?\s?-fold|p\s?<\s?0\.\d+|\d[\d,]*(?:\.\d+)?\s?(?:mg\/kg|mg|kg|°C|days|weeks|months|years|year|hours|hour|minutes|minute|seconds|second|metres|metre|meters|meter|kilometres|kilometre|kilometers|kilometer|centimetres|centimetre|centimeters|centimeter|grams|gram|litres|litre|liters|liter|participants|patients|subjects|volunteers|athletes|adults|children|men|women)|\d[\d,]*(?:\.\d+)?-(?:day|week|month|year|hour|minute|second))/;
+/* Split one NUMBER_RE value into its number and its unit, so a
+   cloze card can tell a percentage from a temperature. A value
+   with no readable number keeps the whole string as its unit,
+   which only ever matches itself. */
+function parseNumberValue(raw) {
+  const s = String(raw || "").replace(/\s+/g, " ").trim();
+  const m = s.match(/^([\d,]+(?:\.\d+)?)(.*)$/);
+  if (!m) return { num: NaN, unit: s.toLowerCase() };
+  return { num: parseFloat(m[1].replace(/,/g, "")), unit: m[2].trim().toLowerCase() };
+}
 function numbersIn(claims) {
   const out = [];
   for (const c of claims) {
@@ -1022,8 +1046,9 @@ let claimSeq = 0;
    not recall. Distractors now come from the claim itself with one
    fact changed (a scaled number, a flipped direction), so every
    option shares the same words and only knowledge separates them.
-   Real findings remain as fallback, preferring the ones that share
-   the claim's vocabulary so topic matching still fails there. */
+   The fallback to other findings is retired (2026-10-23, Nova
+   quality wave): those findings are true statements, and no card
+   may mark one wrong. See the mutation builders below. */
 const FLIP_WORDS = {
   increased: "decreased", decreased: "increased", higher: "lower", lower: "higher",
   more: "less", less: "more", improved: "declined", declined: "improved",
@@ -1032,15 +1057,28 @@ const FLIP_WORDS = {
   before: "after", after: "before", above: "below", below: "above",
   rose: "fell", fell: "rose", gained: "lost", lost: "gained",
 };
-function flipDirection(text) {
+/* Mutation builders (2026-10-23, Nova quality wave): every false
+   variant a quiz or a true or false card can offer is the target
+   claim with one fact changed, and each builder reports the span
+   it changed alongside the new text, so callers and tests can see
+   what makes the variant false. Another taught claim is never a
+   distractor: it is true, and a card that marks it wrong teaches
+   the learner to distrust a true statement. The old nearestClaims
+   pool, which drew distractors from the course's other claims, is
+   gone from the builders entirely. */
+function flipDirectionDetail(text) {
   const m = text.match(new RegExp("\\b(" + Object.keys(FLIP_WORDS).join("|") + ")\\b", "i"));
   if (!m) return null;
   const word = m[1];
   const flipped = FLIP_WORDS[word.toLowerCase()];
   const repl = word[0] === word[0].toUpperCase() ? flipped[0].toUpperCase() + flipped.slice(1) : flipped;
-  return text.replace(m[0], repl);
+  return { text: text.replace(m[0], repl), changed: repl };
 }
-function scaleNumberIn(text, factor, salt) {
+function flipDirection(text) {
+  const d = flipDirectionDetail(text);
+  return d ? d.text : null;
+}
+function scaleNumberDetail(text, factor) {
   const m = text.match(NUMBER_RE);
   if (!m) return null;
   const raw = m[1];
@@ -1053,29 +1091,76 @@ function scaleNumberIn(text, factor, salt) {
   let formatted = decimals ? next.toFixed(decimals) : String(Math.round(next));
   if (numMatch[0].includes(",") && next >= 1000) formatted = Number(formatted).toLocaleString("en-US");
   if (formatted === numMatch[0]) return null;
-  return text.replace(raw, raw.replace(numMatch[0], formatted)) + (salt ? "" : "");
+  return { text: text.replace(raw, raw.replace(numMatch[0], formatted)), changed: formatted };
 }
-function mutatedVariants(claim, allClaims) {
+function scaleNumberIn(text, factor, salt) {
+  const d = scaleNumberDetail(text, factor);
+  return d ? d.text : null;
+}
+/* Copula negation: "X is Y" becomes "X is not Y". A claim that
+   already carries a negation keeps its own polarity, so the
+   builder sits that claim out instead of stacking a second
+   negation or quietly cancelling the first. */
+function negateCopulaDetail(text) {
+  if (/\b(?:not|never|no|n't|cannot)\b/i.test(text)) return null;
+  const m = text.match(/\b(is|are|was|were)\b/i);
+  if (!m) return null;
+  const at = m.index + m[0].length;
+  return { text: text.slice(0, at) + " not" + text.slice(at), changed: "not" };
+}
+function negateCopula(text) {
+  const d = negateCopulaDetail(text);
+  return d ? d.text : null;
+}
+/* Term swap: a course vocabulary term inside the claim is replaced
+   by a different term from the same course pool, so the sentence
+   keeps its shape and names the wrong concept. The replacement is
+   picked by a seeded shuffle, so a build is deterministic for a
+   given claim and pool. */
+function swapVocabTermDetail(text, allClaims) {
+  const pool = extractVocab(allClaims || []);
+  if (pool.length < 2) return null;
+  const terms = [...pool].sort((a, b) => b.term.length - a.term.length);
+  for (const entry of terms) {
+    const esc = entry.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const m = text.match(new RegExp("\\b" + esc + "\\b", "i"));
+    if (!m) continue;
+    const others = pool.filter((t) => normKey(t.term) !== normKey(entry.term));
+    if (!others.length) continue;
+    const pick = seededShuffle(others, hashStr(text) + 17)[0].term;
+    const repl = m[0][0] === m[0][0].toUpperCase() && m[0][0] !== m[0][0].toLowerCase()
+      ? pick[0].toUpperCase() + pick.slice(1) : pick;
+    return { text: text.slice(0, m.index) + repl + text.slice(m.index + m[0].length), changed: repl };
+  }
+  return null;
+}
+function swapVocabTerm(text, allClaims) {
+  const d = swapVocabTermDetail(text, allClaims);
+  return d ? d.text : null;
+}
+/* Every false variant the builders can make for one claim, in
+   builder order, each as { text, kind, changed }: the new claim
+   text, which builder made it, and the span that builder changed.
+   Duplicates and the claim itself never appear twice. */
+function mutatedVariantDetails(claim, allClaims) {
   const out = [];
-  const flipped = flipDirection(claim.text);
-  if (flipped && flipped !== claim.text) out.push(flipped);
-  const s1 = scaleNumberIn(claim.text, 1.5);
-  if (s1 && s1 !== claim.text && !out.includes(s1)) out.push(s1);
-  const s2 = scaleNumberIn(claim.text, 0.6);
-  if (s2 && s2 !== claim.text && !out.includes(s2)) out.push(s2);
+  const seen = new Set([normKey(claim.text)]);
+  const push = (d, kind) => {
+    if (!d || !d.text || d.text === claim.text) return;
+    const k = normKey(d.text);
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push({ text: d.text, kind, changed: d.changed || "" });
+  };
+  push(flipDirectionDetail(claim.text), "flip");
+  push(scaleNumberDetail(claim.text, 1.5), "scale");
+  push(scaleNumberDetail(claim.text, 0.6), "scale");
+  push(negateCopulaDetail(claim.text), "negation");
+  push(swapVocabTermDetail(claim.text, allClaims), "termswap");
   return out;
 }
-function nearestClaims(claim, allClaims, n) {
-  const words = new Set((claim.text.toLowerCase().match(/[a-z]{5,}/g) || []));
-  const scored = allClaims
-    .filter((c) => c.text !== claim.text)
-    .map((c) => ({
-      c,
-      overlap: (c.text.toLowerCase().match(/[a-z]{5,}/g) || []).filter((w) => words.has(w)).length,
-    }))
-    .sort((a, b) => b.overlap - a.overlap);
-  const top = scored.slice(0, 6).map((x) => x.c);
-  return seededShuffle(top, hashStr(claim.text) + 3).slice(0, n).map((c) => c.text);
+function mutatedVariants(claim, allClaims) {
+  return mutatedVariantDetails(claim, allClaims).map((d) => d.text);
 }
 
 /* ── restatement: quiz options are paraphrases, never lifts ──────
@@ -1121,12 +1206,20 @@ function nearestClaims(claim, allClaims, n) {
    from the one its teaching lesson used, so coming back to an
    idea means thinking about it another way, not recognising
    the same card again. */
+/* Audited 2026-10-23 (Nova quality wave): only true scaffolding
+   synonyms stay in this map. Two pairs came out. Adults to people
+   changed the population a claim is about, so a finding about
+   adults restated as a finding about everyone. Recruited to
+   enrolled named a different stage of a study, since a person can
+   be recruited and never enrolled. A swap that changes what the
+   claim says is not a restatement, whatever it does for surface
+   variety. */
 const RESTATE_WORDS = {
   investigated: "examined", evaluated: "assessed", demonstrated: "showed",
   observed: "noted", reported: "stated", conducted: "carried out",
-  performed: "carried out", selected: "chosen", recruited: "enrolled",
+  performed: "carried out", selected: "chosen",
   altered: "changed", alters: "changes", alter: "change",
-  insufficient: "too little", sufficient: "enough", adults: "people",
+  insufficient: "too little", sufficient: "enough",
   raised: "increased", reduced: "lowered",
 };
 function firstWordsOf(text, n) {
@@ -1150,13 +1243,35 @@ function stripReportFrame(text) {
   if (rest.length < 24) return text;
   return rest[0].toUpperCase() + rest.slice(1);
 }
+/* A restatement move may never strand grammar (2026-10-23, Nova
+   quality wave): a result that ends on a dangling function word
+   is a sentence sawn in half, and a move that leaves the main
+   clause ending on one has done the sawing one clause earlier.
+   Every move below rejects its own output on either shape, and
+   restateClaim falls back to the original text, whose card the
+   why gate then drops honestly. */
+const DANGLING_END_WORDS = new Set([
+  "than", "to", "of", "in", "on", "with", "by", "for", "and", "or", "the", "a", "an",
+]);
+function endsWithDangling(text) {
+  const w = String(text || "").replace(/[.!?;:,")\]]+$/, "").trim().split(/\s+/).pop();
+  return DANGLING_END_WORDS.has((w || "").toLowerCase());
+}
+function lowerFirstWord(s) {
+  return /^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s;
+}
 function moveFrontClause(text) {
   const m = text.match(/^((?:In|Among|Across|During|After|Before|Over|Within|Using|For|Compared with|Compared to)\b[^,]{3,70}),\s+(.+)$/s);
   if (!m) return null;
+  /* A front clause carrying a comparative tail stays where it is:
+     moving it would separate the comparison from its than phrase. */
+  if (/ than /i.test(m[1])) return null;
   const main = m[2].trim();
   if (main.length < 24) return null;
+  if (endsWithDangling(main)) return null;
   const front = m[1][0].toLowerCase() + m[1].slice(1);
-  return (main[0].toUpperCase() + main.slice(1)).replace(/[.!?]+$/, "") + ", " + front + ".";
+  const out = (main[0].toUpperCase() + main.slice(1)).replace(/[.!?]+$/, "") + ", " + front + ".";
+  return endsWithDangling(out) ? null : out;
 }
 function rotateMidClause(text) {
   const parts = text.split(", ");
@@ -1166,7 +1281,40 @@ function rotateMidClause(text) {
   const head = parts[0].trim();
   const tail = parts.slice(2).join(", ");
   if (head.length < 12 || tail.length < 12) return null;
-  return mid[0].toUpperCase() + mid.slice(1) + ", " + head[0].toLowerCase() + head.slice(1) + ", " + tail;
+  if (endsWithDangling(head)) return null;
+  const out = mid[0].toUpperCase() + mid.slice(1) + ", " + head[0].toLowerCase() + head.slice(1) + ", " + tail;
+  return endsWithDangling(out) ? null : out;
+}
+/* The because move (2026-10-23, Nova quality wave): a because
+   clause parses cleanly at either end of its sentence, so it can
+   travel both ways, fronted "Because Y, X" to "X because Y" and
+   back. The guards are completeness only: both sides long enough
+   to be clauses, neither side ending on a dangling word, and no
+   second because hiding inside the moving clause. */
+function moveBecauseClause(text) {
+  const t = String(text || "").trim();
+  const fronted = t.match(/^Because\s+(.+?),\s+(.+)$/s);
+  if (fronted) {
+    const y = fronted[1].trim();
+    const x = fronted[2].trim().replace(/[.!?]+$/, "");
+    if (y.length < 12 || x.length < 12) return null;
+    if (!y.includes(" ") || !x.includes(" ")) return null;
+    if (endsWithDangling(y) || endsWithDangling(x)) return null;
+    const out = x[0].toUpperCase() + x.slice(1) + " because " + lowerFirstWord(y) + ".";
+    return endsWithDangling(out) ? null : out;
+  }
+  const at = t.toLowerCase().indexOf(" because ");
+  if (at > 0) {
+    const x = t.slice(0, at).trim();
+    const y = t.slice(at + " because ".length).trim().replace(/[.!?]+$/, "");
+    if (x.length < 12 || y.length < 12) return null;
+    if (!x.includes(" ") || !y.includes(" ")) return null;
+    if (/ because /i.test(y)) return null;
+    if (endsWithDangling(x) || endsWithDangling(y)) return null;
+    const out = "Because " + y + ", " + lowerFirstWord(x) + ".";
+    return endsWithDangling(out) ? null : out;
+  }
+  return null;
 }
 /* Last restatement resort (2026-10-18): a plain statement with no
    report frame, no swap word, and no front clause can survive
@@ -1181,24 +1329,55 @@ function rotateMidClause(text) {
    quizCard drops the card when even this cannot separate the
    option from the why. */
 function moveTrailingPhrase(text) {
+  /* Comparative guard (2026-10-23, Nova quality wave): in a
+     sentence carrying a than phrase, the trailing phrase this
+     move fronts is very often the than phrase itself, and
+     fronting it strands the word than at the end of what is
+     left. The move is disabled for those sentences outright. */
+  if (/ than /i.test(text)) return null;
   const m = text.match(/^(.{24,}?)[,;]?\s+((?:in|on|at|over|during|after|before|within|across|among|for|with|by)\s+[^.!?]{3,48})[.!?]?$/s);
   if (!m) return null;
   const main = m[1].trim();
   const tail = m[2].trim();
   if (main.length < 24 || tail.length < 6) return null;
-  return tail[0].toUpperCase() + tail.slice(1) + ", " + main[0].toLowerCase() + main.slice(1) + ".";
+  if (endsWithDangling(main)) return null;
+  const out = tail[0].toUpperCase() + tail.slice(1) + ", " + main[0].toLowerCase() + main.slice(1) + ".";
+  return endsWithDangling(out) ? null : out;
 }
 function restateClaim(text) {
   const orig = String(text || "").trim();
   if (!orig) return orig;
+  /* A comparative claim keeps its than phrase attached: the
+     trailing phrase move and the mid clause rotation are both
+     disabled, since either can separate a comparison from the
+     phrase that completes it. The front clause and because moves
+     carry their own guards and stay available. */
+  const hasThan = / than /i.test(orig);
   let out = stripReportFrame(orig);
   out = swapRestateWords(out);
   if (firstWordsOf(out, 3) === firstWordsOf(orig, 3)) {
-    out = moveFrontClause(out) || rotateMidClause(out) || out;
+    out = moveFrontClause(out) || (hasThan ? null : rotateMidClause(out)) || moveBecauseClause(out) || out;
   }
   if (out === orig || cardTextSimilarity(out, orig) >= QUIZ_SIMILARITY_MAX) {
-    out = moveTrailingPhrase(out) || out;
+    /* A further move may only take the restatement somewhere new:
+       a candidate that reproduces the original is the first
+       move undone, not a restatement (the trailing move on a
+       front moved clause fronts the same clause straight back).
+       The because move goes first, then the mid clause rotation,
+       then the trailing move, each with its own guards. */
+    const candidates = [
+      moveBecauseClause(out),
+      hasThan ? null : rotateMidClause(out),
+      hasThan ? null : moveTrailingPhrase(out),
+    ];
+    for (const cand of candidates) {
+      if (cand && normKey(cand) !== normKey(orig)) { out = cand; break; }
+    }
   }
+  /* No safe transform exists for this sentence: return the
+     original unchanged and let the why repeat gate in quizCard
+     drop the plain quiz. The other check forms cover the claim. */
+  if (endsWithDangling(out)) return orig;
   return out;
 }
 /* Options live in one length band around the answer, so the
@@ -1209,18 +1388,27 @@ function withinOptionBand(len, ref) {
   return len >= Math.ceil(ref * 0.5) && len <= Math.floor(ref * 2);
 }
 function quizCard(claim, allClaims, sources, opts = {}) {
-  const salt = hashStr(claim.text);
+  const salt = hashStr(claim.text) + (opts.salt || 0);
   const answer = restateClaim(claim.text);
-  /* Distractor candidates: fact mutations of the claim itself
-     first (same claim, one fact wrong), then the course's other
-     claims. Every candidate is restated and held to the answer's
-     length band, with no relaxed second pass: an out of band
-     option is a length tell that names the answer, so when the
-     pool cannot fill the card inside the band the card is dropped
-     (null) rather than shipped gameable. Callers count the drop
-     on the course they are building. */
-  const pool = [...mutatedVariants(claim, allClaims), ...nearestClaims(claim, allClaims, 6)];
+  /* Distractor candidates (2026-10-23, Nova quality wave): false
+     variants of the claim itself, and nothing else. The pool used
+     to fall back to the course's other claims, which are true
+     statements, so the card marked true science wrong and could
+     not be answered even by a learner who knew every claim in
+     the course. Every candidate is restated and held to the
+     answer's length band, with no relaxed second pass: an out of
+     band option is a length tell that names the answer, so when
+     fewer than three false variants build inside the band the
+     card is dropped (null) rather than shipped gameable. Callers
+     count the drop on the course they are building. A salt in
+     opts (the review lesson passes its own namespace) shuffles
+     the pool before picking, so a review build picks and orders
+     differently from the teach build of the same claim. */
+  let pool = mutatedVariantDetails(claim, allClaims).map((d) => d.text);
+  if (opts.salt) pool = seededShuffle(pool, salt + 11);
   const seenOpt = new Set([normKey(answer)]);
+  const tokenKey = (t) => similarityTokenList(t).slice().sort().join(" ");
+  const answerTokens = tokenKey(answer);
   const distract = [];
   for (const cand of pool) {
     if (distract.length >= 3) break;
@@ -1231,12 +1419,17 @@ function quizCard(claim, allClaims, sources, opts = {}) {
        quantifier with no claim in it is filler, never an option. */
     if (quantifierOnlyOption(r)) continue;
     if (!withinOptionBand(r.length, answer.length)) continue;
-    /* Distinctness (2026-10-18): a candidate that repeats the
-       answer's passage, or a distractor already chosen, near word
-       for word is skipped, not shipped. Another claim's statement
-       is a substantively distinct distractor; the same passage
-       lightly reworded is a repeat. */
-    if (passagesRepeat(r, answer) || distract.some((d) => passagesRepeat(r, d))) continue;
+    /* Identity screen (2026-10-23, Nova quality wave): the old
+       passagesRepeat screen at the 0.85 similarity maximum
+       deleted exactly these one fact mutations, since a variant
+       that changes one word scores at or over the maximum
+       against the answer it mutates. Mutation candidates are
+       screened by identity instead: a candidate is skipped only
+       when its normalized text is identical to the answer or to
+       a distractor already chosen, or when it differs from one
+       of them by zero content tokens. */
+    if (tokenKey(r) === answerTokens) continue;
+    if (distract.some((d) => tokenKey(d) === tokenKey(r))) continue;
     seenOpt.add(k);
     distract.push(r);
   }
@@ -1244,7 +1437,7 @@ function quizCard(claim, allClaims, sources, opts = {}) {
   const options = seededShuffle([answer, ...distract], salt + 7);
   const card = {
     kind: "quiz",
-    claimId: "cl" + salt + "-" + (claimSeq++),
+    claimId: "cl" + hashStr(claim.text) + "-" + (claimSeq++),
     question: opts.question || "Which of these statements is correct?",
     options,
     correct: options.indexOf(answer),
@@ -1253,34 +1446,70 @@ function quizCard(claim, allClaims, sources, opts = {}) {
        lesson, and the explanation is the lesson said again. */
     why: claim.text,
   };
-  /* The final gate (2026-10-18): when the restatement still reads
-     as the why passage near word for word, which is what happened
-     to the microbiome passage in the owner's photo, the card is
-     dropped and counted by the caller instead of shipped as a
-     question whose answer and explanation are one passage twice.
-     The 2026-10-20 option quality rule rides the same gate: a
-     shipped option that is a quantifier with no claim in it drops
-     the card the same way. */
-  if (cardInternalRepeat(card)) return null;
+  /* The final gate (2026-10-18, kept in its correct against why
+     form 2026-10-23): when the restatement still reads as the why
+     passage near word for word, which is what happened to the
+     microbiome passage in the owner's photo, the card is dropped
+     and counted by the caller instead of shipped as a question
+     whose answer and explanation are one passage twice. The
+     pairwise half of cardInternalRepeat is not applied to these
+     cards any more: mutation options share the answer's passage
+     by design, one fact apart, and the identity screen above is
+     what keeps them distinct. The 2026-10-20 option quality
+     rule rides the same gate: a shipped option that is a
+     quantifier with no claim in it drops the card the same way. */
+  if (passagesRepeat(card.options[card.correct], card.why)) return null;
   if (cardOptionQualityProblem(card)) return null;
   return card;
 }
-function clozeCard(claim, allClaims, sources) {
+/* True or false from mutations (2026-10-23, Nova quality wave):
+   the statement is either the claim itself, which is true, or
+   one of its false variants, which is false, chosen by the salt.
+   The card carries the mkTrueFalse shape plus the claim id the
+   spaced review store registers, and its why is the taught claim
+   text either way, so the feedback teaches the true statement
+   after a false one has been judged. A claim with no mutation
+   builds no card here: with nothing false to set against it, the
+   only honest statement would be the claim verbatim. */
+function trueFalseCard(claim, allClaims, sources, opts = {}) {
+  const details = mutatedVariantDetails(claim, allClaims);
+  if (!details.length) return null;
+  const salt = hashStr(claim.text) + (opts.salt || 0);
+  const useFalse = salt % 2 === 0;
+  const statement = useFalse ? details[salt % details.length].text : claim.text;
+  const answer = !useFalse;
+  return {
+    kind: "truefalse",
+    claimId: "cl" + hashStr(claim.text) + "-" + (claimSeq++),
+    statement,
+    answer,
+    correct: answer ? 0 : 1,
+    options: ["True", "False"],
+    why: claim.text,
+  };
+}
+function clozeCard(claim, allClaims, sources, opts = {}) {
   const m = claim.text.match(NUMBER_RE);
   if (!m) return null;
   const value = m[1].replace(/\s+/g, " ").trim();
-  // Distractor values mix numbers from sibling claims with scaled
-  // variants of the true value, so recognizing a familiar number is
-  // not enough; the value itself has to be recalled.
+  /* Unit discipline (2026-10-23, Nova quality wave): every
+     distractor carries the target value's own unit. Scaled
+     variants qualify by construction, since scaling never
+     touches the unit; a sibling value from another claim
+     qualifies only when its unit matches, so a percentage is
+     never offered as a temperature. The card needs three
+     distractors, four options in all, or it does not build. */
+  const unit = parseNumberValue(value).unit;
   const scaled = [scaleNumberIn(claim.text, 1.5), scaleNumberIn(claim.text, 0.6)]
     .filter(Boolean)
     .map((t) => { const mm = t.match(NUMBER_RE); return mm ? mm[1].replace(/\s+/g, " ").trim() : null; })
     .filter((v) => v && v !== value);
-  const others = numbersIn(allClaims).filter((n) => n !== value && !scaled.includes(n));
-  const pool = [...new Set([...scaled, ...seededShuffle(others, hashStr(claim.text))])];
-  if (pool.length < 2) return null;
+  const others = numbersIn(allClaims).filter((n) => n !== value && !scaled.includes(n)
+    && parseNumberValue(n).unit === unit);
+  const pool = [...new Set([...scaled, ...seededShuffle(others, hashStr(claim.text) + (opts.salt || 0))])];
+  if (pool.length < 3) return null;
   const picks = pool.slice(0, 3);
-  const options = seededShuffle([value, ...picks], hashStr(claim.text) + 13);
+  const options = seededShuffle([value, ...picks], hashStr(claim.text) + 13 + (opts.salt || 0));
   return {
     kind: "cloze",
     claimId: "cl" + hashStr(claim.text) + "-" + (claimSeq++),
@@ -1301,6 +1530,10 @@ const VOCAB_STOP = new Set([
   "compared", "analysis", "research", "patients", "participants",
   "treatment", "control", "significant", "significantly", "however",
   "showed", "found", "using", "based", "model", "models", "data",
+  /* Added 2026-10-23 (Nova quality wave): ordinary English that the
+     suffix pattern admits wholesale. A word every field uses is not
+     this field's vocabulary. */
+  "information", "function",
 ]);
 function extractVocab(claims) {
   const byTerm = new Map();
@@ -1313,7 +1546,19 @@ function extractVocab(claims) {
   };
   for (const claim of claims) {
     for (const m of claim.text.matchAll(/(?<=[a-z,;] )([A-Z][a-z]{3,})(?:\s([A-Z][a-z]{3,}))?/g)) {
-      add(m[2] ? m[1] + " " + m[2] : m[1], claim);
+      const term = m[2] ? m[1] + " " + m[2] : m[1];
+      /* Proper noun screen (2026-10-23, Nova quality wave): a
+         capitalised term that never appears in lowercase anywhere
+         in the claim set is a name, not a concept. Moon, Earth,
+         Fundy, and Calvin are the audit's exhibits: each is
+         capitalised at every appearance because it is a proper
+         noun, and a vocabulary card built on one tests name
+         elimination, not a term. A real term that the text also
+         uses in lowercase survives. */
+      const lower = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const appearsLower = claims.some((c) => new RegExp("\\b" + lower + "\\b").test(c.text));
+      if (!appearsLower) continue;
+      add(term, claim);
     }
     for (const m of claim.text.matchAll(/\b([a-z]{5,}(?:tion|sis|ome|ase|itis|gen|some|phagy))\b/gi)) {
       add(m[1].toLowerCase(), claim);
@@ -1326,8 +1571,16 @@ function vocabCard(entry, allTerms, sources) {
   const esc = entry.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const blanked = claim.text.replace(new RegExp(esc, "i"), "_____");
   if (blanked === claim.text) return null;
+  /* Same class distractors (2026-10-23, Nova quality wave): a
+     distractor term matches the target's token count, so multiword
+     terms sit beside multiword terms and single words beside
+     single words. A pool that cannot supply two same class
+     distractors builds no card, rather than filling the blank
+     with a term no sentence could take. */
+  const targetTokens = entry.term.trim().split(/\s+/).length;
   const others = seededShuffle(
-    allTerms.filter((t) => t.term !== entry.term).map((t) => t.term),
+    allTerms.filter((t) => t.term !== entry.term
+      && t.term.trim().split(/\s+/).length === targetTokens).map((t) => t.term),
     hashStr(entry.term) + 5
   ).slice(0, 3);
   if (others.length < 2) return null;
@@ -1392,6 +1645,35 @@ function RichText({ text }) {
   });
 }
 
+/* Course level duplicate gate (2026-10-23, Nova quality wave): a
+   card's signature is its kind, its question or prompt or
+   statement, and its options sorted, so two builds of one card
+   collide however their options were shuffled. Cards with nothing
+   to sign (notes and summaries carry no question, prompt,
+   statement, or options) are skipped. The per lesson repeat gates
+   cannot see a duplicate that lives in another lesson of the
+   same course, which is exactly where the review lesson's
+   rebuilds used to land; this gate walks the whole course. */
+function cardCourseSignature(card) {
+  if (!card || typeof card !== "object") return null;
+  const stem = [card.question || "", card.prompt || "", card.statement || ""].join(" ").trim();
+  const opts = Array.isArray(card.options) ? card.options.map((o) => normKey(o)).sort().join("|") : "";
+  if (!stem && !opts) return null;
+  return String(card.kind || "") + "::" + normKey(stem) + "::" + opts;
+}
+function courseDuplicateProblem(lessons) {
+  const seen = new Set();
+  for (const lesson of lessons || []) {
+    for (const card of (lesson && lesson.cards) || []) {
+      const sig = cardCourseSignature(card);
+      if (!sig) continue;
+      if (seen.has(sig)) return "a card repeats an earlier card in the course (" + String(card.kind || "card") + ")";
+      seen.add(sig);
+    }
+  }
+  return null;
+}
+
 /* Build a course from a finished search. The retrieved material is
    background only: the answer's statements become plain teaching
    text, the lessons read them first and then quiz the concepts, and
@@ -1402,10 +1684,12 @@ function RichText({ text }) {
    passage serving as a correct answer or a why twice in one
    lesson, all enforced in code, with offending checks dropped and
    counted on the course record as droppedChecks.
-   Teach checks use the three thinking forms in order: value
-   prediction for a statement carrying a value, term in context
-   for a statement carrying a term, and statement restatement
-   for the rest. The review lesson re asks each picked idea in
+   Teach checks use the four thinking forms in order: value
+   prediction for a statement carrying a value, true or false
+   for a statement carrying a mutation, statement restatement
+   for a statement with three false variants, and term in
+   context for the rest (order updated 2026-10-23, Nova quality
+   wave). The review lesson re asks each picked idea in
    a different form from the one that taught it first, falling
    back to any form that builds when the different form cannot.
    The smartness standard (2026-10-20) as it applies to
@@ -1420,7 +1704,7 @@ function RichText({ text }) {
    up: deterministic generation cannot author a novel scenario
    around a retrieved statement, so search built courses do not
    invent situations. They teach the statements themselves and
-   check them in the three forms, dropping whatever no form
+   check them in the four forms, dropping whatever no form
    can carry honestly.
    Returns null when the search did not produce enough statements
    to teach from honestly. The conflicts argument is still accepted
@@ -1446,7 +1730,20 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
   });
   if (claims.length < 3) return null;
 
-  const vocab = extractVocab(claims);
+  /* Course assembly (2026-10-23, Nova quality wave): up to nine
+     claims are taught, in three lessons of three. A trailing
+     chunk of one claim never becomes a lesson of its own, and
+     that claim is not taught at all, rather than taught nowhere
+     and quizzed anyway. The vocabulary is drawn from the taught
+     claims only, so no term enters the course from a statement
+     no lesson teaches. */
+  const first = claims.slice(0, 3);
+  const secondChunk = claims.slice(3, 6);
+  const thirdChunk = claims.slice(6, 9);
+  const second = secondChunk.length >= 2 ? secondChunk : [];
+  const third = thirdChunk.length >= 2 ? thirdChunk : [];
+  const taughtClaims = [...first, ...second, ...third];
+  const vocab = extractVocab(taughtClaims);
   const lessons = [];
   const clozed = new Set();
   /* Checks dropped because no form could be built for the
@@ -1463,8 +1760,8 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
      blank the same term, and the review lesson below reads the
      form map to re ask each idea in a different form. Forms are
      named by what the player has to think: cloze is value
-     prediction, term is term in context, and quiz is statement
-     restatement. */
+     prediction, truefalse is judging a statement true or false,
+     quiz is statement restatement, and term is term in context. */
   const usedTeachTerms = new Set();
   const taughtForm = new Map();
   /* A term card for one statement, or null. The statement alone
@@ -1483,19 +1780,23 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     }
     return null;
   };
-  /* One check per taught statement, in the thinking order:
-     value prediction when the statement carries a value worth
-     predicting, term in context when it carries a term, and
-     statement restatement otherwise. */
+  /* One check per taught statement, in the thinking order
+     (2026-10-23, Nova quality wave): value prediction when the
+     statement carries a value worth predicting, true or false
+     when a mutation exists to judge, statement restatement when
+     three false variants build for it, and term in context for
+     the rest. One drop is counted when every form has failed. */
   const checkFor = (c) => {
     const cz = !clozed.has(c.text) ? clozeCard(c, claims, srcs) : null;
     if (cz) { clozed.add(c.text); taughtForm.set(c.text, "cloze"); return cz; }
+    const tf = trueFalseCard(c, claims, srcs);
+    if (tf) { taughtForm.set(c.text, "truefalse"); return tf; }
+    const q = quizCard(c, claims, srcs);
+    if (q) { taughtForm.set(c.text, "quiz"); return q; }
     const tc = termFor(c, usedTeachTerms);
     if (tc) { taughtForm.set(c.text, "term"); return tc; }
-    const q = quizCard(c, claims, srcs);
-    if (!q) { droppedChecks++; return q; }
-    taughtForm.set(c.text, "quiz");
-    return q;
+    droppedChecks++;
+    return null;
   };
   /* No passage twice in one lesson (2026-10-18): a check whose
      correct answer or why repeats a passage an earlier kept check
@@ -1524,7 +1825,7 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
      the order of the checks changes. */
   const teachLesson = (id, title, subtitle, kicker, heading, chunk) => {
     const checks = chunk.map(checkFor).filter(Boolean);
-    if (checks.length > 1 && checks[0].kind === "quiz" && !checks[0].vocab) {
+    if (checks.length > 1 && (checks[0].kind === "quiz" || checks[0].kind === "truefalse") && !checks[0].vocab) {
       const idx = checks.findIndex((c, i) => i > 0 && (c.kind === "cloze" || c.vocab));
       if (idx > 0) {
         const [lead] = checks.splice(idx, 1);
@@ -1540,13 +1841,15 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     };
   };
 
-  const first = claims.slice(0, 3);
-  const second = claims.slice(3, 6);
   lessons.push(teachLesson("basics", "The Basics", "The core ideas, in plain statements",
     "Start here", "The ideas, in plain words", first));
-  if (second.length >= 2) {
+  if (second.length) {
     lessons.push(teachLesson("deeper", "Going Deeper", "More of the topic, the same plain way",
       "Going deeper", "More ideas, in plain words", second));
+  }
+  if (third.length) {
+    lessons.push(teachLesson("further", "Going Further", "The rest of the topic, the same plain way",
+      "Going further", "More ideas, in plain words", third));
   }
 
   // Vocabulary lesson: the topic's terms, inside the statements
@@ -1562,29 +1865,35 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
 
   // Final lesson: every taught idea asked again, then the wrap.
   // Each picked idea is re asked in a different form from the
-  // one that taught it: an idea taught as statement restatement
-  // is asked as value prediction or term in context first, and
-  // an idea taught in either of those forms is asked as
-  // statement restatement first. When the different form cannot
-  // build, any form that builds serves instead. Terms blanked
-  // in this lesson are tracked on their own set, so two picks
-  // in the review never blank the same term either. A pick
-  // counts exactly one drop when no form builds for it.
+  // one that taught it: the form rotation tries every other form
+  // before the taught form, which serves only as the fallback.
+  // Review builds also carry their own salt namespace
+  // (2026-10-23, Nova quality wave): the rotation alone used to
+  // fall back to quizCard with the same hash salt as the teach
+  // build, which rebuilt a byte identical card, options in the
+  // same order, and the review lesson duplicated the teach
+  // lesson it was meant to vary. Terms blanked in this lesson
+  // are tracked on their own set, so two picks in the review
+  // never blank the same term either. A pick counts exactly one
+  // drop when no form builds for it. The summary card is added
+  // after the assembly gates below, so it counts the lessons
+  // and terms that actually ship.
+  const REVIEW_SALT = 104729;
   {
-    const taught = [...first, ...second];
-    const picks = seededShuffle(taught, hashStr(query || "") + 31).slice(0, 4);
+    const picks = seededShuffle(taughtClaims, hashStr(query || "") + 31).slice(0, 4);
     const usedReviewTerms = new Set();
     const reviewCheckFor = (c) => {
       const taughtAs = taughtForm.get(c.text);
-      const order = taughtAs === "cloze" || taughtAs === "term"
-        ? ["quiz", "cloze", "term"]
-        : ["cloze", "term", "quiz"];
+      const forms = ["cloze", "truefalse", "quiz", "term"];
+      const order = taughtAs ? [...forms.filter((f) => f !== taughtAs), taughtAs] : forms;
       for (const form of order) {
         const card = form === "cloze"
-          ? clozeCard(c, claims, srcs)
-          : form === "term"
-            ? termFor(c, usedReviewTerms)
-            : quizCard(c, claims, srcs);
+          ? clozeCard(c, claims, srcs, { salt: REVIEW_SALT })
+          : form === "truefalse"
+            ? trueFalseCard(c, claims, srcs, { salt: REVIEW_SALT })
+            : form === "term"
+              ? termFor(c, usedReviewTerms)
+              : quizCard(c, claims, srcs, { salt: REVIEW_SALT });
         if (card) return card;
       }
       droppedChecks++;
@@ -1595,14 +1904,72 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
       const q = reviewCheckFor(c);
       if (q) cards.push(q);
     }
-    cards.push({
+    lessons.push({ id: "review", title: "Review", subtitle: "Every idea, asked again", cards: dropLessonRepeats(cards) });
+  }
+
+  /* Course level duplicate gate (2026-10-23, Nova quality wave):
+     after every lesson is built, walk the whole course and drop
+     any card whose signature repeats an earlier card anywhere in
+     the course, counting each drop. This is the enforcement side
+     of courseDuplicateProblem above, which names the same
+     offence for tests and validators. */
+  {
+    const seenSig = new Set();
+    for (const lesson of lessons) {
+      lesson.cards = lesson.cards.filter((card) => {
+        const sig = cardCourseSignature(card);
+        if (!sig) return true;
+        if (seenSig.has(sig)) { droppedChecks++; return false; }
+        seenSig.add(sig);
+        return true;
+      });
+    }
+  }
+
+  /* Assembly honesty (2026-10-23, Nova quality wave): a teach
+     lesson that built no checks does not ship as an empty lesson.
+     Its note folds into the previous lesson as an extra note
+     card, or, when it is the first lesson, into the next lesson
+     that ships. When no teach lesson built any check at all the
+     course fails outright: a course of notes with nothing to
+     answer teaches nothing checkable, and the caller says so.
+     A vocabulary lesson whose cards all dropped does not ship
+     either, and the summary below announces terms only when a
+     vocabulary lesson actually ships. */
+  const teachIds = new Set(["basics", "deeper", "further"]);
+  const checkCount = (l) => l.cards.filter((c) => c.kind !== "note" && c.kind !== "summary").length;
+  const totalTeachChecks = lessons
+    .filter((l) => teachIds.has(l.id))
+    .reduce((n, l) => n + checkCount(l), 0);
+  if (totalTeachChecks === 0) return null;
+  const shipped = [];
+  let pendingNotes = [];
+  for (const lesson of lessons) {
+    if (teachIds.has(lesson.id) && checkCount(lesson) === 0) {
+      const notes = lesson.cards.filter((c) => c.kind === "note");
+      if (shipped.length) shipped[shipped.length - 1].cards.push(...notes);
+      else pendingNotes.push(...notes);
+      continue;
+    }
+    if (lesson.id === "vocab" && !lesson.cards.some((c) => c.vocab)) continue;
+    if (pendingNotes.length && lesson.cards.length) {
+      lesson.cards.splice(1, 0, ...pendingNotes);
+      pendingNotes = [];
+    }
+    shipped.push(lesson);
+  }
+
+  const reviewLesson = shipped.find((l) => l.id === "review");
+  const vocabLesson = shipped.find((l) => l.id === "vocab");
+  const shippedTerms = vocabLesson ? vocabLesson.cards.filter((c) => c.vocab).length : 0;
+  if (reviewLesson) {
+    reviewLesson.cards.push({
       kind: "summary",
       title: "Course complete",
-      text: "That is the whole course: " + (lessons.length + 1) + " lessons" +
-        (vocab.length ? " and " + vocab.length + " terms from the field" : "") +
+      text: "That is the whole course: " + shipped.length + " lessons" +
+        (shippedTerms ? " and " + shippedTerms + (shippedTerms === 1 ? " term" : " terms") + " from the field" : "") +
         ". The questions you answered are on a review schedule now. They come back as they start to fade.",
     });
-    lessons.push({ id: "review", title: "Review", subtitle: "Every idea, asked again", cards: dropLessonRepeats(cards) });
   }
 
   const course = {
@@ -1617,17 +1984,23 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     /* How many checks were dropped at build time because no
        check form could be built for their statement. */
     droppedChecks,
-    lessons,
+    lessons: shipped,
     doneLessons: [],
     xpEarned: 0,
     vocab: vocab.map((v) => ({ term: v.term, text: v.claim.text })),
   };
 
   // Register every interactive card's question for spaced review.
+  // True or false cards register beside quiz and cloze
+  // (2026-10-23, Nova quality wave): the stored card keeps its
+  // kind, its statement, and its boolean answer, so the review
+  // surfaces hand the Player the same true or false card that
+  // was taught, and gradeClaim's schedule update, which reads
+  // only the claim id and the verdict, applies unchanged.
   const claimsStore = loadClaims();
-  for (const lesson of lessons) {
+  for (const lesson of shipped) {
     for (const card of lesson.cards) {
-      if (card.claimId && (card.kind === "quiz" || card.kind === "cloze")) {
+      if (card.claimId && (card.kind === "quiz" || card.kind === "cloze" || card.kind === "truefalse")) {
         /* Claim ids regenerate identically in a new page session
            (the module counter restarts), so an id already owned by
            another course keeps that course's entry and schedule
@@ -1637,7 +2010,7 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
         if (existingClaim && existingClaim.courseId && existingClaim.courseId !== course.id) continue;
         claimsStore[card.claimId] = {
           id: card.claimId, courseId: course.id, courseTitle: course.title,
-          card: { kind: card.kind, question: card.question, prompt: card.prompt, options: card.options, correct: card.correct, why: card.why },
+          card: { kind: card.kind, question: card.question, prompt: card.prompt, statement: card.statement, answer: card.answer, options: card.options, correct: card.correct, why: card.why },
           stability: 0, due: 0, reps: 0, lapses: 0, last: 0,
         };
       }
@@ -13742,6 +14115,18 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     emitNovaActivity("search", "start");
     try {
       const data = await searchForCourse(q);
+      /* No course from excerpts (2026-10-23, Nova quality wave):
+         the search names the tier that produced its answer, and
+         only the research tier is a real written answer. The
+         limited, weak, background, and definition tiers are
+         source excerpts pulled together, and a course built from
+         excerpts would teach nothing, so the build refuses here
+         with the reason in plain words. */
+      if (["limited", "weak", "background", "definition"].includes(data.answerTier)) {
+        emitNovaActivity("search", "degraded");
+        setBuildError("The search could only pull source excerpts together for this topic right now and a course built from excerpts would teach nothing, so try again in a little while.");
+        return;
+      }
       const course = createCourseFromResults(q, data.sources || [], data.answer || "", data.literature_conflicts || []);
       if (!course) {
         emitNovaActivity("search", "degraded");
