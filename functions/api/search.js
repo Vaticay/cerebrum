@@ -28231,6 +28231,57 @@ async function gatherPapersBody(rawQuery, opts) {
   // chain applied, judged by the same function so the two can
   // never drift. The filter keeps its funnel counting; the helper
   // is the pure test.
+  // REVIEW SUBJECT FLOOR PASS (2026-10-23, burnout probe): the
+  // quality floor below counts gate term WORDS, and the words of
+  // one secondary concept count separately. On the live probe of
+  // "How can I fight graduate school burnout?" the gate terms
+  // were the constraint words graduate, school, burnout, so the
+  // floor required two hits, and a systematic review whose title
+  // and abstract engage burnout itself scored exactly one hit:
+  // it carries the question's central subject concept and misses
+  // only the population concept (graduate school, two words for
+  // one concept). The two highest value papers in the pool, the
+  // nurses empowerment systematic review and meta analysis and
+  // the burnout and patient safety systematic review and meta
+  // analysis, were classed weak on exactly that accounting and
+  // never reached the shelf, because every existing rescue stood
+  // down over a shelf already past its minimum. The pass below
+  // is the floor's own calibration for that class, and it is
+  // deliberately narrow. A paper passes only when all of these
+  // hold: it is classified SYSTEMATIC_REVIEW by the scorer's own
+  // study type stamp; it is a nearest miss at the floor (its core
+  // hits are at most one short of the requirement, so a paper
+  // engaging almost nothing still fails); and one central concept
+  // is engaged in BOTH its title and its abstract, judged by
+  // centralConceptHits over a single concept at a time, the same
+  // accounting the topicality cap and the rescues use. A paper
+  // with no subject engagement (the probe's Hopetimize pilot,
+  // which engages no central concept at all) gains nothing, a
+  // non review paper with the same one hit profile (the probe's
+  // cross sectional dietitians and student burnout papers) gains
+  // nothing, and the pass sits inside the gate term block of the
+  // filter, AFTER the binomial screen in the same filter and
+  // BEFORE the organism branch below it, so neither protection
+  // is weakened: a wrong species paper still fails the binomial
+  // screen before this code runs, and a paper on an organism
+  // question must still satisfy the organism branch after it.
+  // Passing the floor changes the shelf only. The relevance
+  // floor and the citation gate judge the paper downstream
+  // exactly like any other shelf paper.
+  const reviewSubjectFloorPass = (p, coreHits, required) => {
+    try {
+      if (!p || p.studyTypeKey !== "SYSTEMATIC_REVIEW") return false;
+      if (typeof coreHits !== "number" || typeof required !== "number") return false;
+      if (coreHits < required - 1) return false;
+      if (!Array.isArray(scorerCentralConcepts) || scorerCentralConcepts.length === 0) return false;
+      for (const c of scorerCentralConcepts) {
+        if (!c) continue;
+        const hits = centralConceptHits(p, [c]);
+        if (hits.inTitle >= 1 && hits.inAbstract >= 1) return true;
+      }
+      return false;
+    } catch { return false; }
+  };
   const titlePassesLanguageScreen = (rawTitle) => {
     const title = String(rawTitle || "").trim();
     if (!title) return true;
@@ -28726,7 +28777,12 @@ async function gatherPapersBody(rawQuery, opts) {
         else if (gateTerms.length <= 6) required = 2;
         else required = 3;
         const titleStrong = coreTitleHits >= 2;
-        if (coreHits < required && !titleStrong) return false;
+        // REVIEW SUBJECT FLOOR PASS (2026-10-23, see the helper
+        // above): a systematic review or meta analysis that
+        // engages a central concept in title and abstract and
+        // misses the requirement by at most one hit is not weak
+        // for missing a secondary population concept alone.
+        if (coreHits < required && !titleStrong && !reviewSubjectFloorPass(p, coreHits, required)) return false;
       }
 
       const queryNamesOrganism = neutralWords.size > 0;
