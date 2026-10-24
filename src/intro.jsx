@@ -965,6 +965,21 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
      see. Reduced motion still stops the rotation entirely. */
   const specimenWrapRef = useRef(null);
   const [specimenVisible, setSpecimenVisible] = useState(true);
+  /* Scroll cue state (2026-10-24): is the proof line, the evidence
+     group's last element, fully in view? Starts true so the cue
+     never flashes on screens where the door already fits; the
+     observer below corrects it on mount where it does not. */
+  const proofRef = useRef(null);
+  const [proofVisible, setProofVisible] = useState(true);
+  useEffect(() => {
+    const el = proofRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return undefined;
+    const io = new IntersectionObserver((entries) => {
+      setProofVisible(entries.some((e) => e.intersectionRatio >= 0.99));
+    }, { threshold: 1 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
   useEffect(() => {
     const el = specimenWrapRef.current;
     if (!el || typeof IntersectionObserver === "undefined") return undefined;
@@ -1254,7 +1269,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
               SCHOLARLY_SOURCES the workspace searches. The line opens
               the Research sources dialog, so the count can be checked
               against the list. */}
-          <div style={{ marginTop: 14, textAlign: "left" }}>
+          <div ref={proofRef} style={{ marginTop: 14, textAlign: "left" }}>
             <button type="button" onClick={() => setSourcesOpen(true)} aria-label="Research sources"
               style={{
                 display: "inline-flex", alignItems: "center", gap: 8,
@@ -1274,6 +1289,40 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
 
       </div>
       </main>
+
+      {/* ── Scroll cue, short phones only in practice (2026-10-24).
+          On phones 640 to 740px tall the evidence group above sits
+          below the fold with no hint it exists: the door's content
+          is taller than the viewport, and marginTop auto on the
+          evidence group collapses instead of fitting it in. Gentle
+          compression cannot close that gap for every specimen,
+          because the plate's height changes with each claim's
+          length, so the fix is this cue instead: no layout, copy,
+          or rhythm on the door changes at all. The chevron is keyed
+          to the proof line, the evidence group's last element, not
+          to the plate: the plate can be partly in view while the
+          proof line is still clipped, and the cue must stay until
+          the whole group has been seen. Its observer below watches
+          the proof line at full visibility, so the cue renders only
+          while that line is not fully in view, and it is gone the
+          moment the visitor scrolls far enough to bring it fully
+          in, and while leaving or while the sources dialog is
+          open. Fixed and centred so it never takes a row of its
+          own, pointer events off so it can never block the way in,
+          and no text, so nothing on the door reads any
+          differently. */}
+      {!proofVisible && !leaving && !sourcesOpen && (
+        <div aria-hidden="true" style={{
+          position: "fixed", left: "50%", bottom: 16, transform: "translateX(-50%)",
+          zIndex: 40, pointerEvents: "none", color: faint, opacity: 0.85,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </div>
+      )}
 
       {/* ── Footer: one quiet line. */}
       <footer className="cb-intro-chrome" style={{
