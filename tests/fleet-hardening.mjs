@@ -55,6 +55,11 @@ const {
   DELAYED_RESCUE_RETRY_MS,
   DELAYED_RESCUE_OVERRUN_MS,
   DELAYED_RESCUE_MIN_WAIT_MS,
+  // 2026-10-25 (free legs wave): the second key bucket pins below
+  // exercise these three directly.
+  synthesisBucketForLabel,
+  auxLegHealthLabel,
+  factCheckModelFamily,
 } = await import(join(root, "functions/api/search.js"));
 
 let passed = 0;
@@ -257,6 +262,79 @@ await test("the unverifiable GitHub Models bucket is parked out of the active pr
   );
 });
 
+// ═══════════════════════════════════════════════════════════════════
+group("second key buckets — separate quotas on the proven providers (2026-10-25)");
+
+await test("groq2 and gemini2 rows exist as opt in second key buckets", () => {
+  // Free legs wave (2026-10-25): Groq caps follow the organization
+  // and AI Studio caps follow the project, so a second key from a
+  // second org / project is a genuinely separate pool behind the
+  // same production proven endpoint and roster. The rows follow
+  // the fleet's opt in shape — no key set, no leg, no behaviour
+  // change — so these pins assert the rows and their env names,
+  // never that a key exists.
+  assert.ok(
+    src.includes('{ id: "groq2",    key: env.GROQ_KEY_2,'),
+    "the groq2 provider row is missing"
+  );
+  assert.ok(
+    src.includes('{ id: "gemini2",  key: env.GEMINI_KEY_2,'),
+    "the gemini2 provider row is missing"
+  );
+  assert.ok(
+    src.includes('groq2:    { w1: ["openai/gpt-oss-120b"],      w2: ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"] }'),
+    "the groq2 roster must mirror the groq roster exactly"
+  );
+  assert.ok(
+    src.includes('gemini2:  { w1: ["gemini-3.8-flash"],        w2: ["gemini-3.5-flash-lite"] }'),
+    "the gemini2 roster must mirror the gemini roster exactly"
+  );
+});
+
+await test("second key labels bucket per provider, never into the shared pools", () => {
+  // The whole point of a second key is a separate quota; if its
+  // labels bucketed into the shared OpenRouter pool they would
+  // inherit that pool's daily cap parks and the bucket would be
+  // fiction. synthesisBucketForLabel is the behaviour the wave
+  // planner and the park store both read.
+  assert.equal(synthesisBucketForLabel("groq2:openai/gpt-oss-120b"), "compat:groq2");
+  assert.equal(synthesisBucketForLabel("gemini2:gemini-3.8-flash"), "compat:gemini2");
+  assert.equal(synthesisBucketForLabel("sambanova:gpt-oss-120b"), "compat:sambanova");
+  assert.equal(auxLegHealthLabel({ via: "gemini2", model: "gemini-3.5-flash-lite" }), "gemini2:gemini-3.5-flash-lite");
+});
+
+await test("the second Gemini key arms a validation leg and a claim check tier", () => {
+  // The stages that starve on a capped day are validation and
+  // the claim check, not only the synthesis race: the wave gave
+  // GEMINI_KEY_2 a leg in defaultValidationCall (via gemini2)
+  // and tier 1b in deepFactCheck, both behind the same family's
+  // rules (winner exclusion for the tier, the 3,000 ms cap).
+  assert.ok(src.includes('via: "gemini2",'), "the validation fifth leg is missing");
+  assert.ok(src.includes('finishClaims(claimsG2, "gemini2", GEMINI_CHECK_MODEL)'), "claim check tier 1b does not record its outcome");
+  assert.equal(compatLegTimeoutMs("gemini2:gemini-3.8-flash", 10000), 3000);
+  assert.equal(compatLegTimeoutMs("gemini2:gemini-3.5-flash-lite", 8000), 3000);
+  // Family math: a gemini2 winner is the gemini family, so the
+  // Gemini check tiers may not check its answers.
+  assert.equal(factCheckModelFamily("gemini2:gemini-3.8-flash"), "gemini");
+  assert.equal(factCheckModelFamily("groq2:openai/gpt-oss-120b"), "gpt-oss");
+});
+
+await test("the SambaNova bucket is parked with its roster ready", () => {
+  // Same discipline as the GitHub park: a documented free tier
+  // (SambaNova's own rate limits page, 2026-10-23) is not a
+  // verified leg. The row stays commented and the models entry
+  // stays, so restoring is one line once a key passes a live
+  // serving sized call.
+  assert.ok(
+    src.includes('// { id: "sambanova", key: env.SAMBANOVA_KEY,'),
+    "the sambanova provider row must be parked (commented out) until a real call verifies it"
+  );
+  assert.ok(
+    src.includes('sambanova: { w1: ["gpt-oss-120b"],           w2: ["Meta-Llama-3.3-70B-Instruct", "DeepSeek-V3.1"] }'),
+    "the sambanova roster entry is missing"
+  );
+});
+
 await test("wave 2 no longer trims the roster with firstOnly", () => {
   assert.ok(!src.includes("{ firstOnly: true }"), "the firstOnly trim is gone (it only ever trimmed Groq)");
 });
@@ -355,9 +433,17 @@ await test("the three long timeout compat legs get a 3s cap, others keep the wav
   assert.equal(compatLegTimeoutMs("gemini:gemini-3.8-flash", 2000), 2000, "never raises a smaller wave timeout");
   assert.equal(compatLegTimeoutMs("gemini:gemini-2.5-flash", 10000), 10000, "unlisted legs keep the wave timeout");
   assert.equal(compatLegTimeoutMs("mistral:mistral-small-latest", 8000), 8000, "unlisted legs keep the wave timeout");
+  // PIN UPDATED (2026-10-25, free legs wave): the table gains the
+  // two gemini2 labels. The cap follows the MODEL's measured stall,
+  // not the key: the second Gemini key serves the same two models
+  // on the same API, so leaving its legs uncapped would re-open
+  // the exact 10 s wave 1 stall this test exists to keep closed.
+  // The pin's intent is unchanged — no leg is capped without the
+  // panel pattern behind it — and the gemini2 entries are asserted
+  // behaviourally in the second key bucket group above.
   assert.deepEqual(Object.keys(COMPAT_LEG_TIMEOUT_OVERRIDES).sort(),
-    ["gemini:gemini-3.5-flash-lite", "gemini:gemini-3.8-flash", "mistral:open-mistral-nemo"],
-    "the override table names legs other than the three panel specimens");
+    ["gemini2:gemini-3.5-flash-lite", "gemini2:gemini-3.8-flash", "gemini:gemini-3.5-flash-lite", "gemini:gemini-3.8-flash", "mistral:open-mistral-nemo"],
+    "the override table names legs other than the panel specimens and the second key's same models");
 });
 
 await test("the caps bind where the wave descriptors are built, and the seats are as placed", () => {

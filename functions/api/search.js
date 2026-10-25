@@ -228,7 +228,14 @@ export function classifyLegFailure(error) {
  * bucket. Compat providers are keyed per provider and their
  * models carry separate per model pools, so they get per
  * provider buckets and are NOT shared parked (below). */
-const COMPAT_PROVIDER_IDS = new Set(["groq", "gemini", "mistral", "nvidia", "cerebras", "github"]);
+// 2026-10-25 (free legs wave): groq2 and gemini2 are second keys on
+// the two proven buckets (separate organization / project quotas —
+// see the PROVIDERS roster), and sambanova joins the set ahead of
+// its parked row so its labels bucket per provider the day the row
+// is restored. Without an entry here a second key's labels would
+// fall into the shared openrouter bucket and inherit its daily cap
+// parks, which is exactly the failure this wave exists to remove.
+const COMPAT_PROVIDER_IDS = new Set(["groq", "gemini", "mistral", "nvidia", "cerebras", "github", "groq2", "gemini2", "sambanova"]);
 export function synthesisBucketForLabel(label) {
   const key = legHealthKey(label);
   if (key.startsWith("@cf/")) return "workers-ai";
@@ -406,6 +413,12 @@ export function cfLegTimeoutMs(model, waveTimeoutMs) {
 export const COMPAT_LEG_TIMEOUT_OVERRIDES = {
   "gemini:gemini-3.8-flash": 3000,
   "gemini:gemini-3.5-flash-lite": 3000,
+  // 2026-10-25 (free legs wave): the second Gemini key serves the
+  // same two models on the same API, so it inherits the caps the
+  // panel measured for them; an uncapped second key would re-open
+  // the 10 s wave 1 stall the caps were added to close.
+  "gemini2:gemini-3.8-flash": 3000,
+  "gemini2:gemini-3.5-flash-lite": 3000,
   "mistral:open-mistral-nemo": 3000,
 };
 export function compatLegTimeoutMs(label, waveTimeoutMs) {
@@ -5805,6 +5818,11 @@ export function auxLegHealthLabel(leg) {
   if (leg.cf) return leg.model;
   if (leg.via === "groq") return "groq:" + leg.model;
   if (leg.via === "gemini") return "gemini:" + leg.model;
+  // 2026-10-25 (free legs wave): the second Gemini key's legs get
+  // their own label, never the bare model name — a bare name would
+  // bucket into the shared OpenRouter pool in the health store and
+  // inherit its daily cap parks.
+  if (leg.via === "gemini2") return "gemini2:" + leg.model;
   if (leg.via === "workers-ai") return leg.model;
   return leg.model;
 }
@@ -11759,6 +11777,27 @@ export async function defaultValidationCall(messages, token, env, timing, ledger
     model: "gemini-3.5-flash-lite",
     timeoutCapMs: 3000,
   });
+  // Fifth leg (2026-10-25, free legs wave): the second Gemini key,
+  // GEMINI_KEY_2 — AI Studio quotas are per project, so a key from
+  // a second project (or the owner's second Google account) is a
+  // genuinely separate pool on the family's healthiest quota, the
+  // same reasoning that put the first Gemini leg ahead of Workers
+  // AI above. Same endpoint, same model, same 3,000 ms cap; the
+  // leg exists only when the key is configured, exactly like the
+  // fourth. Placed after the first Gemini leg and before Workers
+  // AI so both independent quota legs get their shot before the
+  // shared Cloudflare allocation is spent.
+  const gemini2Key = env ? (env.GEMINI_KEY_2 || "") : "";
+  if (gemini2Key) legs.push({
+    via: "gemini2",
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + gemini2Key,
+    },
+    model: "gemini-3.5-flash-lite",
+    timeoutCapMs: 3000,
+  });
   // Third leg: Workers AI, the deep fact check tier's model, on the
   // bound service rather than a fetch pool (Job 3c). env.AI.run has
   // no signal option, so the loop races it against the same clamped
@@ -12404,7 +12443,7 @@ export function factCheckModelFamily(label) {
   let m = String(label || "").trim().toLowerCase();
   if (!m) return "";
   const sep = m.indexOf(":");
-  if (sep > 0 && ["groq", "gemini", "mistral", "nvidia", "cerebras", "github", "pollinations"].includes(m.slice(0, sep))) {
+  if (sep > 0 && ["groq", "gemini", "mistral", "nvidia", "cerebras", "github", "pollinations", "groq2", "gemini2", "sambanova"].includes(m.slice(0, sep))) {
     m = m.slice(sep + 1);
   }
   if (m.includes("gemma")) return "gemma";
@@ -12551,6 +12590,59 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
         // Fall through to tier 2.
       } finally {
         if (tg) clearTimeout(tg);
+      }
+    }
+  }
+
+  // Tier 1b (2026-10-25, free legs wave): the second Gemini key,
+  // GEMINI_KEY_2. Reaching this point means tier 1 produced no
+  // claims — its key absent, its project quota spent (the tier
+  // answered 429), a timeout, or an unparseable reply. AI Studio
+  // quotas are per project, so a key from a second project (or
+  // the owner's second Google account) is a separate pool on the
+  // same family's quota, and it is tried before the tiers fall
+  // back to the shared quotas (the Cloudflare allocation and the
+  // OpenRouter pool) whose saturation is what closes this stage
+  // on a bad day. Same model, same prompt, same verdict
+  // contract, same 3,000 ms cap and ledger gate as tier 1; the
+  // tier exists only when the key is configured, and the winner
+  // family exclusion applies to it exactly as to tier 1 (same
+  // family — an excluded tier 1 means an excluded tier 1b, noted
+  // once on tier 1, so this tier then leaves no trace entry,
+  // the absent leg convention).
+  const gemini2Key = env ? (env.GEMINI_KEY_2 || "") : "";
+  if (!factCheckTierExcluded(GEMINI_CHECK_MODEL, synthesisModel) && gemini2Key) {
+    if (ledger && ledger.remaining() <= 0) {
+      note("gemini2", "budget", "the subrequest ledger was spent before this tier");
+    } else if (stageExpired("gemini2")) {
+      // Skipped: the stage deadline passed (noted in the trace).
+    } else {
+      const cg2 = new AbortController();
+      let tg2 = null;
+      try {
+        tg2 = setTimeout(() => cg2.abort(), tierCapMs(3000, 4));
+        if (ledger) ledger.spend();
+        const rg2 = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + gemini2Key },
+          body: JSON.stringify({ model: GEMINI_CHECK_MODEL, temperature: 0, max_tokens: 1900, messages }),
+          signal: cg2.signal,
+        });
+        if (rg2.ok) {
+          const jg2 = await rg2.json();
+          const claimsG2 = parseDeepFactCheckJSON(jg2?.choices?.[0]?.message?.content || "");
+          if (claimsG2) return finishClaims(claimsG2, "gemini2", GEMINI_CHECK_MODEL);
+          note("gemini2", "unparseable", "the response did not yield a usable claim");
+        } else {
+          note("gemini2", "http-" + rg2.status, "the second Gemini key's validate model answered HTTP " + rg2.status);
+          await rg2.text().catch(() => {});
+        }
+      } catch (tierErr) {
+        const abortedG2 = tierErr && (tierErr.name === "AbortError" || /abort/i.test(String(tierErr.message || "")));
+        note("gemini2", abortedG2 ? "timeout" : "error", String((tierErr && tierErr.message) || tierErr || ""));
+        // Fall through to tier 2.
+      } finally {
+        if (tg2) clearTimeout(tg2);
       }
     }
   }
@@ -34945,17 +35037,62 @@ async function runSearchPipeline(pctx) {
        Groq and Cerebras are the two worth doing first: the largest free
        allowances of the six, and both are fast enough to routinely win the
        race outright.
+
+       REVISION 2026-10-25 (free legs wave), checked against each
+       provider's own pages that day: the list above is partly
+       history now. Cerebras abolished its recurring free tier
+       (one time $5 credit behind a verified payment method —
+       outside the free only rule), and GitHub Models was retired
+       outright on 2026-07-30. Hugging Face Inference Providers
+       gives free accounts no monthly credits at all (its own
+       pricing page), so it is not a bucket either. The capacity
+       this wave adds is second keys on the two proven buckets,
+       because their quotas are per organization / per project:
+         GROQ_KEY_2      a key from a SECOND Groq organization
+         GEMINI_KEY_2    a key from a SECOND AI Studio project
+       Same paste into Pages as the six above, ~2 minutes each,
+       no card. SambaNova has a documented free tier (20 req/day
+       per model) and a parked row below, awaiting a key and one
+       verified live call.
        ══════════════════════════════════════════════════════════════ */
     const PROVIDERS = [
       { id: "groq",     key: env.GROQ_KEY,          url: "https://api.groq.com/openai/v1/chat/completions" },
+      // 2026-10-25 (free legs wave): a second Groq key from a SECOND
+      // Groq organization. Groq's free limits are per model per
+      // organization, so a second org's key is a second full set of
+      // pools behind the same verified endpoint and roster — the
+      // cheapest capacity this fleet can add, because every model
+      // name on the row is already production proven. The row is
+      // dormant until GROQ_KEY_2 is set; behaviour with it unset is
+      // exactly as before. A second key in the SAME organization
+      // adds nothing (the caps follow the org, not the key) and
+      // must not be pasted here.
+      { id: "groq2",    key: env.GROQ_KEY_2,        url: "https://api.groq.com/openai/v1/chat/completions" },
       // PARKED 2026-10-13: Cerebras returns HTTP 402 (payment required)
       // in production stageHealth . the account is billing dead, so
       // every raced leg was a guaranteed failure burning a wave slot.
       // Removed from the active roster; the PROVIDER_MODELS entry below
       // stays so restoring is a one line change: uncomment this row
       // once the Cerebras account is funded again.
+      // UPDATE 2026-10-25 (free legs wave): do not restore this row
+      // on the old terms. Cerebras no longer offers a recurring free
+      // tier at all — its own FAQ answers "Is there a permanently
+      // free tier?" with no; what remains is a one time $5 credit,
+      // 30 days, gated on a verified payment method (checked against
+      // Cerebras's pricing and FAQ pages, 2026-10-25). A card gated
+      // trial is outside this fleet's free only rule, so the row
+      // stays parked unless the owner personally decides otherwise.
       // { id: "cerebras", key: env.CEREBRAS_KEY,      url: "https://api.cerebras.ai/v1/chat/completions" },
       { id: "gemini",   key: env.GEMINI_KEY,        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
+      // 2026-10-25 (free legs wave): a second Gemini key from a
+      // SECOND AI Studio project (a new project in the same Google
+      // account, or the owner's second Google account). AI Studio
+      // free quotas are per project, so this is a separate pool on
+      // the quota family the panels repeatedly measured healthiest,
+      // behind the same verified endpoint and roster. Dormant until
+      // GEMINI_KEY_2 is set. The same key also arms the validation
+      // fifth leg and claim check tier 1b (see both stages).
+      { id: "gemini2",  key: env.GEMINI_KEY_2,      url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
       { id: "mistral",  key: env.MISTRAL_KEY,       url: "https://api.mistral.ai/v1/chat/completions" },
       // PARKED 2026-10-13 (fleet hardening): GitHub Models is listed
       // as retired by an Oct 2026 field guide (not confirmed against
@@ -34965,8 +35102,29 @@ async function runSearchPipeline(pctx) {
       // machine. An unverifiable bucket does not ship in the hardened
       // roster; the PROVIDER_MODELS entry below stays so restoring is
       // a one line change once the leg passes a real call.
+      // UPDATE 2026-10-25 (free legs wave): the retirement is now
+      // confirmed — GitHub retired the service for all customers on
+      // 2026-07-30, playground and inference API alike (GitHub's own
+      // changelog and docs, via the daily verified trackers). There
+      // is nothing left to restore this row against; it stays as a
+      // record of why the bucket is gone, not as a pending option.
       // { id: "github",   key: env.GITHUB_MODELS_KEY, url: "https://models.github.ai/inference/chat/completions" },
       { id: "nvidia",   key: env.NVIDIA_KEY,        url: "https://integrate.api.nvidia.com/v1/chat/completions" },
+      // PARKED 2026-10-25 (free legs wave): SambaNova Cloud. A real
+      // standing free tier exists on paper — SambaNova's own rate
+      // limits page (updated 2026-10-23) lists a Free Tier at 20
+      // requests/min, 20 requests/day and 200,000 tokens/day per
+      // model, the free tier applying until a payment method is
+      // linked — and the endpoint is the same OpenAI chat shape
+      // this adapter speaks. It is parked under the same rule that
+      // parked GitHub above: no key is configured and no live call
+      // has verified the leg from this fleet, and third party
+      // reports conflict on whether signup now demands a payment
+      // method before the first request. Restoring is a one line
+      // change (uncomment the row, set SAMBANOVA_KEY in Pages) once
+      // a key exists and passes a real serving sized call; the
+      // PROVIDER_MODELS entry below is already in place.
+      // { id: "sambanova", key: env.SAMBANOVA_KEY,    url: "https://api.sambanova.ai/v1/chat/completions" },
     ];
     const activeProviders = PROVIDERS.filter((p) => typeof p.key === "string" && p.key.trim().length > 8);
 
@@ -35071,6 +35229,16 @@ async function runSearchPipeline(pctx) {
       mistral:  { w1: ["mistral-small-latest"],    w2: ["open-mistral-nemo"] },
       github:   { w1: ["openai/gpt-4o-mini"],      w2: ["meta/Llama-3.3-70B-Instruct"] },
       nvidia:   { w1: ["meta/llama-3.3-70b-instruct"], w2: ["qwen/qwen2.5-7b-instruct"] },
+      // 2026-10-25 (free legs wave): the second key rosters mirror
+      // their first key's exactly — the models are the production
+      // proven part, the key is the new pool. SambaNova's roster
+      // names the three models its own rate limits page lists for
+      // the Free Tier (checked 2026-10-25); it serves the parked
+      // row above and fires only once that row is restored and a
+      // key passes a live call.
+      groq2:    { w1: ["openai/gpt-oss-120b"],      w2: ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"] },
+      gemini2:  { w1: ["gemini-3.8-flash"],        w2: ["gemini-3.5-flash-lite"] },
+      sambanova: { w1: ["gpt-oss-120b"],           w2: ["Meta-Llama-3.3-70B-Instruct", "DeepSeek-V3.1"] },
     };
     // msgs may be a function of the provider id, so constrained buckets
     // (Groq's per minute token ceiling, Workers AI prefill) can be handed
@@ -35513,6 +35681,12 @@ async function runSearchPipeline(pctx) {
       if (token) labels.push(OR_FREE_MODELS[2]);
       if (activeProviders.some((p) => p.id === "gemini")) labels.push("gemini:gemini-3.8-flash");
       if (activeProviders.some((p) => p.id === "mistral")) labels.push("mistral:mistral-small-latest");
+      // 2026-10-25 (free legs wave): the second key buckets join
+      // the retry race on the same models as their first keys —
+      // a retry is exactly the moment the first key's pool has
+      // just failed, so the separate pool is worth its seat here.
+      if (activeProviders.some((p) => p.id === "groq2")) labels.push("groq2:openai/gpt-oss-120b");
+      if (activeProviders.some((p) => p.id === "gemini2")) labels.push("gemini2:gemini-3.8-flash");
       // Per retry abort + closed flag (2026-10-16, finding 12):
       // the legs below race with 12,000 ms timeouts against a
       // 5,000 ms close window, so a closed race's legs used to
