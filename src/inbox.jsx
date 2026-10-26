@@ -2171,8 +2171,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         </div>
       )}
 
+      {/* Interiors wave, 2026-10-26: the conversation column gets a
+          register of its own. The ground is the page tone, the header
+          and the shared shelf form a surface band at the top, and the
+          composer docks on the ground at the bottom, where the list
+          beside it is one uniform surface panel. */}
       {showThread && (
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100%", background: P.surface, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100%", background: P.bg, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden" }}>
           {activeThread && activeThread.id === activeId ? (<>
             <div style={{ padding: "13px 18px", borderBottom: `1px solid ${P.line}`, background: P.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
@@ -2181,7 +2186,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     <Icon name="arrowRight" size={16} style={{ transform: "rotate(180deg)" }} />
                   </button>
                 )}
-                <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: "50%", ...avatarSkin(activeThread.name || activeThread.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+                <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: activeThread.kind === "group" ? RADIUS.md : "50%", ...avatarSkin(activeThread.name || activeThread.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
                   {activeThread.kind === "group" ? <Icon name="network" size={16} /> : (activeThread.name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()}
                 </span>
                 <div style={{ minWidth: 0 }}>
@@ -2270,11 +2275,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   </div>
             </div>
             {sharedTotal > 0 && (
-              <div style={{ padding: "8px 18px", borderBottom: `1px solid ${P.line}`, background: P.dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.015)", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+              /* Interiors wave, 2026-10-26: the shelf is the second row
+                 of the header band, on the same surface, and its counts
+                 ride as record chips in the list chip's treatment
+                 (raised ground, hairline border, small radius), so the
+                 shared work reads one way in the list, on the shelf,
+                 and in the thread itself. */
+              <div style={{ padding: "8px 18px 10px", borderBottom: `1px solid ${P.line}`, background: P.surface, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
                 <Icon name="bookOpen" size={12} style={{ color: accent, flexShrink: 0 }} />
                 <span>Shared in this conversation</span>
-                {sharedCounts.paper > 0 && <span style={{ color: P.ink2, fontWeight: 500 }}>{sharedCounts.paper} {sharedCounts.paper === 1 ? "paper" : "papers"}</span>}
-                {sharedCounts.image > 0 && <span style={{ color: P.ink2, fontWeight: 500 }}>{sharedCounts.image} {sharedCounts.image === 1 ? "image" : "images"}</span>}
+                {sharedCounts.paper > 0 && <span style={{ color: P.ink, fontWeight: 500, background: P.raised || P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "2px 8px" }}>{sharedCounts.paper} {sharedCounts.paper === 1 ? "paper" : "papers"}</span>}
+                {sharedCounts.image > 0 && <span style={{ color: P.ink, fontWeight: 500, background: P.raised || P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "2px 8px" }}>{sharedCounts.image} {sharedCounts.image === 1 ? "image" : "images"}</span>}
               </div>
             )}
             {activeThread.blocked && (
@@ -2291,7 +2302,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 keeps a short thread resting on the composer, exactly as it
                 does everywhere else, and has no effect once the thread is
                 long enough to scroll. */}
-            <div ref={msgPaneRef} onScroll={handleMsgScroll} style={{ flex: 1, overflowY: "auto", padding: isMobile ? "18px 14px" : "22px 24px", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0, background: P.surface }}>
+            <div ref={msgPaneRef} onScroll={handleMsgScroll} style={{ flex: 1, overflowY: "auto", padding: isMobile ? "18px 14px" : "22px 24px", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0, background: P.bg }}>
               {(activeThread.messages || []).length === 0 && (
                 <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.label, marginTop: 20, lineHeight: 1.6 }}>No messages yet. Write the first one below.</div>
               )}
@@ -2363,7 +2374,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   </div>
                 )}
                 {showDay && (
-                  <div style={{ alignSelf: "center", margin: "10px 0 2px", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{dayLabel}</div>
+                  <div style={{ alignSelf: "center", margin: "10px 0 2px", padding: "4px 12px", background: P.raised || P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.pill, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{dayLabel}</div>
                 )}
                 <div className="cb-msg-bubble" id={m.id ? "cb-msg-" + m.id : undefined} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start", marginTop: groupedWithPrev ? -8 : 0, borderRadius: RADIUS.lg, ...(highlightMessageId && m.id === highlightMessageId ? { outline: `2px solid ${accent}`, outlineOffset: 3, background: withAlpha(accent, 0.07) } : {}) }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
@@ -2444,16 +2455,22 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                           the citation metadata, so a source sent in a DM
                           still reads like a source. */}
                       {m.attachmentKind === "paper" && m.attachmentTitle && (
+                        /* Interiors wave, 2026-10-26: a shared paper is a
+                           record, in the same treatment the list chip and
+                           the shelf promise: raised ground, hairline
+                           border, the book glyph. The accent wash it wore
+                           before read as a tinted bubble, not a source. */
                         <a
                           href={safeHref(m.attachmentUrl || "#")} target="_blank" rel="noopener noreferrer"
                           style={{
                             marginTop: m.text ? 8 : 0, padding: "12px 16px", borderRadius: RADIUS.lg, display: "block",
-                            background: withAlpha(accent, 0.08), border: `1px solid ${withAlpha(accent, 0.28)}`, textDecoration: "none",
+                            background: P.raised || P.surface, border: `1px solid ${P.line}`, textDecoration: "none",
+                            boxShadow: SHADOW.xs(P),
                           }}
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
-                            <Icon name="bookOpen" size={13} style={{ color: accent, flexShrink: 0 }} />
-                            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>Paper</span>
+                            <Icon name="bookOpen" size={13} style={{ color: P.ink2, flexShrink: 0 }} />
+                            <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>Paper</span>
                           </div>
                           <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.4 }}>{m.attachmentTitle}</div>
                           {m.attachmentMeta && (m.attachmentMeta.journal || m.attachmentMeta.year) && (
@@ -2466,7 +2483,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       {m.attachmentKind !== "image" && m.attachmentKind !== "audio" && m.attachmentKind !== "paper" && m.attachmentTitle && (
                         <div style={{
                           marginTop: 8, padding: "12px 16px", borderRadius: RADIUS.md, display: "flex", alignItems: "center", gap: 10,
-                          background: withAlpha(accent, 0.06), border: `1px solid ${withAlpha(accent, 0.2)}`,
+                          background: P.raised || P.surface, border: `1px solid ${P.line}`,
                         }}>
                           <Icon name="external" size={15} style={{ color: accent, flexShrink: 0 }} />
                           <span style={{ fontSize: FONT_SIZES.label, color: P.ink, fontWeight: 500 }}>Attached: {m.attachmentTitle}</span>
@@ -2575,7 +2592,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 </button>
               </div>
             )}
-            <div style={{ padding: "13px 18px", borderTop: showNewMessages ? "none" : `1px solid ${P.line}`, background: P.surface }}>
+            {/* Interiors wave, 2026-10-26: the composer zone sits on the
+                reading ground and the controls dock in a raised tray
+                lifted on the small shadow, a designed place at the foot
+                of the column instead of a leftover row on the surface. */}
+            <div style={{ padding: "13px 18px 15px", borderTop: showNewMessages ? "none" : `1px solid ${P.line}`, background: P.bg }}>
               {/* The durable outbox could not be written (storage full
                   or unavailable): failed sends are NOT saved for retry
                   in this browser right now, and pretending otherwise
@@ -2593,13 +2614,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   You blocked {activeThread.name}. Unblock them from the menu above to send a message.
                 </div>
               ) : (<>
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", background: P.raised || P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm(P), padding: 8 }}>
                   <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: "none" }} aria-hidden="true" />
                   <UIButton P={P} variant="ghost"
                     onClick={() => imageInputRef.current?.click()}
                     disabled={attachBusy}
                     aria-label="Attach an image" title="Attach an image"
-                    style={{ width: 44, height: 44, borderRadius: RADIUS.md, flexShrink: 0, background: "transparent", border: `1px solid ${P.line}`, color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    style={{ width: 44, height: 44, borderRadius: RADIUS.lg, flexShrink: 0, background: "transparent", border: "none", color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                   ><Icon name={attachBusy ? "refresh" : "image"} size={16} className={attachBusy ? "cb-spin" : undefined} /></UIButton>
                   <textarea
                     ref={composerRef}
@@ -2611,15 +2632,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     style={{ flex: 1, padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.45, resize: "none", maxHeight: 140, overflowY: "auto", outline: "none" }}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !isTouch) { e.preventDefault(); sendMessage(); } }}
                   />
-                  <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ width: 44, height: 44, borderRadius: RADIUS.md, background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ width: 44, height: 44, borderRadius: RADIUS.lg, background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="send" size={16} />
                   </button>
                 </div>
                 {!isMobile && !isTouch && (
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 52 }}>Press Enter to send. Press Shift and Enter together for a new line. Your unfinished message is saved here if you switch conversations.</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 22 }}>Press Enter to send. Press Shift and Enter together for a new line. Your unfinished message is saved here if you switch conversations.</div>
                 )}
                 {(isMobile || isTouch) && (
-                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 52 }}>Return starts a new line. Tap Send to send.</div>
+                  <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, paddingLeft: 22 }}>Return starts a new line. Tap Send to send.</div>
                 )}
               </>)}
             </div>

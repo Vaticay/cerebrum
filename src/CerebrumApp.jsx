@@ -4704,7 +4704,7 @@ function renderInlineSegments(line, sources, P, accent, hoverCite, setHoverCite,
    heading. Each now says which one it is, in words that tell the reader what
    it buys them. The percentage is gone in both: 3 of 3 shown as "100%" is a
    word-match rate with a denominator of three dressed up as a verdict. */
-function FactCheck({ fc, P, accent }) {
+function FactCheck({ fc, P, accent, inTray = false }) {
   const colors = { supported: statusGood(P), partly: statusWarn(P), unsupported: statusBad(P), thin: statusWarn(P), traced: statusWarn(P) };
   const claims = fc.claims || [];
   const isTerms = fc.mode === "terms";
@@ -4817,7 +4817,7 @@ function FactCheck({ fc, P, accent }) {
   if (total === 0 && flagClaims.length === 0) return null;
   if (total === 0) {
     return (
-      <div style={{ marginTop: 16 }}>
+      <div style={{ marginTop: inTray ? 0 : 16 }}>
         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>No claims were counted in the claim check totals for this answer.</div>
         {storedNote}
         {flagsGroup}
@@ -4831,7 +4831,7 @@ function FactCheck({ fc, P, accent }) {
      does not is no longer told about it in 34px type. */
   if (allClear) {
     return (
-      <div style={{ marginTop: 16 }}>
+      <div style={{ marginTop: inTray ? 0 : 16 }}>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -4930,9 +4930,14 @@ function FactCheck({ fc, P, accent }) {
 
   /* Pass 2 (instrument): the flagged panel is a ruled strip, not a tinted
      box. Top hairline in the tone color, glyph headline, flagged rows
-     already ruled below. No fill, no radius. */
+     already ruled below. No fill, no radius. Interiors wave,
+     2026-10-26: on the tray (inTray) the tray's own frame replaces the
+     strip's top rule and outer margin; the tone headline and glyph
+     still carry the signal inside the tray. */
   return (
-    <div style={{ marginTop: 20, borderTop: `2px solid ${withAlpha(oc, 0.55)}`, padding: "14px 4px 4px" }} className="cb-rise">
+    <div style={inTray
+      ? { marginTop: 0, padding: "2px 2px 0" }
+      : { marginTop: 20, borderTop: `2px solid ${withAlpha(oc, 0.55)}`, padding: "14px 4px 4px" }} className="cb-rise">
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
         <span style={{ color: oc, flexShrink: 0, display: "flex" }}><Icon name={nUns > 0 ? "verdictContradicted" : "verdictMixed"} size={20} /></span>
         <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: oc, fontFamily: "var(--cb-font)", lineHeight: 1.4, minWidth: 0, overflowWrap: "anywhere" }}>{headline}</span>
@@ -9472,7 +9477,21 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
         /* Declarative sync highlight: present exactly while this citation
            is active, gone the moment it isn't. No timers, no leftovers. */
         className={"cb-ledger-row" + (isActive ? " cb-source-linked" : "")}
-        style={isActive ? { ["--cb-link-accent"]: accent } : undefined}>
+        /* Interiors wave, 2026-10-26: in the rail each row is an
+           evidence card, a raised panel with its own border and
+           radius, so the rail reads as a tray of evidence instead of
+           the prose column's ruled ledger wearing a drawer. The
+           ledger grid and the stance colored number stay; the card
+           frame is the rail's own register. The active row trades the
+           raised ground for the accent wash and an accent border. */
+        style={{
+          background: isActive ? withAlpha(accent, 0.10) : P.raised,
+          border: `1px solid ${isActive ? withAlpha(accent, 0.45) : P.line}`,
+          borderRadius: RADIUS.lg,
+          padding: "12px 14px",
+          boxShadow: SHADOW.xs(P),
+          ...(isActive ? { ["--cb-link-accent"]: accent } : {}),
+        }}>
         <button type="button" className="cb-ledger-num" onClick={() => onActivate(n)}
           title={`Show source ${n} in the answer`} aria-label={`Source ${n}: show in the answer`}
           style={{ background: "none", border: "none", padding: "2px 0", cursor: "pointer", textAlign: "left", minHeight: 44 }}>
@@ -9520,13 +9539,13 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
         // xl token radius on its top corners, so the checking layer
         // reads as a tray pulled over the reading layer.
         position: "fixed", left: 0, right: 0, bottom: 0, maxHeight: "84dvh", zIndex: Z.drawer,
-        background: P.surface, borderTop: `1px solid ${P.line}`, borderRadius: `${RADIUS.xl}px ${RADIUS.xl}px 0 0`,
+        background: P.bg, borderTop: `1px solid ${P.line}`, borderRadius: `${RADIUS.xl}px ${RADIUS.xl}px 0 0`,
         boxShadow: P.shadow,
         display: "flex", flexDirection: "column",
         animation: "cbSheetIn .3s cubic-bezier(0.16, 1, 0.3, 1) both",
       } : {
         position: "fixed", top: 0, right: 0, bottom: 0, width: "min(400px, 94vw)", zIndex: Z.drawer,
-        background: P.surface, borderLeft: `1px solid ${P.line}`, borderRadius: 0,
+        background: P.bg, borderLeft: `1px solid ${P.line}`, borderRadius: 0,
         boxShadow: P.shadow,
         display: "flex", flexDirection: "column",
         animation: "cbDrawerIn .28s cubic-bezier(0.16, 1, 0.3, 1) both",
@@ -9536,11 +9555,19 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
           <span style={{ width: 40, height: 4, borderRadius: RADIUS.sm, background: P.line2 }} />
         </div>
       )}
+      {/* Interiors wave, 2026-10-26: the header is a band of its own
+          on the surface tone over the rail's page ground, with the
+          title at subhead presence and the counts as its second line,
+          the way a tray elsewhere in the answer carries its heading. */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-        padding: "16px 8px 12px 16px", borderBottom: `1px solid ${P.line}`, flexShrink: 0,
+        padding: "14px 8px 12px 16px", borderBottom: `1px solid ${P.line}`, flexShrink: 0,
+        background: P.surface,
       }}>
-        <span className="cb-kicker">Sources · {sourceCountsLabel(sources)}</span>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ ...TYPE.subhead, color: P.ink }}>Sources</div>
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 2 }}>{sourceCountsLabel(sources)}</div>
+        </div>
         <button ref={closeRef} type="button" onClick={onClose} aria-label="Close sources"
           style={{
             minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -9549,7 +9576,7 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
           <Icon name="close" size={16} />
         </button>
       </div>
-      <div style={{ overflowY: "auto", flex: 1, padding: "6px 16px 24px 16px", overscrollBehavior: "contain" }}>
+      <div style={{ overflowY: "auto", flex: 1, padding: "14px 16px 24px", display: "flex", flexDirection: "column", gap: 10, overscrollBehavior: "contain" }}>
         {rows}
       </div>
     </aside>
@@ -10576,7 +10603,15 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       {done && (
         <div ref={fcSectionRef} style={{ scrollMarginTop: 130 }}>
           {t.factCheck && !t.factCheck.error && (t.factCheck.claims || []).length > 0 ? (
-            <FactCheck fc={t.factCheck} P={P} accent={accent} />
+            /* Interiors wave, 2026-10-26: the results panel takes the
+               same evidence tray the fallback states below already
+               render on, so the section reads as one tray of evidence
+               in every state. The composition wave's addendum claimed
+               this before it was true; the panel caught it, and this
+               is the fix in shipped code. */
+            <AnswerSection eyebrow="Fact check" P={P} accent={accent} tray>
+              <FactCheck fc={t.factCheck} P={P} accent={accent} inTray />
+            </AnswerSection>
           ) : (
             <AnswerSection eyebrow="Fact check" P={P} accent={accent} tray>
               {(() => {
@@ -14001,7 +14036,7 @@ function FcThumb({ chart, accent }) {
   const scale = Math.min(1, 280 / b.w, 120 / b.h);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   return (
-    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: 96, display: "block", background: "rgba(127,140,127,0.06)", borderRadius: RADIUS.md }}>
+    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: "100%", display: "block", background: "rgba(127,140,127,0.06)", borderRadius: RADIUS.md }}>
       {(chart.edges || []).map((e) => {
         const a = byId.get(e.from), bb = byId.get(e.to);
         if (!a || !bb) return null;
@@ -24868,7 +24903,7 @@ function App({ profileHandle = null } = {}) {
                 {flowcharts.map((fc, i) => (
                   <div key={fc.id} role="listitem" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", padding: "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
                     <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }} aria-label={`Open ${fc.title || "untitled diagram"}`}
-                      style={{ width: 64, height: 48, flexShrink: 0, padding: 0, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, background: "none", cursor: "pointer", overflow: "hidden" }}>
+                      style={{ width: 120, height: 84, flexShrink: 0, padding: 0, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, background: P.raised, cursor: "pointer", overflow: "hidden" }}>
                       <FcThumb chart={fc} accent={accent} />
                     </button>
                     {/* The title holds the first claim on width: the
@@ -24877,7 +24912,7 @@ function App({ profileHandle = null } = {}) {
                         sliver or clipping off the row. */}
                     <span style={{ flex: "1 1 150px", minWidth: 0 }}>
                       <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }}
-                        style={{ display: "block", width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>
+                        style={{ display: "block", width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>
                         {fc.title || "Untitled diagram"}
                       </button>
                       <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)" }}>

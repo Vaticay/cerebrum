@@ -11,7 +11,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { Icon, UIButton, UISelect, SHADOW, withAlpha, FONT_SIZES, STATUS, Z, TRACKING, RADIUS } from "./designSystem.jsx";
+import { Icon, UIButton, UISelect, SHADOW, withAlpha, FONT_SIZES, STATUS, Z, TRACKING, RADIUS, TYPE } from "./designSystem.jsx";
 import { getCookie, __cbMotionCache, cbMotionCacheSet, download, toast } from "./appUtils.js";
 import { cbDialogLockScroll, cbDialogUnlockScroll } from "./scrollLock.js";
 import { historyNav } from "./historyNav.js";
@@ -479,7 +479,7 @@ function fcNodeSvg(n, colors, index) {
   const ty = cy - ((lines.length - 1) * lh) / 2 + 5;
   const isAccent = n.type === "start" || n.type === "end";
   const textFill = isAccent ? C.accentText : C.text;
-  const text = lines.map((ln, i) => `<text x="${cx}" y="${(ty + i * lh).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="500" fill="${textFill}">${fcEsc(ln)}</text>`).join("");
+  const text = lines.map((ln, i) => `<text x="${cx}" y="${(ty + i * lh).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="600" fill="${textFill}">${fcEsc(ln)}</text>`).join("");
   const shapeFor = (fill, stroke, sw) => {
     if (n.type === "start" || n.type === "end") {
       return `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${n.h / 2}" fill="${fill}"/>`;
@@ -1488,7 +1488,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                   return (
                     <g key={n.id} transform={`translate(${n.x} ${n.y})`} onClick={() => setSelectedId(step.id)} style={{ cursor: "pointer" }}>
                       <FcNodeShape n={n} P={P} accent={accent} selected={selectedId === step.id} index={i} />
-                      <text x={n.w / 2} y={startY} textAnchor="middle" fontSize={14} fill={P.ink} fontFamily="var(--cb-font)" fontWeight={500}>
+                      <text x={n.w / 2} y={startY} textAnchor="middle" fontSize={14} fill={P.ink} fontFamily="var(--cb-font)" fontWeight={600}>
                         {lines.map((ln, li) => (
                           <tspan key={li} x={n.w / 2} dy={li === 0 ? 0 : lineHeight}>{ln}</tspan>
                         ))}
@@ -1505,7 +1505,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
             kind, detail, and source as one unit. */}
         <div style={{ order: isMobile ? 1 : 2, width: isMobile ? "auto" : 360, flexShrink: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, boxShadow: P.shadowSm }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, flex: "1 1 auto" }}>Steps, in order</span>
+            <span style={{ ...TYPE.subhead, color: P.ink, flex: "1 1 auto" }}>Steps, in order</span>
             <button type="button" onClick={undo} disabled={!past.length} style={{ ...smallBtnStyle, opacity: past.length ? 1 : 0.5 }}>Undo</button>
             <button type="button" onClick={redo} disabled={!future.length} style={{ ...smallBtnStyle, opacity: future.length ? 1 : 0.5 }}>Redo</button>
           </div>
@@ -1528,9 +1528,14 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                 </select>
               );
               return (
-                <div key={step.id} id={`ds-step-${step.id}`} onClick={() => setSelectedId(step.id)} style={{ display: "flex", flexDirection: "column", gap: 6, border: `1px solid ${selectedId === step.id ? accent : P.line}`, borderRadius: RADIUS.md, padding: 10 }}>
+                <div key={step.id} id={`ds-step-${step.id}`} onClick={() => setSelectedId(step.id)} style={{ display: "flex", flexDirection: "column", gap: 6, border: `1px solid ${selectedId === step.id ? accent : P.line}`, borderRadius: RADIUS.md, padding: 10, background: selectedId === step.id ? P.raised : "transparent" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: FONT_SIZES.body, color: P.faint, minWidth: 22, textAlign: "right" }}>{i + 1}</span>
+                    {/* Interiors wave, 2026-10-26: the step number
+                        wears the same disc the canvas puts on the
+                        node itself (ink filled, the number in the
+                        ground color), so the list and the picture
+                        read as one instrument. */}
+                    <span aria-hidden="true" style={{ width: 21, height: 21, borderRadius: RADIUS.pill, background: P.ink, color: P.bg, fontSize: 11, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontVariantNumeric: "tabular-nums", fontFamily: "var(--cb-font)" }}>{i + 1}</span>
                     <input
                       value={step.label}
                       onChange={(e) => updateStep(step.id, { label: e.target.value })}
