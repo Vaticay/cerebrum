@@ -15426,22 +15426,30 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             workspace tabs that used to sit here are gone. Your library,
             investigations, and collections live on their own pages. */}
         <section aria-label="Pinned papers" style={{ marginTop: 34, borderTop: `1px solid ${P.line}`, paddingTop: 20 }}>
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Pinned papers</div>
+          {/* Composition wave, 2026-10-26: the shelf is the body of work
+              this profile stands for, so each pinned paper reads as a
+              work entry: title at full size, the byline, and the opening
+              of its own abstract when the record carries one. Nothing
+              here is filled in from anywhere else. */}
+          <div style={{ ...TYPE.subhead, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 12 }}>Pinned papers</div>
           {pinnedPapers.length === 0 ? (
             <div style={{ fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
               Nothing pinned yet. Save a paper first, then choose Pin next to it in your saved papers below. You can pin up to four, and they show here at the top of your profile.
             </div>
           ) : (
-            <div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {pinnedPapers.map((sv, i) => {
                 const key = paperKey(sv);
                 return (
-                  <div key={key || i} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+                  <div key={key || i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 16px", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
+                      <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
                       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
                         {[sv.authors, sv.journal, sv.year].filter(Boolean).join(" · ")}
                       </div>
+                      {sv.abstract ? (
+                        <p style={{ margin: "8px 0 0", fontSize: FONT_SIZES.label, lineHeight: 1.6, color: P.ink2, fontFamily: "var(--cb-serif, Georgia, serif)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{sv.abstract}</p>
+                      ) : null}
                     </div>
                     <button type="button" onClick={() => togglePin(key)} disabled={pinSaving}
                       style={{ flexShrink: 0, minHeight: 44, background: "none", border: "none", padding: "10px 4px", cursor: pinSaving ? "default" : "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint, opacity: pinSaving ? 0.6 : 1 }}>
@@ -15629,7 +15637,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
           </div>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "12px 12px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "12px 12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
           {/* People search is deliberately a lookup, not a directory: you find
               someone by name or @username because you already know who they
               are. The empty state says what you CAN do here instead of
@@ -15658,9 +15666,19 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
             // recognition cue that matters, survives at phone width.
             // The follower count is not here; it lives on the profile.
             const subtitle = [r.degree, r.affiliation].filter(Boolean).join(" · ");
-            const interestLine = (Array.isArray(r.interests) && r.interests.length > 0)
-              ? (r.matchedInterest ? `Research interest match · ${r.interests.join(", ")}` : `Interested in ${r.interests.join(", ")}`)
-              : (r.matchedInterest ? "Research interest match" : null);
+            /* Composition wave, 2026-10-26: the row is a card now, and
+               the card carries the person's field as its own line. The
+               interests are the reason to open the profile, so they get
+               a "Works on" line of their own instead of a caption
+               trailing the institution. A matched search says so on a
+               chip; the payload carries the match as a flag only, so
+               the chip cannot name which interest matched. The payload
+               carries no published work for a person, so no work line
+               is rendered here: inventing one would dress an empty
+               field, which the wave brief forbids. */
+            const focusLine = (Array.isArray(r.interests) && r.interests.length > 0)
+              ? `Works on ${r.interests.join(", ")}`
+              : null;
             return (
               /* Commit 100 — the row is the way into a profile. Before this
                  a search result was terminal: a name, an institution, and two
@@ -15672,9 +15690,9 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                 tabIndex={0}
                 onClick={() => onOpenProfile(r.id)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenProfile(r.id); } }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                style={{ display: "flex", alignItems: "center", gap: narrowPeople ? 8 : 12, padding: narrowPeople ? "12px 4px" : "12px 8px", borderRadius: RADIUS.lg, cursor: "pointer", transition: "background 150ms ease" }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = P.raised; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = P.surface; }}
+                style={{ display: "flex", alignItems: "flex-start", gap: narrowPeople ? 10 : 12, padding: narrowPeople ? "12px 12px" : "14px 14px", borderRadius: RADIUS.lg, cursor: "pointer", transition: "background 150ms ease", background: P.surface, border: `1px solid ${P.line}` }}
               >
                 {/* Commit 100 — this was `api.dicebear.com/...?seed=<username>`.
                     Every search sent the username of every person it matched
@@ -15685,28 +15703,31 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                     since Commit 54 for exactly this reason. */}
                 {r.avatar_base64 ? (
                   <img src={r.avatar_base64} alt="" aria-hidden="true" style={{
-                    width: 40, height: 40, borderRadius: "50%", flexShrink: 0, objectFit: "cover",
+                    width: 48, height: 48, borderRadius: "50%", flexShrink: 0, objectFit: "cover",
                     border: `1px solid ${P.line}`, background: P.raised,
                   }} />
                 ) : (
                   <div aria-hidden="true" style={{
-                    width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
+                    width: 48, height: 48, borderRadius: "50%", flexShrink: 0,
                     border: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: FONT_SIZES.body, fontWeight: 500, fontFamily: "var(--cb-font)",
+                    fontSize: FONT_SIZES.subhead, fontWeight: 500, fontFamily: "var(--cb-font)",
                     ...avatarSkin(r.name || r.username || r.id),
                   }}>{(r.name || r.username || "?").trim().charAt(0).toUpperCase()}</div>
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                    <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
+                    <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</div>
                     {((r.badges || []).includes("founder") || (r.badges || []).includes("verified")) && (
                       <VerifiedCheck size={14} title={(r.badges || []).includes("founder") ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />
                     )}
                     {r.isPro && <ProBadge style={{ fontSize: FONT_SIZES.caption, flexShrink: 0 }} />}
                   </div>
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>@{r.username}</div>
-                  {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 1, lineHeight: 1.45, overflowWrap: "anywhere" }}>{subtitle}</div>}
-                  {interestLine && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 1, lineHeight: 1.45, overflowWrap: "anywhere" }}>{interestLine}</div>}
+                  {subtitle && <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 3, lineHeight: 1.45, overflowWrap: "anywhere" }}>{subtitle}</div>}
+                  {focusLine && <div style={{ fontSize: FONT_SIZES.label, color: P.ink, marginTop: 3, lineHeight: 1.5, overflowWrap: "anywhere" }}>{focusLine}</div>}
+                  {r.matchedInterest && (
+                    <span style={{ display: "inline-block", marginTop: 7, fontSize: FONT_SIZES.caption, fontWeight: 500, color: accentInk(P, accent), background: withAlpha(accent, 0.12), padding: "3px 9px", borderRadius: RADIUS.pill, fontFamily: "var(--cb-font)" }}>Matched your search</span>
+                  )}
                 </div>
                 <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 4, flexShrink: 0, maxWidth: 120 }}>
                 <button
@@ -16062,8 +16083,10 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                 </div>
 
                 {(data.badges || []).filter((b) => b !== "founder").length > 0 && (
-                  <div style={{ marginTop: 12, fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)" }}>
-                    {(data.badges || []).filter((b) => b !== "founder").map((b) => String(b).replace(/[_-]+/g, " ")).join(" · ")}
+                  <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {(data.badges || []).filter((b) => b !== "founder").map((b) => (
+                      <span key={b} style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, background: P.raised, border: `1px solid ${P.line}`, padding: "4px 10px", borderRadius: RADIUS.pill, fontFamily: "var(--cb-font)" }}>{String(b).replace(/[_-]+/g, " ")}</span>
+                    ))}
                   </div>
                 )}
 
@@ -16072,9 +16095,17 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                 )}
 
                 {publicInterests.length > 0 && (
-                  <div style={{ marginTop: 14 }}>
-                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 4 }}>Research interests</div>
-                    <div style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.6 }}>{publicInterests.join(", ")}</div>
+                  /* Composition wave, 2026-10-26: the interests are the
+                     field this person works in, so they stand as a
+                     section of the dossier with topics you can read at
+                     a glance, not a comma line under a caption. */
+                  <div style={{ marginTop: 22, borderTop: `1px solid ${P.line}`, paddingTop: 16 }}>
+                    <div style={{ ...TYPE.subhead, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Research focus</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {publicInterests.map((topic) => (
+                        <span key={topic} style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, background: P.surface, border: `1px solid ${P.line2}`, padding: "6px 12px", borderRadius: RADIUS.pill, fontFamily: "var(--cb-font)" }}>{topic}</span>
+                      ))}
+                    </div>
                   </div>
                 )}
 

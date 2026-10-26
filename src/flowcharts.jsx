@@ -456,16 +456,22 @@ function fcBounds(nodes, pad = 60) {
    instead (fcPaletteColors, M38, 2026-10-19). */
 const FC_EXPORT_COLORS = {
   bg: "#ffffff", fill: "#f6f7f6", stroke: "#232723", text: "#161916",
-  accent: "#2e7d52", accentText: "#ffffff", edge: "#5b625b", decisionFill: "#eef4ef",
+  accent: "#2e7d52", accentText: "#ffffff", edge: "#232723", decisionFill: "#eef4ef",
+  shadow: "#232723",
 };
-/* The live palette as export colors, built from tokens only. */
+/* The live palette as export colors, built from tokens only. The
+   drafting register (composition wave, 2026-10-26): the paper tone
+   fill is the raised surface, the edge color carries the ink weight
+   the canvas uses, and the shadow color backs the offset copy of
+   every node shape. */
 function fcPaletteColors(P, accent, at) {
   return {
-    bg: P.bg, fill: P.surface, stroke: P.ink2, text: P.ink,
-    accent, accentText: at, edge: P.faint, decisionFill: withAlpha(accent, 0.14),
+    bg: P.bg, fill: P.raised, stroke: P.ink2, text: P.ink,
+    accent, accentText: at, edge: P.ink2, decisionFill: withAlpha(accent, 0.14),
+    shadow: P.ink,
   };
 }
-function fcNodeSvg(n, colors) {
+function fcNodeSvg(n, colors, index) {
   const C = colors || FC_EXPORT_COLORS;
   const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
   const lines = fcWrapBounded(n.label, Math.max(8, Math.floor((n.w - 30) / 7)), Math.max(1, Math.floor(((n.h || 92) - 18) / 16)));
@@ -474,20 +480,28 @@ function fcNodeSvg(n, colors) {
   const isAccent = n.type === "start" || n.type === "end";
   const textFill = isAccent ? C.accentText : C.text;
   const text = lines.map((ln, i) => `<text x="${cx}" y="${(ty + i * lh).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" font-weight="500" fill="${textFill}">${fcEsc(ln)}</text>`).join("");
-  let shape = "";
-  if (n.type === "start" || n.type === "end") {
-    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${n.h / 2}" fill="${C.accent}"/>`;
-  } else if (n.type === "decision") {
-    shape = `<polygon points="${cx},${n.y} ${n.x + n.w},${cy} ${cx},${n.y + n.h} ${n.x},${cy}" fill="${C.decisionFill}" stroke="${C.accent}" stroke-width="1.6"/>`;
-  } else if (n.type === "io") {
-    const s = 22;
-    shape = `<polygon points="${n.x + s},${n.y} ${n.x + n.w},${n.y} ${n.x + n.w - s},${n.y + n.h} ${n.x},${n.y + n.h}" fill="${C.fill}" stroke="${C.stroke}" stroke-width="1.5"/>`;
-  } else if (n.type === "evidence") {
-    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10" fill="${C.fill}" stroke="${C.accent}" stroke-width="1.6"/><rect x="${n.x}" y="${n.y}" width="5" height="${n.h}" rx="2.5" fill="${C.accent}"/>`;
-  } else {
-    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10" fill="${C.fill}" stroke="${C.stroke}" stroke-width="1.5"/>`;
-  }
-  return `<g>${shape}${text}</g>`;
+  const shapeFor = (fill, stroke, sw) => {
+    if (n.type === "start" || n.type === "end") {
+      return `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${n.h / 2}" fill="${fill}"/>`;
+    }
+    if (n.type === "decision") {
+      return `<polygon points="${cx},${n.y} ${n.x + n.w},${cy} ${cx},${n.y + n.h} ${n.x},${cy}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
+    }
+    if (n.type === "io") {
+      const s = 22;
+      return `<polygon points="${n.x + s},${n.y} ${n.x + n.w},${n.y} ${n.x + n.w - s},${n.y + n.h} ${n.x},${n.y + n.h}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
+    }
+    return `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>`;
+  };
+  const mainFill = isAccent ? C.accent : n.type === "decision" ? C.decisionFill : C.fill;
+  const mainStroke = isAccent ? C.accent : n.type === "decision" || n.type === "evidence" ? C.accent : C.stroke;
+  const shape = shapeFor(mainFill, mainStroke, 2);
+  const spine = n.type === "evidence" ? `<rect x="${n.x}" y="${n.y}" width="5" height="${n.h}" rx="2.5" fill="${C.accent}"/>` : "";
+  const shadow = `<g transform="translate(4 4)" opacity="0.16">${shapeFor(C.shadow || C.stroke, "none", 0)}</g>`;
+  const badge = !isAccent && typeof index === "number"
+    ? `<circle cx="${n.x}" cy="${n.y}" r="10.5" fill="${C.stroke}"/><text x="${n.x}" y="${n.y + 3.5}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-weight="500" fill="${C.bg}">${index + 1}</text>`
+    : "";
+  return `<g>${shadow}${shape}${spine}${badge}${text}</g>`;
 }
 function fcSvgString(nodes, edges, title, colors) {
   const C = colors || FC_EXPORT_COLORS;
@@ -498,9 +512,9 @@ function fcSvgString(nodes, edges, title, colors) {
     if (!a || !bb) return "";
     const g = fcEdgeGeom(a, bb);
     const lbl = e.label ? `<text x="${g.mx}" y="${(g.my - 7).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-style="italic" fill="${C.edge}">${fcEsc(e.label)}</text>` : "";
-    return `<path d="${g.d}" fill="none" stroke="${C.edge}" stroke-width="1.6" marker-end="url(#fcArrow)"/>${lbl}`;
+    return `<path d="${g.d}" fill="none" stroke="${C.edge}" stroke-width="2" marker-end="url(#fcArrow)"/>${lbl}`;
   }).join("");
-  const nodeSvg = nodes.map((n) => fcNodeSvg(n, C)).join("");
+  const nodeSvg = nodes.map((n, i) => fcNodeSvg(n, C, i)).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(b.w)}" height="${Math.ceil(b.h)}" viewBox="${b.x} ${b.y} ${b.w} ${b.h}"><title>${fcEsc(title || "Untitled diagram")}</title><defs><marker id="fcArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="${C.edge}"/></marker></defs><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${C.bg}"/>${edgeSvg}${nodeSvg}</svg>`;
 }
 function fcToMarkdown(nodes, edges, title) {
@@ -560,15 +574,20 @@ function FcThumb({ chart, accent }) {
    one hairline stroke, corners on the radius token. No gradient sheen,
    no drop shadow filter, no glow ring. Start and end keep their pill
    geometry because that shape is what makes them terminals. */
-function FcNodeShape({ n, P, accent, selected, pending }) {
+function FcNodeShape({ n, P, accent, selected, pending, index }) {
   const cx = n.w / 2, cy = n.h / 2;
   const isAccent = n.type === "start" || n.type === "end";
-  /* Canvas values on palette tokens (M38, 2026-10-19): the regular
-     node fill is P.surface and its stroke is P.line2, so switching
-     palettes restyles the canvas with the chrome. */
-  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : P.surface;
-  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : P.line2;
-  const sw = selected || pending ? 2.6 : 1.5;
+  /* Composition wave, 2026-10-26: the canvas carries a drafting
+     register of its own instead of borrowing the app chrome. Plain
+     steps sit on the raised paper tone with an ink weight stroke and
+     a hard offset shadow, and every step wears its number in a disc
+     at its corner, the same number the step list beside the canvas
+     uses. Decision and evidence steps keep their accent language on
+     top of that register. The export mirror in fcNodeSvg paints the
+     same values, so the file that leaves the app matches the canvas. */
+  const fill = isAccent ? accent : n.type === "decision" ? withAlpha(accent, 0.14) : n.type === "evidence" ? withAlpha(accent, 0.12) : P.raised;
+  const stroke = selected ? accent : pending ? accent : isAccent ? accent : n.type === "decision" || n.type === "evidence" ? accent : P.ink2;
+  const sw = selected || pending ? 2.6 : 2;
   const shape = (() => {
     if (n.type === "decision") return <polygon points={`${cx},0 ${n.w},${cy} ${cx},${n.h} 0,${cy}`} />;
     if (n.type === "io") { const s = 20; return <polygon points={`${s},0 ${n.w},0 ${n.w - s},${n.h} 0,${n.h}`} />; }
@@ -584,8 +603,15 @@ function FcNodeShape({ n, P, accent, selected, pending }) {
             : <rect x={-7} y={-7} width={n.w + 14} height={n.h + 14} rx={(isAccent ? n.h / 2 : RADIUS.lg) + 7} fill="none" stroke={accent} strokeWidth={2.4} />}
         </g>
       )}
+      {React.cloneElement(shape, { fill: withAlpha(P.ink, 0.16), stroke: "none", transform: "translate(4 4)", pointerEvents: "none" })}
       {React.cloneElement(shape, { fill, stroke, strokeWidth: sw })}
       {n.type === "evidence" && <rect x={0} y={0} width={5} height={n.h} rx={RADIUS.lg} fill={accent} stroke="none" pointerEvents="none" />}
+      {!isAccent && typeof index === "number" && (
+        <g pointerEvents="none">
+          <circle cx={0} cy={0} r={10.5} fill={P.ink} />
+          <text x={0} y={3.5} textAnchor="middle" fontSize={11} fontWeight={500} fill={P.bg} fontFamily="var(--cb-font)">{index + 1}</text>
+        </g>
+      )}
     </g>
   );
 }
@@ -740,6 +766,25 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
     ? activeSources[selectedStep.sourceIdx] || null
     : null;
   const eligiblePapers = (Array.isArray(savedPapers) ? savedPapers : []).filter((paper) => dsPaperText(paper));
+
+  /* Composition wave, 2026-10-26: the empty state shows a real
+     example when one exists. The example is the first saved paper the
+     studio can already read, run through the same extraction the
+     paper loader uses, and opening it is the paper loader itself.
+     Nothing is drawn from anywhere else. When no saved source
+     exists, or the extraction finds fewer than two steps, the empty
+     state stays the plain one it was. */
+  const examplePaper = eligiblePapers[0] || null;
+  const exampleSteps = examplePaper
+    ? fcExtractSteps(dsPaperText(examplePaper), 7).map((st) => ({
+        id: fcId("s"),
+        label: fcLabelFromSentence(st.text),
+        type: "process",
+        detail: st.text,
+        sourceIdx: 0,
+      })).filter((st) => st.label)
+    : [];
+  const exampleBuilt = exampleSteps.length >= 2 ? dsBuild(exampleSteps, "down") : null;
 
   const pushHistory = () => {
     setPast((prev) => [...prev.slice(-49), { steps, title, sources: activeSources, id: currentId, direction, readOnly }]);
@@ -1114,6 +1159,14 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
     border: `1px solid ${active ? accent : P.line2}`,
     color: P.ink,
   });
+  /* Composition wave, 2026-10-26: the header controls group by the
+     job they do (Start, Arrange, Finish), each under its own quiet
+     caption, instead of one flat row of peers. Every handler below is
+     the one it always was. */
+  const groupLabelStyle = {
+    fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.labelTight,
+    color: P.faint, fontFamily: "var(--cb-font)", textTransform: "uppercase",
+  };
   const fieldStyle = {
     boxSizing: "border-box", background: P.bg, border: `1px solid ${P.line}`,
     borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px", minHeight: 44,
@@ -1152,43 +1205,53 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
             disabled={readOnly}
             style={{ ...fieldStyle, flex: "1 1 180px", minWidth: 0, background: P.surface }}
           />
-          <div role="group" aria-label="Which way the steps run" style={{ display: "inline-flex", border: `1px solid ${P.line2}`, borderRadius: RADIUS.sm, padding: 3, gap: 2 }}>
-            <button type="button" aria-pressed={direction === "down"}
-              onClick={() => { pushHistory(); setDirection("down"); setSaveState("idle"); }}
-              style={{ minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "down" ? accent : "transparent", color: direction === "down" ? at : P.ink }}>
-              Top to bottom
-            </button>
-            <button type="button" aria-pressed={direction === "across"}
-              onClick={() => { pushHistory(); setDirection("across"); setSaveState("idle"); }}
-              style={{ minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "across" ? accent : "transparent", color: direction === "across" ? at : P.ink }}>
-              Left to right
-            </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={groupLabelStyle}>Arrange</span>
+            <div role="group" aria-label="Which way the steps run" style={{ display: "inline-flex", border: `1px solid ${P.line2}`, borderRadius: RADIUS.sm, padding: 3, gap: 2 }}>
+              <button type="button" aria-pressed={direction === "down"}
+                onClick={() => { pushHistory(); setDirection("down"); setSaveState("idle"); }}
+                style={{ minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "down" ? accent : "transparent", color: direction === "down" ? at : P.ink }}>
+                Top to bottom
+              </button>
+              <button type="button" aria-pressed={direction === "across"}
+                onClick={() => { pushHistory(); setDirection("across"); setSaveState("idle"); }}
+                style={{ minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "across" ? accent : "transparent", color: direction === "across" ? at : P.ink }}>
+                Left to right
+              </button>
+            </div>
           </div>
-          <button type="button" onClick={() => guardLoad("a new diagram", resetStudio)} style={btnStyle}>
-            Make a diagram in Diagram Studio
-          </button>
-          <div ref={exportWrapRef} style={{ position: "relative" }}>
-            <button type="button" onClick={() => setExportOpen((v) => !v)} aria-expanded={exportOpen} style={btnStyle}>
-              Export
+          {dialog && (
+            <button type="button" onClick={() => guardLoad("a new diagram", resetStudio)} style={btnStyle}>
+              Make a diagram in Diagram Studio
             </button>
-            {exportOpen && (
-              <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 6, padding: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, minWidth: 160 }}>
-                <button type="button" onClick={doExportSVG} style={btnStyle}>SVG file</button>
-                <button type="button" onClick={doExportPNG} style={btnStyle}>PNG image</button>
-                <button type="button" onClick={doExportText} style={btnStyle}>Text outline</button>
-                {canShare && (
-                  <button type="button" onClick={doShare} style={btnStyle}>Share</button>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginLeft: "auto" }}>
+            <span style={groupLabelStyle}>Finish</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div ref={exportWrapRef} style={{ position: "relative" }}>
+                <button type="button" onClick={() => setExportOpen((v) => !v)} aria-expanded={exportOpen} style={btnStyle}>
+                  Export
+                </button>
+                {exportOpen && (
+                  <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 6, padding: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, minWidth: 160 }}>
+                    <button type="button" onClick={doExportSVG} style={btnStyle}>SVG file</button>
+                    <button type="button" onClick={doExportPNG} style={btnStyle}>PNG image</button>
+                    <button type="button" onClick={doExportText} style={btnStyle}>Text outline</button>
+                    {canShare && (
+                      <button type="button" onClick={doShare} style={btnStyle}>Share</button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
+              <button type="button" onClick={doSave} disabled={saveState === "saving" || readOnly}
+                style={{ ...btnStyle, background: accent, color: at, border: `1px solid ${accent}`, opacity: saveState === "saving" || readOnly ? 0.6 : 1 }}>
+                Save
+              </button>
+              {dialog && onClose && (
+                <button type="button" onClick={requestClose} style={btnStyle}>Close</button>
+              )}
+            </div>
           </div>
-          <button type="button" onClick={doSave} disabled={saveState === "saving" || readOnly}
-            style={{ ...btnStyle, background: accent, color: at, border: `1px solid ${accent}`, opacity: saveState === "saving" || readOnly ? 0.6 : 1 }}>
-            Save
-          </button>
-          {dialog && onClose && (
-            <button type="button" onClick={requestClose} style={btnStyle}>Close</button>
-          )}
         </div>
         <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.4 }}>
           {quotaLine}
@@ -1259,10 +1322,14 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
         </div>
       )}
 
-      {/* Source choices */}
+      {/* Source choices, the Start group of the toolbar */}
       {!dialog && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <span style={groupLabelStyle}>Start</span>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={() => guardLoad("a new diagram", resetStudio)} style={tabStyle(false)}>
+              Make a diagram in Diagram Studio
+            </button>
             <button type="button" aria-pressed={false} disabled={!latestAnswer}
               onClick={loadLatest}
               style={{ ...tabStyle(false), opacity: latestAnswer ? 1 : 0.5, cursor: latestAnswer ? "pointer" : "not-allowed" }}>
@@ -1385,12 +1452,24 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                   style={{ ...btnStyle, background: accent, color: at, border: `1px solid ${accent}`, opacity: readOnly ? 0.5 : 1 }}>
                   Add your first step
                 </button>
+                {exampleBuilt && examplePaper && (
+                  <div style={{ marginTop: 10, width: "100%", maxWidth: 520 }}>
+                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 6 }}>
+                      Example, from {examplePaper.title || "a saved paper"}
+                    </div>
+                    <FcThumb chart={exampleBuilt} accent={accent} />
+                    <button type="button" onClick={() => loadPaper(examplePaper)} disabled={readOnly}
+                      style={{ ...smallBtnStyle, marginTop: 8, opacity: readOnly ? 0.5 : 1 }}>
+                      Open this example
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} width={Math.max(1, displayW)} height={Math.max(1, displayH)} style={{ display: "block" }} role="img" aria-label={title || "Untitled diagram"}>
                 <defs>
                   <marker id="dsArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                    <path d="M 0 1 L 9 5 L 0 9 z" fill={P.faint} />
+                    <path d="M 0 1 L 9 5 L 0 9 z" fill={P.ink2} />
                   </marker>
                 </defs>
                 {edges.map((e) => {
@@ -1398,7 +1477,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                   const b = fcNodeById(nodes, e.to);
                   if (!a || !b) return null;
                   const g = fcEdgeGeom(a, b);
-                  return <path key={e.id} d={g.d} fill="none" stroke={P.faint} strokeWidth={1.6} markerEnd="url(#dsArrow)" />;
+                  return <path key={e.id} d={g.d} fill="none" stroke={P.ink2} strokeWidth={2} markerEnd="url(#dsArrow)" />;
                 })}
                 {nodes.map((n, i) => {
                   const step = steps[i];
@@ -1408,7 +1487,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                   const startY = n.h / 2 - ((lines.length - 1) * lineHeight) / 2 + 5;
                   return (
                     <g key={n.id} transform={`translate(${n.x} ${n.y})`} onClick={() => setSelectedId(step.id)} style={{ cursor: "pointer" }}>
-                      <FcNodeShape n={n} P={P} accent={accent} selected={selectedId === step.id} />
+                      <FcNodeShape n={n} P={P} accent={accent} selected={selectedId === step.id} index={i} />
                       <text x={n.w / 2} y={startY} textAnchor="middle" fontSize={14} fill={P.ink} fontFamily="var(--cb-font)" fontWeight={500}>
                         {lines.map((ln, li) => (
                           <tspan key={li} x={n.w / 2} dy={li === 0 ? 0 : lineHeight}>{ln}</tspan>

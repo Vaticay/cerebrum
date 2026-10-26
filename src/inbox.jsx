@@ -2036,7 +2036,22 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   : (t.lastMessage.mine
                     ? "You: "
                     : (t.kind === "group" && t.lastMessage.senderName ? t.lastMessage.senderName.split(" ")[0] + ": " : "")
-                    ) + (t.lastMessage.text || (t.lastMessage.attachmentTitle ? `Attached: ${t.lastMessage.attachmentTitle}` : ""));
+                    ) + (t.lastMessage.text || (t.lastMessage.attachmentTitle ? (t.lastMessage.attachmentKind === "paper" ? "Shared a paper" : `Attached: ${t.lastMessage.attachmentTitle}`) : ""));
+              /* Composition wave, 2026-10-26: a shared paper is a record,
+                 not an attachment note. When the last message shared one,
+                 the row shows the paper itself as a chip under the
+                 preview, the same way the open thread's shelf treats
+                 it. The shared counts ride the same thread payload the
+                 header shelf reads. */
+              const paperChip = t.lastMessage && !t.lastMessage.encrypted && t.lastMessage.attachmentKind === "paper" && t.lastMessage.attachmentTitle
+                ? t.lastMessage.attachmentTitle
+                : null;
+              const sharedLine = t.sharedCounts && (t.sharedCounts.paper > 0 || t.sharedCounts.image > 0)
+                ? [
+                    t.sharedCounts.paper > 0 ? `${t.sharedCounts.paper} ${t.sharedCounts.paper === 1 ? "paper" : "papers"}` : null,
+                    t.sharedCounts.image > 0 ? `${t.sharedCounts.image} ${t.sharedCounts.image === 1 ? "image" : "images"}` : null,
+                  ].filter(Boolean).join(" · ") + " shared here"
+                : null;
               // Commit 47: bold name/preview + an accent dot for a genuinely
               // unread thread (t.unread, backed by the real last_read_at
               // column now — see functions/api/data.js) instead of every
@@ -2048,7 +2063,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   cursor: "pointer", background: "transparent",
                   display: "flex", gap: 11, alignItems: "flex-start", fontFamily: "var(--cb-font)",
                 }}>
-                  <span style={{ width: 42, height: 42, borderRadius: "50%", ...avatarSkin(t.name || t.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>{initials}</span>
+                  {/* Composition wave, 2026-10-26: a group row reads as a
+                      group at a glance: a squared mark carrying the
+                      network glyph, where a direct conversation keeps
+                      the round portrait with initials. */}
+                  <span style={{ width: 42, height: 42, borderRadius: t.kind === "group" ? RADIUS.md : "50%", ...avatarSkin(t.name || t.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>{t.kind === "group" ? <Icon name="network" size={17} /> : initials}</span>
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "baseline" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
@@ -2069,7 +2088,19 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{relativeTime(t.lastMessage?.createdAt)}</span>
                       </span>
                     </span>
+                    {((t.kind !== "group" && t.otherAffiliation) || (t.kind === "group" && t.memberCount)) ? (
+                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.kind === "group" ? `Group of ${t.memberCount}` : t.otherAffiliation}</span>
+                    ) : null}
                     <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", fontSize: FONT_SIZES.caption, color: t.unread ? P.ink2 : P.faint, fontWeight: t.unread ? 500 : 400, marginTop: 3, overflow: "hidden", lineHeight: 1.5 }}>{preview}</span>
+                    {paperChip && (
+                      <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 6, padding: "6px 9px", background: P.raised, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, maxWidth: "100%" }}>
+                        <Icon name="bookOpen" size={12} style={{ color: P.ink2, flexShrink: 0 }} />
+                        <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{paperChip}</span>
+                      </span>
+                    )}
+                    {sharedLine && (
+                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 5 }}>{sharedLine}</span>
+                    )}
                   </span>
                 </button>
                 <button onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === t.id ? null : t.id); }} aria-label={"Actions for " + (t.name || "this conversation")} aria-expanded={rowMenuId === t.id} style={{ width: 40, minHeight: 44, border: "none", background: "transparent", color: P.faint, cursor: "pointer", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 14, flexShrink: 0 }}>
