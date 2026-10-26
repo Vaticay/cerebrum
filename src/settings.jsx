@@ -252,20 +252,22 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
     }}>{label}</UIButton>
   );
 
-  const meterRow = (label, used, cap, last) => {
+  /* Composition wave, 2026-10-26: usage reads at full width. The
+     meter is a block of its own (label and count on one line, the
+     bar under it at full panel width) instead of a 92px sliver
+     parked in a row's control slot. Same numbers, same refill math. */
+  const meterBlock = (label, used, cap) => {
     const pct = cap && cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
     return (
-      <Row
-        key={label}
-        label={label}
-        desc={`${used} of ${cap} used · ${fmtRefill(refillMs)}`}
-        control={
-          <div style={{ width: 92, height: 5, borderRadius: RADIUS.viewport, background: P.raised, overflow: "hidden", flexShrink: 0 }} role="progressbar" aria-valuenow={used} aria-valuemax={cap} aria-label={`${label} usage`}>
-            <div style={{ width: `${pct}%`, height: "100%", borderRadius: RADIUS.viewport, background: accent, transition: "width 300ms ease" }} />
-          </div>
-        }
-        last={last}
-      />
+      <div key={label} style={{ padding: "13px 2px", borderTop: `1px solid ${P.line}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
+          <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>{label}</span>
+          <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>{used} of {cap} used · {fmtRefill(refillMs)}</span>
+        </div>
+        <div role="progressbar" aria-valuenow={used} aria-valuemax={cap} aria-label={`${label} usage`} style={{ marginTop: 9, height: 8, borderRadius: RADIUS.pill, background: P.raised, overflow: "hidden" }}>
+          <div style={{ width: `${pct}%`, height: "100%", borderRadius: RADIUS.pill, background: accent, transition: "width 300ms ease" }} />
+        </div>
+      </div>
     );
   };
 
@@ -287,15 +289,22 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
           control={proBtn("See plans", onOpenPro)} last />
       ) : (
         <>
-          <Row
-            label={<span style={{ display: "inline-flex", alignItems: "center", gap: 9 }}><TierBadge tier={rank} />{tierName}</span>}
-            searchKey="Membership"
-            desc={capacityLine}
-            control={canManage ? quietBtn(portalBusy ? "Opening…" : "Manage subscription", openPortal, portalBusy) : null}
-          />
-          {!isPro && meterRow("AI answers", q?.used || 0, q?.cap || (isLite ? 500 : 50), false)}
-          {!isPro && meterRow("Document reads", dq?.used || 0, dq?.cap || (isLite ? 30 : 3), false)}
-          {!isPro && meterRow("Diagrams", fq?.used || 0, fq?.cap || (isLite ? 10 : 1), rank === "free")}
+          {/* Composition wave, 2026-10-26: the membership opens with
+              its own header band: the badge and the tier name at
+              heading presence, the capacity line under it, and the
+              billing action at the side. It reads as the account you
+              hold, not as one more preference row. */}
+          <div style={{ background: withAlpha(accent, 0.07), border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: "16px 18px", marginBottom: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <TierBadge tier={rank} />
+              <span style={{ ...TYPE.heading, color: P.ink, fontFamily: "var(--cb-font)" }}>{tierName}</span>
+              {canManage && <span style={{ marginLeft: "auto" }}>{quietBtn(portalBusy ? "Opening…" : "Manage subscription", openPortal, portalBusy)}</span>}
+            </div>
+            <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 9, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>{capacityLine}</div>
+          </div>
+          {!isPro && meterBlock("AI answers", q?.used || 0, q?.cap || (isLite ? 500 : 50))}
+          {!isPro && meterBlock("Document reads", dq?.used || 0, dq?.cap || (isLite ? 30 : 3))}
+          {!isPro && meterBlock("Diagrams", fq?.used || 0, fq?.cap || (isLite ? 10 : 1))}
           {rank === "free" && (
             <Row
               label="Pro Lite"
@@ -2208,15 +2217,22 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
      here is glass, and nothing pretends to be a card. ── */
   const divider = P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
 
-  const Section = ({ title, footer, children }) => (
-    <div style={{ marginBottom: 36 }}>
-      {/* Look modernization, 2026-10-26: section headers step up from
-          faint captions to the subhead voice in ink. The panel named
-          Settings one long gray form where account, privacy and the
-          danger zone all read at one weight; named sections with real
-          presence give the surface a sense of place as you move
-          through it. This supersedes the small caps caption treatment. */}
-      {title && <div style={{ ...TYPE.subhead, color: P.ink, marginBottom: SP.md, fontFamily: "var(--cb-font)" }}>{title}</div>}
+  const Section = ({ title, footer, tone, children }) => (
+    /* Composition wave, 2026-10-26: a section is a place now, not a
+       stretch of one long form. Each one sits on its own surfaced
+       panel with a border and room inside it, so the eye lands
+       somewhere as it moves down the page. This supersedes the Pass 4
+       flat table on the panel's finding that account, privacy and
+       the danger zone all read at one weight. The danger tone gives
+       the destructive section its own register: a bad tint border
+       and its title in the bad ink. Rows inside keep their hairlines
+       and every handler is unchanged. */
+    <div style={{
+      marginBottom: 22, background: P.surface,
+      border: `1px solid ${tone === "danger" ? withAlpha(STATUS.bad, 0.45) : P.line}`,
+      borderRadius: RADIUS.xl, padding: "20px 22px",
+    }}>
+      {title && <div style={{ ...TYPE.subhead, color: tone === "danger" ? statusBad(P) : P.ink, marginBottom: SP.md, fontFamily: "var(--cb-font)" }}>{title}</div>}
       <div>{children}</div>
       {footer && <div style={{ fontSize: FONT_SIZES.label, color: P.faint, marginTop: 8, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>{footer}</div>}
     </div>
@@ -2580,7 +2596,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <Section title="Session">
                 <Row label="Sign out" desc="Switches this browser back to guest mode." onClick={() => { onSignOut(); close(); }} last />
               </Section>
-              <Section title="Danger zone" footer="Deletes your email, password, library and history from our servers. Immediately, and for good.">
+              <Section title="Danger zone" tone="danger" footer="Deletes your email, password, library and history from our servers. Immediately, and for good.">
                 {/* Wave 3 — the old inline Delete/Cancel expander shifted
                     the whole list down and doubled the row anatomy. One
                     quiet row; the confirmation is a Dialog sheet. */}
