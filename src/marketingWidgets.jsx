@@ -76,6 +76,37 @@ export function QuotaCalculator({ P, accent, isMobile }) {
 }
 
 /**
+ * Nova, shown once (features page, the page that introduces her).
+ *
+ * Composition wave, 2026-10-26: the figure is her real v3 model
+ * sheet art, the same asset the product ships, shown a single time
+ * beside the words that introduce her. It is a static picture of
+ * the character, not the living figure: her appearances inside the
+ * app stay governed by the egg discipline in NovaEgg.jsx, and
+ * nothing here summons her. The caption carries her own tagline.
+ */
+export function NovaFigure({ P, isMobile }) {
+  return (
+    <figure style={{ margin: "20px 0 4px" }}>
+      <img
+        src="/nova/nova-model-sheet.svg"
+        alt="Nova, an axolotl in a lab coat and gold glasses"
+        width={1024}
+        height={1024}
+        loading="lazy"
+        style={{
+          display: "block", width: isMobile ? "100%" : 320, maxWidth: "100%", height: "auto",
+          borderRadius: RADIUS.lg, border: `1px solid ${P.line}`,
+        }}
+      />
+      <figcaption style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 10, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+        Nova. Science, one spark at a time.
+      </figcaption>
+    </figure>
+  );
+}
+
+/**
  * One-question live demo (about + features pages).
  *
  * Three sample questions with cached sample answers and real, clickable
@@ -126,6 +157,11 @@ export function LiveDemo({ P, accent, isMobile, page }) {
         ))}
       </div>
       <div aria-live="polite">
+        {/* Composition wave, 2026-10-26: the sample reads as the
+            record it is. The asked question stands as the headline
+            over the answer, the way it does over a real answer in
+            the app, instead of the text starting cold. */}
+        <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.4, marginBottom: 12 }}>{demo.q}</div>
         {demo.paragraphs.map((para, i) => (
           <p key={i} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.7, color: P.ink2, margin: "0 0 12px", fontFamily: "var(--cb-font)" }}>
             {para.text}

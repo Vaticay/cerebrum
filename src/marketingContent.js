@@ -94,6 +94,7 @@ export const MARKETING_PAGES = {
       },
       {
         h: "Nova: learn the topic, lesson by lesson",
+        widget: "nova-figure",
         p: "Nova teaches the topic itself, in plain language, and never asks you to read a paper. Pick a topic from six shelves of science, or start from a subject you care about, and Nova lays out a path of short lessons that teach the ideas first. The practice then checks what the lessons taught: quizzes, fill in the blank cards, true or false checks, and matching and ordering activities. A daily practice session brings back what is due for review, and a forgiving streak, with two freezes and no lives to lose, keeps the habit going.",
         list: [
           "Progress lives in this browser only: your courses, streak, and practice history are stored on your device, not in an account, and there is no cloud copy.",

@@ -59,7 +59,7 @@ import { PAGES as LEGAL_PAGES, LEGAL_VERSION, LEGAL_UPDATED } from "./legalConte
    object the prerender pipeline uses, so JS-enabled visitors see content
    instead of a blank page. */
 import { MARKETING_PAGES, DEMO_QUESTIONS } from "./marketingContent.js";
-import { QuotaCalculator, LiveDemo } from "./marketingWidgets.jsx";
+import { QuotaCalculator, LiveDemo, NovaFigure } from "./marketingWidgets.jsx";
 import { getDeepLinkQuery } from "./deepLink.js";
 import { staticFieldCss } from "./cerebrumField.js";
 /* The one list of databases, shared with the search handler. See the note
@@ -6204,6 +6204,9 @@ function InfoPage({ page }) {
                 {block.p && <p>{block.p}</p>}
                 {block.widget === "quota-calc" && (
                   <QuotaCalculator P={P} accent={accent} isMobile={isMobile} />
+                )}
+                {block.widget === "nova-figure" && (
+                  <NovaFigure P={P} isMobile={isMobile} />
                 )}
                 {block.email && <a href={`mailto:${block.email}`} style={{ fontSize: FONT_SIZES.body, color: accentInk(P, accent), textDecoration: "none", fontFamily: "var(--cb-font)", display: "inline-block", marginBottom: 8 }}>{block.email}</a>}
                 {block.list && <ul>{block.list.map((li, j) => <li key={j}>{li}</li>)}</ul>}
