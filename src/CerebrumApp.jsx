@@ -11003,6 +11003,27 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
   const countFor = (id) => id === "all" ? saved.length : id === "uncategorized" ? saved.filter((s) => !s.collectionId).length : saved.filter((s) => s.collectionId === id).length;
   const visible = activeId === "all" ? saved : activeId === "uncategorized" ? saved.filter((s) => !s.collectionId) : saved.filter((s) => s.collectionId === activeId);
 
+  /* Composition wave, 2026-10-26: a collection reads as its contents,
+     not as a folder name with a count. The summary is computed from
+     the papers actually in it: how many, the span of years they
+     cover, and the journals that appear most. The rail carries the
+     short form so a collection differs from a saved paper before it
+     is opened; the header of an open collection carries the full
+     form. All of it is arithmetic on the saved list, nothing else. */
+  const collMeta = (id) => {
+    const items = id === "all" ? saved : id === "uncategorized" ? saved.filter((s) => !s.collectionId) : saved.filter((s) => s.collectionId === id);
+    const years = items.map((s) => Number(s.year)).filter((y) => Number.isFinite(y) && y > 0);
+    const span = years.length ? `${Math.min(...years)} to ${Math.max(...years)}` : null;
+    const journalCounts = new Map();
+    for (const s of items) {
+      const j = s.journal || s.source;
+      if (j) journalCounts.set(j, (journalCounts.get(j) || 0) + 1);
+    }
+    const topJournals = [...journalCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2).map(([j]) => formatJournalName(j));
+    return { count: items.length, span, topJournals };
+  };
+  const activeMeta = collMeta(activeId);
+
   /* Commit 88 — the same component renders either as the dialog it used
      to be (still reachable from the command palette and from a source's
      "add to collection" action, where interrupting you IS the right
@@ -11025,7 +11046,10 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
                 </span>
               ) : (
                 <UIButton P={P} variant="ghost" onClick={() => setActiveId(c.id)} onDoubleClick={() => { if (c.id !== "all" && c.id !== "uncategorized") { setRenamingId(c.id); setRenameValue(c.name); } }} style={{ minHeight: 44, flex: 1, textAlign: "left", padding: "7px 8px", fontSize: FONT_SIZES.label, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: activeId === c.id ? withAlpha(accent, 0.12) : "transparent", color: activeId === c.id ? accentInk(P, accent) : P.ink2, fontFamily: "var(--cb-font)" }}>
-                  {c.name} <span style={{ opacity: 0.6 }}>({countFor(c.id)})</span>
+                  <span style={{ display: "block" }}>{c.name} <span style={{ opacity: 0.6 }}>({countFor(c.id)})</span></span>
+                  {c.id !== "all" && c.id !== "uncategorized" && collMeta(c.id).span && (
+                    <span style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 400, opacity: 0.75, marginTop: 2 }}>{collMeta(c.id).span}</span>
+                  )}
                 </UIButton>
               )}
               {c.id !== "all" && c.id !== "uncategorized" && renamingId !== c.id && (
@@ -11055,7 +11079,18 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
         </div>
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "16px 24px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink }}>{activeId === "all" ? "All saved" : activeId === "uncategorized" ? "Not in a collection" : collections.find((c) => c.id === activeId)?.name || "Collection"}</div>
+            <div>
+              <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink }}>{activeId === "all" ? "All saved" : activeId === "uncategorized" ? "Not in a collection" : collections.find((c) => c.id === activeId)?.name || "Collection"}</div>
+              {activeId !== "all" && activeId !== "uncategorized" && activeMeta.count > 0 && (
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>
+                  {[
+                    `${activeMeta.count} paper${activeMeta.count === 1 ? "" : "s"}`,
+                    activeMeta.span,
+                    activeMeta.topJournals.length ? activeMeta.topJournals.join(", ") : null,
+                  ].filter(Boolean).join(" · ")}
+                </div>
+              )}
+            </div>
             {!page && <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 13, display: "inline-flex" }}><Icon name="close" size={18} /></button>}
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
@@ -24587,7 +24622,7 @@ function App({ profileHandle = null } = {}) {
                         return (
                           <div key={key} role="listitem"
                             onClick={() => { if (selectedSavedKeys.size > 0) toggleSavedKey(key); else setPeekSavedKey(key); }}
-                            style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: isMobile ? "14px 16px" : "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none", background: checked ? withAlpha(accent, 0.06) : "transparent", minWidth: isMobile ? 0 : 780, cursor: "pointer" }}>
+                            style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: "16px", borderTop: i ? `1px solid ${P.line}` : "none", background: checked ? withAlpha(accent, 0.06) : "transparent", minWidth: isMobile ? 0 : 780, cursor: "pointer" }}>
                             {/* The checkbox visual stays small, but its
                                 tap target is a full 44 square: the bare
                                 18 square was the whole target on a phone,
@@ -24610,7 +24645,13 @@ function App({ profileHandle = null } = {}) {
                                   {titleText}
                                 </span>
                               )}
-                              <span style={{ display: "block", fontSize: isMobile ? FONT_SIZES.label : FONT_SIZES.caption, color: P.faint, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
+                              {/* Composition wave, 2026-10-26: the byline
+                                  reads at label size in second ink on
+                                  every screen, not caption gray: a saved
+                                  paper is judged by who wrote it and
+                                  where, and that line has to be legible
+                                  at ledger distance. */}
+                              <span style={{ display: "block", fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
                                 {[sv.authors, formatJournalName(sv.journal)].filter(Boolean).join(" · ")}
                                 {sv.year ? ` · ${sv.year}` : ""}
                                 {(() => { const c = formatCitationCount(sv.citations, sv.year, "citation"); return c ? ` · ${c}` : ""; })()}
@@ -24629,9 +24670,14 @@ function App({ profileHandle = null } = {}) {
                               )}
                               {/* The opening of the abstract, so a row can
                                   be judged without leaving the page. The
-                                  peek holds the rest of the record. */}
+                                  peek holds the rest of the record.
+                                  Composition wave, 2026-10-26: the
+                                  preview is the paper's own words, so it
+                                  sets in the reading serif at three
+                                  lines, the same voice the Reader uses,
+                                  instead of two lines of UI sans. */}
                               {abstractText && (
-                                <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 6, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>{abstractText}</span>
+                                <span style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 7, lineHeight: 1.6, fontFamily: "var(--cb-serif, Georgia, serif)" }}>{abstractText}</span>
                               )}
                               {isMobile && (
                                 <span style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap" }}>
