@@ -615,7 +615,10 @@ await test("--cb-surface is set wherever --cb-solid-bg is set, and reaches the p
   // encoded the defect, and wave seven updated it with the fix.
   /* 2026-10-18 (design audit M3): the fallback became the COLOR.surface1
      literal #1c1b19, readable under both inks; the pin moves with it. */
-  assert.match(flowchartsSrc, /var\(--cb-surface, #1c1b19\)/, "the Dialog default no longer reads --cb-surface with the surface fallback");
+  /* 2026-10-26 (look modernization): COLOR.surface1 moved to #16181d
+     with the re skinned Dark palette; the fallback and this pin move
+     with it, same rule as 2026-10-18. */
+  assert.match(flowchartsSrc, /var\(--cb-surface, #16181d\)/, "the Dialog default no longer reads --cb-surface with the surface fallback");
   assert.ok(!flowchartsSrc.includes("var(--cb-surface, #141416)"), "the near black Dialog fallback is back");
   // The app root sets it from the active palette alongside
   // --cb-solid-bg, in the same style object.
@@ -644,7 +647,7 @@ await test("ModalChrome centered panels take the palette, and only media surface
   const mc = flowchartsSrc.slice(at, flowchartsSrc.indexOf("export { ChromeHeader, ModalChrome }", at));
   assert.match(mc, /media = false/, "ModalChrome has no media opt in");
   assert.match(mc, /const themed = !!P && !media;/, "ModalChrome does not derive its themed state from the palette and the media flag");
-  assert.match(mc, /media \? "#0f1115" : drawer && P \? P\.bg : themed \? P\.surface : "var\(--cb-surface, #1c1b19\)"/, "centered panels do not take the palette surface, or the no palette fallback is not the surface variable");
+  assert.match(mc, /media \? "#0f1115" : drawer && P \? P\.bg : themed \? P\.surface : "var\(--cb-surface, #16181d\)"/, "centered panels do not take the palette surface, or the no palette fallback is not the surface variable");
   assert.match(mc, /media \? "#f2f4f2" : P \? P\.ink : "var\(--cb-ink, #f4f4f2\)"/, "centered panels do not take the palette ink, or the no palette fallback is not the ink variable");
   assert.match(mc, /border: `1px solid \$\{panelBorder\}`/, "the centered panel border does not follow panelBorder");
   assert.match(mc, /P=\{drawer \|\| themed \? P : null\}/, "the chrome header does not receive the palette on themed centered panels");
@@ -792,11 +795,16 @@ await test("no style color property anywhere in the app is assigned a bare impor
   // to the plan gold #c4a35a, so the pinned arithmetic below was
   // recomputed from the shipped helpers. The defect story is unchanged:
   // the old correction still fails on the hover ground (3.99 to 1).
+  // 2026-10-26 (look modernization): the Light and Mid grounds moved
+  // with the re skinned palettes, so the pinned arithmetic below was
+  // recomputed from the shipped helpers, same practice as 2026-10-14.
+  // The defect story is unchanged: the old correction still fails on
+  // the hover ground (3.99 to 1).
   await test("the old correction provably fails on the tinted ground (the defect, pinned)", () => {
     const L = PALETTES.Light, amber = ACCENTS.Amber;
     const ink = accentInk(L, amber);
-    assert.equal(ink, "#7d693f", "accentInk's Light Amber correction changed; recompute the pinned arithmetic");
-    assert.equal(ratio(ink, mixHex(L.bg, amber, 0.14)).toFixed(2), "4.22", "the old ink no longer computes to 4.22 at rest");
+    assert.equal(ink, "#7e6a3f", "accentInk's Light Amber correction changed; recompute the pinned arithmetic");
+    assert.equal(ratio(ink, mixHex(L.bg, amber, 0.14)).toFixed(2), "4.21", "the old ink no longer computes to 4.21 at rest");
     assert.equal(ratio(ink, mixHex(L.bg, amber, 0.22)).toFixed(2), "3.99", "the old ink no longer computes to 3.99 on hover");
   });
   await test("the calibrated Ask ink clears 4.5 to 1 on its real ground, rest and hover, every palette and accent", () => {
@@ -809,16 +817,17 @@ await test("no style color property anywhere in the app is assigned a bare impor
         assert.ok(hover >= 4.5, `${pn} with ${an}: Ask ink ${ink} is ${hover.toFixed(2)} to 1 on hover`);
       }
     }
-    // The headline cases, exact: Light Amber ships #71603b (4.87 rest,
-    // 4.60 hover; recomputed 2026-10-14 for the plan gold, see the note
-    // above the defect pin); Mid Sage ships #9cb599 (5.38 rest, 4.60 hover).
+    // The headline cases, exact: Light Amber ships #72603b (4.90 rest,
+    // 4.64 hover; recomputed 2026-10-26 for the re skinned Light
+    // ground, see the note above the defect pin); Mid Sage ships
+    // #99b396 (5.39 rest, 4.62 hover, recomputed the same day).
     const li = accentInkOn(PALETTES.Light, ACCENTS.Amber, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.22));
-    assert.equal(li, "#71603b");
-    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.14)).toFixed(2), "4.87");
-    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.22)).toFixed(2), "4.60");
+    assert.equal(li, "#72603b");
+    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.14)).toFixed(2), "4.90");
+    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.22)).toFixed(2), "4.64");
     const ms = accentInkOn(PALETTES.Mid, ACCENTS.Sage, mixHex(PALETTES.Mid.bg, ACCENTS.Sage, 0.22));
-    assert.equal(ms, "#9cb599");
-    assert.equal(ratio(ms, mixHex(PALETTES.Mid.bg, ACCENTS.Sage, 0.22)).toFixed(2), "4.60");
+    assert.equal(ms, "#99b396");
+    assert.equal(ratio(ms, mixHex(PALETTES.Mid.bg, ACCENTS.Sage, 0.22)).toFixed(2), "4.62");
   });
 }
 

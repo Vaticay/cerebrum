@@ -2209,10 +2209,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const divider = P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
 
   const Section = ({ title, footer, children }) => (
-    <div style={{ marginBottom: 28 }}>
-      {/* Section headers are small caps captions — they name the table
-          that follows rather than competing with it. */}
-      {title && <div style={{ ...TYPE.label, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, marginBottom: SP.sm, textTransform: "none", letterSpacing: "normal", fontFamily: "var(--cb-font)" }}>{title}</div>}
+    <div style={{ marginBottom: 36 }}>
+      {/* Look modernization, 2026-10-26: section headers step up from
+          faint captions to the subhead voice in ink. The panel named
+          Settings one long gray form where account, privacy and the
+          danger zone all read at one weight; named sections with real
+          presence give the surface a sense of place as you move
+          through it. This supersedes the small caps caption treatment. */}
+      {title && <div style={{ ...TYPE.subhead, color: P.ink, marginBottom: SP.md, fontFamily: "var(--cb-font)" }}>{title}</div>}
       <div>{children}</div>
       {footer && <div style={{ fontSize: FONT_SIZES.label, color: P.faint, marginTop: 8, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>{footer}</div>}
     </div>

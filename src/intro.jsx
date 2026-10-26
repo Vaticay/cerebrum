@@ -1144,9 +1144,15 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         {/* The one plain sentence, the search home stage's own, word
             for word. */}
         <p style={{
-          margin: 0, maxWidth: 660, textAlign: "left",
+          // Look modernization, 2026-10-26: the door sentence steps
+          // up to a grand scale (42 desktop, 28 phones) with tighter
+          // leading, answering the panel fault that the one surface
+          // that should feel grand spoke at settings heading size.
+          // Same words, same serif, same place in the arrangement;
+          // phones keep the way in inside the first screenful.
+          margin: 0, maxWidth: 780, textAlign: "left",
           fontFamily: "var(--cb-serif)",
-          fontSize: isMobile ? 25 : 31, fontWeight: 400, lineHeight: 1.35,
+          fontSize: isMobile ? 28 : 42, fontWeight: 400, lineHeight: 1.22,
           color: ink,
         }}>
           Ask a question and get an answer from the research papers, with the sources attached.

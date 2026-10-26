@@ -6129,17 +6129,17 @@ function InfoPage({ page }) {
       {isLegal && <LegalProgress accent={accent} />}
       {isLegal && <LegalHashScroll />}
       <main style={{ flex: 1, position: "relative", zIndex: Z.content }}>
-        <div style={{ maxWidth: 640, margin: "0 auto", padding: isMobile ? "72px 20px 64px" : "72px 28px 80px" }}>
+        <div style={{ maxWidth: 720, margin: "0 auto", padding: isMobile ? "72px 20px 64px" : "72px 28px 80px" }}>
           <div className="cb-fadein" style={{ animationDelay: "0ms" }}>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>{data.eyebrow}</span>
-            <h1 style={{ fontSize: isMobile ? FONT_SIZES.display : FONT_SIZES.display, fontWeight: 500, letterSpacing: TYPE.display.letterSpacing, lineHeight: 1.15, color: P.ink, margin: "12px 0 16px", fontFamily: "var(--cb-font)" }}>{data.title}</h1>
+            <h1 style={{ fontSize: isMobile ? 34 : FONT_SIZES.display, fontWeight: TYPE.display.fontWeight, letterSpacing: TYPE.display.letterSpacing, lineHeight: TYPE.display.lineHeight, color: P.ink, margin: "12px 0 16px", fontFamily: "var(--cb-font)" }}>{data.title}</h1>
             <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.65, color: P.ink2, marginBottom: 8 }}>{data.lede}</p>
             {data.updated && <div style={{ fontSize: FONT_SIZES.label, color: P.faint, marginBottom: 0, fontFamily: "var(--cb-font)" }}>{data.updated}</div>}
           </div>
           {/* One-question live demo: a cached sample answer with real
               citations, so visitors see the product before signing up. */}
           {(page === "about" || page === "features") && (
-            <LiveDemo P={P} accent={accent} isMobile={isMobile} />
+            <LiveDemo P={P} accent={accent} isMobile={isMobile} page={page} />
           )}
           {isLegal && (
             <nav aria-label="Contents" className="cb-fadein" style={{
@@ -9506,15 +9506,19 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
   const panel = (
     <aside role="dialog" aria-modal={isMobile ? "true" : undefined} aria-label={`Sources, ${sources.length} sources`} className="cb-ev-rail" ref={panelRef}
       style={isMobile ? {
+        // Look modernization, 2026-10-26: the sources sheet and
+        // drawer lift on the palette shadow and the sheet takes the
+        // xl token radius on its top corners, so the checking layer
+        // reads as a tray pulled over the reading layer.
         position: "fixed", left: 0, right: 0, bottom: 0, maxHeight: "84dvh", zIndex: Z.drawer,
-        background: P.surface, borderTop: `1px solid ${P.line}`, borderRadius: "2px 2px 0 0",
-        boxShadow: "none",
+        background: P.surface, borderTop: `1px solid ${P.line}`, borderRadius: `${RADIUS.xl}px ${RADIUS.xl}px 0 0`,
+        boxShadow: P.shadow,
         display: "flex", flexDirection: "column",
         animation: "cbSheetIn .3s cubic-bezier(0.16, 1, 0.3, 1) both",
       } : {
         position: "fixed", top: 0, right: 0, bottom: 0, width: "min(400px, 94vw)", zIndex: Z.drawer,
-        background: P.surface, borderLeft: `1px solid ${P.line}`, borderRadius: 2,
-        boxShadow: "none",
+        background: P.surface, borderLeft: `1px solid ${P.line}`, borderRadius: 0,
+        boxShadow: P.shadow,
         display: "flex", flexDirection: "column",
         animation: "cbDrawerIn .28s cubic-bezier(0.16, 1, 0.3, 1) both",
       }}>
@@ -11086,8 +11090,8 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
     return (
       <div style={{ width: "100%" }}>
         <div style={stackNarrow
-          ? { background: P.surface, borderRadius: RADIUS.lg, width: "100%", display: "flex", flexDirection: "column", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }
-          : { background: P.surface, borderRadius: RADIUS.lg, width: "100%", height: "min(640px, 68vh)", display: "flex", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none" }}>
+          ? { background: P.surface, borderRadius: RADIUS.lg, width: "100%", display: "flex", flexDirection: "column", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none", boxShadow: P.shadowSm }
+          : { background: P.surface, borderRadius: RADIUS.lg, width: "100%", height: "min(640px, 68vh)", display: "flex", border: `1px solid ${P.line}`, overflow: "hidden", outline: "none", boxShadow: P.shadow }}>
           {content}
         </div>
       </div>
@@ -12267,7 +12271,7 @@ function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = f
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: at, background: accent, borderRadius: RADIUS.pill, padding: "4px 11px", fontFamily: "var(--cb-font)" }}>{heroLabel}</span>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)" }}>{trendKind(item)}{item.category ? ` · ${item.category}` : ""}</span>
           </div>
-          <div style={{ fontSize: "clamp(24px, 3.2vw, 36px)", fontWeight: 500, color: P.ink, lineHeight: 1.16, letterSpacing: "-0.02em" }}>
+          <div style={{ fontSize: "clamp(26px, 3.4vw, 42px)", fontWeight: TYPE.heading.fontWeight, color: P.ink, lineHeight: 1.14, letterSpacing: "-0.02em" }}>
             {renderInlineMdLite(item.title, P)}
           </div>
           {item.summary ? (
@@ -13329,7 +13333,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
           {/* The nameplate. The surface is called what it is: a daily
               edition of new science. There is no Nova figure here;
               the masthead is a newspaper block and reads as one. */}
-          <h1 style={{ margin: 0, fontSize: FONT_SIZES.display * 0.7, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1 }}>Today in Science</h1>
+          <h1 style={{ margin: 0, fontSize: isMobile ? 34 : FONT_SIZES.display, fontWeight: TYPE.display.fontWeight, letterSpacing: TYPE.display.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: TYPE.display.lineHeight }}>Today in Science</h1>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>
               {dateline}{dateline ? "  ·  " : ""}New stories are gathered every hour
@@ -15985,7 +15989,9 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
         borderRadius: isMobile ? `${RADIUS.lg}px ${RADIUS.lg}px 0 0` : RADIUS.lg,
         maxHeight: isMobile ? "92dvh" : "86dvh",
         display: "flex", flexDirection: "column", overflow: "hidden", outline: "none",
-        boxShadow: "none",
+        // Look modernization, 2026-10-26: the profile panel floats
+        // on the palette shadow instead of arriving flat.
+        boxShadow: P.shadow,
       }}
     >
         <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "flex-end", padding: isMobile ? "6px 8px 0" : "8px 12px 0" }}>
@@ -16013,10 +16019,18 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
             /* Public dossier: the same editorial language as your own
                profile, minus everything private. No sky here — there is
                no public paper data to draw it from, and a decorative
-               starfield would be a lie. Typography carries it. */
-            <div style={{ padding: isMobile ? "26px 20px 30px" : "30px 30px 34px" }}>
-                <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-                  <div style={{ width: 76, height: 76, flexShrink: 0 }}>
+               starfield would be a lie. Typography carries it.
+               Look modernization, 2026-10-26: the dossier gains a
+               cover band in the person's accent tint with the avatar
+               pulled up over its edge, so a profile finally reads as
+               a person with a place of their own instead of a settings
+               card (the panel's lowest scored surface). The band is a
+               flat tint, not imagery, so it claims nothing false. */
+            <>
+            <div aria-hidden="true" style={{ height: isMobile ? 60 : 84, background: withAlpha(accent, 0.16), borderBottom: `1px solid ${P.line}` }} />
+            <div style={{ padding: isMobile ? "0 20px 30px" : "0 30px 34px" }}>
+                <div style={{ display: "flex", gap: 16, alignItems: "center", marginTop: isMobile ? -30 : -44, position: "relative" }}>
+                  <div style={{ width: 88, height: 88, flexShrink: 0 }}>
                     {u.avatar_base64 ? (
                       <img src={u.avatar_base64} alt={`${displayName}'s photo`} style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover", display: "block", background: P.surface }} />
                     ) : (
@@ -16024,13 +16038,13 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                         width: "100%", height: "100%", borderRadius: "50%",
                         ...avatarSkin(displayName || u.id),
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 30, fontWeight: 500, fontFamily: "var(--cb-font)",
+                        fontSize: 34, fontWeight: 500, fontFamily: "var(--cb-font)",
                       }}>{initial}</div>
                     )}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <h2 style={{ fontSize: 26, fontWeight: 500, color: P.ink, margin: 0, letterSpacing: TYPE.display.letterSpacing, lineHeight: 1.05, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
+                      <h2 style={{ fontSize: 32, fontWeight: TYPE.heading.fontWeight, color: P.ink, margin: 0, letterSpacing: TYPE.display.letterSpacing, lineHeight: 1.05, fontFamily: "var(--cb-font)", overflowWrap: "anywhere" }}>{displayName}</h2>
                       {(isFounder || isVerified) && <VerifiedCheck size={16} title={isFounder ? "Verified: the owner of Cerebrum" : "Verified: institution or renowned researcher"} />}
                       {u.isPro && <ProBadge />}
                     </div>
@@ -16203,6 +16217,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                   A profile never shows what this person searched, saved, or read, and it never shows their email address. The follower counts above are numbers only. They do not open into lists of people.
                 </div>
               </div>
+            </>
           )}
         </div>
     </Dialog>
@@ -18705,7 +18720,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     // to feeling like a toolbar instead of a squeeze; brandRow's own
     // padding keeps it from crowding the search pill immediately next to it.
     brandRow: { display: "flex", alignItems: "center", gap: 12, paddingRight: 8, cursor: "pointer" },
-    brand: { fontWeight: 500, fontSize: FONT_SIZES.section, letterSpacing: TYPE.display.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)" },
+    brand: { fontWeight: TYPE.heading.fontWeight, fontSize: FONT_SIZES.section, letterSpacing: TYPE.display.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)" },
     // Nudged from 7 toward more breathing room, but not all the way to a flat
     // 24px: the header now carries eight icon buttons (Document Mode joined
     // this row too), and 24px of gap between each would push the row past
@@ -18740,14 +18755,19 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       position: "fixed", top: 0, left: 0, bottom: 0, width: LAYOUT.sidebar, zIndex: Z.dropdown,
       /* Pass 1 (2026-09-17): solid. The smoked-glass treatment existed to
          sit over the ambient reel; the reel is gone, so the rail is an
-         opaque surface with a 1px hairline — no blur, no translucency. */
-      background: P.bg,
+         opaque surface with a 1px hairline — no blur, no translucency.
+         Look modernization, 2026-10-26: the rail now sits on the
+         palette surface instead of the page ground, so the frame
+         reads as its own material, and the mobile drawer carries the
+         palette shadow when it slides over content (the panel named
+         the shadowless drawer arriving flat on phones). */
+      background: P.surface,
       borderRight: `1px solid ${P.line}`,
       display: "flex", flexDirection: "column",
       transform: isMobile ? "translateX(-100%)" : "none",
       transition: "transform 280ms cubic-bezier(0.16, 1, 0.3, 1)",
     },
-    sidebarMobileOpen: { transform: "translateX(0)", boxShadow: "none" },
+    sidebarMobileOpen: { transform: "translateX(0)", boxShadow: P.shadow },
     sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "24px 22px 24px", cursor: "pointer", flexShrink: 0 },
     sidebarNav: { flex: 1, overflowY: "auto", padding: "6px 12px", display: "flex", flexDirection: "column", gap: 2 },
     sidebarSectionLabel: { fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", padding: "16px 12px 6px" },
@@ -18755,7 +18775,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
       /* 44px min-height for touch targets (was 38px, which defeated the
          global 44px button floor via inline style). */
-      padding: "9px 12px", minHeight: 44, borderRadius: 2, border: "none", background: "transparent",
+      padding: "9px 12px", minHeight: 44, borderRadius: RADIUS.lg, border: "none", background: "transparent",
       color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500,
       fontFamily: "var(--cb-font)", transition: "background 150ms ease, color 150ms ease",
     },
@@ -18842,9 +18862,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        Dark: #0f1115. Light: #fafbf9. (They were 0.94 and 0.97 alpha
        until 2026-10-14; text bearing panels are solid now.) */
     readingPanel: {
-      background: P.dark ? "#0f1115" : "#fafbf9",
-      borderRadius: RADIUS.lg, padding: isMobile ? 18 : 28,
+      // Look modernization, 2026-10-26: reading panels take the
+      // palette surface (dark) or raised (light) with the palette
+      // small shadow, replacing the two hard coded flat fills.
+      background: P.dark ? P.surface : P.raised,
+      borderRadius: RADIUS.lg, padding: isMobile ? 20 : 32,
       border: `1px solid ${P.line}`,
+      boxShadow: P.shadowSm,
     },
     // Commit 67 (mobile fix) — the floating menu button is fixed at
     // top:14 left:14 and is 38px square, so it occupies the first ~52px of
@@ -18857,7 +18881,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        jammed into the corner, while the home screen gives its content a
        third of the viewport — the two did not read as the same product. */
     pageViewInner: { maxWidth: 820, width: "100%", margin: "0 auto", padding: isMobile ? "76px 20px 72px" : "56px 32px 80px" },
-    pageViewTitle: { fontSize: isMobile ? 28 : FONT_SIZES.display, fontWeight: 500, letterSpacing: TYPE.display.letterSpacing, lineHeight: 1.1, color: P.ink, fontFamily: "var(--cb-font)" },
+    pageViewTitle: { fontSize: isMobile ? 32 : FONT_SIZES.display, fontWeight: TYPE.display.fontWeight, letterSpacing: TYPE.display.letterSpacing, lineHeight: TYPE.display.lineHeight, color: P.ink, fontFamily: "var(--cb-font)" },
 
     /* ── Scroll area ── */
     // No longer a scroll container itself (see `page` note above) — the
@@ -19124,9 +19148,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     headline: {
       /* The question is the document title — it carries real presence:
          larger, tighter tracking, more weight, balanced line breaks so it
-         reads as the hero statement of the page. */
-      fontWeight: 500, fontSize: isMobile ? 22 : 30,
-      lineHeight: 1.25, marginBottom: isMobile ? 24 : 32,
+         reads as the hero statement of the page. Look modernization,
+         2026-10-26: the title steps up to 34 at the strong token
+         weight, so the answer opens with a headline, not a label. */
+      fontWeight: TYPE.heading.fontWeight, fontSize: isMobile ? 24 : 34,
+      lineHeight: 1.22, marginBottom: isMobile ? 24 : 32,
       color: P.ink, letterSpacing: "-0.02em",
       fontFamily: "var(--cb-font)",
       textWrap: "balance",
@@ -19169,7 +19195,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     aiTag: { fontSize: FONT_SIZES.caption, color: P.faint, fontWeight: 500, letterSpacing: TRACKING.tight, fontFamily: "var(--cb-font)" },
     loading: { display: "flex", alignItems: "center", gap: 12, color: P.ink2, fontSize: FONT_SIZES.body, padding: "16px 0 0" },
     spinner: { width: 16, height: 16, border: `2px solid ${P.line2}`, borderTopColor: accent, borderRadius: "50%", display: "inline-block", animation: "cbspin 0.8s linear infinite" },
-    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: isMobile ? "none" : "12px 12px 12px 22px", boxShadow: "none", transition: "border-color 280ms ease, box-shadow 280ms ease", marginTop: 24 },
+    followShell: { display: "flex", alignItems: "center", gap: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: isMobile ? "none" : "12px 12px 12px 22px", boxShadow: P.shadowSm, transition: "border-color 280ms ease, box-shadow 280ms ease", marginTop: 24 },
     relatedWrap: { marginTop: 32, paddingTop: 28, borderTop: `1px solid ${P.line}` },
     relatedLabel: { fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: P.ink2, marginBottom: 16, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 },
     relatedList: { display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 },
@@ -25533,6 +25559,24 @@ const CSS = `
      the fade curve under extra names and are deleted. */
   --cb-ease:    cubic-bezier(0.16, 1, 0.3, 1);
   --cb-ease-out: cubic-bezier(0, 0, 0.58, 1);
+  /* Look modernization, 2026-10-26: CSS homes for the new token
+     scale in designSystem.jsx (RADIUS, SHADOW, TYPE weights), so
+     stylesheet classes share the one scale with inline styles.
+     The light overrides below keep paper shadows warm and soft. */
+  --cb-r-sm: 6px;
+  --cb-r-md: 10px;
+  --cb-r-lg: 14px;
+  --cb-r-xl: 20px;
+  --cb-sh-sm: 0 1px 2px rgba(0,0,0,0.30), 0 6px 18px rgba(0,0,0,0.24);
+  --cb-sh-md: 0 2px 4px rgba(0,0,0,0.32), 0 14px 34px rgba(0,0,0,0.30);
+  --cb-sh-lg: 0 4px 8px rgba(0,0,0,0.34), 0 26px 54px rgba(0,0,0,0.36);
+  --cb-fw-display: 700;
+  --cb-fw-strong: 600;
+}
+:root[data-cb-light] {
+  --cb-sh-sm: 0 1px 2px rgba(33,28,20,0.06), 0 6px 18px rgba(33,28,20,0.07);
+  --cb-sh-md: 0 2px 4px rgba(33,28,20,0.06), 0 14px 34px rgba(33,28,20,0.10);
+  --cb-sh-lg: 0 4px 8px rgba(33,28,20,0.07), 0 26px 54px rgba(33,28,20,0.13);
 }
 
 *, *::before, *::after {
@@ -26202,14 +26246,16 @@ summary::-webkit-details-marker { display: none; }
 .cb-mast--compact { margin-bottom: 14px; }
 .cb-mast-mark { display: inline-flex; }
 .cb-mast-name {
-  font-family: var(--cb-font); font-size: 19px; font-weight: 500;
-  letter-spacing: -0.015em; color: var(--cb-ink); margin-top: 10px;
+  /* Look modernization, 2026-10-26: the masthead name steps up to a
+     real masthead voice, larger and strong weight. */
+  font-family: var(--cb-font); font-size: 26px; font-weight: var(--cb-fw-strong);
+  letter-spacing: -0.02em; color: var(--cb-ink); margin-top: 12px;
   text-shadow: 0 2px 18px rgba(0,0,0,0.55);
 }
 /* Light theme: a hard black shadow reads as dirt on light backgrounds —
    soften to a faint ink-colored lift instead. */
 :root[data-cb-light] .cb-mast-name { text-shadow: 0 1px 8px color-mix(in srgb, var(--cb-ink) 18%, transparent); }
-.cb-mast--compact .cb-mast-name { margin-top: 8px; font-size: 15px; }
+.cb-mast--compact .cb-mast-name { margin-top: 8px; font-size: 17px; }
 .cb-mast-line {
   margin: 8px 0 0; max-width: 480px; padding: 0 20px;
   font-family: var(--cb-font); font-size: 13px; font-weight: 500;
@@ -26227,13 +26273,16 @@ summary::-webkit-details-marker { display: none; }
 .cb-ask-field {
   position: relative;
   display: flex; align-items: center;
-  border: 1px solid var(--cb-line2); border-radius: 2px;
+  border: 1px solid var(--cb-line2); border-radius: var(--cb-r-lg);
   /* Solid palette background at full strength: this field carries the
      question text and sits over the home film, and the standing rule is
      that text bearing surfaces are opaque. The 82 percent color-mix it
-     replaces let the film show through the words. */
+     replaces let the film show through the words. Look modernization,
+     2026-10-26: the field now also carries the md token shadow so the
+     composer reads as a placed object on the stage, radius from the
+     token scale. */
   background: var(--cb-bg);
-  box-shadow: none;
+  box-shadow: var(--cb-sh-md);
   transition: border-color 280ms ease, box-shadow 280ms ease, transform 280ms var(--cb-ease);
 }
 .cb-ask-field:focus-within {
@@ -26284,7 +26333,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-ask-tool {
   width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
-  background: none; border: 0; border-radius: 2px; cursor: pointer;
+  background: none; border: 0; border-radius: var(--cb-r-md); cursor: pointer;
   color: var(--cb-ink2);
   transition: color 280ms ease, background 280ms ease;
 }
@@ -26299,7 +26348,7 @@ summary::-webkit-details-marker { display: none; }
   min-height: 44px; padding: 0 20px; margin-left: 4px;
   border: 1px solid color-mix(in srgb, var(--cb-acc) 40%, transparent);
   background: color-mix(in srgb, var(--cb-acc) 14%, transparent);
-  border-radius: 2px; cursor: pointer;
+  border-radius: var(--cb-r-md); cursor: pointer;
   /* The label sits on a faint accent tint over the field, so it takes
      an ink calibrated against that tinted ground (--cb-ask-ink, set on
      the composer root via accentInkOn), not the raw accent and not
@@ -26336,16 +26385,16 @@ summary::-webkit-details-marker { display: none; }
    of controls beside the words. */
 .cb-ask--stage { max-width: none; }
 .cb-ask--stage .cb-ask-field {
-  /* Same solid ground as the standard field (see .cb-ask-field): the
-     stage variant's 88 percent mix was the same translucency defect. */
+  /* Same solid ground as the standard field (see .cb-ask-field).
+     2026-10-26: the md token shadow rides along, as there. */
   background: var(--cb-bg);
   min-height: 48px;
-  box-shadow: none;
+  box-shadow: var(--cb-sh-md);
   transition: border-color 150ms ease-out;
 }
 .cb-ask--stage .cb-ask-field:focus-within {
   border-color: var(--cb-acc);
-  box-shadow: none;
+  box-shadow: var(--cb-sh-md);
   transform: none;
 }
 .cb-ask--stage .cb-ask-input {
@@ -26366,14 +26415,14 @@ summary::-webkit-details-marker { display: none; }
      submit rule above. The 36px stage rule outranked the global tap
      floor because its two class selector is more specific. */
   width: 44px; height: 44px; min-height: 44px; padding: 0; margin-left: 6px;
-  border-radius: 2px; flex-shrink: 0;
+  border-radius: var(--cb-r-md); flex-shrink: 0;
   background: var(--cb-acc); border: 1px solid transparent;
   color: var(--cb-ask-stage-ink, #121110);
-  box-shadow: none;
+  box-shadow: var(--cb-sh-sm);
   transition: background-color 150ms ease-out, color 150ms ease-out;
 }
 .cb-ask--stage .cb-ask-go--round:hover:not(:disabled) {
-  background: var(--cb-acc); border-color: transparent; box-shadow: none;
+  background: var(--cb-acc); border-color: transparent; box-shadow: var(--cb-sh-sm);
 }
 
 /* ── Plate II chrome: text actions and inquiries (the stage top bar
@@ -26402,7 +26451,7 @@ summary::-webkit-details-marker { display: none; }
   min-height: 44px; padding: 6px 16px 6px 14px; margin: 8px 0 0;
   background: color-mix(in srgb, var(--cb-acc) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--cb-acc) 32%, transparent);
-  border-radius: 2px; cursor: pointer;
+  border-radius: var(--cb-r-md); cursor: pointer;
   color: var(--cb-ink2); font-family: var(--cb-font);
   font-size: 13px; font-weight: 500;
   transition: background 280ms ease, color 280ms ease;
@@ -26422,7 +26471,7 @@ summary::-webkit-details-marker { display: none; }
 .cb-paperchip {
   display: flex; align-items: center; gap: 10px;
   min-height: 44px; margin: 8px 0 0; padding: 4px 4px 4px 14px;
-  border: 1px solid var(--cb-line2); border-radius: 2px;
+  border: 1px solid var(--cb-line2); border-radius: var(--cb-r-lg);
   background: color-mix(in srgb, var(--cb-acc) 6%, transparent);
   font-family: var(--cb-font); font-size: 13px; font-weight: 500;
   color: var(--cb-ink2);
@@ -28137,15 +28186,19 @@ button.cb-cite { min-height: 0; min-width: 0; }
 .cb-sect { display: flex; align-items: baseline; gap: 14px; margin: 32px 0 20px; }
 .cb-sect::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--cb-line, rgba(128,128,128,0.22)); }
 .cb-sect-label {
+  /* Look modernization, 2026-10-26: answer section headings take
+     the new section voice, 26px at strong weight with tightened
+     tracking, so a long answer gains real hierarchy between its
+     sections instead of one gray wall with signposts. */
   font-family: var(--cb-font);
-  font-size: 22px; font-weight: 500; letter-spacing: 0;
+  font-size: 26px; font-weight: var(--cb-fw-strong); letter-spacing: -0.014em;
   text-transform: none; white-space: normal; margin-bottom: 16px;
   color: var(--cb-ink);
 }
 .cb-sect-sub {
   font-family: var(--cb-font);
-  margin: 36px 0 14px; font-size: 17px; font-weight: 500;
-  letter-spacing: 0; text-transform: none;
+  margin: 36px 0 14px; font-size: 18px; font-weight: var(--cb-fw-strong);
+  letter-spacing: -0.008em; text-transform: none;
 }
 
 /* ── Control strip: the answer toolbar as instrument controls ────────────

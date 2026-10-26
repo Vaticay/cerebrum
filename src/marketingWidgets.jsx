@@ -7,8 +7,8 @@
  */
 
 import React from "react";
-import { RADIUS, FONT_SIZES, TRACKING } from "./designSystem.jsx";
-import { DEMO_QUESTIONS } from "./marketingContent.js";
+import { RADIUS, FONT_SIZES, TRACKING, SHADOW } from "./designSystem.jsx";
+import { DEMO_QUESTIONS, demoForPage } from "./marketingContent.js";
 
 /**
  * Quota calculator (pricing page widget).
@@ -83,13 +83,17 @@ export function QuotaCalculator({ P, accent, isMobile }) {
  * the API. A visitor sees what a Cerebrum answer looks like before signing
  * up for anything.
  */
-export function LiveDemo({ P, accent, isMobile }) {
+export function LiveDemo({ P, accent, isMobile, page }) {
+  // Look modernization, 2026-10-26: each page shows only its own
+  // samples (demoForPage), so About and Features no longer repeat
+  // the same answers verbatim.
+  const questions = page ? demoForPage(page) : DEMO_QUESTIONS;
   const [active, setActive] = React.useState(0);
-  const demo = DEMO_QUESTIONS[active] || DEMO_QUESTIONS[0];
+  const demo = questions[active] || questions[0];
   const chip = {
     display: "inline-flex", alignItems: "center", justifyContent: "center",
     minWidth: 22, height: 22, padding: "0 6px", margin: "0 2px",
-    borderRadius: 2, border: `1px solid ${P.line2}`,
+    borderRadius: RADIUS.sm, border: `1px solid ${P.line2}`,
     background: P.raised, color: accent,
     fontSize: 12, fontWeight: 500, fontFamily: "var(--cb-font)",
     textDecoration: "none", verticalAlign: "super", lineHeight: 1,
@@ -98,18 +102,19 @@ export function LiveDemo({ P, accent, isMobile }) {
     <div style={{
       marginTop: 40, padding: isMobile ? "22px 18px" : "28px 30px",
       borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface,
+      boxShadow: SHADOW.sm(P),
     }}>
       <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: accent, fontFamily: "var(--cb-font)", marginBottom: 10 }}>
         See what an answer looks like
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
-        {DEMO_QUESTIONS.map((d, i) => (
+        {questions.map((d, i) => (
           <button
             key={i}
             onClick={() => setActive(i)}
             aria-pressed={active === i}
             style={{
-              minHeight: 44, padding: "10px 16px", borderRadius: 2, cursor: "pointer",
+              minHeight: 44, padding: "10px 16px", borderRadius: RADIUS.md, cursor: "pointer",
               border: `1px solid ${active === i ? accent : P.line2}`,
               background: active === i ? accent : "transparent",
               color: active === i ? "#0b0b0e" : P.ink,

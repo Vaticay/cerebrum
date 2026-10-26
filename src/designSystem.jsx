@@ -23,6 +23,12 @@ import { createPortal } from "react-dom";
 import { PALETTES } from "./palettes.js";
 
 export const FONT_SIZES = {
+  // Look modernization, 2026-10-26 (owner order, whole site look):
+  // the panel baseline named the old scale as the flat register's
+  // core fault: display capped at 32, no bold voice, every surface
+  // speaking at the same size. The scale now runs display 44,
+  // section 26, subhead 18, label 14. Body stays 16 (owner rule,
+  // 2026-10-20) and caption stays 12. Weights live in TYPE below.
   // Plan scale, 2026-10-14: display 32/1.2/500, section 22/1.3/500,
   // subhead 17/1.4/500, body 15/1.55/400, label 13/1.4/400, caption
   // 12/1.3/400. Weights 400 and 500 only.
@@ -42,29 +48,33 @@ export const FONT_SIZES = {
   // heading folded into section. Every key below is either a plan
   // role or an exact plan value alias.
   caption: 12,      // caption and meta, timestamps, metadata, badges
-  label: 13,        // label and control, form inputs, chips, buttons
+  label: 14,        // label and control, form inputs, chips, buttons (14 since 2026-10-26, see above)
   body: 16,         // body, primary prose everywhere (16 since 2026-10-20, see above)
-  subhead: 17,      // subhead, card titles, card subheads, ledes
-  section: 22,      // section, plan role for section headings
-  display: 32,      // display, mastheads, callouts, hero titles
+  subhead: 18,      // subhead, card titles, card subheads, ledes (18 since 2026-10-26)
+  section: 26,      // section, section headings (26 since 2026-10-26)
+  display: 44,      // display, mastheads, callouts, hero titles (44 since 2026-10-26)
   // The landing sweep finished 2026-10-19: every read site in the
   // app now names a plan role above, so the old alias keys (title,
   // heading, hero, small, micro) are deleted. FONT_SIZES carries
   // plan roles only (design audit M1, closed).
 };
 
-// Plan palette on the existing dark backgrounds, 2026-10-14.
+// Dark fallback tokens. Look modernization, 2026-10-26: these mirror
+// the new Dark palette in palettes.js (deep ink ground, steel blue
+// gray surfaces, brighter warm white ink). The old warm charcoal set
+// (#1C1B19 and family, plan palette 2026-10-14) is retired with the
+// flat register it produced.
 export const COLOR = {
-  ink: "#E8E6E3",
-  ink2: "#A8A49E",
-  faint: "#96928C",
+  ink: "#F4F2EC",
+  ink2: "#B3B6BD",
+  faint: "#9AA0A8",
   accent: "#C4A35A",
   accentInk: "#121110",
-  surface1: "#1C1B19",
-  surface2: "#242320",
-  field: "#161513",
-  line: "#2E2C29",
-  lineSubtle: "#252422",
+  surface1: "#16181D",
+  surface2: "#1F232B",
+  field: "#101216",
+  line: "#2B303A",
+  lineSubtle: "#22262E",
   support: "#7A9E7E",
   caution: "#B08B4F",
 };
@@ -271,7 +281,7 @@ export function Icon({ name, size = 18, className, style }) {
   }
 }
 
-export function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, background: "transparent", border: "none", borderRadius: 2, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)", transition: "background 150ms ease-out, color 150ms ease-out" }; }
+export function S_toolbarBtnBase(P) { return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, background: "transparent", border: "none", borderRadius: RADIUS.md, color: P.ink2, cursor: "pointer", fontFamily: "var(--cb-font)", transition: "background 150ms ease-out, color 150ms ease-out" }; }
 
 /* TRACKING scale: tracking tokens now exist only for single word
    status labels, the one all caps case the plan allows. Headings and
@@ -292,19 +302,27 @@ export const TRACKING = {
    heading is the section role under its older name, kept because
    CerebrumApp.jsx reads TYPE.heading; section is the plan name. */
 export const TYPE = {
-  display: { fontFamily: "var(--cb-font)", fontSize: 32, fontWeight: 500, letterSpacing: 0, lineHeight: 1.2 },
-  section: { fontFamily: "var(--cb-font)", fontSize: 22, fontWeight: 500, letterSpacing: 0, lineHeight: 1.3 },
-  heading: { fontFamily: "var(--cb-font)", fontSize: 22, fontWeight: 500, letterSpacing: 0, lineHeight: 1.3 },
-  subhead: { fontFamily: "var(--cb-font)", fontSize: 17, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
+  // Look modernization, 2026-10-26: display and headings gain the
+  // bold voice the system never had (700 display, 600 headings, set
+  // here as token data under the design gate's TYPE exemption) and
+  // display tightens its tracking and leading like a printed
+  // masthead. Sizes match FONT_SIZES above.
+  display: { fontFamily: "var(--cb-font)", fontSize: 44, fontWeight: 700, letterSpacing: "-0.022em", lineHeight: 1.06 },
+  section: { fontFamily: "var(--cb-font)", fontSize: 26, fontWeight: 600, letterSpacing: "-0.014em", lineHeight: 1.22 },
+  heading: { fontFamily: "var(--cb-font)", fontSize: 26, fontWeight: 600, letterSpacing: "-0.014em", lineHeight: 1.22 },
+  subhead: { fontFamily: "var(--cb-font)", fontSize: 18, fontWeight: 600, letterSpacing: "-0.008em", lineHeight: 1.35 },
   body:    { fontFamily: "var(--cb-font)", fontSize: 16, fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 },
   reading: { fontFamily: "var(--cb-serif)", fontSize: 16, fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 }, // reading, answer body and lesson text only; 16 since 2026-10-20 (owner readability order, see FONT_SIZES)
-  label:   { fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
+  label:   { fontFamily: "var(--cb-font)", fontSize: 14, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
   caption: { fontFamily: "var(--cb-font)", fontSize: 12, fontWeight: 400, letterSpacing: 0, lineHeight: 1.3 },
   mono:    { fontFamily: "var(--cb-mono)", fontSize: 12, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
 };
 
-// 4px grid, rhythm 8/12/16/24/32/48.
-export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, xxxl: 48 };
+// Spacing rhythm. Look modernization, 2026-10-26: the steps above
+// the base widen (12/16/24/32/48 becomes 14/20/28/40/64) so composed
+// surfaces breathe at the new type scale; xs and sm stay for dense
+// control internals.
+export const SP = { xs: 4, sm: 8, md: 14, lg: 20, xl: 28, xxl: 40, xxxl: 64 };
 
 export const LAYOUT = {
   prose: 720,
@@ -388,18 +406,20 @@ export function UIButton({
   const pal = P || PALETTES.Dark;
   const pad = size === "sm" ? "6px 13px" : size === "lg" ? "12px 22px" : "9px 17px";
   const fs = size === "sm" ? FONT_SIZES.caption : FONT_SIZES.label;
-  /* Flat skins, 2026-10-14: no gradients, no shadows, borders carry
-     the edge. Primary is the flat accent, destructive is a flat tint. */
+  /* Skins. Look modernization, 2026-10-26: the flat 2026-10-14
+     skins retire. Primary carries a soft token shadow so the one
+     action on a surface lifts; secondary sits on the raised surface
+     with a hairline shadow; ghost stays quiet. No gradients. */
   const skins = {
     primary: {
       background: accent,
       color: at, border: "1px solid transparent",
-      boxShadow: "none",
+      boxShadow: SHADOW.sm(pal),
     },
     secondary: {
-      background: pal.dark ? COLOR.surface1 : pal.surface,
+      background: pal.dark ? COLOR.surface2 : pal.raised,
       color: pal.ink, border: `1px solid ${pal.dark ? COLOR.line : pal.line2}`,
-      boxShadow: "none",
+      boxShadow: SHADOW.xs(pal),
     },
     ghost: {
       background: "transparent", color: pal.ink2, border: `1px solid ${pal.dark ? COLOR.line : pal.line2}`,
@@ -448,11 +468,15 @@ export function UICard({ children, P = null, pad = true, className = "", style, 
       onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } } : undefined}
       className={"cb-card cb-material-panel " + (specimen ? "cb-specimen " : "") + className}
       style={{
+        // Look modernization, 2026-10-26: cards sit on the raised
+        // surface with a soft token shadow and roomier padding, so a
+        // card reads as an object on the page instead of a ruled box
+        // drawn on it. Radius flows from RADIUS.lg.
         borderRadius: RADIUS.lg,
-        background: pal.dark ? COLOR.surface1 : pal.surface,
+        background: pal.dark ? COLOR.surface2 : pal.raised,
         border: `1px solid ${pal.dark ? COLOR.line : pal.line2}`,
-        boxShadow: "none",
-        padding: pad ? "20px 24px" : 0,
+        boxShadow: SHADOW.sm(pal),
+        padding: pad ? "24px 28px" : 0,
         overflow: "hidden", minWidth: 0,
         cursor: onClick ? "pointer" : undefined,
         ...style,
@@ -505,11 +529,14 @@ export function UIField({ value, onChange, placeholder, P = null, accent, multil
 }
 
 export const RADIUS = {
-  // Plan radius, 2026-10-14: the plan caps radius at 2px everywhere.
-  // Token names are retained so call sites do not churn, and pill no
-  // longer means round.
-  sm: 2, md: 2, lg: 2, xl: 2, pill: 2,
-  viewport: 2,
+  // Look modernization, 2026-10-26 (owner order): the 2px cap from
+  // the 2026-10-14 plan is retired. The panel baseline named the
+  // square everywhere treatment as the core of the flat register.
+  // The scale now runs 6/10/14/20 with a true pill, set here as
+  // token data under the design gate's RADIUS exemption; call sites
+  // keep naming tokens, never literals.
+  sm: 6, md: 10, lg: 14, xl: 20, pill: 999,
+  viewport: 14,
 };
 
 /* TICKS — the instrument registration-mark motif.
@@ -573,16 +600,23 @@ export function TickFrame({ children, P = null, accent, tickColor, className = "
   );
 }
 
-/* SHADOW scale: pass the palette P. Plan rule, 2026-10-14: borders
-   carry depth, shadows are gone except the modal line. xs, sm, md,
-   and lg return none for both dark and light, and xl returns the
-   one allowed modal shadow. */
+/* SHADOW scale: pass the palette P. Look modernization, 2026-10-26
+   (owner order): the 2026-10-14 borders only rule is retired with
+   the flat register it produced. Depth now comes from soft layered
+   shadows plus borders together, defined here as token data under
+   the design gate's SHADOW exemption. Dark grounds take black
+   shadows; light grounds take warm gray ones at lower alpha so
+   paper still reads as paper. */
 export const SHADOW = {
-  xs: (P) => "none",
-  sm: (P) => "none",
-  md: (P) => "none",
-  lg: (P) => "none",
-  xl: (P) => "0 1px 0 rgba(0,0,0,0.4)",
+  // A null palette (the Dialog primitive, which renders in a portal
+  // without a palette in hand) takes the dark values: dialogs sit on
+  // a black scrim in both themes, so the dark shadow is the right
+  // one there. Only an explicit light palette gets the warm set.
+  xs: (P) => (P && P.dark === false ? "0 1px 2px rgba(33,28,20,0.07)" : "0 1px 2px rgba(0,0,0,0.28)"),
+  sm: (P) => (P && P.dark === false ? "0 1px 2px rgba(33,28,20,0.06), 0 6px 18px rgba(33,28,20,0.07)" : "0 1px 2px rgba(0,0,0,0.30), 0 6px 18px rgba(0,0,0,0.24)"),
+  md: (P) => (P && P.dark === false ? "0 2px 4px rgba(33,28,20,0.06), 0 14px 34px rgba(33,28,20,0.10)" : "0 2px 4px rgba(0,0,0,0.32), 0 14px 34px rgba(0,0,0,0.30)"),
+  lg: (P) => (P && P.dark === false ? "0 4px 8px rgba(33,28,20,0.07), 0 26px 54px rgba(33,28,20,0.13)" : "0 4px 8px rgba(0,0,0,0.34), 0 26px 54px rgba(0,0,0,0.36)"),
+  xl: (P) => (P && P.dark === false ? "0 8px 16px rgba(33,28,20,0.09), 0 40px 80px rgba(33,28,20,0.16)" : "0 8px 16px rgba(0,0,0,0.40), 0 40px 80px rgba(0,0,0,0.44)"),
 };
 
 export const BADGE_DISPLAY = {
@@ -648,7 +682,7 @@ function ProBadge({ style } = {}) {
       fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: PRO.actionInk,
       background: PRO.action,
-      borderRadius: 2, padding: "2px 8px 2px 9px",
+      borderRadius: RADIUS.sm, padding: "2px 8px 2px 9px",
       whiteSpace: "nowrap", ...style,
     }}>PRO</span>
   );
@@ -662,7 +696,7 @@ function TierBadge({ tier, style } = {}) {
       fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#c99a2e",
       border: "1px solid rgba(212,164,55,0.55)",
-      borderRadius: 2, padding: "1px 8px 1px 9px",
+      borderRadius: RADIUS.sm, padding: "1px 8px 1px 9px",
       whiteSpace: "nowrap", ...style,
     }}>LITE</span>
   );
@@ -672,7 +706,7 @@ function TierBadge({ tier, style } = {}) {
       fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
       fontFamily: "var(--cb-font)", color: "#9aa3a8",
       border: "1px solid rgba(150,160,165,0.4)",
-      borderRadius: 2, padding: "1px 8px 1px 9px",
+      borderRadius: RADIUS.sm, padding: "1px 8px 1px 9px",
       whiteSpace: "nowrap", ...style,
     }}>FREE</span>
   );
@@ -804,9 +838,9 @@ export function UISelect({
           gap: SP.sm, minHeight: 44,
           padding: size === "sm" ? "6px 10px" : "9px 12px",
           borderRadius: RADIUS.md,
-          background: pal.dark ? COLOR.surface1 : pal.surface,
+          background: pal.dark ? COLOR.surface2 : pal.raised,
           color: pal.ink, border: `1px solid ${pal.dark ? COLOR.line : pal.line2}`,
-          boxShadow: "none",
+          boxShadow: SHADOW.xs(pal),
           fontSize: triggerFs, fontWeight: 500, letterSpacing: "-0.005em",
           fontFamily: "var(--cb-font)", textAlign: "left",
           cursor: disabled ? "not-allowed" : "pointer",
@@ -833,11 +867,12 @@ export function UISelect({
             position: "fixed", zIndex: Z.selectMenu,
             left: pos.left, top: pos.top, bottom: pos.bottom, width: pos.width,
             maxHeight: 280, overflowY: "auto",
-            background: pal.dark ? COLOR.surface1 : "#ffffff",
+            background: pal.dark ? COLOR.surface2 : "#ffffff",
             border: `1px solid ${pal.dark ? COLOR.line : pal.line}`, borderRadius: RADIUS.lg, padding: 6,
-            /* No shadow on menus (2026-10-19, S7 shell lane, audit M3):
-               the 1px border carries the menu, like every other menu. */
-            boxShadow: "none",
+            /* Look modernization, 2026-10-26: menus float, so they
+               carry the lg token shadow over their border. This
+               supersedes the 2026-10-19 no shadow on menus note. */
+            boxShadow: SHADOW.lg(pal),
             ...menuStyle,
           }}
         >

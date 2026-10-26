@@ -190,7 +190,7 @@ export function Dialog({
           // does go missing, the fallback ink #f4f4f2 stays fully
           // readable on it. The old mid grey #767676 left both the
           // light and the dark ink nearly unreadable (M3, 2026-10-18).
-          background: "var(--cb-surface, #1c1b19)",
+          background: "var(--cb-surface, #16181d)",
           border: "1px solid var(--cb-line, rgba(255,255,255,0.12))",
           borderRadius: RADIUS.lg,
           // The Dialog primitive owns the one allowed modal shadow
@@ -1359,7 +1359,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
 
       {/* Main area */}
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", gap: 16, alignItems: "stretch" }}>
-        <div style={{ order: isMobile ? 3 : 1, flex: "1 1 auto", minWidth: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12 }}>
+        <div style={{ order: isMobile ? 3 : 1, flex: "1 1 auto", minWidth: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12, boxShadow: P.shadowSm, backgroundImage: `radial-gradient(${P.line2} 1px, transparent 1.2px)`, backgroundSize: "22px 22px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
             <button type="button" onClick={fitZoom} style={smallBtnStyle}>Fit whole diagram</button>
             <button type="button" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(0.3, Math.round((z - 0.1) * 100) / 100))} style={smallBtnStyle}>Zoom out</button>
@@ -1424,7 +1424,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
 
         {/* The one step list, always visible. Each row owns its label,
             kind, detail, and source as one unit. */}
-        <div style={{ order: isMobile ? 1 : 2, width: isMobile ? "auto" : 360, flexShrink: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14 }}>
+        <div style={{ order: isMobile ? 1 : 2, width: isMobile ? "auto" : 360, flexShrink: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, boxShadow: P.shadowSm }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, flex: "1 1 auto" }}>Steps, in order</span>
             <button type="button" onClick={undo} disabled={!past.length} style={{ ...smallBtnStyle, opacity: past.length ? 1 : 0.5 }}>Undo</button>
@@ -1615,7 +1615,7 @@ function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex =
   // fallback #1c1b19, and the matching ink and line variables), never the
   // near black constant: only the media flag earns that now.
   const themed = !!P && !media;
-  const panelBg = media ? "#0f1115" : drawer && P ? P.bg : themed ? P.surface : "var(--cb-surface, #1c1b19)";
+  const panelBg = media ? "#0f1115" : drawer && P ? P.bg : themed ? P.surface : "var(--cb-surface, #16181d)";
   const panelInk = media ? "#f2f4f2" : P ? P.ink : "var(--cb-ink, #f4f4f2)";
   const panelBorder = media ? "rgba(255,255,255,0.10)" : P ? P.line : "var(--cb-line, rgba(255,255,255,0.12))";
   return (

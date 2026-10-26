@@ -2155,9 +2155,9 @@ const CSS = `
    hash of the title, a soft radial glow, and the topic's first letter
    set in large serif. No images, nothing invented, always available. */
 const COVER_PAIRS = [
-  ["#1d3b2a", "#0e2417"], ["#27354d", "#131e30"], ["#3d2c1e", "#241708"],
-  ["#33233f", "#1c1226"], ["#173d3a", "#0a2422"], ["#42252b", "#281116"],
-  ["#2c3a1c", "#18230c"], ["#1e3a4d", "#0e2432"], ["#3f3418", "#261e08"],
+  ["#26543a", "#122b1c"], ["#35496b", "#1a2942"], ["#4d3a26", "#2e1e0e"],
+  ["#51386b", "#2a1c40"], ["#1f5450", "#0d2f2c"], ["#6e3542", "#3a1c26"],
+  ["#47632a", "#22330f"], ["#26506b", "#12303f"], ["#5c4a1f", "#33270c"],
 ];
 function Cover({ title, height, radius = 16, fontSize, cat, img }) {
   const [imgOk, setImgOk] = useState(true);
@@ -3768,38 +3768,43 @@ function DiagramArt({ diagram, P, accent }) {
   );
 }
 
+// Look modernization, 2026-10-26: every domain pair (and the cover
+// pairs above) is lifted a step in lightness. The panel flagged the
+// old pairs, Body and Health and Space and Physics above all, as
+// muddy blocks on the near black ground where the motif had to do
+// all the work. Hues and identities are unchanged, only depth.
 const CATALOG = [
-  { name: "Mind and Brain", motif: "brain", pair: ["#27354d", "#131e30"], topics: [
+  { name: "Mind and Brain", motif: "brain", pair: ["#35496b", "#1a2942"], topics: [
     { t: "Sleep and Memory", q: "sleep memory consolidation", b: "What sleep does to the memories you formed that day, and how anyone can tell.", img: "/assets/cortex/sleep-memory.jpg" },
     { t: "The Predicting Brain", q: "predictive processing brain perception", b: "How the brain predicts what it is about to sense, and how it corrects itself.", img: "/assets/cortex/predicting-brain.jpg" },
     { t: "Attention Under Siege", q: "attention focus distraction cognition", b: "What focus is, and what pulls it away.", img: "/assets/cortex/attention.jpg" },
     { t: "Why We Dream", q: "dreaming REM sleep function", b: "Why we dream at all, and the explanations still being tested.", img: "/assets/cortex/dreams.jpg" },
   ]},
-  { name: "Body and Health", motif: "pulse", pair: ["#42252b", "#281116"], topics: [
+  { name: "Body and Health", motif: "pulse", pair: ["#6e3542", "#3a1c26"], topics: [
     { t: "Exercise and Longevity", q: "exercise longevity mortality", b: "What the research measures about movement, aging, and how much is enough.", img: "/assets/cortex/exercise-longevity.jpg" },
     { t: "The Gut Immune Alliance", q: "gut microbiome immune system", b: "How gut microbes and the immune system shape each other, bit by bit.", img: "/assets/cortex/gut-immune.jpg" },
     { t: "Fasting and Metabolism", q: "intermittent fasting metabolism", b: "What skipping meals does, and what it does not.", img: "/assets/cortex/fasting.jpg" },
     { t: "Pain, Explained", q: "pain perception neuroscience", b: "How the brain builds pain, and why the same injury can hurt more or less.", img: "/assets/cortex/pain.jpg" },
   ]},
-  { name: "Life and Evolution", motif: "helix", pair: ["#1d3b2a", "#0e2417"], topics: [
+  { name: "Life and Evolution", motif: "helix", pair: ["#26543a", "#122b1c"], topics: [
     { t: "Editing the Code of Life", q: "CRISPR gene editing", b: "Gene editing, from the first tools to the big arguments.", img: "/assets/cortex/crispr.jpg" },
     { t: "Why We Age", q: "cellular aging senescence", b: "How cells age, and the clocks that measure it.", img: "/assets/cortex/aging.jpg" },
     { t: "Minds of Other Animals", q: "animal cognition consciousness", b: "Which animals know what, and how we can tell.", img: "/assets/cortex/animal-minds.jpg" },
     { t: "The First Life", q: "origin of life abiogenesis", b: "The experiments and arguments about how life first started copying itself.", img: "/assets/cortex/first-life.jpg" },
   ]},
-  { name: "Earth and Climate", motif: "earth", pair: ["#173d3a", "#0a2422"], topics: [
+  { name: "Earth and Climate", motif: "earth", pair: ["#1f5450", "#0d2f2c"], topics: [
     { t: "Oceans in Motion", q: "ocean currents climate", b: "How ocean currents move heat around the planet, and what to watch for as they change.", img: "/assets/cortex/oceans.jpg" },
     { t: "The Soil Beneath Us", q: "soil microbiome carbon", b: "The living world inside soil, and the carbon it holds or releases.", img: "/assets/cortex/soil.jpg" },
     { t: "Forests and Carbon", q: "forests carbon sequestration", b: "What forests do with carbon, and how it is measured.", img: "/assets/cortex/forests.jpg" },
     { t: "Extreme Weather", q: "extreme weather attribution climate change", b: "How scientists pin a storm to a warming world.", img: "/assets/cortex/extreme-weather.jpg" },
   ]},
-  { name: "Space and Physics", motif: "orbit", pair: ["#33233f", "#1c1226"], topics: [
+  { name: "Space and Physics", motif: "orbit", pair: ["#51386b", "#2a1c40"], topics: [
     { t: "Black Holes", q: "black hole event horizon", b: "Black holes and the edge where the known rules stop working.", img: "/assets/cortex/black-holes.jpg" },
     { t: "The Shape of Spacetime", q: "space time general relativity", b: "Gravity as geometry, and the tests that checked it.", img: "/assets/cortex/spacetime.jpg" },
     { t: "Quantum Machines", q: "quantum computing error correction", b: "How quantum computers work, and the errors they have to outrun.", img: "/assets/cortex/quantum.jpg" },
     { t: "Worlds Around Other Stars", q: "exoplanet atmospheres habitability", b: "Reading the air of planets we will never touch.", img: "/assets/cortex/exoplanets.jpg" },
   ]},
-  { name: "The Living World", motif: "microbe", pair: ["#2c3a1c", "#18230c"], topics: [
+  { name: "The Living World", motif: "microbe", pair: ["#47632a", "#22330f"], topics: [
     { t: "The Insect Gut", q: "insect gut microbiome", b: "The microbes inside insect guts, and the chemistry they do there.", img: "/assets/cortex/insect-gut.jpg" },
     { t: "Fermentation", q: "fermentation microbes food", b: "Fermentation, the food technology that stays alive in the jar.", img: "/assets/cortex/fermentation.jpg" },
     { t: "Microbes and Crops", q: "plant microbiome agriculture", b: "How the microbes around roots and the crops above them affect each other.", img: "/assets/cortex/crops.jpg" },

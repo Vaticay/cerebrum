@@ -345,9 +345,17 @@ export const MARKETING_SLUGS = Object.keys(MARKETING_PAGES);
  * paper is real and links to its DOI. The demo exists so a visitor sees what
  * a Cerebrum answer looks like, citations and all, before signing up for
  * anything. Copy is written dash free per the product voice rule.
+ *
+ * Look modernization, 2026-10-26: each sample now belongs to ONE page
+ * (the page field). The panel baseline flagged the old arrangement,
+ * the same three answers verbatim on both About and Features, as
+ * making the two flagship pages feel templated rather than written.
+ * About carries two worked answers, Features carries one plus its
+ * own how it works strip. No answer appears on both pages.
  */
 export const DEMO_QUESTIONS = [
   {
+    page: "about",
     q: "Does creatine cause hair loss?",
     paragraphs: [
       {
@@ -375,6 +383,7 @@ export const DEMO_QUESTIONS = [
     ],
   },
   {
+    page: "about",
     q: "Have microplastics been found inside the human body?",
     paragraphs: [
       {
@@ -402,6 +411,7 @@ export const DEMO_QUESTIONS = [
     ],
   },
   {
+    page: "features",
     q: "Is coffee linked to a longer life?",
     paragraphs: [
       {
@@ -429,3 +439,11 @@ export const DEMO_QUESTIONS = [
     ],
   },
 ];
+
+/** The demo samples that belong to one marketing page (see the
+ * 2026-10-26 note on DEMO_QUESTIONS). Falls back to the full set for
+ * any other slug so a future page opts in by tagging, not by code. */
+export const demoForPage = (slug) => {
+  const tagged = DEMO_QUESTIONS.filter((d) => d.page === slug);
+  return tagged.length ? tagged : DEMO_QUESTIONS;
+};
