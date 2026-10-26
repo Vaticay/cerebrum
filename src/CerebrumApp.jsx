@@ -6617,7 +6617,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
     );
     if (bare) return <div>{empty}</div>;
     return (
-      <AnswerSection eyebrow="Bibliography · 0 sources" P={P} accent={accent}>
+      <AnswerSection eyebrow="Bibliography · 0 sources" P={P} accent={accent} tray>
         {empty}
       </AnswerSection>
     );
@@ -6650,7 +6650,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
     );
   }
   return (
-    <AnswerSection eyebrow={`Bibliography · ${sourceCountsLabel(sources)}`} P={P} accent={accent}
+    <AnswerSection eyebrow={`Bibliography · ${sourceCountsLabel(sources)}`} P={P} accent={accent} tray
       right={controls}>
       {ledger}
       {sources.length === 1 && (
@@ -10143,12 +10143,19 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
         <div style={{ flex: "1 1 auto", minWidth: 0 }}>
         <h2 className="cb-query-text" style={{ color: P.ink }}>{t.hasImage && <Icon name="image" size={20} style={{ marginRight: 10, verticalAlign: "-3px", opacity: 0.6 }} />}{t.q}</h2>
+        {/* Composition wave, 2026-10-26: the head of the answer is
+            one readable summary line in plain words, each fact
+            carrying its label (asked when, how many papers cited,
+            how much further reading, how many databases searched),
+            at label size in the sans, instead of a coded metadata
+            strip at caption size. The counts themselves are the
+            honest ones computed above. */}
         <div className="cb-query-meta" style={{ color: P.faint }}>
-          <span>{new Date(t.ts || Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+          <span>Asked {new Date(t.ts || Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
           <span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
-          <span>{citedCount} cited paper{citedCount === 1 ? "" : "s"}{furtherCount > 0 ? ` · ${furtherCount} further reading` : ""}</span>
+          <span>{citedCount} paper{citedCount === 1 ? "" : "s"} cited{furtherCount > 0 ? ` · ${furtherCount} further reading` : ""}</span>
           {dbOutcomes && dbOutcomes.length > 0 && (
-            <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>{dbOutcomes.filter((x) => x.ok).length}/{dbOutcomes.length} databases</span></>
+            <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span><span>{dbOutcomes.filter((x) => x.ok).length} of {dbOutcomes.length} databases searched</span></>
           )}
           {saveState && (
             <><span aria-hidden="true" style={{ opacity: 0.5 }}>·</span>
@@ -10571,7 +10578,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           {t.factCheck && !t.factCheck.error && (t.factCheck.claims || []).length > 0 ? (
             <FactCheck fc={t.factCheck} P={P} accent={accent} />
           ) : (
-            <AnswerSection eyebrow="Fact check" P={P} accent={accent}>
+            <AnswerSection eyebrow="Fact check" P={P} accent={accent} tray>
               {(() => {
                 const fcError = !!(t.factCheck && t.factCheck.error);
                 const fcRanEmpty = !!t.factCheck && !t.factCheck.error;
@@ -14426,7 +14433,7 @@ function Eyebrow({ children, P, right, style }) {
   );
 }
 
-function AnswerSection({ eyebrow, title, right, children, P, accent, style, quiet = false }) {
+function AnswerSection({ eyebrow, title, right, children, P, accent, style, quiet = false, tray = false }) {
   return (
     <section style={{ marginTop: 30, ...style }} className="cb-fade">
       {quiet ? (
@@ -14443,7 +14450,16 @@ function AnswerSection({ eyebrow, title, right, children, P, accent, style, quie
       {title && (
         <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "-6px 0 12px", letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)", lineHeight: 1.35 }}>{title}</div>
       )}
-      {children}
+      {/* Composition wave, 2026-10-26: the tray variant sets a section
+          on its own surfaced panel, lifted on the palette shadow, so a
+          long answer reads as parts with trays of evidence under their
+          own headings instead of one continuous ledger. The eyebrow
+          stays outside the tray as the section's heading register. */}
+      {tray ? (
+        <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, padding: "18px 20px", boxShadow: SHADOW.sm(P) }}>
+          {children}
+        </div>
+      ) : children}
     </section>
   );
 }
@@ -28288,7 +28304,9 @@ button.cb-cite { min-height: 0; min-width: 0; }
 }
 .cb-query-meta {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  font-size: 12px; font-family: var(--cb-font);
+  /* Composition wave, 2026-10-26: the summary line reads at label
+     size (13px), up from the 12px metadata strip it replaces. */
+  font-size: 13px; font-family: var(--cb-font);
 }
 @media (max-width: 720px) {
   .cb-query-text { font-size: 18px; }
