@@ -24246,6 +24246,21 @@ function App({ profileHandle = null } = {}) {
                     </div>
                   )}
 
+                  {/* 2026-10-26 (external loop round 3): the free
+                      allowance is stated on the search screen itself,
+                      before a first answer, not only on the public
+                      pages and at the quota wall. Visibility only:
+                      the caps live in functions/lib/proEntitlement.js
+                      (50 AI answers, 3 document reads, 1 saved diagram
+                      per 5 day period) and are unchanged. Shown to
+                      signed out and free tier viewers; Pro and Lite
+                      carry different terms and do not see it. */}
+                  {!(proStatus?.tier === "pro" || user?.isPro || proStatus?.tier === "lite" || proStatus?.isLite) && (
+                    <p style={{ margin: "14px 0 0", fontSize: 13, lineHeight: 1.55, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                      Free allowance: 50 AI answers every 5 days. Document reads and saved diagrams are metered separately, at 3 reads and 1 diagram every 5 days with a free account.
+                    </p>
+                  )}
+
                   {/* Continue: the deck's own data and actions, as
                       a ruled row under a plain label. The question
                       is quoted untouched; a heading is never

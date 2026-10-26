@@ -40,7 +40,7 @@ export const MARKETING_PAGES = {
     lede: `Cerebrum searches ${SOURCE_COUNT} scholarly databases in parallel and answers with citations you can check. Searching and AI answers are free, with no account needed.`,
     blocks: [
       {
-        h: "The promise",
+        h: "What happens when you ask",
         p: SLOGAN + " You ask in plain language; Cerebrum queries Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, CORE, BASE, PMC full text, OpenAIRE and more in parallel, scores the results for relevance, and writes a summary constrained by what those papers actually say.",
       },
       {
@@ -102,7 +102,7 @@ export const MARKETING_PAGES = {
       },
       {
         h: "Built for researchers without a library",
-        p: "Serious research happens far from any campus. Independent and unaffiliated researchers, clinicians between posts, engineers, writers, and graduates whose library access ended with their degree all read the same literature and get shut out of the same paywalls. Cerebrum is built for you as well: searching and AI answers need no account, a free account carries the same allowances under your name on any device and adds document reads, and free answers carry the same coverage line and Search record, permanent link included, as any other answer. If a tool you relied on moved features you used behind a paywall, the core work here is free.",
+        p: "Serious research happens far from any campus. Independent and unaffiliated researchers, clinicians between posts, engineers, writers, and graduates whose library access ended with their degree read the same literature and hit the same paywalls. Searching and AI answers need no account. A free account carries the same allowances on any device and adds document reads, and free answers carry the same coverage line and Search record, permanent link included, as any other answer. The core work is free.",
       },
       {
         h: "When no papers come back",
@@ -114,7 +114,7 @@ export const MARKETING_PAGES = {
       },
       {
         h: "What is free, and what needs an account",
-        p: "Searching and AI answers are free and need no account. The free cap is 50 AI answers every 5 days, counted by network when you are signed out and carried under your name with a free account. Nothing about the cap is revealed at the moment you hit it; it is stated here and on the pricing page, before you start.",
+        p: "Searching and AI answers are free and need no account. The free cap is 50 AI answers every 5 days, counted by network when you are signed out and carried under your name with a free account. The allowance is stated here, on the pricing page, and in the app on the search screen, before your first answer.",
         list: [
           "Reading a document in Document Mode needs a free account: 3 document reads every 5 days.",
           "Saving a diagram needs a free account: 1 saved diagram every 5 days.",
@@ -290,7 +290,7 @@ export const MARKETING_PAGES = {
     lede: "Diagram Studio turns a pathway, method, or mechanism into one clear diagram of steps with arrows, built from an answer, a paper, or steps you write.",
     blocks: [
       {
-        h: "What it does",
+        h: "Built from the source you pick",
         p: "Pick a source and Diagram Studio builds the diagram from it: the steps of an answer you just read, the steps in a saved paper, or your own steps written one per line. Every label comes from the source text. Nothing is invented to fill a box.",
       },
       {
