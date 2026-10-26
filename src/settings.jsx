@@ -256,7 +256,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
      meter is a block of its own (label and count on one line, the
      bar under it at full panel width) instead of a 92px sliver
      parked in a row's control slot. Same numbers, same refill math. */
-  const meterBlock = (label, used, cap) => {
+  const meterRow = (label, used, cap) => {
     const pct = cap && cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
     return (
       <div key={label} style={{ padding: "13px 2px", borderTop: `1px solid ${P.line}` }}>
@@ -302,9 +302,9 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
             </div>
             <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 9, lineHeight: 1.55, fontFamily: "var(--cb-font)" }}>{capacityLine}</div>
           </div>
-          {!isPro && meterBlock("AI answers", q?.used || 0, q?.cap || (isLite ? 500 : 50))}
-          {!isPro && meterBlock("Document reads", dq?.used || 0, dq?.cap || (isLite ? 30 : 3))}
-          {!isPro && meterBlock("Diagrams", fq?.used || 0, fq?.cap || (isLite ? 10 : 1))}
+          {!isPro && meterRow("AI answers", q?.used || 0, q?.cap || (isLite ? 500 : 50))}
+          {!isPro && meterRow("Document reads", dq?.used || 0, dq?.cap || (isLite ? 30 : 3))}
+          {!isPro && meterRow("Diagrams", fq?.used || 0, fq?.cap || (isLite ? 10 : 1))}
           {rank === "free" && (
             <Row
               label="Pro Lite"

@@ -16174,7 +16174,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                      section of the dossier with topics you can read at
                      a glance, not a comma line under a caption. */
                   <div style={{ marginTop: 22, borderTop: `1px solid ${P.line}`, paddingTop: 16 }}>
-                    <div style={{ ...TYPE.subhead, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Research focus</div>
+                    <div style={{ ...TYPE.subhead, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Research interests</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {publicInterests.map((topic) => (
                         <span key={topic} style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, background: P.surface, border: `1px solid ${P.line2}`, padding: "6px 12px", borderRadius: RADIUS.pill, fontFamily: "var(--cb-font)" }}>{topic}</span>

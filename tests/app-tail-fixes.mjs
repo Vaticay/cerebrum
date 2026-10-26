@@ -184,7 +184,15 @@ await test("the recomputed identity width grows on narrow widths while tap targe
   assert.equal(before360, 94, "identity width at 360 before the fix");
   assert.equal(before390, 124, "identity width at 390 before the fix");
   assert.ok(app.includes("const narrowPeople = winW <= 560;"), "the narrow people row switch is missing");
-  assert.ok(app.includes('gap: narrowPeople ? 8 : 12, padding: narrowPeople ? "12px 4px" : "12px 8px"'), "the row does not tighten on narrow widths");
+  // Composition wave, 2026-10-26: the row is a card now (surface,
+  // border, real padding, a 48px avatar), so the geometry this pin
+  // recomputes changed on purpose. The property it guards has not:
+  // the identity block still ends up far wider than the pre fix row
+  // (94 at 360) because the Follow button stays off the row and the
+  // gaps stay at two. The recomputation below uses the card's real
+  // numbers: narrow side padding 12, gap 10, avatar 48, the 44
+  // message button, and 1px of card border a side.
+  assert.ok(app.includes('gap: narrowPeople ? 10 : 12, padding: narrowPeople ? "12px 12px" : "14px 14px"'), "the row does not tighten on narrow widths");
   const modal = slice(app, "function NetworkSearchModal(", "/* Commit 100 — the privacy panel.");
   assert.ok(modal.includes("width: 44, height: 44"), "the message control lost its 44px tap target");
   // 2026-10-23 (huge audit redo): the Follow button came off the row
@@ -192,11 +200,11 @@ await test("the recomputed identity width grows on narrow widths while tap targe
   // identity, and the one 44 round message button, two gaps in total,
   // so the identity block keeps everything the Follow button used to take.
   assert.ok(!modal.includes("toggleFollow(r)"), "a Follow toggle still rides on the row");
-  const identity = (vw, rowPadSide, gap) => pageAt(vw) - 2 * rowPadSide - 2 * gap - 40 - 44;
-  const after360 = identity(360, 4, 8);
-  const after390 = identity(390, 4, 8);
-  assert.equal(after360, 190, "identity width at 360 after the fix");
-  assert.equal(after390, 220, "identity width at 390 after the fix");
+  const identity = (vw, rowPadSide, gap) => pageAt(vw) - 2 * rowPadSide - 2 * gap - 48 - 44 - 2;
+  const after360 = identity(360, 12, 10);
+  const after390 = identity(390, 12, 10);
+  assert.equal(after360, 160, "identity width at 360 after the fix");
+  assert.equal(after390, 190, "identity width at 390 after the fix");
   assert.ok(after360 >= before360 + 30, "the fix does not buy real width at 360");
 });
 
