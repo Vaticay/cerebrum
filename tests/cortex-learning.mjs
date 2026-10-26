@@ -4493,6 +4493,21 @@ await test("eggEligible enforces the cooldown, the session rules, and every excl
   assert.equal(eggCelebrateEligible({}, { inLesson: true }, now), false, "no celebration over a lesson in progress");
 });
 
+await test("egg visits never stand beside a resident Nova, and the egg probe sees the whole lesson (2026-10-26)", () => {
+  const now = 100 * 3600 * 1000;
+  const fresh = { hadEgg: false, prevSessionHadEgg: false };
+  assert.equal(eggBlocked({ novaResident: true }), true, "a resident Nova on screen blocks a visit");
+  assert.equal(eggEligible({}, { novaResident: true }, fresh, now), false, "no ambient visit beside a resident Nova");
+  assert.equal(eggCelebrateEligible({}, { novaResident: true }, now), false, "no celebration visit beside a resident Nova");
+  // The probe: a lesson is the Player's labelled dialog (present
+  // from the first card to the completion screen), and the
+  // learning home is its .lv-home root, not only the feedback
+  // sheet an answered card opens.
+  assert.ok(eggSrc.includes('label.startsWith("Lesson:")'), "the egg probe does not see the lesson Player dialog");
+  assert.ok(eggSrc.includes('label.startsWith("Course complete:")'), "the egg probe does not see the completion screen dialog");
+  assert.ok(eggSrc.includes('querySelector(".lv-home")'), "the egg probe does not see the learning home root");
+});
+
 await test("countWordmarkClick stacks quick clicks, resets on a slow one, and summons on the third", () => {
   let st = { count: 0, lastAt: 0 };
   st = countWordmarkClick(st, 10000);
@@ -5442,6 +5457,16 @@ await test("popEligible enforces the visited flag, the session rules, the gap, a
   assert.equal(popBlocked({ typing: true }), true);
   assert.equal(popBlocked({}), false);
   assert.equal(popEligible(null, null, null, now), true, "empty inputs read as a fresh, clear page");
+});
+
+await test("the pop probe sees the whole lesson, not only its feedback sheet (2026-10-26)", () => {
+  // The shell's onNova prop already keeps the pop out of the
+  // learning view in production; the probe keeps the same
+  // promise on its own, keyed on the lesson Player's labelled
+  // dialog root, which is present from the first card to the
+  // completion screen.
+  assert.ok(popSrc.includes('label.startsWith("Lesson:")'), "the pop probe does not see the lesson Player dialog");
+  assert.ok(popSrc.includes('label.startsWith("Course complete:")'), "the pop probe does not see the completion screen dialog");
 });
 
 await test("popLineFor introduces her once, then rotates the dry reminders", () => {

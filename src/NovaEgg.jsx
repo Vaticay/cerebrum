@@ -60,10 +60,12 @@ export function eggCooldownMs(store) {
 
 /* The contexts she never enters, as one decision so the checks
    and the tests read the same list the brief wrote: typing, a
-   lesson, a call, a checkout, or a hidden tab. */
+   lesson, a call, a checkout, a hidden tab, or a screen where
+   she already lives (one Nova per screen: a visit never stands
+   beside a resident figure of her). */
 export function eggBlocked(ctx) {
   const c = ctx || {};
-  return !!(c.hidden || c.typing || c.inLesson || c.inCall || c.inCheckout);
+  return !!(c.hidden || c.typing || c.inLesson || c.inCall || c.inCheckout || c.novaResident);
 }
 
 /* Ambient eligibility: context clear, this session has not had
@@ -132,18 +134,40 @@ function eggSessionId() {
 }
 
 /* What the page is doing right now, read off the DOM the shell
-   already renders: the lesson Player is the fixed .lv-sheet,
-   a call is its named dialog or a live video in a fixed frame,
+   already renders: a lesson is its feedback sheet (.lv-sheet)
+   or the lesson Player's labelled dialog, a call is its named dialog or a live video in a fixed frame,
    a checkout is a dialog talking about Pro or subscribing, and
    typing is an editable element holding focus. Best effort by
    design: a missed signal only ever costs an appearance. */
 function probeEggContext() {
-  const ctx = { hidden: true, typing: false, inLesson: false, inCall: false, inCheckout: false };
+  const ctx = { hidden: true, typing: false, inLesson: false, inCall: false, inCheckout: false, novaResident: false };
   try {
     ctx.hidden = !!document.hidden;
     const ae = document.activeElement;
     if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT" || ae.isContentEditable)) ctx.typing = true;
     if (document.querySelector(".lv-sheet")) ctx.inLesson = true;
+    /* The whole lesson, not just its feedback sheet (2026-10-26,
+       Nova perfection pass): .lv-sheet exists only while an
+       answered card's sheet is open, but the lesson Player is on
+       screen from the first card to the completion screen, with
+       its own Nova figure in the header the whole time. The
+       Player's root is a dialog labelled for the lesson or the
+       completion, so that label is the marker. Without it she
+       could visit over a live lesson and stand beside the
+       Player's Nova, and her celebration visit could land next
+       to the completion screen's own figure. */
+    if (!ctx.inLesson) {
+      const allDialogs = document.querySelectorAll('[role="dialog"]');
+      for (let i = 0; i < allDialogs.length; i++) {
+        const label = allDialogs[i].getAttribute("aria-label") || "";
+        if (label.startsWith("Lesson:") || label.startsWith("Course complete:")) { ctx.inLesson = true; break; }
+      }
+    }
+    /* The learning home carries a resident Nova on every tab
+       (the header figure, or her stage on Today), tour included:
+       the .lv-home root is in the DOM whenever she lives there,
+       so a visit to that screen would double her. */
+    if (document.querySelector(".lv-home")) ctx.novaResident = true;
     if (document.querySelector('[role="dialog"][aria-label^="Incoming call"]')) ctx.inCall = true;
     if (!ctx.inCall) {
       const vids = document.querySelectorAll("video");

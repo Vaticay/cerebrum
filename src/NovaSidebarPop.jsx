@@ -120,6 +120,20 @@ function probePopContext(extra) {
     const ae = document.activeElement;
     if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT" || ae.isContentEditable)) ctx.typing = true;
     if (document.querySelector(".lv-sheet")) ctx.inLesson = true;
+    /* The whole lesson, not just its feedback sheet (2026-10-26,
+       Nova perfection pass): .lv-sheet exists only while an
+       answered card's sheet is open, but the lesson Player is on
+       screen for the whole lesson under its labelled dialog root.
+       The shell's onNova prop already keeps the pop out of every
+       learning screen in production; this keeps the probe honest
+       on its own, the same fix the egg's probe took. */
+    if (!ctx.inLesson) {
+      const allDialogs = document.querySelectorAll('[role="dialog"]');
+      for (let i = 0; i < allDialogs.length; i++) {
+        const label = allDialogs[i].getAttribute("aria-label") || "";
+        if (label.startsWith("Lesson:") || label.startsWith("Course complete:")) { ctx.inLesson = true; break; }
+      }
+    }
     if (document.querySelector('[role="dialog"][aria-label^="Incoming call"]')) ctx.inCall = true;
     if (!ctx.inCall) {
       const vids = document.querySelectorAll("video");
