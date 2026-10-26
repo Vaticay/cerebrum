@@ -1761,6 +1761,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
 
         {revisit && (
           <DeckCard P={P} accent={accent} label="Saved, still unread"
+            span={stageDeck && !isMobile ? "1 / -1" : undefined}
             labelExtra={stale.length > 1 ? (
               <span style={{
                 padding: "1px 7px", borderRadius: RADIUS.viewport, background: withAlpha(accent, 0.14),
@@ -1768,8 +1769,13 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
               }}>{stale.length}</span>
             ) : null}
           >
+            {/* Composition wave, 2026-10-26: on the stage this card
+                is the deck's lead (the Continue card stands down
+                there, carried by the ruled row above), so it spans
+                the deck and its paper title steps up to body size.
+                Everywhere else it keeps its grid place and size. */}
             <div style={{
-              fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.45,
+              fontSize: stageDeck ? FONT_SIZES.body : FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.45,
               marginBottom: 4, display: "-webkit-box", WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical", overflow: "hidden",
             }}>{revisit.title}</div>
@@ -24122,9 +24128,16 @@ function App({ profileHandle = null } = {}) {
                     saying the same thing. The proof control keeps the
                     label role (13) it rose to in the 2026-10-20
                     readability wave; it opens the sources dialog. */}
+                {/* Composition wave, 2026-10-26: one element of the
+                    door's identity carried into the room the door
+                    opens into. The opening sentence sets in the
+                    reading serif at section size, the same voice the
+                    door's sentence and the answers themselves use,
+                    instead of the UI sans at body size. The proof
+                    line under it keeps its label voice. */}
                 <p style={{
-                  margin: "20px 0 0", fontSize: FONT_SIZES.body, lineHeight: 1.55,
-                  color: P.ink2, maxWidth: "62ch",
+                  margin: "20px 0 0", fontSize: FONT_SIZES.section, lineHeight: 1.45,
+                  color: P.ink, maxWidth: "62ch", fontFamily: "var(--cb-serif)",
                 }}>
                   Ask a question and get an answer from the research papers, with the sources attached.
                   <br />
@@ -24248,7 +24261,14 @@ function App({ profileHandle = null } = {}) {
                       no last question, nothing saved) skips the whole
                       block instead of rendering a blank band. */}
                   {(user || stageLastQ || (saved && saved.length > 0)) && (
-                  <div style={{ marginTop: 36 }}>
+                  /* Composition wave, 2026-10-26: the deck sits on a
+                     surface of its own, so the stage reads as two
+                     places: the instrument above, and your work below
+                     on its own panel, instead of one column of ruled
+                     rows from top to bottom. In light palettes the
+                     panel sits inside the stage's opaque backing and
+                     takes the surface tone above it. */
+                  <div style={{ marginTop: 36, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, padding: isMobile ? "18px 16px" : "22px 24px", boxShadow: SHADOW.sm(P) }}>
                     <HomeDeck
                       suppressContinue
                       stageDeck
