@@ -211,7 +211,10 @@ await test("story modal videos load on tap, and edition images declare their slo
   assert.ok(modal.includes("playingVideoId"), "modal videos still embed on open");
   assert.ok(modal.includes("i.ytimg.com/vi/"), "no poster stands in for the embed before the tap");
   assert.ok(appSrc.includes('sizes="(max-width: 760px) 100vw, 480px"'), "the hero image declares no slot size");
-  assert.ok(appSrc.includes('sizes="88px"'), "the digest thumb declares no slot size");
+  // Composition wave, 2026-10-26: the thumb now declares its slot by
+  // tier (the second tier of the edition runs a larger cut), so the
+  // pin checks the tiered declaration instead of the single literal.
+  assert.ok(appSrc.includes('sizes={large ? "132px" : "88px"}'), "the edition thumbs declare no slot size by tier");
 });
 
 group("completion pass additions");

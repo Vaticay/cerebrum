@@ -12244,20 +12244,25 @@ function MediaFigure({ P, media, title, still = false, linkCredit = true, aspect
    typography under the thumb: the digest surface must not let an
    unchecked photo pass as a checked one by staying silent. Verified
    media is never marked. */
-function TrendThumb({ P, media, title }) {
+function TrendThumb({ P, media, title, large = false }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => { setFailed(false); }, [media && media.url, media && media.poster]);
   if (!media || failed) return null;
   const src = media.kind === "video" ? media.poster || null : media.url;
   if (!src) return null;
+  /* Composition wave, 2026-10-26: the second tier of the edition
+     carries the same thumb at a larger cut (132 by 99 against the
+     digest's 88 by 66), so the hierarchy under the hero is visible
+     in the media as well as the type. */
+  const tw = large ? 132 : 88, th = large ? 99 : 66;
   return (
-    <span style={{ display: "inline-flex", flexDirection: "column", gap: 4, flexShrink: 0, width: 88 }}>
+    <span style={{ display: "inline-flex", flexDirection: "column", gap: 4, flexShrink: 0, width: tw }}>
       <span aria-hidden="true" style={{
-        position: "relative", width: 88, height: 66, flexShrink: 0, borderRadius: RADIUS.md,
+        position: "relative", width: tw, height: th, flexShrink: 0, borderRadius: RADIUS.md,
         overflow: "hidden", border: `1px solid ${P.line}`,
         background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
       }}>
-        <img src={safeHref(src)} alt="" loading="lazy" referrerPolicy="no-referrer" sizes="88px" decoding="async"
+        <img src={safeHref(src)} alt="" loading="lazy" referrerPolicy="no-referrer" sizes={large ? "132px" : "88px"} decoding="async"
           onError={() => setFailed(true)}
           style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
         {media.kind === "video" && (
@@ -13294,15 +13299,20 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
      and the edition picker, and the controls follow it. The sort
      options are the same in both orders, and Most cited stays gone. */
   const controlsBlock = (
-    <>
+    /* Composition wave, 2026-10-26: the controls sit in one quiet
+       strip that recedes behind the stories: a subdued panel, the
+       inactive pills transparent against it, only the active section
+       and sort carrying the accent wash. The block's desktop and
+       phone placements are unchanged (above the hero on desktop,
+       after it on a phone, per the October 23 owner photo). */
+    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: "14px 16px", marginBottom: 26 }}>
   {/* ══════════════════════════════════════════════════════
-      Sections. A newspaper's section index as filter pills,
-      matching the search mode-plate recipe: the active section
-      sits in an accent wash, the rest in quiet ink tint. Same
-      filtering behavior — the middot separators are retired.
+      Sections. A newspaper's section index as filter pills:
+      the active section sits in an accent wash, the rest sit
+      quiet on the strip. Same filtering behavior.
       ══════════════════════════════════════════════════════ */}
   {status === "ready" && categories.length > 1 && (
-    <nav aria-label="Filter by section" style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 22 }}>
+    <nav aria-label="Filter by section" style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
       {categories.map((cat) => {
         const on = trendCat === cat;
         return (
@@ -13315,7 +13325,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
               minHeight: 44, padding: "9px 16px", borderRadius: RADIUS.viewport, cursor: "pointer",
               fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "0",
               fontWeight: on ? 500 : 500,
-              background: on ? withAlpha(accent, 0.24) : withAlpha(P.ink, 0.06),
+              background: on ? withAlpha(accent, 0.24) : "transparent",
               color: on ? P.ink : P.ink2,
               border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
             }}
@@ -13325,7 +13335,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
     </nav>
   )}
   {status === "ready" && (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", justifyContent: "space-between", marginBottom: 22 }}>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", justifyContent: "space-between" }}>
       <div style={{ flex: "1 1 260px", maxWidth: 420 }}>
         <input value={trendQuery} onChange={(e) => setTrendQuery(e.target.value)} placeholder="Search this edition" aria-label="Search this edition"
           style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16 }} />
@@ -13343,7 +13353,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
       </div>
     </div>
   )}
-    </>
+    </div>
   );
   const heroBlock = hero ? (
     <div style={{ marginBottom: 26 }}><TrendingHero P={P} accent={accent} at={at} item={hero} onExpand={setExpanded} generatedAt={generatedAt} isMobile={isMobile} heroLabel={heroLabel} onSaveStory={onSaveStory} isStorySaved={isStorySaved} /></div>
@@ -13537,11 +13547,12 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
                 no rail repeats a story already on the page. */}
             {!isMobile && heroBlock}
             {/* ══════════════════════════════════════════════════
-                The digest. One ruled line per story: number, headline,
-                summary, and the source line. The whole day fits on a
-                screen — you scan it, then open the two things worth
-                reading. This used to be one tab of two; the card grid
-                was the generic news-template residue and it is gone.
+                Under the hero the edition descends (composition
+                wave, 2026-10-26): stories two to four carry a second
+                tier, a larger headline, a longer summary, and the
+                larger thumb cut, and the rest run as the digest, one
+                ruled line per story: number, headline, summary, and
+                the source line. The whole day still fits on a screen.
                 ══════════════════════════════════════════════════ */}
             {rest.length > 0 && (
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, margin: "2px 0 2px" }}>
@@ -13550,11 +13561,13 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
               </div>
             )}
             {rest.length > 0 && (<div style={{ borderTop: `1px solid ${P.line}` }} className="cb-stagger">
-              {rest.map((item, i) => (
+              {rest.map((item, i) => {
+                const tier2 = i < 3;
+                return (
                 <div key={item.url || i} className="cb-row"
                   style={{
                     display: "flex", flexDirection: narrow ? "column" : "row", alignItems: narrow ? "stretch" : "flex-start", gap: narrow ? 6 : 16, width: "100%",
-                    padding: "24px 6px",
+                    padding: tier2 ? "28px 6px" : "24px 6px",
                     borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-font)",
                   }}
                 >
@@ -13564,11 +13577,11 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
                       padding: 0, background: "transparent", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)",
                     }}
                   >
-                    {!narrow && <span style={{ fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", width: 32, flexShrink: 0, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{String(i + 1).padStart(2, "0")}</span>}
+                    {!narrow && <span style={{ fontSize: tier2 ? FONT_SIZES.subhead : FONT_SIZES.label, color: tier2 ? P.ink2 : P.faint, fontFamily: "var(--cb-font)", width: 32, flexShrink: 0, fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{String(i + 1).padStart(2, "0")}</span>}
                     <span style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.45 }}>{renderInlineMdLite(item.title, P)}</span>
+                      <span style={{ display: "block", fontSize: tier2 ? FONT_SIZES.subhead : FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.45 }}>{renderInlineMdLite(item.title, P)}</span>
                       {item.summary ? (
-                        <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{renderInlineMdLite(item.summary, P)}</span>
+                        <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, marginTop: 6, display: "-webkit-box", WebkitLineClamp: tier2 ? 3 : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{renderInlineMdLite(item.summary, P)}</span>
                       ) : (
                         <span style={{ fontSize: FONT_SIZES.label, color: P.faint, lineHeight: 1.6, marginTop: 6, display: "block", fontStyle: "italic" }}>No summary came with this story.</span>
                       )}
@@ -13589,7 +13602,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
                     {/* Verified lead media as a small thumb. On narrow
                         phones the row goes full width text instead, so a
                         headline never gets squeezed beside a thumbnail. */}
-                    {!narrow && <TrendThumb P={P} media={trendingMediaOf(item)} title={(item.title || "").replace(/\*/g, "")} />}
+                    {!narrow && <TrendThumb P={P} media={trendingMediaOf(item)} title={(item.title || "").replace(/\*/g, "")} large={tier2} />}
                   </button>
                   {/* Every story can be filed into the Library from the
                       row itself, through the same save path the source
@@ -13600,7 +13613,8 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
                     {isStorySaved && isStorySaved(item) ? "Saved" : "Save"}
                   </button>
                 </div>
-              ))}
+                );
+              })}
             </div>)}
           </>
         )}
