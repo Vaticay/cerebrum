@@ -191,10 +191,18 @@ await test("deletes offer an undo window instead of only a confirm", () => {
   assert.ok(!appSrc.includes("Remove this paper for good"), "the old arm and confirm delete is still the paper path");
 });
 
-await test("diagram rows wrap so the title and the delete state fit the row", () => {
+await test("diagram cards give the title the card's full width and keep the one press delete", () => {
+  // Depth wave, 2026-10-26: the diagram rows became cards in a
+  // grid, so this pin's literals changed with the arrangement. The
+  // properties it was written for in October 2023 survive the move:
+  // the title cannot be crushed by the actions beside it (it spans
+  // the card under the cover, and the actions wrap in the card
+  // foot), nothing can clip off a card the way the armed delete
+  // pair clipped off the old row, and that pair stays gone.
   const maps = slice(appSrc, 'id="lib-maps"', 'libraryTab === "collections"');
-  assert.ok(maps.includes('flexWrap: "wrap"'), "diagram rows still cannot wrap");
-  assert.ok(maps.includes('flex: "1 1 150px"'), "the diagram title has no first claim on width");
+  assert.ok(maps.includes('display: "grid"'), "diagrams do not render as a card grid");
+  assert.ok(maps.includes("height: 150"), "the diagram cover lost its full width frame");
+  assert.ok(maps.includes('flexWrap: "wrap"'), "the card actions cannot wrap inside the card foot");
   assert.ok(!maps.includes("Delete this map for good"), "the armed delete pair that clipped off the row is still there");
 });
 

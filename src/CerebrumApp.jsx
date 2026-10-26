@@ -4284,6 +4284,38 @@ function buildEvidenceMap(factCheck, disagreementVerdict) {
     return { weight: 400, cls: "cb-ev-supported", status: best.status, label: "thin evidence", labelTone: "cb-ev-warn" };
   };
 }
+/* Depth wave, 2026-10-26: does this block open a section of the
+   answer? Mirrors renderAnswer's own heading branches, in their
+   order, so the grouping at the foot of renderAnswer starts a new
+   section exactly where the renderer puts a heading: a marked h2
+   ("sect"), a marked h3 or a deeper marked heading ("sub"), a short
+   all bold line, or a bare first line the heading heuristic
+   promotes. Anything else continues the section it follows. Read
+   only: it renders nothing and changes no block's content. */
+function answerBlockSectionStart(para) {
+  const h2 = para.match(/^##\s+(.+)$/);
+  if (h2) return splitGluedHeading(h2[1]).head ? "sect" : null;
+  const h3 = para.match(/^###\s+(.+)$/);
+  if (h3) return splitGluedHeading(h3[1]).head ? "sub" : null;
+  const markedHead = para.match(/^[ \t]*(#{1,6})[ \t]+([^\n]+)(?:\n([\s\S]*))?$/);
+  if (markedHead) {
+    const rawTitle = stripStrayHashes(markedHead[2]).replace(/[ \t]*#+[ \t]*$/, "").trim();
+    const title = splitGluedHeading(rawTitle).head;
+    return title ? (markedHead[1].length <= 2 ? "sect" : "sub") : null;
+  }
+  const boldHeader = para.match(/^\*\*([^*]+)\*\*\s*$/);
+  const boldHeaderText = boldHeader ? boldHeader[1].trim() : "";
+  if (boldHeaderText && boldHeaderText.length <= 60 && !boldHeaderText.includes("\n") && !/[.!?;,]$/.test(boldHeaderText)) return "sub";
+  const nlIdx = para.indexOf("\n");
+  if (nlIdx > 0) {
+    const firstLine = para.slice(0, nlIdx).trim();
+    const rest = para.slice(nlIdx + 1).trim();
+    const bare = stripStrayHashes(firstLine);
+    if (rest.length > 0 && bare.length > 0 && bare.length <= 60 && !/[.!?;,:]$/.test(bare) && !/^[•\-\d]/.test(bare) && bare.split(/\s+/).length <= 9) return "sub";
+  }
+  return null;
+}
+
 function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink = null, onCiteActivate = null, evidenceMap = null, queryTerms = null) {
   let clean = stripDanglingAsterisks(renameLegacySummaryHeading(normalizeSectionHeaders(decodeHtmlEntities(text || ""))))
     // v28 fix: this used to strip EVERY leading "#" on EVERY line
@@ -4338,7 +4370,8 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
      paragraph's own inline fontSize. */
   let ledeUsed = false;
 
-  return clean.split(/\n{2,}/).map((para, pi) => {
+  const blocks = clean.split(/\n{2,}/);
+  const nodes = blocks.map((para, pi) => {
     // Markdown headers
     const h2 = para.match(/^##\s+(.+)$/);
     // v30: dropped the borderBottom divider — that read as a frame line on
@@ -4475,7 +4508,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       // header, so any "#" left in it is stray, not a marker.
       const items = para.split("\n").filter(l => /^[•\-]\s+/.test(l)).map(l => stripStrayHashes(l.replace(/^[•\-]\s+/, "")));
       return (
-        <ul key={pi} style={{ margin: "0 0 24px", paddingLeft: 8, listStyle: "none" }}>
+        <ul key={pi} style={{ margin: "0 0 22px", paddingLeft: 8, listStyle: "none" }}>
           {items.map((item, ii) => (
             <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink, marginBottom: 14, position: "relative", paddingLeft: 20, fontFamily: "var(--cb-serif)", fontWeight: 400, borderLeft: `2px solid ${P.line}`, paddingTop: 2, paddingBottom: 2 }}>
               {renderInlineSegments(item, sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, onCiteActivate, queryTerms)}
@@ -4491,7 +4524,7 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       // Same stray-hash cleanup as the bullet-list branch above.
       const items = para.split("\n").filter(l => /^\d+\.\s+/.test(l)).map(l => stripStrayHashes(l.replace(/^\d+\.\s+/, "")));
       return (
-        <ol key={pi} style={{ margin: "0 0 20px", paddingLeft: 24, listStyle: "none", counterReset: "cb-list" }}>
+        <ol key={pi} style={{ margin: "0 0 22px", paddingLeft: 24, listStyle: "none", counterReset: "cb-list" }}>
           {items.map((item, ii) => (
             <li key={ii} style={{ fontSize: FONT_SIZES.body, lineHeight: 1.55, color: P.ink, marginBottom: 9, position: "relative", paddingLeft: 16, fontFamily: "var(--cb-serif)", fontWeight: 400, counterIncrement: "cb-list" }}>
               <span style={{ position: "absolute", left: -8, top: 0, fontSize: FONT_SIZES.label, fontWeight: 500, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>{ii + 1}.</span>
@@ -4598,6 +4631,29 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
       </div>
     );
   });
+
+  /* Depth wave, 2026-10-26: group the rendered blocks into the
+     answer's sections. A block the detector above calls a section
+     start opens a new group; every other block continues the group
+     it follows, and the blocks before the first heading form the
+     lead group. Each group renders as a <section>, so the middle
+     of a long answer is a run of parts with joints the stylesheet
+     spaces as joints (see .cb-answer-sect), not one flat stack of
+     paragraphs. No block's content, order, or citations change:
+     grouping only wraps consecutive blocks. A block list with no
+     heading in it renders exactly as it did before. */
+  const groups = [];
+  blocks.forEach((para, pi) => {
+    const level = answerBlockSectionStart(para);
+    if (level || groups.length === 0) groups.push({ level: level || "lead", nodes: [] });
+    groups[groups.length - 1].nodes.push(nodes[pi]);
+  });
+  if (groups.length <= 1) return nodes;
+  return groups.map((g, gi) => (
+    <section key={"sect-" + gi} className="cb-answer-sect" data-level={g.level === "lead" ? undefined : g.level}>
+      {g.nodes}
+    </section>
+  ));
 }
 
 /** Inline segment renderer — handles bold, italic, underline, citations, and inline code */
@@ -10773,8 +10829,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           (or offer the interpretations when it couldn't decide). */}
       {interactive && done && t.ambiguity && t.ambiguity.ambiguous && Array.isArray(t.ambiguity.interpretations) && t.ambiguity.interpretations.length > 0 && t.responseKind !== "no-results" && (
         /* Pass 2 (instrument): ambiguity is a ruled notice, not a tinted
-           card. Mono kicker, plain sentence, instrument buttons. */
-        <div style={{ marginTop: 16, padding: "14px 4px 4px", borderTop: `1px solid ${withAlpha(STATUS.warn, 0.45)}` }} className="cb-fade">
+           card. Mono kicker, plain sentence, instrument buttons.
+           Depth wave, 2026-10-26: the notice's top margin joins the
+           30px section rhythm the other follow on sections keep; it
+           stood at 16, a joint visibly tighter than every neighbour. */
+        <div style={{ marginTop: 30, padding: "14px 4px 4px", borderTop: `1px solid ${withAlpha(STATUS.warn, 0.45)}` }} className="cb-fade">
           <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: statusWarn(P), marginBottom: 8, fontFamily: "var(--cb-font)" }}>Ambiguous term</div>
           <div style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.55 }}>
             “{t.ambiguity.term}” means different things in different fields.
@@ -10803,10 +10862,15 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           language, one plain heading. The suggested chips, the related
           questions, the discovery chips and Watch this topic used to
           be four separate systems stacked under the answer, each with
-          its own heading and margins. They are one list now. */}
+          its own heading and margins. They are one list now.
+          Depth wave, 2026-10-26: the block takes the AnswerSection
+          grammar every other follow on section already speaks
+          (eyebrow, hairline, the 30px section joint) instead of its
+          own plainer heading at its own margin, so the stack under
+          an answer reads in one register from the evidence map to
+          here. The heading's words are unchanged. */}
       {interactive && done && ((t.suggestions && t.suggestions.length > 0) || (t.related && t.related.length > 0) || (last && t.responseKind !== "context") || (!synthFailed && answerText.trim())) && (
-        <div style={{ marginTop: 24 }} className="cb-fade">
-          <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", marginBottom: 12 }}>Next steps</div>
+        <AnswerSection eyebrow="Next steps" P={P} accent={accent}>
           {t.suggestions && t.suggestions.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
           {t.suggestions.map((s, i) => (
@@ -10838,7 +10902,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
           {last && t.responseKind !== "context" && (
             <WatchTopicButton q={t.q} P={P} accent={accent} user={user} onChanged={onWatchChanged} />
           )}
-        </div>
+        </AnswerSection>
       )}
       {/* #18: one line source count closing out the answer, with a
           jump link to the bibliography, the one source list (M16). */}
@@ -11155,12 +11219,29 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
                 {activeId === "all" ? "Nothing saved yet. Save a paper from an answer first, and it will show up here." : "Nothing is in this group yet. Go to All saved, then use the collection list next to a paper to put it here."}
               </div>
             ) : visible.map((s, i) => (
-              <div key={sourceKey(s)} style={{ padding: "12px 4px", borderTop: i ? `1px solid ${P.line}` : "none", display: "flex", alignItems: "center", gap: 12 }}>
+              /* Depth wave, 2026-10-26: a paper inside a collection
+                 reads in the Library ledger's register, the same
+                 one the Papers tab list side established: the title
+                 at body size, the byline at label size in second
+                 ink carrying authors, journal, year, and the
+                 citation count in the ledger's own form, and the
+                 abstract's opening in the reading serif under it
+                 when the record carries one, so a collection's
+                 contents can be judged the way a shelf row is
+                 judged instead of by title alone. Fields the
+                 record lacks still leave their place empty; the
+                 move control and its handler are untouched. */
+              <div key={sourceKey(s)} style={{ padding: "14px 4px", borderTop: i ? `1px solid ${P.line}` : "none", display: "flex", alignItems: "flex-start", gap: 12 }}>
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.4, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{s.title}</span>
-                  <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>
-                    {[s.authors, formatJournalName(s.journal), s.year].filter(Boolean).join(" · ")}
+                  <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{s.title}</span>
+                  <span style={{ display: "block", fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", marginTop: 4, lineHeight: 1.5 }}>
+                    {[s.authors, formatJournalName(s.journal)].filter(Boolean).join(" · ")}
+                    {s.year ? ` · ${s.year}` : ""}
+                    {(() => { const c = formatCitationCount(s.citations, s.year, "citation"); return c ? ` · ${c}` : ""; })()}
                   </span>
+                  {(() => { const a = String(s.abstract || s.tldr || s.summary || "").replace(/\s+/g, " ").trim(); return a ? (
+                    <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 7, lineHeight: 1.6, fontFamily: "var(--cb-serif, Georgia, serif)" }}>{a}</span>
+                  ) : null; })()}
                 </span>
                 <UISelect P={P} accent={accent} value={s.collectionId || ""} onChange={(v) => onMoveSource(s, v || null)}
                   options={[{ value: "", label: "Not in a collection" }, ...collections.map((c) => ({ value: c.id, label: c.name }))]}
@@ -14033,7 +14114,12 @@ function fcToMarkdown(nodes, edges, title) {
   return lines.join("\n");
 }
 
-/* Mini static preview for Library cards. */
+/* Mini static preview for Library cards.
+   Depth wave, 2026-10-26: the thumb is a diagram card's cover in
+   the Library grid now, and it bleeds to the frame's corners; the
+   frame owns the clipping, so the svg carries no radius of its
+   own (it wore RADIUS.md when the frame was a small button whose
+   corners it had to match from inside). */
 function FcThumb({ chart, accent }) {
   const nodes = chart.nodes || [];
   if (!nodes.length) return null;
@@ -14041,7 +14127,7 @@ function FcThumb({ chart, accent }) {
   const scale = Math.min(1, 280 / b.w, 120 / b.h);
   const byId = new Map(nodes.map((n) => [n.id, n]));
   return (
-    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: "100%", display: "block", background: "rgba(127,140,127,0.06)", borderRadius: RADIUS.md }}>
+    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: "100%", display: "block", background: "rgba(127,140,127,0.06)" }}>
       {(chart.edges || []).map((e) => {
         const a = byId.get(e.from), bb = byId.get(e.to);
         if (!a || !bb) return null;
@@ -24919,18 +25005,33 @@ function App({ profileHandle = null } = {}) {
                 body="Build a picture of a process, a method, or a decision, as a list of steps in order. You can start from an answer, or write the steps yourself."
                 action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => { sfx(); setView("studio"); }}>Make a diagram in Diagram Studio</UIButton>} />
             ) : (
-              <div role="list" aria-label="Diagram Studio diagrams you have saved" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflow: "hidden", background: P.surface }}>
-                {flowcharts.map((fc, i) => (
-                  <div key={fc.id} role="listitem" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", padding: "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+              <div role="list" aria-label="Diagram Studio diagrams you have saved" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
+                {/* Depth wave, 2026-10-26: the diagrams are a card
+                    grid now, the Library's grid side composed to the
+                    register the list side set. Each diagram is a
+                    card on the surface ground with the hairline and
+                    the extra small lift; its preview is the card's
+                    cover, full width at 150 tall on the raised
+                    ground with a hairline under it, so the picture
+                    leads and carries enough of the diagram to judge
+                    it by. Under the cover, in order: the title, the
+                    counts and date line, and the actions in the
+                    card foot, aligned across a row of cards by the
+                    auto top margin. The handlers are the row's
+                    handlers, unchanged: the cover and Open open
+                    the diagram, SVG file downloads it, Remove
+                    parks an undo. */}
+                {flowcharts.map((fc) => (
+                  <div key={fc.id} role="listitem" style={{ display: "flex", flexDirection: "column", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs(P), overflow: "hidden" }}>
                     <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }} aria-label={`Open ${fc.title || "untitled diagram"}`}
-                      style={{ width: 120, height: 84, flexShrink: 0, padding: 0, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, background: P.raised, cursor: "pointer", overflow: "hidden" }}>
+                      style={{ width: "100%", height: 150, flexShrink: 0, padding: 0, border: "none", borderBottom: `1px solid ${P.line}`, background: P.raised, cursor: "pointer", overflow: "hidden", display: "block" }}>
                       <FcThumb chart={fc} accent={accent} />
                     </button>
-                    {/* The title holds the first claim on width: the
-                        row wraps, so on a phone the buttons move to a
-                        second line instead of crushing the title to a
-                        sliver or clipping off the row. */}
-                    <span style={{ flex: "1 1 150px", minWidth: 0 }}>
+                    {/* The title holds the whole card width under
+                        the cover: nothing shares its line, so it
+                        cannot be crushed to a sliver the way the old
+                        row's title could before the row wrapped. */}
+                    <span style={{ flex: "1 1 auto", minWidth: 0, padding: "14px 16px 0" }}>
                       <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }}
                         style={{ display: "block", width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>
                         {fc.title || "Untitled diagram"}
@@ -24940,7 +25041,7 @@ function App({ profileHandle = null } = {}) {
                         {fc.updatedAt ? ` · ${new Date(fc.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}
                       </span>
                     </span>
-                    <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", maxWidth: "100%", flexBasis: isMobile ? "100%" : "auto", justifyContent: isMobile ? "flex-end" : "flex-start" }}>
+                    <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", padding: "10px 12px 12px", marginTop: "auto" }}>
                       <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }}>Open</UIButton>
                       <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", fcSvgString(fc.nodes || [], fc.edges || [], fc.title)); }}>SVG file</UIButton>
                       {/* Delete is one press with the undo window as
@@ -28387,6 +28488,21 @@ button.cb-cite { min-height: 0; min-width: 0; }
   margin: 36px 0 14px; font-size: 18px; font-weight: var(--cb-fw-strong);
   letter-spacing: -0.008em; text-transform: none;
 }
+
+/* ── Depth wave, 2026-10-26: the answer's sections are groups ────────
+   renderAnswer wraps each heading led run of blocks in a section.
+   The joint between two sections is the group's top padding added
+   to the heading's own top margin: a break clearly larger than the
+   22px paragraph rhythm inside a section, so a long answer reads
+   as parts with visible joints instead of one stack. Padding, not
+   margin, because a first child's top margin would collapse
+   through the group and the joint would vanish. A subsection led
+   group takes the smaller joint. The first group sits flush: a
+   heading that opens the answer carries no break above it. */
+.cb-answer-sect + .cb-answer-sect { padding-top: 20px; }
+.cb-answer-sect + .cb-answer-sect[data-level="sub"] { padding-top: 8px; }
+.cb-answer-sect:first-child > .cb-sect,
+.cb-answer-sect:first-child > div > .cb-sect:first-child { margin-top: 0; }
 
 /* ── Control strip: the answer toolbar as instrument controls ────────────
    Compact mono buttons with hairline borders instead of underlined text.

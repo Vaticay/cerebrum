@@ -2351,6 +2351,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 // minutes read as one thought: the sender label opens
                 // the group, the timestamp closes it, and the bubbles
                 // between them sit closer together.
+                // Depth wave, 2026-10-26: the stream's rhythm is now
+                // two beats, stated in the wrapper's margin against
+                // the pane's 14px gap. A continuation sits 4px under
+                // its predecessor (marginTop -10), one block of one
+                // thought; a group opening stands 20px clear of what
+                // came before (marginTop 6), so the timestamp that
+                // closes a group belongs to that group and the eye
+                // crosses a real joint before the next one opens.
                 const senderKey = m.senderId || m.who || "";
                 const next = i + 1 < (activeThread.messages || []).length ? activeThread.messages[i + 1] : null;
                 const sameSender = (a, b) => !!a && !!b && a.mine === b.mine && (a.senderId || a.who || "") === (b.senderId || b.who || "");
@@ -2376,7 +2384,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 {showDay && (
                   <div style={{ alignSelf: "center", margin: "10px 0 2px", padding: "4px 12px", background: P.raised || P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.pill, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{dayLabel}</div>
                 )}
-                <div className="cb-msg-bubble" id={m.id ? "cb-msg-" + m.id : undefined} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start", marginTop: groupedWithPrev ? -8 : 0, borderRadius: RADIUS.lg, ...(highlightMessageId && m.id === highlightMessageId ? { outline: `2px solid ${accent}`, outlineOffset: 3, background: withAlpha(accent, 0.07) } : {}) }}
+                <div className="cb-msg-bubble" id={m.id ? "cb-msg-" + m.id : undefined} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start", marginTop: groupedWithPrev ? -10 : 6, borderRadius: RADIUS.lg, ...(highlightMessageId && m.id === highlightMessageId ? { outline: `2px solid ${accent}`, outlineOffset: 3, background: withAlpha(accent, 0.07) } : {}) }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
                   onTouchStart={() => { if (longPressRef.current) clearTimeout(longPressRef.current); longPressRef.current = setTimeout(() => setActionMsgId(m.id || key), 450); }}
                   onTouchEnd={() => { if (longPressRef.current) clearTimeout(longPressRef.current); }}
@@ -2395,12 +2403,31 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: m.mine ? "row-reverse" : "row" }}>
                     <div style={{ minWidth: 0 }}>
                       {bubbleText && (
+                        /* Depth wave, 2026-10-26: the bubble's corners
+                           now follow its place in the group. The
+                           pinched closing corner (sm) belongs only to
+                           the bubble that closes a group, on the
+                           side the group points from; a bubble the
+                           group continues through takes the straighter
+                           md corner on the shared side, and a bubble
+                           a group continues into does the same at its
+                           top. Before, every bubble wore the pinch,
+                           so a run of one person's messages read as
+                           separate pills instead of one thought with
+                           a tail. Both sides also take the extra
+                           small shadow, the same lift the room's
+                           records and its composer dock carry, so a
+                           bubble reads as an object in this room and
+                           not a flat tint on the page ground. */
                         <div style={{
                           padding: "11px 15px", fontSize: FONT_SIZES.body, lineHeight: 1.55,
-                          borderRadius: m.mine ? `${RADIUS.xl}px ${RADIUS.xl}px ${RADIUS.sm}px ${RADIUS.xl}px` : `${RADIUS.xl}px ${RADIUS.xl}px ${RADIUS.xl}px ${RADIUS.sm}px`,
+                          borderRadius: m.mine
+                            ? `${RADIUS.xl}px ${groupedWithPrev ? RADIUS.md : RADIUS.xl}px ${groupedWithNext ? RADIUS.md : RADIUS.sm}px ${RADIUS.xl}px`
+                            : `${groupedWithPrev ? RADIUS.md : RADIUS.xl}px ${RADIUS.xl}px ${RADIUS.xl}px ${groupedWithNext ? RADIUS.md : RADIUS.sm}px`,
                           color: m.mine ? at : P.ink,
                           background: m.mine ? accent : (P.raised || P.surface),
                           border: m.mine ? "none" : `1px solid ${P.line}`,
+                          boxShadow: SHADOW.xs(P),
                           ...(e2eeError ? { color: P.ink2 } : {}),
                         }}>{e2eeError ? (<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="lock" size={13} style={{ flexShrink: 0 }} />{bubbleText}</span>) : renderLinkedText(bubbleText)}</div>
                       )}
