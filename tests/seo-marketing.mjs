@@ -52,11 +52,16 @@ for (const slug of EXPECTED_SLUGS) {
     assert.ok(p.lede.length >= 140 && p.lede.length <= 160,
       `got ${p.lede.length} chars`);
   });
-  t(`/${slug}: has eyebrow, title, blocks, and updated stamp`, () => {
+  t(`/${slug}: has eyebrow, title, and blocks, and no template updated stamp`, () => {
     assert.ok(p.eyebrow && p.eyebrow.length > 0);
     assert.ok(Array.isArray(p.blocks) && p.blocks.length > 0);
     for (const b of p.blocks) assert.ok(b.h && (b.p || b.list || b.email), "block without heading/content");
-    assert.ok(p.updated, "missing updated stamp");
+    // 2026-10-26 (AI feel purge): the "Updated <Month Year>" stamp was
+    // removed from all five marketing pages. It repeated identically on
+    // every page as part of the template skeleton and told the reader
+    // nothing about that page. Legal pages keep their version stamps,
+    // which carry real legal meaning; marketing pages carry none.
+    assert.ok(!p.updated, "marketing page regained a template updated stamp");
   });
   t(`/${slug}: carries SoftwareApplication structured-data flag`, () => {
     assert.equal(p.softwareApp, true);
@@ -333,10 +338,12 @@ t("new product copy strings contain no dash characters of any kind", () => {
     assert.ok(f, `missing FAQ entry for dash check: ${q}`);
     pieces.push(JSON.stringify(f));
   }
-  const whatYouGet = blockByHeading(MARKETING_PAGES.features, "What you get");
-  assert.ok(whatYouGet, "features page lost its What you get block");
+  // 2026-10-26 (AI feel purge): the block heading was renamed from
+  // "What you get" to "What is in Cerebrum" (generic template heading).
+  const whatYouGet = blockByHeading(MARKETING_PAGES.features, "What is in Cerebrum");
+  assert.ok(whatYouGet, "features page lost its What is in Cerebrum block");
   const recordBullet = (whatYouGet.list || []).find((li) => li.includes("Search record"));
-  assert.ok(recordBullet, "What you get lost its Search record bullet");
+  assert.ok(recordBullet, "What is in Cerebrum lost its Search record bullet");
   pieces.push(JSON.stringify(recordBullet));
   for (const piece of pieces) {
     for (const d of DASHES) {
@@ -354,7 +361,9 @@ t("new product copy strings contain no dash characters of any kind", () => {
  * 40 topic cap, and no tier gate (the API actions carry no plan
  * check, so the copy names the flow with the free offer and keeps it
  * out of the Pro list, like the record and MCP above). */
-const WATCH_BLOCK_HEADING = "Watch a topic and new papers surface for you";
+// 2026-10-26 (AI feel purge): heading reworded to the plain version;
+// the old "new papers surface for you" phrasing was flagged as AI copy.
+const WATCH_BLOCK_HEADING = "Watch a topic and we count the new papers";
 const WATCH_FAQ_QUESTION = "Can Cerebrum tell me when new papers appear on a topic?";
 
 t("features page presents watched topics with the real mechanics", () => {
@@ -364,10 +373,10 @@ t("features page presents watched topics with the real mechanics", () => {
   for (const text of ["Watch this topic", "Topics you're watching", "Europe PMC", "40 topics"]) {
     assert.ok(blockJson.includes(text), `watched topics copy is missing: ${text}`);
   }
-  const whatYouGet = blockByHeading(MARKETING_PAGES.features, "What you get");
-  assert.ok(whatYouGet, "features page lost its What you get block");
+  const whatYouGet = blockByHeading(MARKETING_PAGES.features, "What is in Cerebrum");
+  assert.ok(whatYouGet, "features page lost its What is in Cerebrum block");
   const bullet = (whatYouGet.list || []).find((li) => li.includes("Watched topics"));
-  assert.ok(bullet, "What you get lost its Watched topics bullet");
+  assert.ok(bullet, "What is in Cerebrum lost its Watched topics bullet");
   const faq = faqByQuestion(MARKETING_PAGES.features, WATCH_FAQ_QUESTION);
   assert.ok(faq, "features FAQ lost the watched topics answer");
   assert.ok(faq.a.includes("Europe PMC"), "watched topics FAQ never names Europe PMC");
@@ -394,8 +403,8 @@ t("watched topics copy strings contain no dash characters of any kind", () => {
   const faq = faqByQuestion(MARKETING_PAGES.features, WATCH_FAQ_QUESTION);
   assert.ok(faq, "missing watched topics FAQ entry for dash check");
   pieces.push(JSON.stringify(faq));
-  const whatYouGet = blockByHeading(MARKETING_PAGES.features, "What you get");
-  assert.ok(whatYouGet, "features page lost its What you get block for dash check");
+  const whatYouGet = blockByHeading(MARKETING_PAGES.features, "What is in Cerebrum");
+  assert.ok(whatYouGet, "features page lost its What is in Cerebrum block for dash check");
   const bullet = (whatYouGet.list || []).find((li) => li.includes("Watched topics"));
   assert.ok(bullet, "missing Watched topics bullet for dash check");
   pieces.push(JSON.stringify(bullet));

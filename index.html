@@ -5,8 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
     <title>Cerebrum · Free Scientific Literature Search</title>
-    <meta name="description" content="Cerebrum is a free AI scientific literature search engine: ask a research question in plain language and get an evidence-based answer assembled from 14 open scholarly databases (PubMed, Europe PMC, OpenAlex, Semantic Scholar and more), where every claim links to a paper you can open. No ads; an account is optional." />
-    <meta name="keywords" content="AI scientific literature search, research paper search engine, AI literature review tool, scientific paper finder, evidence-based research assistant, PubMed, Europe PMC, OpenAlex, peer-reviewed, free research tool, academic search engine, science search" />
+    <meta name="description" content="Ask a research question in plain language. Cerebrum searches 14 open scholarly databases and answers from the papers it finds, every claim linked to a paper you can open. Free, no ads, and an account is optional." />
     <meta name="author" content="Cerebrum" />
     <meta name="publisher" content="Cerebrum" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
@@ -168,9 +167,25 @@
     <noscript>
       <div style="max-width: 720px; margin: 40px auto; padding: 20px 24px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #18181b;">
         <h1 style="font-size: 32px; font-weight: 700; letter-spacing: -0.02em;">Cerebrum</h1>
-        <p><strong>Cerebrum is a free AI scientific literature search engine.</strong> Ask a research question in plain language, no query syntax to learn, and get an evidence-based answer assembled from 14 open scholarly databases, including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ and PLOS. Use it as a research paper search engine or an AI literature review tool: save sources into collections, compare investigations side by side, and see how your sources relate to one another.</p>
-        <p>Every citation points to a real paper you can open and check yourself. That is what makes Cerebrum an evidence-based research assistant rather than a chatbot answering from memory. Answers are written by a language model from those papers, so they can still be wrong. The sources are there so you do not have to take our word for it. Preprints are labelled as preprints; not everything returned has been peer reviewed.</p>
-        <p>Cerebrum carries no advertising and sells no data. An account is optional, and is used for saved research, profiles, and messaging other researchers. Questions classified as sensitive are never written to a shared cache. What is stored, and for how long, is set out on the privacy page.</p>
+        <!-- 2026-10-26 (AI feel purge): this fallback used to carry the
+             same five paragraph boilerplate block that then repeated at
+             the foot of every prerendered page. It now carries the
+             door's own content: the headline the door shows, its entry
+             point, and its specimen claims, verbatim from SPECIMENS in
+             src/intro.jsx, with the papers they trace to. -->
+        <p style="font-size: 24px; line-height: 1.35;">Ask a question and get an answer from the research papers, with the sources attached.</p>
+        <p><a href="/">Start researching</a></p>
+        <p>You ask a scientific question in plain language, no query syntax to learn. Cerebrum queries 14 open scholarly databases in parallel, including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ and PLOS, scores what comes back for relevance, and writes an answer from those papers. Every claim links to a paper you can open and check. If nothing relevant is found, Cerebrum says so instead of inventing sources. Answers are written by a language model, so they can still be wrong; the sources are there so you do not have to take the answer's word for anything.</p>
+        <p>Claims the door shows, each traced to its paper:</p>
+        <ul>
+          <li>&ldquo;DNA is a double helix, with the two strands held together by paired bases.&rdquo; J. D. Watson &amp; F. H. C. Crick, &ldquo;Molecular structure of nucleic acids,&rdquo; Nature 171(4356), 1953. <a href="https://doi.org/10.1038/171737a0">Open the paper</a></li>
+          <li>&ldquo;Ripples in spacetime from two colliding black holes reached Earth after traveling over a billion years.&rdquo; B. P. Abbott et al., &ldquo;Observation of gravitational waves from a binary black hole merger,&rdquo; Phys. Rev. Lett. 116(6), 2016. <a href="https://doi.org/10.1103/PhysRevLett.116.061102">Open the paper</a></li>
+          <li>&ldquo;Stomach ulcers are caused by bacteria, not stress, and can be cured with antibiotics.&rdquo; B. J. Marshall &amp; J. R. Warren, &ldquo;Unidentified curved bacilli in the stomach of patients with gastritis and peptic ulceration,&rdquo; Lancet 323(8390), 1984. <a href="https://doi.org/10.1016/S0140-6736(84)91816-6">Open the paper</a></li>
+          <li>&ldquo;A bacterial immune system can be reprogrammed to cut any chosen DNA sequence.&rdquo; M. Jinek et al., &ldquo;A programmable dual-RNA-guided DNA endonuclease in adaptive bacterial immunity,&rdquo; Science 337(6096), 2012. <a href="https://doi.org/10.1126/science.1225829">Open the paper</a></li>
+          <li>&ldquo;About a third of patients improve on a sugar pill with no active ingredient.&rdquo; H. K. Beecher, &ldquo;The powerful placebo,&rdquo; J. Am. Med. Assoc. 159(17), 1955. <a href="https://doi.org/10.1001/jama.1955.02960340022006">Open the paper</a></li>
+          <li>&ldquo;A Mediterranean diet with olive oil or nuts cut heart attacks and strokes by about 30 percent.&rdquo; R. Estruch et al., &ldquo;Primary prevention of cardiovascular disease with a Mediterranean diet,&rdquo; N. Engl. J. Med. 368, 2013. <a href="https://doi.org/10.1056/NEJMoa1200303">Open the paper</a></li>
+        </ul>
+        <p>Free, with no advertising and no sale of data. Searching and AI answers need no account, up to 50 AI answers every 5 days. An optional free account adds document reads and saved diagrams, and syncs your saved research, profiles, and messages. Preprints are labelled as preprints; not everything returned has been peer reviewed. What is stored, and for how long, is set out on the privacy page.</p>
         <p>Cerebrum requires JavaScript to run. Please enable JavaScript in your browser to use the search.</p>
         <p>
           <a href="/about">About Cerebrum</a> &middot;

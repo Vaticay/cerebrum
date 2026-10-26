@@ -38,14 +38,13 @@ export const MARKETING_PAGES = {
     eyebrow: "Features",
     title: "Search, read, and map the scientific literature",
     lede: `Cerebrum searches ${SOURCE_COUNT} scholarly databases in parallel and answers with citations you can check. Searching and AI answers are free, with no account needed.`,
-    updated: "Updated October 2026.",
     blocks: [
       {
         h: "The promise",
         p: SLOGAN + " You ask in plain language; Cerebrum queries Europe PMC, PubMed, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ, PLOS, CORE, BASE, PMC full text, OpenAIRE and more in parallel, scores the results for relevance, and writes a summary constrained by what those papers actually say.",
       },
       {
-        h: "What you get",
+        h: "What is in Cerebrum",
         list: [
           "Answers graded against the evidence: every claim links to a real paper you can open, with a confidence note on how strongly the literature supports it.",
           "Search record and coverage on every answer: what the answer rests on, what was asked, and what ran, at a permanent link of its own, with copy and download and a JSON form.",
@@ -75,7 +74,7 @@ export const MARKETING_PAGES = {
         p: "Every search also runs on a stated budget of platform calls, the requests Cerebrum makes to databases and models while it works: 50 in total, divided before the search starts. Up to 23 calls gather papers, 5 cover the work that follows gathering, 5 validate candidate papers, 5 authorize the answer, 5 write it, and 7 are held for the closing steps, fact checking, metering, and storing the record. The plan closes exactly (23 + 5 + 5 + 5 + 5 + 7 = 50), and the total is a hard cap enforced while the search runs, so no stage can spend the search past it. The spending is published rather than hidden: every search response carries its ledger, the calls each stage used against the limit of 50, and the same ledger is frozen into the Search record, so what an answer cost is as checkable as what it rests on.",
       },
       {
-        h: "Watch a topic and new papers surface for you",
+        h: "Watch a topic and we count the new papers",
         p: "At the end of an answer, the Watch this topic button starts tracking the subject of that answer, not the wording of one question. Your home screen then carries a Topics you're watching card. For every topic it counts, from Europe PMC, the papers indexed since you last looked, and shows the count beside the topic. Cerebrum can also send a browser notification when new papers land on a watched topic. Open a topic and the count clears while Cerebrum asks what is new in it and summarizes the most recent findings. When nothing new has been published, the count stays at zero and the card says nothing new yet. The counts are real literature counts, never invented to pull you back.",
         list: [
           "Watching needs a free account, because the list lives in your account. No plan gates it, and Pro does not raise it.",
@@ -84,7 +83,7 @@ export const MARKETING_PAGES = {
       },
       {
         h: "Use Cerebrum inside ChatGPT and Claude",
-        p: "Cerebrum speaks MCP, the open protocol that AI assistants use to call outside tools. Connect a compatible assistant to the endpoint below and it can search the literature through Cerebrum and bring back a cited answer with a numbered source list, or fetch the current Today in Science edition. It is live now.",
+        p: "Cerebrum speaks MCP, the open protocol that AI assistants use to call outside tools. Connect a compatible assistant to the endpoint below and it can search the literature through Cerebrum and bring back a cited answer with a numbered source list, or fetch the current Today in Science edition.",
         list: [
           "Endpoint: https://askcerebrum.org/mcp",
           "search_literature: a cited answer from the literature for a research question you give it.",
@@ -95,7 +94,7 @@ export const MARKETING_PAGES = {
       {
         h: "Nova: learn the topic, lesson by lesson",
         widget: "nova-figure",
-        p: "Nova teaches the topic itself, in plain language, and never asks you to read a paper. Pick a topic from six shelves of science, or start from a subject you care about, and Nova lays out a path of short lessons that teach the ideas first. The practice then checks what the lessons taught: quizzes, fill in the blank cards, true or false checks, and matching and ordering activities. A daily practice session brings back what is due for review, and a forgiving streak, with two freezes and no lives to lose, keeps the habit going.",
+        p: "Nova teaches the topic itself, in plain language, and never asks you to read a paper. Pick a topic from six shelves of science, or start from a subject you care about, and Nova lays out a path of short lessons that teach the ideas first. The practice then checks what the lessons taught: quizzes, fill in the blank cards, true or false checks, and matching and ordering activities. A daily practice session brings back what is due for review. A streak counts the days you practice, and two freezes cover the days you miss.",
         list: [
           "Progress lives in this browser only: your courses, streak, and practice history are stored on your device, not in an account, and there is no cloud copy.",
           "Export saves your Nova progress as one file you keep. Import that file in another browser and your progress comes with you.",
@@ -106,8 +105,23 @@ export const MARKETING_PAGES = {
         p: "Serious research happens far from any campus. Independent and unaffiliated researchers, clinicians between posts, engineers, writers, and graduates whose library access ended with their degree all read the same literature and get shut out of the same paywalls. Cerebrum is built for you as well: searching and AI answers need no account, a free account carries the same allowances under your name on any device and adds document reads, and free answers carry the same coverage line and Search record, permanent link included, as any other answer. If a tool you relied on moved features you used behind a paywall, the core work here is free.",
       },
       {
-        h: "What it refuses to do",
+        h: "When no papers come back",
         p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest \u201cnothing found.\u201d",
+      },
+      {
+        h: "What nothing found looks like",
+        p: "When a search finds nothing that matches, the answer says so in the same plain words you see in the app: \u201cNo papers in the literature matched this question.\u201d Nothing is padded out with a guess. Under it, Cerebrum offers a next search that changes the strategy rather than the wording: a broader question, a different evidence filter, a related term.",
+      },
+      {
+        h: "What is free, and what needs an account",
+        p: "Searching and AI answers are free and need no account. The free cap is 50 AI answers every 5 days, counted by network when you are signed out and carried under your name with a free account. Nothing about the cap is revealed at the moment you hit it; it is stated here and on the pricing page, before you start.",
+        list: [
+          "Reading a document in Document Mode needs a free account: 3 document reads every 5 days.",
+          "Saving a diagram needs a free account: 1 saved diagram every 5 days.",
+          "Watching topics needs a free account, up to 40 topics at once.",
+          "A free account also syncs your saved articles, collections, and history across your devices.",
+          "Pro removes the caps: unlimited answers, document reads, and diagrams.",
+        ],
       },
     ],
     faq: [
@@ -141,9 +155,8 @@ export const MARKETING_PAGES = {
   pricing: {
     ...SOFTWARE_APP_BASE,
     eyebrow: "Pricing",
-    title: "Cerebrum Pro pricing: plans for every researcher",
+    title: "Cerebrum pricing, from free to Pro plans",
     lede: "Cerebrum is free for everyday research. Cerebrum Pro is $20 a month or $144 a year: unlimited answers and funding for independent science search with no ads.",
-    updated: "Updated October 2026.",
     offers: [
       { name: "Cerebrum Pro, monthly", price: "20", priceCurrency: "USD", billingIncrement: "P1M" },
       { name: "Cerebrum Pro, annual", price: "144", priceCurrency: "USD", billingIncrement: "P1Y" },
@@ -169,8 +182,10 @@ export const MARKETING_PAGES = {
         list: [
           "$20 per month or $144 per year, renewing automatically until you cancel.",
           "Unlimited AI answers, document reads, and diagrams.",
-          "The Pro badge, four Pro themes, and deeper Pro search.",
-          "Investigation templates for Pro members, priority search queue, and API access with personal keys.",
+          "The Pro badge and four Pro themes.",
+          "Investigation templates for Pro members.",
+          "When the search system is busy, Pro searches take the priority queue and go first.",
+          "API access with personal keys.",
           "Cancel anytime from the billing portal. A 7 day money back guarantee covers the first charge of a new subscription. Email dusty@askcerebrum.org within 7 days for a full refund, no questions asked.",
         ],
       },
@@ -197,7 +212,7 @@ export const MARKETING_PAGES = {
       },
       {
         h: "Will free cover you?",
-        p: "Drag the slider to your typical week. The free tier gives you 50 AI answers every 5 days, which works out to about 70 a week. Feel the math before you decide.",
+        p: "Drag the slider to your typical week. The free tier gives you 50 AI answers every 5 days, which works out to about 70 a week.",
         widget: "quota-calc",
       },
     ],
@@ -236,16 +251,15 @@ export const MARKETING_PAGES = {
   "document-mode": {
     ...SOFTWARE_APP_BASE,
     eyebrow: "Document Mode",
-    title: "Document Mode: understand long papers and PDFs",
+    title: "Reading long papers and PDFs section by section",
     lede: "Paste or upload a long paper and Cerebrum reads it section by section, then builds a structured summary, with a live progress bar throughout.",
-    updated: "Updated September 2026.",
     blocks: [
       {
         h: "How it works",
         p: "Long documents are split on paragraph boundaries and digested section by section in parallel, then synthesized into a structured summary. You watch it happen: \u201cReading section 3 of 11\u201d with a real progress bar, instead of a spinner and a timeout.",
       },
       {
-        h: "What you get",
+        h: "What the summary includes",
         list: [
           "A structured summary of the whole document, grounded in its actual sections.",
           "Question answering against the document you provided.",
@@ -253,7 +267,7 @@ export const MARKETING_PAGES = {
         ],
       },
       {
-        h: "Honest about limits",
+        h: "When a section fails",
         p: "If a section fails to digest, the summary says so with a placeholder rather than inventing content for it. Document Mode needs an account: a free account gets 3 document reads every 5 days, and Pro is unlimited.",
       },
     ],
@@ -272,9 +286,8 @@ export const MARKETING_PAGES = {
   "diagram-studio": {
     ...SOFTWARE_APP_BASE,
     eyebrow: "Diagram Studio",
-    title: "Diagram Studio: turn papers into clear diagrams",
+    title: "Step diagrams built from papers and answers",
     lede: "Diagram Studio turns a pathway, method, or mechanism into one clear diagram of steps with arrows, built from an answer, a paper, or steps you write.",
-    updated: "Updated October 2026.",
     blocks: [
       {
         h: "What it does",
@@ -293,7 +306,7 @@ export const MARKETING_PAGES = {
     faq: [
       {
         q: "Which diagram types are supported?",
-        a: "One honest kind: a chain of steps with arrows, running down the page or across it. Steps can be marked as decisions or as evidence where the source supports that.",
+        a: "One kind: a chain of steps with arrows, running down the page or across it. Steps can be marked as decisions or as evidence where the source supports that.",
       },
       {
         q: "Can I export my diagrams?",
@@ -305,20 +318,19 @@ export const MARKETING_PAGES = {
   investigations: {
     ...SOFTWARE_APP_BASE,
     eyebrow: "Investigations",
-    title: "Investigations: save and revisit research threads",
+    title: "Keeping a research thread alive across sessions",
     lede: "Investigations keep a research thread alive across sessions: save papers, questions, and notes in one place you can reopen and keep adding to over time.",
-    updated: "Updated September 2026.",
     blocks: [
       {
-        h: "A case file for your curiosity",
-        p: "A search answers one question; an investigation follows the thread. Save the papers that matter, the questions they raised, and your own notes into a single investigation you can reopen weeks later and keep building.",
+        h: "One thread, kept together",
+        p: "A search answers one question. An investigation follows what the answer raised: save the papers that matter, the questions they opened, and your own notes into a single investigation you can reopen weeks later and keep building.",
       },
       {
         h: "Investigations vs. Library",
-        p: "The Library is your shelf: saved papers and collections, organized your way. Investigations are your desk: the active thread, with questions, papers, and notes kept together while the work is in progress.",
+        p: "The Library is what you saved: papers and collections, organized your way. An investigation is the work still in progress, with questions, papers, and notes kept together while you work.",
       },
       {
-        h: "Private by default",
+        h: "Kept in your account",
         p: "Your investigations live in your account, and with the Private Vault's end to end encryption, even the server cannot read them. Delete anytime; nothing is kept after you do.",
       },
     ],

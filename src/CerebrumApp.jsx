@@ -1613,16 +1613,19 @@ function DeckBtn({ children, onClick, accent, at, P, primary = false, title }) {
   );
 }
 
-/* Commit 69 — milestones on the Home Deck, rebuilt on the primitives.
-   Shows the nearest unearned milestone with real distance to it. The
-   progress bar is the point: "2 of 5 topics" is motivating in a way a
-   wall of grey locked badges is not. Every number is a row count from
-   the database — see resource "milestones" in functions/api/data.js. */
+/* Home Deck. 2026-10-26 (AI feel purge), two verified removals:
+   (1) The Commit 69 milestones card no longer ships: the deck's cards
+   are Continue, Revisit, and the watchlist, and nothing in the client
+   renders the server "milestones" resource or a progress bar toward
+   an unearned milestone. The old header comment kept describing that
+   habit app card as if it existed; it is removed so the code stops
+   claiming a card that is not there.
+   (2) The staggered fade up reveal on the deck cards (y 14, stagger
+   0.06) is gone. It was the default template landing page reveal on a
+   signed in work surface; the cards now simply render. */
 
 function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpenHistory, onOpenSaved, watchKey, isMobile, greetingName = "", flush = false, suppressContinue = false, stageDeck = false }) {
-  const deckRef = useGsapReveal([user ? user.id : "anon", history.length, saved.length], {
-    y: 14, stagger: 0.06, duration: 0.85, descend: false,
-  });
+  const deckRef = useRef(null);
 
   // "Pick up where you left off." The revisit research this whole surface is
   // built on is specific: it's returning to something you already engaged
@@ -2585,10 +2588,10 @@ function SignalComposer({
 /* The pipeline stages in wire order. Labels are plain words for the stage
    rail in the ReadingRoom — the same five phrases the task names. */
 const SEARCH_STREAM_STAGES = [
-  { key: "question_understood", label: "Understanding question" },
+  { key: "question_understood", label: "Reading the question" },
   { key: "finding_papers", label: "Finding papers" },
-  { key: "screening_sources", label: "Screening sources" },
-  { key: "synthesizing", label: "Synthesizing findings" },
+  { key: "screening_sources", label: "Checking the sources" },
+  { key: "synthesizing", label: "Writing the answer" },
   { key: "checking_citations", label: "Checking citations" },
 ];
 
@@ -2864,8 +2867,8 @@ function looksLikeMechanismQuestion(q) {
 /* ── Dive: the descent instrument ───────────────────────────────────────────
    The Dive is the one loading language. A search descends through five
    depth strata mapped 1:1 to the pipeline's real SSE stages
-   (SEARCH_STREAM_STAGES): Understanding question, Finding papers,
-   Screening sources, Synthesizing findings, Checking citations.
+   (SEARCH_STREAM_STAGES): Reading the question, Finding papers,
+   Checking the sources, Writing the answer, Checking citations.
 
    Honesty rules, enforced by construction:
    - Numbers are measured, never guessed. The per-database count rides
@@ -6169,18 +6172,21 @@ function InfoPage({ page }) {
             </nav>
           )}
           <div style={{ marginTop: 48, display: "flex", flexDirection: "column", gap: 40 }}>
-            {/* #19: persona-named pricing tiers with one highlighted
-                recommended tier. Content is derived from the fixed plan
-                facts in src/marketingContent.js; the two tier blocks
-                below are skipped on the pricing page so the cards do not
-                duplicate them. */}
+            {/* #19: pricing tiers with one highlighted recommended
+                tier. Content is derived from the fixed plan facts in
+                src/marketingContent.js; the two tier blocks below are
+                skipped on the pricing page so the cards do not
+                duplicate them.
+                2026-10-26 (AI feel purge): the stock persona labels
+                ("For the steady researcher" and friends) were removed;
+                the plan name and its numbers say who each tier fits. */}
             {page === "pricing" && (
               <div className="cb-fadein" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
                 {[
-                  { persona: "For the curious", name: "Free", price: "$0", line: "50 AI answers, 3 document reads, 1 diagram every 5 days with a free account. Searching needs no account at all.", recommended: false, cta: "Start free →" },
-                  { persona: "For the steady researcher", name: "Pro Lite", price: "$3.99/month or $39/year", line: "500 AI answers, 30 document reads, and 10 diagrams every 5 days. Ten times the free allowances, with a fixed allowance rather than unlimited use.", recommended: false, cta: "Upgrade in the app →" },
-                  { persona: "For the working researcher", name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and diagrams. 7 day money back guarantee. Cancel anytime.", recommended: true, cta: "Upgrade in the app →" },
-                  { persona: "For college students", name: "Pro Student", price: "$7.99/month for the first 12 months", line: "Full Cerebrum Pro at a student price: unlimited answers, document reads, and diagrams. Verified college email (.edu or .ac.uk) required. Renews at $20 per month after the first 12 months.", recommended: false, cta: "Upgrade in the app →" },
+                  { name: "Free", price: "$0", line: "50 AI answers, 3 document reads, 1 diagram every 5 days with a free account. Searching needs no account at all.", recommended: false, cta: "Start free →" },
+                  { name: "Pro Lite", price: "$3.99/month or $39/year", line: "500 AI answers, 30 document reads, and 10 diagrams every 5 days. Ten times the free allowances, with a fixed allowance rather than unlimited use.", recommended: false, cta: "Upgrade in the app →" },
+                  { name: "Cerebrum Pro", price: "$20/month or $144/year", line: "Unlimited answers, document reads, and diagrams. 7 day money back guarantee. Cancel anytime.", recommended: true, cta: "Upgrade in the app →" },
+                  { name: "Pro Student", price: "$7.99/month for the first 12 months", line: "Full Cerebrum Pro at a student price: unlimited answers, document reads, and diagrams. Verified college email (.edu or .ac.uk) required. Renews at $20 per month after the first 12 months.", recommended: false, cta: "Upgrade in the app →" },
                 ].map((tier) => (
                   <div key={tier.name} style={{
                     position: "relative", padding: "24px 24px 16px", borderRadius: RADIUS.lg,
@@ -6190,8 +6196,7 @@ function InfoPage({ page }) {
                     {tier.recommended && (
                       <span style={{ position: "absolute", top: -11, left: 16, padding: "3px 12px", borderRadius: RADIUS.viewport, background: accent, color: "#0b0b0e", fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.label, fontFamily: "var(--cb-font)" }}>RECOMMENDED</span>
                     )}
-                    <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>{tier.persona}</div>
-                    <div style={{ fontSize: FONT_SIZES.section, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", marginTop: 4 }}>{tier.name}</div>
+                    <div style={{ fontSize: FONT_SIZES.section, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)" }}>{tier.name}</div>
                     <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", marginTop: 2 }}>{tier.price}</div>
                     <p style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, margin: "10px 0 0" }}>{tier.line}</p>
                     <a href="/" style={{ display: "inline-block", marginTop: 14, fontSize: FONT_SIZES.caption, fontWeight: 500, color: tier.recommended ? accentInk(P, accent) : P.ink, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
@@ -20139,7 +20144,7 @@ function ConsentGate({ P, accent, at, user, hasAcceptedBefore, onAccepted }) {
             <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.65, margin: "0 0 4px" }}>
               {hasAcceptedBefore
                 ? "Our Terms, Privacy Policy and Disclosures have changed materially since you last accepted them. Please review and accept the new version to continue."
-                : "Cerebrum is free and collects as little as it can. Three things are worth knowing before your first search. They take fifteen seconds and they matter."}
+                : "Cerebrum is free and collects as little as it can. Three short points before your first search."}
             </p>
 
             <ul style={{ margin: "16px 0 0", padding: 0 }}>
@@ -21034,7 +21039,7 @@ function App({ profileHandle = null } = {}) {
           const r = await apiProPost("verify-session", { session_id: sessionId });
           if (cancelled) return;
           if (r.isPro) {
-            toast(r.tier === "lite" || r.isLite ? "Welcome to Cerebrum Pro Lite." : "Welcome to Cerebrum Pro.");
+            toast(r.tier === "lite" || r.isLite ? "You are on Pro Lite now." : "You are on Pro now.");
             const u = await apiWhoAmI();
             if (!cancelled && u) setUser(u);
             await refreshPro();

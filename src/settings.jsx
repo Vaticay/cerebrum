@@ -322,7 +322,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
           {rank !== "pro" && (
             <Row
               label="Pro"
-              desc="No meter. Unlimited AI answers, document reads and diagrams, deeper Pro search, investigation templates, API access, the badge, and four Pro themes. $20/month or $144/year."
+              desc="No meter. Unlimited AI answers, document reads and diagrams, investigation templates, API access, the badge, and four Pro themes. $20/month or $144/year."
               control={rank === "free" ? proBtn("Go Pro", onOpenPro) : quietBtn("Go Pro", onOpenPro)}
               last
             />
@@ -2706,7 +2706,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               {!(user && user.isPro) && (
                 <div style={{ padding: "0 12px 12px", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 8 }}>
                   <ProBadge />
-                  <span>Members also get four Pro themes and deeper search. <button onClick={onOpenPro} style={{ background: "none", border: "none", padding: 0, color: P.dark ? PRO.action : PRO.actionOnLight, fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline" }}>see plans</button></span>
+                  <span>The four Pro themes come with Cerebrum Pro, along with the badge and unlimited answers. <button onClick={onOpenPro} style={{ background: "none", border: "none", padding: 0, color: P.dark ? PRO.action : PRO.actionOnLight, fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)", textDecoration: "underline" }}>see plans</button></span>
                 </div>
               )}
             </Section>

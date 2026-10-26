@@ -201,9 +201,14 @@ function renderPage(slug, data, shell) {
   if (!html.includes("cb-prerender")) {
     html = html.replace('<div id="root"></div>', `<div id="root">${noscriptDoc}</div>`);
   }
-  // The shell's <noscript> fallback carries its own <h1>; demote it so the
-  // injected document keeps exactly one top-level heading.
-  html = demoteNoscriptH1(html);
+  // 2026-10-26 (AI feel purge): the shell's <noscript> fallback used to
+  // ride along at the foot of every prerendered page, the same five
+  // paragraph boilerplate repeated next to each page's own document.
+  // The <main> above serves crawlers and no-JS readers on its own, so
+  // the shell fallback is stripped from slug pages. demoteNoscriptH1
+  // only existed to keep that fallback from adding a second <h1>; with
+  // the fallback gone there is nothing left to demote.
+  html = html.replace(/<noscript>[\s\S]*?<\/noscript>/, "");
 
   return html;
 }
@@ -232,4 +237,64 @@ for (const slug of slugs) {
   written++;
 }
 
-console.log(`prerender: wrote ${written} static document${written === 1 ? "" : "s"}`);
+/* 2026-10-26 (AI feel purge): the root door route. It used to serve the
+ * bare app shell, about 14 KB with none of the door copy in the
+ * document, so anything reading the served page without running the app
+ * found an empty room. The door's real content now ships in the
+ * document, copied verbatim from src/intro.jsx: the door headline, the
+ * Start researching entry, and six of its SPECIMENS with the papers
+ * they trace to. React replaces the root's contents on mount, so the
+ * rendered door, its arrangement, and its film are unchanged. The
+ * shell's <noscript> fallback is stripped here too, for the same
+ * reason as on the slug pages: the door document now stands on its own
+ * and the boilerplate would only duplicate it. */
+const DOOR_SPECIMENS = [
+  ["DNA is a double helix, with the two strands held together by paired bases.", "J. D. Watson &amp; F. H. C. Crick, &ldquo;Molecular structure of nucleic acids,&rdquo; Nature 171(4356), 1953.", "https://doi.org/10.1038/171737a0"],
+  ["Ripples in spacetime from two colliding black holes reached Earth after traveling over a billion years.", "B. P. Abbott et al., &ldquo;Observation of gravitational waves from a binary black hole merger,&rdquo; Phys. Rev. Lett. 116(6), 2016.", "https://doi.org/10.1103/PhysRevLett.116.061102"],
+  ["Stomach ulcers are caused by bacteria, not stress, and can be cured with antibiotics.", "B. J. Marshall &amp; J. R. Warren, &ldquo;Unidentified curved bacilli in the stomach of patients with gastritis and peptic ulceration,&rdquo; Lancet 323(8390), 1984.", "https://doi.org/10.1016/S0140-6736(84)91816-6"],
+  ["A bacterial immune system can be reprogrammed to cut any chosen DNA sequence.", "M. Jinek et al., &ldquo;A programmable dual-RNA-guided DNA endonuclease in adaptive bacterial immunity,&rdquo; Science 337(6096), 2012.", "https://doi.org/10.1126/science.1225829"],
+  ["About a third of patients improve on a sugar pill with no active ingredient.", "H. K. Beecher, &ldquo;The powerful placebo,&rdquo; J. Am. Med. Assoc. 159(17), 1955.", "https://doi.org/10.1001/jama.1955.02960340022006"],
+  ["A Mediterranean diet with olive oil or nuts cut heart attacks and strokes by about 30 percent.", "R. Estruch et al., &ldquo;Primary prevention of cardiovascular disease with a Mediterranean diet,&rdquo; N. Engl. J. Med. 368, 2013.", "https://doi.org/10.1056/NEJMoa1200303"],
+];
+const doorMain = `
+    <main class="cb-prerender" style="max-width:44rem;margin:0 auto;padding:3rem 1.25rem;font:16px/1.7 Georgia,'Times New Roman',serif;color:#1a1a1a;background:#fafaf9">
+      <nav style="margin-bottom:2.5rem;font:600 14px/1.5 system-ui,sans-serif">
+        <a href="/" style="color:#1a1a1a;text-decoration:none">Cerebrum</a>
+      </nav>
+      <h1 style="font-size:2rem;line-height:1.2;margin:0 0 1rem">Ask a question and get an answer from the research papers, with the sources attached.</h1>
+      <p style="font-size:1.05rem;color:#444">Cerebrum searches 14 open scholarly databases in parallel, including PubMed, Europe PMC, OpenAlex, Semantic Scholar, Crossref, arXiv, bioRxiv, DOAJ and PLOS, and answers from the papers it finds. Every claim links to a paper you can open, and when nothing is found, it says so plainly.</p>
+      <p><a href="/">Start researching</a></p>
+      <hr style="border:0;border-top:1px solid #e0ddd8;margin:2rem 0" />
+      <h2>Specimen claims, each traced to its paper</h2>
+      ${DOOR_SPECIMENS.map(([claim, paper, doi]) =>
+        `<p style="font-size:1.1rem;margin:1.4rem 0 .2rem">&ldquo;${claim}&rdquo;</p>\n      <p style="font-size:.9rem;color:#555;margin:0 0 1rem">${paper} <a href="${doi}" style="color:#555">Open the paper</a></p>`
+      ).join("\n")}
+      <h2 style="margin-top:2.5rem">Free to search</h2>
+      <p>Free, with no advertising and no sale of data. Searching and AI answers need no account, up to 50 AI answers every 5 days. An optional free account adds document reads and saved diagrams, and syncs your saved research.</p>
+      <hr style="border:0;border-top:1px solid #e0ddd8;margin:2.5rem 0 1.5rem" />
+      <p style="font:400 13px/1.6 system-ui,sans-serif;color:#6b6b6b">
+        <a href="/about" style="color:#6b6b6b">About</a> &middot;
+        <a href="/features" style="color:#6b6b6b">Features</a> &middot;
+        <a href="/pricing" style="color:#6b6b6b">Pricing</a> &middot;
+        <a href="/document-mode" style="color:#6b6b6b">Document Mode</a> &middot;
+        <a href="/diagram-studio" style="color:#6b6b6b">Diagram Studio</a> &middot;
+        <a href="/investigations" style="color:#6b6b6b">Investigations</a> &middot;
+        <a href="/privacy" style="color:#6b6b6b">Privacy</a> &middot;
+        <a href="/terms" style="color:#6b6b6b">Terms</a> &middot;
+        <a href="/disclosures" style="color:#6b6b6b">Disclosures</a> &middot;
+        <a href="/contact" style="color:#6b6b6b">Contact</a>
+      </p>
+    </main>`;
+
+let doorHtml = shell;
+doorHtml = doorHtml.replace(/<div id="root">[\s\S]*?<\/style><\/div>/, `<div id="root">${doorMain}</div>`);
+if (!doorHtml.includes("cb-prerender")) {
+  doorHtml = doorHtml.replace('<div id="root"></div>', `<div id="root">${doorMain}</div>`);
+}
+if (!doorHtml.includes("cb-prerender")) {
+  throw new Error("prerender: failed to inject door content for /");
+}
+doorHtml = doorHtml.replace(/<noscript>[\s\S]*?<\/noscript>/, "");
+await writeFile(join(dist, "index.html"), doorHtml, "utf8");
+
+console.log(`prerender: wrote ${written} static document${written === 1 ? "" : "s"} plus the door document`);
