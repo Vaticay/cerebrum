@@ -58,6 +58,8 @@ const {
   orderCitedSliceByCoverage,
   paperConceptGroupHits,
   isSystematicOrSurveyPaper,
+  evidenceClassInfo,
+  isSystematicReviewVenue,
 } = await import(join(root, "functions/api/search.js"));
 
 let passed = 0;
@@ -2002,6 +2004,93 @@ await test("a systematic review leads the cited slice ahead of a higher coverage
   assert.equal(ordered[0].url, "https://example.com/systematic-review",
     "the systematic review must lead the cited slice");
   assert.equal(ordered[1].url, "https://example.com/early-life");
+});
+
+await test("a null classed record in a systematic review venue classifies as systematic (R1 follow on, 2026-10-27)", () => {
+  // The acceptance record shape verbatim (citation remainder
+  // acceptance 03, the burn phrasing): the pool's Cochrane
+  // review carried type, studyType, and publicationTypes all
+  // null and an unmarked title, so every classification path
+  // missed it and the R1 class aware ordering could not see
+  // it. Its journal is the only signal in the record, and the
+  // journal names a systematic review venue.
+  const corpus = {
+    title: "Honey as a topical treatment for wounds.",
+    journal: "The Cochrane database of systematic reviews",
+    type: null, studyType: undefined, studyTypeKey: undefined, publicationTypes: null,
+    abstract: "",
+  };
+  const info = evidenceClassInfo(corpus);
+  assert.equal(info.classified, true, "the venue signal must classify the record: " + JSON.stringify(info));
+  assert.equal(info.cls.rank, 4, "the class must be the systematic rank: " + JSON.stringify(info));
+  assert.ok(isSystematicOrSurveyPaper(corpus), "the ordering flag must read the record as systematic");
+});
+
+await test("the venue signal speaks only for records nothing else classified (R1 follow on controls)", () => {
+  const corpus = {
+    title: "Honey as a topical treatment for wounds.",
+    journal: "The Cochrane database of systematic reviews",
+    type: null, studyType: undefined, studyTypeKey: undefined, publicationTypes: null,
+    abstract: "",
+  };
+  // Same null classed record in an ordinary journal: no
+  // signal anywhere, stays unclassified.
+  const ordinary = { ...corpus, journal: "Journal of Wound Care" };
+  assert.equal(evidenceClassInfo(ordinary).classified, false,
+    "an ordinary journal must not classify: " + JSON.stringify(evidenceClassInfo(ordinary)));
+  assert.ok(!isSystematicOrSurveyPaper(ordinary), "an ordinary journal must not read as systematic");
+  // A record with a populated class key keeps that class even
+  // in a systematic venue: the keyed determination runs first.
+  const keyed = { ...corpus, studyTypeKey: "RCT" };
+  assert.equal(evidenceClassInfo(keyed).cls.key, "controlled-trial",
+    "a populated studyTypeKey must keep its own class: " + JSON.stringify(evidenceClassInfo(keyed)));
+  // The venue matcher itself, on the known systematic venues
+  // and a plain primary journal.
+  for (const j of ["Systematic Reviews", "Campbell Systematic Reviews", "JBI Evidence Synthesis",
+    "JBI Database of Systematic Reviews and Implementation Reports",
+    "Database of abstracts of reviews of effects", "The Cochrane database of systematic reviews"]) {
+    assert.ok(isSystematicReviewVenue(j), "venue must match: " + j);
+  }
+  assert.ok(!isSystematicReviewVenue("Journal of Wound Care"), "a primary journal must not match");
+  assert.ok(!isSystematicReviewVenue(""), "an empty journal must not match");
+});
+
+await test("an empty types array no longer shadows the raw type string (R1 follow on, 2026-10-27)", () => {
+  // The fetchers stamp a flattened raw type on the record;
+  // where a record also carried an (empty) types array, the
+  // old construction read the array alone and dropped the
+  // string the record actually carried.
+  const raw = {
+    title: "Some review of things.",
+    journal: "Journal of Wound Care",
+    type: null, publicationTypes: [], _rawType: "Systematic Review",
+    abstract: "",
+  };
+  assert.equal(evidenceClassInfo(raw).cls.rank, 4,
+    "the carried raw type must classify: " + JSON.stringify(evidenceClassInfo(raw)));
+  assert.ok(isSystematicOrSurveyPaper(raw), "the ordering flag must see the raw typed record");
+});
+
+await test("the venue classified review leads the cited slice end to end (R1 follow on, 2026-10-27)", () => {
+  // The whole chain the acceptance draw failed: a null
+  // classed Cochrane record, invisible before this fix, now
+  // leads the slice ahead of a higher coverage primary.
+  const dyn = buildDynLookup(buildDeterministicFallbackGroups(BABY_GUT_Q, ["baby"]));
+  const corpus = {
+    title: "Honey as a topical treatment for wounds.",
+    journal: "The Cochrane database of systematic reviews",
+    type: null, studyType: undefined, studyTypeKey: undefined, publicationTypes: null,
+    abstract: "",
+    url: "https://example.com/cochrane-honey",
+  };
+  const primary = EARLY_LIFE_PAPER();
+  assert.ok(isSystematicOrSurveyPaper(corpus), "control: the corpus record now reads as systematic class");
+  assert.ok(paperConceptGroupHits(primary, questionConceptGroups(BABY_GUT_Q, dyn)) >
+    paperConceptGroupHits(corpus, questionConceptGroups(BABY_GUT_Q, dyn)),
+    "control: the primary still covers more of the question's groups");
+  const ordered = orderCitedSliceByCoverage([primary, corpus], BABY_GUT_Q, dyn);
+  assert.equal(ordered[0].url, "https://example.com/cochrane-honey",
+    "the venue classified review must lead the cited slice");
 });
 
 // ═══════════════════════════════════════════════════════════════════

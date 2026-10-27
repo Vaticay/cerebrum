@@ -16344,6 +16344,20 @@ function directionSide(text, stemA, stemB) {
   return null;
 }
 
+/* The source text as clauses, each with its content words:
+ * the units a direction verdict is allowed to read (R1 follow
+ * on, 2026-10-27). A clause boundary is a sentence end or one
+ * of the conjunction splits splitAtomicClaims uses for claims,
+ * so a direction verb and the outcome it governs stay in the
+ * same unit on both sides of the comparison. */
+function splitSourceClauses(srcText) {
+  return String(srcText || "")
+    .split(/[.!?;]+|\s*,\s*and\s+|\s+and\s+|\s+but\s+|\s+whereas\s+|\s+while\s+/i)
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .map((c) => ({ text: c, words: claimContentWords(c) }));
+}
+
 const BIND_DIRECTION_PAIRS = [
   ...DIRECTION_OPPOSITES,
   ["rais", "decreas"], ["rais", "lower"], ["rose", "lower"],
@@ -16376,15 +16390,39 @@ export function bindClaimToPaper(claim, paper) {
     contradicted = true;
     reasons.push("a number in the claim does not appear in the cited paper");
   }
-  // Direction: the paper must not push the opposite way on a pair
-  // the claim takes a side on. The pair list extends the shared
-  // DIRECTION_OPPOSITES with the raise and fall stems, which the
-  // shared list lacks and abstracts use constantly ("raised
-  // yield by 21%", "levels fell").
+  // Direction: the paper must not push the opposite way on a
+  // pair the claim takes a side on — on the SAME outcome. The
+  // pair list extends the shared DIRECTION_OPPOSITES with the
+  // raise and fall stems, which the shared list lacks and
+  // abstracts use constantly ("raised yield by 21%", "levels
+  // fell"). The source side is read from the paper's own
+  // clauses about the claim's outcome (clauses sharing a
+  // content word with the claim, the pair's own stems set
+  // aside), never from the whole text at once. An abstract
+  // that reports several outcomes in opposite directions
+  // shows a lone side for a pair whenever only one direction
+  // family appears in it, and judging a fragment about one
+  // outcome against a direction the paper took on another
+  // manufactured a reversal where the paper agreed with the
+  // claim on both outcomes. That false strip is the R1
+  // follow on specimen (2026-10-27): the honey dilution
+  // claim's first fragment ("enhanced cell proliferation,
+  // migration") read as reversed against an abstract whose
+  // only "reduc" token governs superoxide generation, in a
+  // claim whose whole sentence carried both verbs and passed
+  // every facet. Judged on its outcome's clauses, the paper
+  // takes no side against the fragment at all.
+  const srcClauses = splitSourceClauses(srcText);
   for (const [stemA, stemB] of BIND_DIRECTION_PAIRS) {
     const claimSide = directionSide(text, stemA, stemB);
     if (!claimSide) continue;
-    const srcSide = directionSide(srcText, stemA, stemB);
+    const outcomeWords = new Set([...contentSet].filter((w) => !w.startsWith(stemA) && !w.startsWith(stemB)));
+    const onOutcome = srcClauses
+      .filter((c) => c.words.some((w) => outcomeWords.has(w)))
+      .map((c) => c.text)
+      .join(" ");
+    if (!onOutcome) continue;
+    const srcSide = directionSide(onOutcome, stemA, stemB);
     if (srcSide && srcSide !== claimSide) {
       contradicted = true;
       reasons.push("the claim's direction is reversed in the cited paper");
@@ -21246,6 +21284,28 @@ const EVIDENCE_CLASS_UNCLASSIFIED = { rank: 2, key: "observational", label: "an 
  * capping reading; evidenceClassOfPaper keeps the ladder
  * reading, and both read this one classification so the two can
  * never disagree about what was determined. */
+/* Known systematic review venues (R1 follow on, 2026-10-27):
+ * journals that publish systematic reviews and their protocols
+ * and nothing else, so the venue's own name is an explicit class
+ * signal carried in the record — no title guessing involved.
+ * The phrase rule carries the venues whose names declare the
+ * genre: the Cochrane database of systematic reviews, Campbell
+ * Systematic Reviews, the journal literally named Systematic
+ * Reviews, the JBI database under its old name. The exact list
+ * carries the same JBI journal under its current name, which
+ * drops the phrase, and the DARE archive, which held systematic
+ * review abstracts only. */
+const SYSTEMATIC_VENUE_EXACT = new Set([
+  "jbi evidence synthesis",
+  "database of abstracts of reviews of effects",
+]);
+export function isSystematicReviewVenue(journal) {
+  const j = String(journal || "").toLowerCase().replace(/\s+/g, " ").trim().replace(/^the\s+/, "");
+  if (!j) return false;
+  if (SYSTEMATIC_VENUE_EXACT.has(j)) return true;
+  return /\bsystematic reviews?\b/.test(j);
+}
+
 export function evidenceClassInfo(paper) {
   const p = paper || {};
   const keyed = typeof p.studyTypeKey === "string" ? EVIDENCE_CLASS_BY_STUDY_KEY[p.studyTypeKey] : null;
@@ -21266,9 +21326,32 @@ export function evidenceClassInfo(paper) {
       return { cls: EVIDENCE_CLASS_BY_STUDY_KEY[classified.key], classified: true };
     }
   } catch { /* the text scan below is the fallback, never a failure */ }
-  const pubTypes = Array.isArray(p.publicationTypes)
-    ? p.publicationTypes.join(" ")
-    : String(p.publicationType || p._rawType || "");
+  // Every class field the record carries rides into this scan:
+  // the types array where a source sets one, plus the flattened
+  // raw type string the fetchers stamp (Europe PMC's pubType
+  // list, Semantic Scholar's publicationTypes). An empty array
+  // used to shadow the raw string entirely.
+  const pubTypes = [
+    ...(Array.isArray(p.publicationTypes) ? p.publicationTypes : []),
+    String(p.publicationType || ""),
+    String(p._rawType || ""),
+  ].filter(Boolean).join(" ");
+  // R1 FOLLOW ON (2026-10-27): the venue signal. A record can
+  // reach this fallback carrying no class data at all — type,
+  // studyType, and publicationTypes all null — while its
+  // journal names a venue that publishes nothing but
+  // systematic reviews. The October honey acceptance draw's
+  // Cochrane review ("Honey as a topical treatment for
+  // wounds", The Cochrane database of systematic reviews) was
+  // exactly that shape, and every path above missed it because
+  // none of them read the journal. The venue check runs only
+  // here, after the keyed, label, and text determinations, so
+  // a record with populated class fields keeps the class those
+  // fields earned; the venue speaks only for records nothing
+  // else classified.
+  if (isSystematicReviewVenue(p.journal)) {
+    return { cls: EVIDENCE_CLASS_BY_STUDY_KEY.SYSTEMATIC_REVIEW, classified: true };
+  }
   const hay = (String(p.title || "") + " " + pubTypes + " " + String(p.type || "")).toLowerCase();
   if (/\b(systematic review|meta[-\s]?analysis|meta[-\s]?analyses|umbrella review|cochrane)\b/.test(hay)) {
     return { cls: EVIDENCE_CLASS_BY_STUDY_KEY.SYSTEMATIC_REVIEW, classified: true };

@@ -72,6 +72,63 @@ ok("a reversed direction is contradicted", () => {
   assert.equal(b.status, "contradicted", JSON.stringify(b));
 });
 
+// ── R1 follow on (2026-10-27): direction binds per outcome ──
+// The acceptance specimen (citation remainder acceptance 04,
+// the myth phrasing): the draft cited the honey dilution study
+// for a list sentence whose whole form passed every facet.
+// splitAtomicClaims cut the list, and the first fragment
+// ("enhanced cell proliferation, migration") was judged
+// against the WHOLE abstract, whose only "reduc" token
+// governs superoxide generation — a different outcome, in a
+// sentence whose second half the claim also carried. The
+// fragment read as direction reversed, the strip removed the
+// marker, the sentence lost its citation, and the answer
+// shipped 2 citations from a 12 paper slice. Direction now
+// reads the paper's clauses about the claim's own outcome.
+const dilutionPaper = {
+  title: "Honey dilution impact on in vitro wound healing: Normoxic and hypoxic condition.",
+  abstract: "Honey is known as a popular healing agent against tropical infections and wounds. However, the effects of honey dilutions on keratinocyte (HaCaT) wound healing under hypoxic condition is still not explored. In this study, we examined whether honey dilution have wound healing potential under hypoxic stress. The antioxidant potential and healing efficacy of honey dilution on in vitro wound of human epidermal keratinocyte (HaCaT cells) under hypoxia (3% O2 ), and normoxia is explored by nitro blue tetrazolium assay. The cell survival % quantified by MTT assay to select four honey dilutions like 10, 1, 0.1, and 0.01 v/v% and the changes in cellular function was observed microscopically. Further, the cell proliferation, migration, cell-cell adhesion, and relevant gene expression were studied by flow cytometry, migration/scratch assay, immunocytochemistry, and reverse transcription-polymerase chain reaction, respectively. The expression pattern of cardinal molecular features viz. E-cadherin, cytoskeletal protein F-actin, p63, and hypoxia marker Hif 1α were examined. Honey dilution in 0.1% v/v combat wound healing limitations in vitro under normoxia and hypoxia (3%). Its wound healing potential was quantified by immunocytochemistry and real-time PCR for the associated molecular features that were responsible for cell proliferation and migration. Our data showed that honey dilution can be effective in hypoxic wound healing. Additionally, it reduced superoxide generation and supplied favorable bioambience for cell proliferation, migration, and differentiation during hypoxic wound healing.",
+};
+const dilutionClaim = "A 0.1 % v/v honey dilution enhanced cell proliferation, migration, and reduced superoxide generation, thereby improving wound-closure metrics in a scratch assay and modulating expression of E-cadherin, F-actin, p63 and hypoxia-inducible factor 1 alpha [2].";
+
+ok("a direction the paper took on a different outcome is not a reversal (R1 follow on)", () => {
+  const whole = bindClaimToPaper(dilutionClaim, dilutionPaper);
+  assert.equal(whole.status, "supported", JSON.stringify(whole));
+  const sentence = bindSentenceToPaper(dilutionClaim, dilutionPaper);
+  assert.equal(sentence.status, "supported", JSON.stringify(sentence));
+  const fragment = bindClaimToPaper("A 0.1 % v/v honey dilution enhanced cell proliferation, migration", dilutionPaper);
+  assert.equal(fragment.status, "supported", JSON.stringify(fragment));
+});
+
+ok("the strip keeps the dilution claim's marker (R1 follow on)", () => {
+  const trialPaper = {
+    title: "Wound healing with honey--a randomised controlled trial.",
+    abstract: "We compared wound healing with honey against conventional dressings in a randomised controlled trial of partial thickness burns and measured closure time across the treatment groups.",
+  };
+  const answer = "Honey dressings sped closure in the trial group [1]. " + dilutionClaim;
+  const r = stripUnsupportedCitations(answer, [trialPaper, dilutionPaper]);
+  assert.equal(r.removed.length, 0, JSON.stringify(r.removed));
+  assert.ok(r.text.includes("[2]"), "the dilution citation must survive: " + r.text);
+});
+
+ok("a reversal on the same outcome still contradicts (R1 follow on control)", () => {
+  const melanomaPaper = {
+    title: "Adjuvant treatment trial in resected melanoma",
+    abstract: "In the trial, the adjuvant treatment raised recurrence rates sharply compared with the observation control group over five years of follow up.",
+  };
+  const single = bindClaimToPaper("The adjuvant treatment lowered recurrence rates compared with the observation control group.", melanomaPaper);
+  assert.equal(single.status, "contradicted", JSON.stringify(single));
+  assert.ok(single.reasons.join(" ").includes("direction"), single.reasons.join(" "));
+  // The fused shape the atomic pass exists for: one true
+  // direction and one reversed direction in one sentence.
+  // The reversed fragment shares its outcome with the paper's
+  // direction clause, so the contradiction still fires.
+  const fused = bindSentenceToPaper(
+    "The treatment raised survival across the whole cohort during follow up, and it lowered recurrence rates compared with the observation control group.",
+    melanomaPaper);
+  assert.equal(fused.status, "contradicted", JSON.stringify(fused));
+});
+
 ok("a method the paper does not use is contradicted (the MnP shape)", () => {
   const productionPaper = {
     title: "Optimizing manganese peroxidase production in submerged culture",
