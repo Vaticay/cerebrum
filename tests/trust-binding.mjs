@@ -332,11 +332,17 @@ const TB_PAPERS = [
   },
 ];
 
+// PIN UPDATED (2026-10-27, citation remainder R1): systematic
+// reviews now lead the cited slice, so the presented evidence
+// order is review first, trial second. The canned answer's
+// markers and the stub verdicts' source indices below bind to
+// that numbering, exactly as a model and a checker working from
+// the presented list would. The pinned contracts are unchanged.
 const TB_ANSWER =
   "## Summary\n\n" +
-  "Creatine did not increase hair shedding in the trial that measured it [1]. " +
-  "It also appears to protect heart muscle during intense exercise in healthy adults [2]. " +
-  "Reviews of creatine in athletes likewise found no increase in hair shedding at standard doses [2].\n\n" +
+  "Creatine did not increase hair shedding in the trial that measured it [2]. " +
+  "It also appears to protect heart muscle during intense exercise in healthy adults [1]. " +
+  "Reviews of creatine in athletes likewise found no increase in hair shedding at standard doses [1].\n\n" +
   "## Where the studies disagree\n\n" +
   "A 2023 study in the Journal of Pediatric Health Care reported that creatine thinned hair in teenagers, " +
   "while Osei et al. (2021) found thicker hair in their cohort of young athletes.\n\n" +
@@ -347,14 +353,14 @@ const FC_SUPPORTED = {
   claims: [
     {
       claim: "Creatine did not increase hair shedding in the trial that measured it",
-      source_index: 1,
+      source_index: 2,
       quote: "Hair shedding counts and scalp hair density did not increase on creatine",
       status: "supported",
       justification: "The trial's abstract states the shedding outcome directly and the claim repeats it without widening it. The quote covers the dose and the follow up the claim relies on. Nothing in the claim goes beyond what the source reports.",
     },
     {
       claim: "It also appears to protect heart muscle during intense exercise in healthy adults",
-      source_index: 2,
+      source_index: 1,
       quote: "",
       status: "unsupported",
       justification: "No cited source mentions heart muscle, cardiac protection, or exercise recovery of the heart at all. The review covers safety outcomes in athletes and hair outcomes in three trials. The claim would need a cardiac outcome in some cited abstract to stand, and none is present.",
@@ -365,14 +371,14 @@ const FC_NONE_SUPPORTED = {
   claims: [
     {
       claim: "Creatine did not increase hair shedding in the trial that measured it",
-      source_index: 1,
+      source_index: 2,
       quote: "",
       status: "unsupported",
       justification: "In this stubbed verdict the checker reports that the abstract it was shown does not state the shedding outcome in the form the claim needs. The claim is therefore treated as unsupported for this scenario. The sentence must leave the shipped text.",
     },
     {
       claim: "It also appears to protect heart muscle during intense exercise in healthy adults",
-      source_index: 2,
+      source_index: 1,
       quote: "",
       status: "unsupported",
       justification: "No cited source mentions heart muscle or cardiac protection in any form. The claim has no footing in the cited set and is marked unsupported. The sentence must leave the shipped text.",

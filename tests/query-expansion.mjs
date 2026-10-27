@@ -57,6 +57,7 @@ const {
   applyConceptCoverageGate,
   orderCitedSliceByCoverage,
   paperConceptGroupHits,
+  isSystematicOrSurveyPaper,
 } = await import(join(root, "functions/api/search.js"));
 
 let passed = 0;
@@ -1977,6 +1978,30 @@ await test("duplicate records rank after distinct papers, whatever their coverag
   assert.equal(ordered[0], original, "the covering original leads");
   assert.equal(ordered[1], distinct, "the distinct paper outranks the duplicate");
   assert.equal(ordered[2], duplicate, "the duplicate ranks last despite sharing the top coverage");
+});
+
+await test("a systematic review leads the cited slice ahead of a higher coverage primary (R1, 2026-10-27)", () => {
+  // The October 24 honey funnel records: coverage alone put exact
+  // term primary studies ahead of the pool's systematic reviews at
+  // this step, and one review fell below the slice cut entirely.
+  // A gated systematic review now leads; coverage decides within
+  // the class.
+  const dyn = buildDynLookup(buildDeterministicFallbackGroups(BABY_GUT_Q, ["baby"]));
+  const review = {
+    title: "Microbial colonization and later health: a systematic review",
+    abstract: "This systematic review screened the published literature and summarized the reported outcomes across cohorts.",
+    url: "https://example.com/systematic-review",
+  };
+  const primary = EARLY_LIFE_PAPER();
+  assert.ok(isSystematicOrSurveyPaper(review), "control: the review fixture reads as systematic class");
+  assert.ok(!isSystematicOrSurveyPaper(primary), "control: the primary fixture is not systematic class");
+  const groups = questionConceptGroups(BABY_GUT_Q, dyn);
+  assert.ok(paperConceptGroupHits(primary, groups) > paperConceptGroupHits(review, groups),
+    "control: the primary covers more of the question's groups than the review");
+  const ordered = orderCitedSliceByCoverage([primary, review], BABY_GUT_Q, dyn);
+  assert.equal(ordered[0].url, "https://example.com/systematic-review",
+    "the systematic review must lead the cited slice");
+  assert.equal(ordered[1].url, "https://example.com/early-life");
 });
 
 // ═══════════════════════════════════════════════════════════════════

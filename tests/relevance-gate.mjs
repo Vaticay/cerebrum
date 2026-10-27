@@ -187,10 +187,17 @@ await test("hair only and neither papers never cite; the fallback is on the reco
     epmc(5, "Panacea: cure alls in the history of popular medicine",
       "A history of universal remedies, from hair tonics to bottled elixirs. Sellers promised restored hair, cured baldness, and renewed youth, and hair preparations outsold every other remedy in the catalogues of the period.", 100),
   ];
+  // PIN UPDATED (2026-10-27, citation remainder R1): systematic
+  // reviews now lead the cited slice, so the presented evidence
+  // order is review first, trial second, and this canned answer's
+  // markers bind to that numbering, exactly as a model writing
+  // against the presented list would. The pinned contract is
+  // unchanged: the cited set is the three creatine papers and the
+  // collision papers never cite.
   scenAnswer =
     "## Summary\n\n" +
-    "**Creatine** did not increase hair shedding or hair density loss in the randomized trial that measured both [1]. " +
-    "A systematic review of creatine in athletes likewise found no increase in hair shedding or hair loss [2]. " +
+    "**Creatine** did not increase hair shedding or hair density loss in the randomized trial that measured both [2]. " +
+    "A systematic review of creatine in athletes likewise found no increase in hair shedding or hair loss [1]. " +
     "A review of creatine dosing strategies found hair shedding reports rare and never confirmed in controlled measurements [3]. " +
     "School hair policies shape how pupils feel they belong, a separate literature about hair as culture [4]. " +
     "Sellers of cure alls once promised restored hair and cured baldness to anyone who paid [5].\n\n" +

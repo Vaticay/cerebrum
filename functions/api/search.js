@@ -20124,10 +20124,25 @@ export function orderCitedSliceByCoverage(papers, query, dynLookup) {
     const keys = paperDedupeKeys(p);
     const dup = keys.some((k) => seenKeys.has(k));
     for (const k of keys) seenKeys.add(k);
-    return { p, i, dup, hits: paperConceptGroupHits(p, groups) };
+    // CITATION REMAINDER R1 (2026-10-27): systematic class ranks
+    // ahead of coverage among distinct papers. The October 24
+    // funnel records named this step as where the honey order was
+    // decided: coverage alone demoted the pool's systematic
+    // reviews below exact term primary studies (probe 6: a review
+    // first at citationGate sat second at evidenceSlice behind a
+    // rat ointment study; probe 7: the pool's systematic review
+    // sat below the twelve paper slice cut entirely), and the
+    // shipped stage then dropped the review the slice had placed
+    // third (probe 8). A review that cleared the citation gate has
+    // already been judged on topic; coverage still decides the
+    // order within each class.
+    let sys = 0;
+    try { sys = isSystematicOrSurveyPaper(p) ? 1 : 0; } catch { sys = 0; }
+    return { p, i, dup, sys, hits: paperConceptGroupHits(p, groups) };
   });
   decorated.sort((a, b) =>
     (a.dup === b.dup ? 0 : a.dup ? 1 : -1) ||
+    (b.sys - a.sys) ||
     (b.hits - a.hits) ||
     (a.i - b.i));
   return decorated.map((x) => x.p);
