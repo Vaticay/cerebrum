@@ -91,7 +91,7 @@ const WANTED = [
   "negateCopula", "negateCopulaDetail", "swapVocabTerm", "swapVocabTermDetail",
   "RESTATE_WORDS", "firstWordsOf", "swapRestateWords", "stripReportFrame",
   "DANGLING_END_WORDS", "endsWithDangling", "lowerFirstWord",
-  "moveFrontClause", "rotateMidClause", "moveTrailingPhrase", "moveBecauseClause", "restateClaim", "withinOptionBand",
+  "moveFrontClause", "rotateMidClause", "moveTrailingPhrase", "moveBecauseClause", "screenedFrontMove", "screenedRotateMove", "falseStatementNote", "restateClaim", "withinOptionBand",
   "shuffledOptionsForCard",
   "quizCard", "clozeCard", "trueFalseCard", "cardCourseSignature", "courseDuplicateProblem",
   "VOCAB_STOP", "extractVocab", "vocabCard",
@@ -187,7 +187,7 @@ const {
   CORTEX_EXPORT_FORMAT, CORTEX_EXPORT_VERSION, buildCortexExport, parseCortexImport,
   applyCortexImport, restateClaim, quizCard, clozeCard, trueFalseCard, extractClaims, firstWordsOf, normKey,
   hasAttributionShape, createCourseFromResults, looksLikeFragment,
-  mutatedVariantDetails, mutatedVariants, negateCopula, swapVocabTerm, moveBecauseClause, parseNumberValue,
+  mutatedVariantDetails, mutatedVariants, negateCopula, negateCopulaDetail, flipDirection, flipDirectionDetail, swapVocabTerm, swapVocabTermDetail, moveBecauseClause, parseNumberValue,
   courseDuplicateProblem, cardCourseSignature, extractVocab, vocabCard, NUMBER_RE,
   quantifierOnlyOption, cardOptionQualityProblem,
   QUIZ_SIMILARITY_MAX, cardTextSimilarity, textContainsPassage, passagesRepeat, cardInternalRepeat, lessonRepeatProblem,
@@ -1823,8 +1823,13 @@ await test("a course built from a mixed answer carries no attribution anywhere",
   assert.ok(!/\b(19|20)\d{2}\b/.test(blob), "a year reached the built course");
   const basicsNote = course.lessons[0].cards[0];
   assert.equal(basicsNote.kind, "note", "the first lesson does not open with teaching");
+  // The comparison ignores bold markers since 2026-10-28 (Nova
+  // content rethink): the note builder now bolds each course
+  // term on first use inside the taught statement, so the
+  // statement's words are all present with ** around one term.
+  const noteWords = basicsNote.text.replace(/\*\*/g, "");
   for (const t of CLEAN_CLAIMS.slice(0, 3)) {
-    assert.ok(basicsNote.text.includes(t), `a clean claim is not taught: ${t.slice(0, 40)}`);
+    assert.ok(noteWords.includes(t), `a clean claim is not taught: ${t.slice(0, 40)}`);
   }
 });
 
@@ -4127,8 +4132,11 @@ await test("computeNovaMemory reads real progress: the weak subject computes, an
   assert.equal(facts.subjects.weak, "Matter and Energy");
   // Expectation moved 2026-10-14 (owner's voice ruling): the
   // memory templates were rewritten; the data slots are the same.
+  // Moved again 2026-10-28 (Nova content rethink): "scores leak"
+  // was machine assembled phrasing no person would say; the weak
+  // subject is now named in plain words.
   assert.equal(memoryLineFor(facts),
-    "Your Space and Physics is solid. The Matter and Energy scores leak.",
+    "Your Space and Physics is solid. Your Matter and Energy is lagging.",
     "the memory line should name the strong and weak subjects the progress proves");
   // Thin data: a brand new learner earns silence, not a guess.
   const thin = computeNovaMemory(cortexEmptyProfile(), cortexEmptyBuiltinProgress(), nowMs);
@@ -6102,21 +6110,35 @@ await test("quizCard with only true claim neighbours returns null", () => {
     "a quiz shipped whose only possible distractors were true claims");
 });
 
-await test("copula negation and term swap mutations exist and produce false variants", () => {
+await test("copula negation mutations exist and produce false variants", () => {
   const isClaim = { text: "Photosynthesis is the process plants use to turn light energy into chemical energy stored in sugars.", sourceIdx: 1 };
   const neg = mutatedVariantDetails(isClaim, [isClaim]);
   assert.ok(neg.some((d) => d.kind === "negation" && d.changed === "not" && d.text.includes("is not the process")),
     `no copula negation variant built: ${JSON.stringify(neg)}`);
   assert.equal(negateCopula("Plants do not photosynthesise at night when light is absent."), null,
     "a claim already carrying a negation was negated again");
+  for (const d of neg) assert.ok(d.text && d.changed, "a mutation does not report its changed span");
+});
+
+await test("term swap variants no longer ship, though the builder still builds them (2026-10-28)", () => {
+  // The Nova content rethink retired the term swap from the
+  // shipped variant pool: its pool is suffix and capitalisation
+  // matches, and in the audit's 50 claim sample all 10 of its
+  // outputs were noun phrases no person would say ("BCG
+  // syndrome", "trained immunity upon BCG tuberculosis"). The
+  // builder itself is unchanged and still produces the swap
+  // when called directly; mutatedVariantDetails just no longer
+  // offers it as a statement a learner reads.
   const swapPool = [
     { text: "The residue left after feeding still holds nitrogen and works as a slow release soil fertiliser for crops.", sourceIdx: 1 },
     { text: "Consolidation moves fragile memories into longer lasting storage during deep sleep each night.", sourceIdx: 2 },
   ];
-  const swap = mutatedVariantDetails(swapPool[0], swapPool);
-  assert.ok(swap.some((d) => d.kind === "termswap" && d.text.includes("consolidation") && !d.text.includes("nitrogen")),
-    `no term swap variant built: ${JSON.stringify(swap)}`);
-  for (const d of [...neg, ...swap]) assert.ok(d.text && d.changed, "a mutation does not report its changed span");
+  const direct = swapVocabTermDetail(swapPool[0].text, swapPool);
+  assert.ok(direct && direct.text.includes("consolidation") && !direct.text.includes("nitrogen"),
+    `the term swap builder itself changed: ${JSON.stringify(direct)}`);
+  const shipped = mutatedVariantDetails(swapPool[0], swapPool);
+  assert.ok(!shipped.some((d) => d.kind === "termswap"),
+    `a term swap variant shipped: ${JSON.stringify(shipped)}`);
 });
 
 await test("mutated true or false cards build in the mkTrueFalse shape", () => {
@@ -6290,6 +6312,118 @@ await test("the course builder refuses excerpt tier answers in plain words", () 
   const sentence = "The search could only pull source excerpts together for this topic right now and a course built from excerpts would teach nothing, so try again in a little while.";
   assert.ok(learnSrc.includes(sentence), "the excerpt refusal sentence is not what the builder shows");
   assert.ok(!sentence.includes("-"), "the excerpt refusal sentence carries a dash");
+});
+
+/* ── Nova content rethink (2026-10-28): the audit's verbatim
+   exhibits become fixtures. The generated pipeline was scored
+   as writing (280 of 1000 overall) on real answers: notes were
+   the answer concatenated, every why was the claim verbatim,
+   restatements were clause rotations that read garbled, and
+   the spoken feedback said a restatement and then the claim it
+   restated. The tests below pin the rebuild against the exact
+   sentences the audit quoted. */
+
+await test("restateClaim never ships the audit's garbled rotations", () => {
+  const cases = [
+    // Trailing phrase fronted: "In sugars, photosynthesis is..."
+    "Photosynthesis is the process plants use to turn light energy into chemical energy stored in sugars.",
+    // Trailing phrase fronted: "On the water in the oceans, ocean tides..."
+    "Ocean tides are caused mainly by the gravitational pull of the Moon on the water in the oceans.",
+    // List fragment rotated: "Including food waste, black soldier fly larvae eat..."
+    "Black soldier fly larvae eat decaying organic matter, including food waste, manure, and spoiled fruit and vegetables.",
+    // And led main clause after a front move: the comma splice.
+    "In narrow bays the incoming tide can be funnelled upward, and the Bay of Fundy sees tidal ranges over 12 metres.",
+    // Two fronted phrases stacked.
+    "Under warm conditions near 27°C, larvae reach the prepupal stage in about 14 days after hatching.",
+  ];
+  for (const text of cases) {
+    const out = restateClaim(text);
+    assert.ok(!/^(In sugars|On the water|Including food waste|And the Bay of Fundy|In about 14 days)/.test(out),
+      `a garbled rotation shipped: ${out.slice(0, 60)}`);
+    assert.ok(!out.includes(", in narrow bays the incoming tide"),
+      `the comma splice rotation shipped: ${out.slice(0, 60)}`);
+  }
+  // The stranded intensifier: a restatement may not end on "even."
+  const yawn = "Observations of the rare phenomenon show that a yawn can unlock preserved motor circuits, suggesting that yawning taps into ancient pathways that can release motor programs even after focal cortical injury.";
+  assert.ok(!restateClaim(yawn).replace(/[.!?]+$/, "").trim().endsWith("even"),
+    `a restatement stranded an even: ${restateClaim(yawn).slice(-40)}`);
+});
+
+await test("generated cards never carry the retired stems, and a course asks its own question", () => {
+  for (const { course } of NOVA_COURSES) {
+    for (const lesson of course.lessons) for (const card of lesson.cards) {
+      assert.notEqual(card.question, "Which of these statements is correct?",
+        "the retired generic stem shipped on a generated card");
+      assert.ok(!String(card.question || "").startsWith("Predict the result"),
+        "the retired cloze stem shipped on a generated card");
+    }
+  }
+  const card = quizCard(CLAIM_TRIAL, QUIZ_CLAIMS, QUIZ_SOURCES);
+  assert.ok(card, "the trial fixture no longer builds a statement quiz");
+  assert.equal(card.question, "Which statement is true?", "the default stem is not the plain one");
+  const asked = quizCard(CLAIM_TRIAL, QUIZ_CLAIMS, QUIZ_SOURCES, { question: "Why does sleep loss raise infection risk?" });
+  assert.equal(asked.question, "Why does sleep loss raise infection risk?",
+    "a statement quiz did not ask the course's own question");
+});
+
+await test("a false statement's feedback names the change before it teaches the truth", () => {
+  const claim = { text: "Losing sleep the night after learning reduces recall by about 40% compared with sleeping normally.", sourceIdx: 3 };
+  let falseCard = null, trueCard = null;
+  for (let salt = 0; salt < 8 && (!falseCard || !trueCard); salt++) {
+    const c = trueFalseCard(claim, [claim], QUIZ_SOURCES, { salt });
+    if (!c) continue;
+    if (c.answer === false && !falseCard) falseCard = c;
+    if (c.answer === true && !trueCard) trueCard = c;
+  }
+  assert.ok(falseCard && trueCard, "the fixture did not build both a true and a false card");
+  assert.equal(trueCard.why, claim.text, "a true statement's why is not the taught claim");
+  assert.ok(/^The statement (says|adds)/.test(falseCard.why),
+    `a false statement's why does not name the change: ${falseCard.why.slice(0, 70)}`);
+  assert.ok(falseCard.why.endsWith(claim.text),
+    "a false statement's why does not close with the taught claim in full");
+});
+
+await test("mutation screens: paired directions and which clause copulas are left alone", () => {
+  assert.equal(flipDirection("Responses were measured before or after prime vaccination in both groups."), null,
+    "a before or after pair was flipped into nonsense");
+  assert.equal(flipDirection("Typing speed rose after sleep in the trained group."), "Typing speed fell after sleep in the trained group.",
+    "an unpaired direction word no longer flips");
+  assert.equal(negateCopula("Chlorophyll in the leaves absorbs mostly blue and red light and reflects green light, which is why most leaves look green."), null,
+    "a which clause copula was negated, denying the explanation instead of the claim");
+  assert.ok(negateCopula("Memory consolidation is stronger after a full night of sleep.").includes("is not stronger"),
+    "a main clause copula no longer negates");
+});
+
+await test("claim hygiene, second round: paper voice, orphans, and non findings stay out", () => {
+  const md = "## Summary\n\n" + [
+    "We immunized healthy individuals with the vaccine before the season began. [1]",
+    "This study shows that the vaccine reduced infections across the whole trial group. [1]",
+    "It also increased antibody levels in the weeks after vaccination. [1]",
+    "Further research is needed to confirm the effect in older adults. [1]",
+    "Participants were randomly assigned to receive either the vaccine or a salt water shot. [1]",
+    "Adults who received the vaccine reported fewer infections over the following winter season. [1]",
+  ].join("\n") + "\n";
+  const claims = extractClaims(md);
+  assert.equal(claims.length, 1, `the hygiene screens admitted the wrong sentences: ${JSON.stringify(claims.map((c) => c.text))}`);
+  assert.ok(claims[0].text.startsWith("Adults who received the vaccine"), "the one clean claim did not survive");
+});
+
+await test("she does not speak a restatement and then the claim it restates", () => {
+  // The audit's assembled exhibit, word for word in structure:
+  // the correction reads the correct option (a clause rotated
+  // restatement) and the why is the claim itself.
+  const why = "During deep sleep, the brain replays new memories and moves them into long term storage.";
+  const said = feedbackTeachLine({ kind: "quiz", why }, { good: false, correctText: "The brain replays new memories and moves them into long term storage, during deep sleep." });
+  assert.equal(said, why, `she spoke the passage twice in two orders: ${said}`);
+});
+
+await test("the first generated lesson opens on the course's question, one paragraph per idea", () => {
+  const course = createCourseFromResults("Why does sleep help memory?", LEAK_SOURCES, LEAK_MD);
+  assert.ok(course, "the question fixture built no course");
+  const note = course.lessons[0].cards[0];
+  assert.equal(note.kind, "note");
+  assert.equal(note.title, "Why does sleep help memory?", "the first note does not open on the course's question");
+  assert.ok(note.text.includes("\n\n"), "the note is still one joined block instead of a paragraph per idea");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

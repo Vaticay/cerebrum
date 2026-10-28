@@ -998,9 +998,24 @@ function extractClaims(answerMd) {
          points at a figure or a table points at something the
          lesson does not hold. Neither becomes a claim. The year
          screen and the attribution screens above are untouched. */
-      if (/\bwe\s+(?:found|showed|measured|observed|tested)\b/i.test(text)) continue;
+      if (/\bwe\s+(?:found|showed|measured|observed|tested|immunized|surveyed|recruited|demonstrated|investigated|examined|assessed|evaluated|conducted|administered|enrolled|assigned|randomized)\b/i.test(text)) continue;
       if (/\bour\s+(?:study|results|data|findings)\b/i.test(text)) continue;
       if (/\b(?:figure|fig\.|table)\s*\d+\b/i.test(text)) continue;
+      /* Claim hygiene, second round (2026-10-28, Nova content
+         rethink): three more shapes that cannot teach standing
+         alone. A sentence opening on a bare pronoun reaching for a
+         verb ("It also increased...", "They show...") points back
+         at a sentence the lesson does not hold. A sentence opening
+         by naming the paper ("This study shows...") speaks in the
+         paper's voice, not the lesson's. A hedged non finding
+         ("Further research is needed...") and methods boilerplate
+         ("Participants were randomly assigned...") carry no fact
+         about the topic at all. The October screens above stay;
+         these join them. */
+      if (/^(?:it|they|this|these|those|he|she)\s+(?:also|is|are|was|were|shows?|means?|suggests?|indicates?|found|makes?|gives?|leads?)\b/i.test(text)) continue;
+      if (/^(?:this|the)\s+(?:study|trial|experiment|analysis|paper|review)\s+(?:shows?|found|reports?|demonstrates?|suggests?|indicates?|measured|observed)\b/i.test(text)) continue;
+      if (/\b(?:further|more) research is needed\b|\bcannot be established\b|\bremains? (?:unclear|unknown|to be seen)\b/i.test(text)) continue;
+      if (/\bwere randomly assigned\b|\bparticipants were (?:recruited|enrolled|assigned)\b/i.test(text)) continue;
       claims.push({ text, sourceIdx: useCites[0] });
     }
   }
@@ -1067,12 +1082,28 @@ const FLIP_WORDS = {
    pool, which drew distractors from the course's other claims, is
    gone from the builders entirely. */
 function flipDirectionDetail(text) {
-  const m = text.match(new RegExp("\\b(" + Object.keys(FLIP_WORDS).join("|") + ")\\b", "i"));
-  if (!m) return null;
-  const word = m[1];
-  const flipped = FLIP_WORDS[word.toLowerCase()];
-  const repl = word[0] === word[0].toUpperCase() ? flipped[0].toUpperCase() + flipped.slice(1) : flipped;
-  return { text: text.replace(m[0], repl), changed: repl };
+  const re = new RegExp("\\b(" + Object.keys(FLIP_WORDS).join("|") + ")\\b", "gi");
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const word = m[1];
+    const lw = word.toLowerCase();
+    /* Pair screen (2026-10-28, Nova content rethink): in a
+       "before or after" pair the two words name one time window
+       together, and flipping one of them produced statements
+       like "after or after prime vaccination" in the audit
+       sample, a string no person would write. A paired word is
+       skipped; a later unpaired direction word can still flip.
+       The detail also reports the word it replaced, so feedback
+       can name the swap instead of only repeating the finding. */
+    if (lw === "before" || lw === "after") {
+      const around = text.slice(Math.max(0, m.index - 14), m.index + word.length + 14).toLowerCase();
+      if (/\b(?:before|after)\s+or\s+(?:before|after)\b/.test(around)) continue;
+    }
+    const flipped = FLIP_WORDS[lw];
+    const repl = word[0] === word[0].toUpperCase() ? flipped[0].toUpperCase() + flipped.slice(1) : flipped;
+    return { text: text.slice(0, m.index) + repl + text.slice(m.index + word.length), changed: repl, original: word };
+  }
+  return null;
 }
 function flipDirection(text) {
   const d = flipDirectionDetail(text);
@@ -1091,7 +1122,11 @@ function scaleNumberDetail(text, factor) {
   let formatted = decimals ? next.toFixed(decimals) : String(Math.round(next));
   if (numMatch[0].includes(",") && next >= 1000) formatted = Number(formatted).toLocaleString("en-US");
   if (formatted === numMatch[0]) return null;
-  return { text: text.replace(raw, raw.replace(numMatch[0], formatted)), changed: formatted };
+  /* The detail reports the whole value span on both sides of the
+     change (2026-10-28, Nova content rethink), unit included, so
+     feedback can say "the statement says 83% where the finding
+     says 55%" instead of naming a bare number. */
+  return { text: text.replace(raw, raw.replace(numMatch[0], formatted)), changed: raw.replace(numMatch[0], formatted), original: raw };
 }
 function scaleNumberIn(text, factor, salt) {
   const d = scaleNumberDetail(text, factor);
@@ -1103,10 +1138,22 @@ function scaleNumberIn(text, factor, salt) {
    negation or quietly cancelling the first. */
 function negateCopulaDetail(text) {
   if (/\b(?:not|never|no|n't|cannot)\b/i.test(text)) return null;
-  const m = text.match(/\b(is|are|was|were)\b/i);
-  if (!m) return null;
-  const at = m.index + m[0].length;
-  return { text: text.slice(0, at) + " not" + text.slice(at), changed: "not" };
+  const re = /\b(is|are|was|were)\b/gi;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    /* Which screen (2026-10-28, Nova content rethink): a copula
+       that directly follows "which" negates the explanation
+       clause, not the claim ("reflects green light, which is why
+       leaves look green" became "which is not why..."), and the
+       lesson's why then has to unpick a denial of its own
+       reasoning. Skip it; a main clause copula later in the
+       sentence can still carry the negation. */
+    const prevWord = text.slice(0, m.index).trimEnd().match(/(\S+)$/);
+    if (prevWord && prevWord[1].toLowerCase() === "which") continue;
+    const at = m.index + m[0].length;
+    return { text: text.slice(0, at) + " not" + text.slice(at), changed: "not" };
+  }
+  return null;
 }
 function negateCopula(text) {
   const d = negateCopulaDetail(text);
@@ -1150,13 +1197,26 @@ function mutatedVariantDetails(claim, allClaims) {
     const k = normKey(d.text);
     if (seen.has(k)) return;
     seen.add(k);
-    out.push({ text: d.text, kind, changed: d.changed || "" });
+    /* The original span rides along since 2026-10-28 (Nova
+       content rethink): feedback names both sides of a change
+       ("says 60% where the finding says 40%"), so the detail
+       must not drop the span it replaced. */
+    out.push({ text: d.text, kind, changed: d.changed || "", original: d.original || "" });
   };
   push(flipDirectionDetail(claim.text), "flip");
   push(scaleNumberDetail(claim.text, 1.5), "scale");
   push(scaleNumberDetail(claim.text, 0.6), "scale");
   push(negateCopulaDetail(claim.text), "negation");
-  push(swapVocabTermDetail(claim.text, allClaims), "termswap");
+  /* The term swap no longer ships in variants (2026-10-28, Nova
+     content rethink). The swap pool is suffix and capitalisation
+     matches, so it treats diseases, processes, and measures as
+     interchangeable: in the audit's 50 claim sample all 10 term
+     swap outputs were noun phrases no person would say ("BCG
+     syndrome", "an adaptive immune response against activation",
+     "trained immunity upon BCG tuberculosis"). Terms are still
+     taught and checked by the vocabulary form, which blanks the
+     term and offers same class replacements. The builder stays
+     in the file; it just stops writing statements learners read. */
   return out;
 }
 function mutatedVariants(claim, allClaims) {
@@ -1252,6 +1312,10 @@ function stripReportFrame(text) {
    why gate then drops honestly. */
 const DANGLING_END_WORDS = new Set([
   "than", "to", "of", "in", "on", "with", "by", "for", "and", "or", "the", "a", "an",
+  /* "even" joined on 2026-10-28 (Nova content rethink): a fronted
+     phrase stranded it at the end of the yawning claim's
+     restatement ("can release motor programs even."). */
+  "even",
 ]);
 function endsWithDangling(text) {
   const w = String(text || "").replace(/[.!?;:,")\]]+$/, "").trim().split(/\s+/).pop();
@@ -1344,31 +1408,65 @@ function moveTrailingPhrase(text) {
   const out = tail[0].toUpperCase() + tail.slice(1) + ", " + main[0].toLowerCase() + main.slice(1) + ".";
   return endsWithDangling(out) ? null : out;
 }
+/* The front clause move, screened (2026-10-28, Nova content
+   rethink): moving a front clause to the end is sound when the
+   main clause stands on its own, and broken when the main clause
+   opens on a conjunction, where the result reads as a comma
+   splice ("...sees tidal ranges over 12 metres, in narrow bays
+   the incoming tide can be funnelled upward."). A main clause
+   opening on And or But refuses the move. */
+function screenedFrontMove(text) {
+  const m = text.match(/^((?:In|Among|Across|During|After|Before|Over|Within|Using|For|Compared with|Compared to)\b[^,]{3,70}),\s+(.+)$/s);
+  if (m && /^(?:and|but)\b/i.test(m[2].trim())) return null;
+  return moveFrontClause(text);
+}
+/* The mid clause rotation, screened (2026-10-28, Nova content
+   rethink): a mid clause that names a comparison or a method
+   ("compared with...", "based on...", "using...") is a complete
+   unit and survives being rotated to the front. A mid clause
+   opening on "including" is a list fragment, and one opening on
+   a bare "with" is a phrase fragment: rotating either strands
+   the rest of its list or phrase behind ("Including food waste,
+   black soldier fly larvae eat decaying organic matter, manure,
+   and spoiled fruit and vegetables."). Both starters refuse. */
+function screenedRotateMove(text) {
+  const parts = String(text || "").split(", ");
+  if (parts.length < 3) return null;
+  if (!/^(?:compared|based|using|involving)\b/i.test(parts[1].trim())) return null;
+  return rotateMidClause(text);
+}
 function restateClaim(text) {
   const orig = String(text || "").trim();
   if (!orig) return orig;
-  /* A comparative claim keeps its than phrase attached: the
-     trailing phrase move and the mid clause rotation are both
-     disabled, since either can separate a comparison from the
-     phrase that completes it. The front clause and because moves
-     carry their own guards and stay available. */
-  const hasThan = / than /i.test(orig);
+  /* The move set shrank on 2026-10-28 (Nova content rethink).
+     The audit ran restateClaim over 50 real claims: 26 outputs
+     changed, 25 of them by clause rotation, and 18 of the 26 read
+     stilted or garbled ("In sugars, photosynthesis is the process
+     plants use...", "On the water in the oceans, ocean tides are
+     caused...", one ending "can release motor programs even.").
+     The trailing phrase move made the worst of those and is
+     retired as a restatement engine outright. The mid clause
+     rotation and the front clause move stay only behind their
+     screens above, which refuse the shapes the audit caught.
+     What else stays: the report frame strip, the word swaps, and
+     the because move, the one move whose audit outputs read as
+     English every time. A claim none of those can restate comes
+     back unchanged, and the card gates drop it honestly instead
+     of shipping a rotation. The comparative guard from the
+     quality wave is retired with the trailing move it guarded. */
   let out = stripReportFrame(orig);
   out = swapRestateWords(out);
   if (firstWordsOf(out, 3) === firstWordsOf(orig, 3)) {
-    out = moveFrontClause(out) || (hasThan ? null : rotateMidClause(out)) || moveBecauseClause(out) || out;
+    out = moveBecauseClause(out) || screenedFrontMove(out) || screenedRotateMove(out) || out;
   }
   if (out === orig || cardTextSimilarity(out, orig) >= QUIZ_SIMILARITY_MAX) {
     /* A further move may only take the restatement somewhere new:
        a candidate that reproduces the original is the first
-       move undone, not a restatement (the trailing move on a
-       front moved clause fronts the same clause straight back).
-       The because move goes first, then the mid clause rotation,
-       then the trailing move, each with its own guards. */
+       move undone, not a restatement. */
     const candidates = [
       moveBecauseClause(out),
-      hasThan ? null : rotateMidClause(out),
-      hasThan ? null : moveTrailingPhrase(out),
+      screenedFrontMove(out),
+      screenedRotateMove(out),
     ];
     for (const cand of candidates) {
       if (cand && normKey(cand) !== normKey(orig)) { out = cand; break; }
@@ -1438,7 +1536,13 @@ function quizCard(claim, allClaims, sources, opts = {}) {
   const card = {
     kind: "quiz",
     claimId: "cl" + hashStr(claim.text) + "-" + (claimSeq++),
-    question: opts.question || "Which of these statements is correct?",
+    /* The stem (2026-10-28, Nova content rethink): the course
+       builder passes the learner's own question when it has one,
+       so the card asks the question the course exists to answer.
+       The old default ("Which of these statements is correct?")
+       is retired; it was the only question string a generated
+       statement quiz could carry, on every topic alike. */
+    question: opts.question || "Which statement is true?",
     options,
     correct: options.indexOf(answer),
     /* Feedback is the taught statement itself, in plain words. The
@@ -1471,12 +1575,32 @@ function quizCard(claim, allClaims, sources, opts = {}) {
    after a false one has been judged. A claim with no mutation
    builds no card here: with nothing false to set against it, the
    only honest statement would be the claim verbatim. */
+/* The note a false statement's feedback opens with (2026-10-28,
+   Nova content rethink): it names the one change the mutation
+   made, in plain words, before the true statement follows. The
+   audit found every generated why was the claim verbatim, so a
+   learner who judged a false statement got the paper sentence
+   repeated at them with no word about what made theirs false. */
+function falseStatementNote(detail) {
+  if (!detail) return "";
+  if (detail.kind === "flip" && detail.original) {
+    return "The statement says \"" + detail.changed + "\" where the finding says \"" + detail.original + "\". ";
+  }
+  if (detail.kind === "scale" && detail.original) {
+    return "The statement says " + detail.changed + " where the finding says " + detail.original + ". ";
+  }
+  if (detail.kind === "negation") {
+    return "The statement adds a \"not\" that the finding does not have. ";
+  }
+  return "";
+}
 function trueFalseCard(claim, allClaims, sources, opts = {}) {
   const details = mutatedVariantDetails(claim, allClaims);
   if (!details.length) return null;
   const salt = hashStr(claim.text) + (opts.salt || 0);
   const useFalse = salt % 2 === 0;
-  const statement = useFalse ? details[salt % details.length].text : claim.text;
+  const detail = useFalse ? details[salt % details.length] : null;
+  const statement = useFalse ? detail.text : claim.text;
   const answer = !useFalse;
   return {
     kind: "truefalse",
@@ -1485,7 +1609,11 @@ function trueFalseCard(claim, allClaims, sources, opts = {}) {
     answer,
     correct: answer ? 0 : 1,
     options: ["True", "False"],
-    why: claim.text,
+    /* A true statement's why is the taught claim, as before. A
+       false statement's why opens with the change note and then
+       gives the taught claim in full, so the feedback teaches
+       what was changed and what is true in one read. */
+    why: useFalse ? falseStatementNote(detail) + claim.text : claim.text,
   };
 }
 function clozeCard(claim, allClaims, sources, opts = {}) {
@@ -1514,7 +1642,11 @@ function clozeCard(claim, allClaims, sources, opts = {}) {
     kind: "cloze",
     claimId: "cl" + hashStr(claim.text) + "-" + (claimSeq++),
     prompt: claim.text.replace(m[1], "_____"),
-    question: "Predict the result: what value completes this statement?",
+    /* Stem corrected 2026-10-28 (Nova content rethink): filling
+       in a blanked value is recall, not prediction, and the old
+       stem ("Predict the result: ...") misnamed the act on every
+       cloze card the pipeline built. */
+    question: "What value completes this statement?",
     options,
     correct: options.indexOf(value),
     why: claim.text,
@@ -1764,6 +1896,50 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
      quiz is statement restatement, and term is term in context. */
   const usedTeachTerms = new Set();
   const taughtForm = new Map();
+  /* The learner's own question, when the query is one (2026-10-28,
+     Nova content rethink): generated statement quizzes ask it
+     directly, since every option is a candidate answer to it,
+     and the first lesson's note heading carries it, so the course
+     opens on the question it exists to answer instead of a
+     furniture heading. A keyword style query is not a question
+     and never poses as one. */
+  const qStem = (() => {
+    const q = String(query || "").trim();
+    if (!q) return null;
+    if (/\?$/.test(q) || /^(?:how|why|what|when|where|which|who|can|do|does|is|are)\b/i.test(q)) {
+      return /[?.]$/.test(q) ? q : q + "?";
+    }
+    return null;
+  })();
+  /* Terms bolded on first use in the teaching notes (2026-10-28,
+     Nova content rethink): the notes are the answer's sentences,
+     and the audit found terms arriving with no signpost at all.
+     The note render already bolds **marked** terms; the builder
+     now marks each course vocabulary term the first time a
+     taught statement uses it, once per course. Checks keep the
+     raw statement; only the reading passage is marked. */
+  const boldedTerms = new Set();
+  const teachText = (c) => {
+    let t = c.text;
+    /* One term per paragraph at most: the first audit build
+       bolded every suffix matched term in a statement and a
+       two sentence note carried five bolded terms, which reads
+       as keyword stuffing, not a signpost. The first term a
+       statement carries that the course has not bolded yet is
+       the one that gets marked. */
+    for (const entry of extractVocab([c])) {
+      const key = entry.term.toLowerCase();
+      if (boldedTerms.has(key)) continue;
+      const esc = entry.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const m = t.match(new RegExp("\\b" + esc + "\\b", "i"));
+      if (!m) continue;
+      if (t.slice(0, m.index).endsWith("**")) continue;
+      t = t.slice(0, m.index) + "**" + m[0] + "**" + t.slice(m.index + m[0].length);
+      boldedTerms.add(key);
+      break;
+    }
+    return t;
+  };
   /* A term card for one statement, or null. The statement alone
      is run through extractVocab, so the term is one the statement
      itself carries, and the card is built against the course
@@ -1780,19 +1956,24 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     }
     return null;
   };
-  /* One check per taught statement, in the thinking order
-     (2026-10-23, Nova quality wave): value prediction when the
-     statement carries a value worth predicting, true or false
-     when a mutation exists to judge, statement restatement when
-     three false variants build for it, and term in context for
-     the rest. One drop is counted when every form has failed. */
+  /* One check per taught statement, in the thinking order:
+     value prediction when the statement carries a value worth
+     predicting, statement restatement when three false variants
+     build for it, true or false when a mutation exists to judge,
+     and term in context for the rest. One drop is counted when
+     every form has failed. The statement quiz moved ahead of
+     true or false on 2026-10-28 (Nova content rethink): the
+     audit's built courses were 34 true or false taps against 0
+     statement quizzes, because true or false needs only one
+     mutation and was asked first, starving the one form that
+     asks a real question of every claim it could have taken. */
   const checkFor = (c) => {
     const cz = !clozed.has(c.text) ? clozeCard(c, claims, srcs) : null;
     if (cz) { clozed.add(c.text); taughtForm.set(c.text, "cloze"); return cz; }
+    const q = quizCard(c, claims, srcs, { question: qStem || undefined });
+    if (q) { taughtForm.set(c.text, "quiz"); return q; }
     const tf = trueFalseCard(c, claims, srcs);
     if (tf) { taughtForm.set(c.text, "truefalse"); return tf; }
-    const q = quizCard(c, claims, srcs);
-    if (q) { taughtForm.set(c.text, "quiz"); return q; }
     const tc = termFor(c, usedTeachTerms);
     if (tc) { taughtForm.set(c.text, "term"); return tc; }
     droppedChecks++;
@@ -1835,14 +2016,21 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     return {
       id, title, subtitle,
       cards: dropLessonRepeats([
-        { kind: "note", kicker, title: heading, text: chunk.map((c) => c.text).join(" ") },
+        /* One paragraph per idea (2026-10-28, Nova content
+           rethink): the note used to join its statements with
+           single spaces into one block, so three unrelated paper
+           sentences read as one breathless paragraph. Each
+           statement is now its own paragraph, with its first
+           used term bolded by teachText, and the Player renders
+           note text paragraph by paragraph. */
+        { kind: "note", kicker, title: heading, text: chunk.map(teachText).join("\n\n") },
         ...checks,
       ]),
     };
   };
 
   lessons.push(teachLesson("basics", "The Basics", "The core ideas, in plain statements",
-    "Start here", "The ideas, in plain words", first));
+    "Start here", qStem || "The ideas, in plain words", first));
   if (second.length) {
     lessons.push(teachLesson("deeper", "Going Deeper", "More of the topic, the same plain way",
       "Going deeper", "More ideas, in plain words", second));
@@ -1884,7 +2072,10 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     const usedReviewTerms = new Set();
     const reviewCheckFor = (c) => {
       const taughtAs = taughtForm.get(c.text);
-      const forms = ["cloze", "truefalse", "quiz", "term"];
+      /* The rotation follows the same thinking order as the
+         teaching checks since 2026-10-28 (Nova content rethink):
+         the statement quiz is tried before true or false. */
+      const forms = ["cloze", "quiz", "truefalse", "term"];
       const order = taughtAs ? [...forms.filter((f) => f !== taughtAs), taughtAs] : forms;
       for (const form of order) {
         const card = form === "cloze"
@@ -1893,7 +2084,7 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
             ? trueFalseCard(c, claims, srcs, { salt: REVIEW_SALT })
             : form === "term"
               ? termFor(c, usedReviewTerms)
-              : quizCard(c, claims, srcs, { salt: REVIEW_SALT });
+              : quizCard(c, claims, srcs, { salt: REVIEW_SALT, question: qStem || undefined });
         if (card) return card;
       }
       droppedChecks++;
@@ -1961,7 +2152,19 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
 
   const reviewLesson = shipped.find((l) => l.id === "review");
   const vocabLesson = shipped.find((l) => l.id === "vocab");
-  const shippedTerms = vocabLesson ? vocabLesson.cards.filter((c) => c.vocab).length : 0;
+  /* The announced term count (2026-10-28, Nova content rethink):
+     the audit caught the summary announcing the vocabulary
+     lesson's card count while the course record listed more
+     terms and the review lesson quizzed terms the count never
+     mentioned. The count is now every distinct term a shipped
+     card in any lesson actually asks about. The gate stays: no
+     shipped term card anywhere, no term clause in the summary. */
+  const shippedTerms = (() => {
+    if (!vocabLesson) return 0;
+    const terms = new Set();
+    for (const l of shipped) for (const c of l.cards) if (c.vocab) terms.add(String(c.vocab).toLowerCase());
+    return terms.size;
+  })();
   if (reviewLesson) {
     reviewLesson.cards.push({
       kind: "summary",
@@ -3253,6 +3456,12 @@ export const NOVA_LESSON_DONE_LINES = [
   "Lesson done. It goes on the review schedule now. Forgetting is just data leaving, and I don't allow leaks.",
   "Finished. It'll come back before it fades. That's not a threat; it's a timetable.",
   "Done. That's the whole announcement. The experiment logs itself.",
+  /* Two more added 2026-10-28 (Nova content rethink): the bank
+     was three lines deep, so a learner finishing lessons in a
+     sitting heard the same sign off twice. Same register, same
+     dryness; she is logging results, not celebrating. */
+  "Logged. The notebook has it now, which means it comes back right before you would have lost it.",
+  "Finished, and filed. I keep what you earn. That is the whole arrangement.",
 ];
 export const NOVA_GAG_LINES = [
   "Axolotl. Not a fish. We do this every month, and every month I bring the diagram.",
@@ -3326,10 +3535,17 @@ export const NOVA_FEEDBACK_RIGHT_LINES = [
   "Correct. The lab approves, and the lab is not generous with that word.",
   "Right. Clean work. I checked it twice out of habit, not doubt.",
   "That's the one. You reasoned your way there, which is the part I actually grade.",
-  "Correct! Somewhere, a hypothesis just stood up a little straighter.",
+  /* Two lines swapped 2026-10-28 (Nova content rethink): the
+     audit flagged "Correct! Somewhere, a hypothesis just stood
+     up a little straighter." as the bank's one piece of hype,
+     and "Nailed it." as slang she would not use; both were
+     already flagged in the October pass and shipped anyway.
+     The replacements keep the jokes and drop the register
+     breaks. */
+  "Correct. A hypothesis somewhere just stood a little straighter.",
   "Yes. Filed under results I didn't have to fix. A small folder, but growing.",
   "Right, and not by luck. Luck doesn't survive my review process.",
-  "Nailed it. The control group has been notified of its inadequacy.",
+  "Logged as correct. The control group has been notified of its inadequacy.",
 ];
 export const NOVA_FEEDBACK_WRONG_LINES = [
   "Not quite. Good. Now we get to the interesting part.",
@@ -3432,6 +3648,28 @@ export function feedbackTeachLine(card, ctx = {}) {
     const correctText = ctx && ctx.correctText ? plainSpeechText(ctx.correctText) : "";
     const correctionBody = correction.replace(/^(It should say:|The answer was:|The right order:)\s+/, "");
     if ((correctText && passagesRepeat(correctText, why)) || passagesRepeat(correctionBody, why)) return why;
+    /* Word set stand down (2026-10-28, Nova content rethink):
+       the passage screen compares word sequences, so a
+       restatement, the same words in a different clause order,
+       walks straight past it. On generated cards the correction
+       reads the correct option (a restatement) and the why is
+       the claim it restates, and she spoke both, near word for
+       word, back to back: "The answer was: The brain replays new
+       memories and moves them into long term storage, during
+       deep sleep. During deep sleep, the brain replays new
+       memories and moves them into long term storage." When
+       nearly every content word of the correction already lives
+       in the why, the correction is the why in another order and
+       stands down the same way. A short correction (an answer
+       value) never triggers this; it carries too few words to be
+       a restatement of anything. */
+    const corrTokens = [...new Set(similarityTokenList(correctionBody))];
+    if (corrTokens.length >= 3) {
+      const whyTokens = new Set(similarityTokenList(why));
+      let inside = 0;
+      for (const t of corrTokens) if (whyTokens.has(t)) inside++;
+      if (inside / corrTokens.length >= 0.85) return why;
+    }
     return correction + " " + why;
   }
   return correction || why || null;
@@ -3501,7 +3739,11 @@ export function computeNovaMemory(profile, progress, now = Date.now()) {
 export function memoryLineFor(facts) {
   if (!facts) return null;
   if (facts.subjects) {
-    return "Your " + facts.subjects.strong + " is solid. The " + facts.subjects.weak + " scores leak.";
+    /* Reworded 2026-10-28 (Nova content rethink): "scores leak"
+       was machine assembled phrasing no person would say, and it
+       sat one slot away from her own line about not allowing
+       leaks, which made the collision louder. */
+    return "Your " + facts.subjects.strong + " is solid. Your " + facts.subjects.weak + " is lagging.";
   }
   if (facts.furthest && facts.furthest.pct >= 25) {
     return facts.furthest.pct + " percent into " + facts.furthest.title + ". Nothing else is close.";
@@ -8028,7 +8270,7 @@ export const TOPIC_COURSES = [
         cards: [
           mkPredict("A student learns a list of names in the evening and can barely recall it at bedtime. She sleeps through the night, and by morning the names feel clear. What did the night do to the list while she slept?",
             "The night cycled through light sleep, deep sleep, and dreaming sleep again and again, about ninety minutes a cycle. Deep sleep filed the names, which are facts, while dreaming sleep filed skills and feelings, so a full night of cycles files more of the day than a short rest can.",
-            ["It ran as one flat stretch, and all of its work was the same from start to end","It is not one run: the same set of ways come and go, and each way has its own job","It did its filing only in the last minutes, just before the eyes opened at dawn","It stayed off all night, and the list was filed by the desk work of the day"],
+            ["It ran as one flat stretch, and all of its work was the same from start to end","It is not one run: it goes by kinds that come and go, and each kind has its own job","It did its filing only in the last minutes, just before the eyes opened at dawn","It stayed off all night, and the list was filed by the desk work of the day"],
             1,
             "A night is built from cycles, not one stretch. The stages take turns through the night, and the filing is split between them, with the deep stage taking facts and the dreaming stage taking skills and feelings."),
           mkNote("The big idea", "Sleep is work, not rest for the brain",
@@ -8662,7 +8904,7 @@ export const TOPIC_COURSES = [
             "The microbes in the gut digest the fiber the guests cannot. When they ferment it, they release helpful acids that feed the gut lining itself and calm immune activity at the border, so fiber is food for the microbes, and the microbes are the teachers of the guards.",
             ["The guards, who sample and patrol the border","The microbes, the tiny living things in the gut","The lining cells, joined in a border one cell thick","No one at all, because fiber passes untouched and unused through every gut"],
             1,
-            "Fiber is food addressed to someone else. The guests cannot digest it, their microbes can, and the fermenting pays them back in helpful acids that feed the lining itself."),
+            "Fiber is food for the microbes, not for the guests. The guests cannot digest it, their microbes can, and the fermenting pays the guests back in helpful acids that feed the lining itself."),
           mkNote("The big idea", "Fiber is food for the teachers",
             "You cannot digest fiber, but your microbes can. **Fermenting** is the breaking down of food by microbes, and when they ferment fiber they release helpful acids, called short chain fatty acids because the chains of carbon in them are short. Most of the fermenting happens in the large intestine, where the microbes are densest. Those acids feed the gut lining itself and calm immune activity at the border. Fiber is food for the microbes, and the microbes are the teachers of the guards."),
           mkNote("Key idea", "Variety feeds a broad community",
@@ -8983,7 +9225,7 @@ export const TOPIC_COURSES = [
         cards: [
           mkPredict("A laboratory wants to switch off one faulty gene in a dish of tomato cells, changing nothing else in the cells. The guide, the cutting protein, and the repair crew of the cell all have a part to play. What has to happen inside a cell for the edit to be finished?",
             "The parts work as a team. Scientists build a small guide whose letters match exactly one spot in the DNA text, the guide leads the cutting protein Cas9 to that spot and Cas9 cuts there, and then the repair crew of the cell fixes the cut and decides the final instruction. No single part leads, cuts, and repairs all on its own.",
-            ["One part does the whole job alone, from hunting the spot to fixing it","One bit can aim, one bit can cut, and one bit can fix it","The cut comes first, and the aiming is done afterward by the repair crew","The repair crew finishes the instruction before any cut is made at all"],
+            ["One part does the whole job alone, from hunting the spot to fixing it","One part can aim, one part can cut, and one part can fix it","The cut comes first, and the aiming is done afterward by the repair crew","The repair crew finishes the instruction before any cut is made at all"],
             1,
             "Editing is a team job inside the cell. The guide is an address, the cutter only cuts, and the repair crew settles the final instruction, so a finished edit needs all three in that order."),
           mkNote("The big idea", "Borrowed from bacteria",
@@ -10529,7 +10771,7 @@ export const TOPIC_COURSES = [
         cards: [
           mkPredict("A baker mixes yeast into sweet dough in the morning and leaves the bowl covered in a warm kitchen. By midday the dough has doubled in size, full of bubbles. What filled the dough?",
             "Fermenting microbes leave more than one famous waste behind. The best known are lactic acid, alcohol, and carbon dioxide gas.",
-            ["Air kneaded into the dough at the start slowly expands", "The dough web stretches itself as the flour gets warm", "It makes a gas, and that same gas is what makes it go up", "Steam from the warm kitchen collects inside the dough"],
+            ["Air kneaded into the dough at the start slowly expands", "The dough web stretches itself as the flour gets warm", "It makes a gas, and the gas is what takes it up", "Steam from the warm kitchen collects inside the dough"],
             2,
             "One meal can leave several discards. Which discard you get depends on which microbe is at the table."),
           mkNote("The big idea", "Microbes eating sugar and leaving gifts",
@@ -13082,7 +13324,16 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   <DiagramArt diagram={card.diagram} P={P} accent={accent} />
                 </>
               )}
-              <p style={{ fontSize: FONT_SIZES.subhead, color: P.ink2, lineHeight: 1.65, margin: 0 }}><RichText text={card.text} /></p>
+              {/* Note text renders paragraph by paragraph
+                  (2026-10-28, Nova content rethink): generated
+                  lessons now carry one paragraph per idea, split
+                  on blank lines. A single paragraph note renders
+                  exactly as it did before. */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {String(card.text || "").split(/\n\n+/).map((para, pi) => (
+                  <p key={pi} style={{ fontSize: FONT_SIZES.subhead, color: P.ink2, lineHeight: 1.65, margin: 0 }}><RichText text={para} /></p>
+                ))}
+              </div>
               {lesson.id === "vocab" && course.vocab && course.vocab.length > 0 && (
                 <div style={{ marginTop: 26 }}>
                   <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: P.faint, marginBottom: 12 }}>THE WORDS AHEAD</div>
