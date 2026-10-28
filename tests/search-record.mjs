@@ -1496,5 +1496,69 @@ await test("missing fields degrade to honest notes, never a crash or a fabricate
 });
 
 // ═══════════════════════════════════════════════════════════════════
+// Pool collapse lane (2026-10-28): a failed source's error and
+// the recovery rounds ride the record. The October 28 honey
+// collapse record showed crossref ok false with no reason
+// anywhere and no trace of which recovery rounds ran: the
+// fetcher's error existed on the diag and recordDatabasesOf
+// dropped it, and diag.rungs, diag.ladderContinuation and
+// diag.budgetTrims were never surfaced. These pins hold the
+// new fields to their contract: present when the gather
+// produced them, absent when it did not, and never on a
+// source that answered.
+group("pool collapse lane (2026-10-28): errors and recovery rounds ride the record");
+
+await test("a failed source carries its fetcher error; an answered source stays byte identical", () => {
+  const rec = buildSearchRecord({
+    question: "does putting honey on a cut help it heal faster or is that just an old wives tale",
+    diag: {
+      sourceOutcomes: [
+        { source: "europePMC", ok: true, count: 12 },
+        { source: "crossref", ok: false, count: 0, error: "The operation timed out." },
+        { source: "openAlex", ok: true, count: 3, error: "an earlier rung failed before this one answered" },
+      ],
+      funnel: { gathered: 15, deduped: 15, ranked: 9, nonEnglishInner: 0 },
+    },
+    sources: [],
+  });
+  const bySource = Object.fromEntries(rec.databases.map((d) => [d.source, d]));
+  assert.equal(bySource.crossref.error, "The operation timed out.",
+    "the failed source lost the error the gather captured");
+  assert.ok(!("error" in bySource.europePMC), "an answered source gained an error field");
+  assert.ok(!("error" in bySource.openAlex),
+    "a source that answered carries a stale superseded error");
+});
+
+await test("rungs, ladder continuation and budget trims surface bounded, and stay absent when the gather recorded none", () => {
+  const rec = buildSearchRecord({
+    question: "q",
+    diag: {
+      sourceOutcomes: [{ source: "europePMC", ok: true, count: 12 }],
+      funnel: { gathered: 12, deduped: 12, ranked: 9, nonEnglishInner: 0 },
+      rungs: [
+        { terms: "honey cut heal tale", got: 12, perSource: [
+          { source: "europePMC", status: "fulfilled", notSearched: false, count: 12, error: null },
+          { source: "crossref", status: "error", notSearched: false, count: 0, error: "The operation timed out." },
+        ] },
+      ],
+      ladderContinuation: { rungsRun: 0, citable: 0 },
+      budgetTrims: ["ladder-rung-2", "raw-fallback"],
+    },
+    sources: [],
+  });
+  assert.equal(rec.rungs.length, 1);
+  assert.equal(rec.rungs[0].perSource[1].error, "The operation timed out.",
+    "the rung record lost the per source error");
+  assert.deepEqual(rec.ladderContinuation, { rungsRun: 0, citable: 0 });
+  assert.deepEqual(rec.budgetTrims, ["ladder-rung-2", "raw-fallback"]);
+
+  const bare = buildSearchRecord(FULL_INPUT);
+  assert.ok(!("rungs" in bare),
+    "a run whose rungs carry no per source detail must not gain an empty rung shell");
+  assert.ok(!("ladderContinuation" in bare), "a run with no ladder continuation gained one");
+  assert.ok(!("budgetTrims" in bare), "a run with no budget trims gained a trim list");
+});
+
+// ═══════════════════════════════════════════════════════════════════
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

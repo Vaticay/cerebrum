@@ -22197,6 +22197,13 @@ function recordDatabasesOf(raw) {
     // the canary record has failed is labeled dead here until a
     // canary returns a paper for it.
     entry.yield = entry.count;
+    // Pool collapse lane (2026-10-28): a source that never
+    // answered carries the fetcher's error string the gather
+    // captured (bounded at capture), so a zero yield pool can
+    // be told apart from a silent one in the record. Rides
+    // only on a failed source with an error to report, so a
+    // source that answered stays byte identical.
+    if (!entry.ok && typeof o.error === "string" && o.error) entry.error = o.error.slice(0, 120);
     const corpus = corpusOfSource(source);
     if (corpus) entry.corpus = corpus;
     const canary = SOURCE_CANARY_STATE[source];
@@ -23063,6 +23070,56 @@ export function buildSearchRecord(input) {
       }
     } catch { recordRetrievalBudget = null; }
 
+    // Pool collapse lane (2026-10-28): the rung by rung fanout
+    // and the recovery decisions ride the record additively,
+    // each present only when the gather produced it. The
+    // October 28 honey collapse (shelf held no honey paper,
+    // citationGate 0) could not be diagnosed past the fanout
+    // because the record carried neither the per source errors
+    // (now on the database entries above) nor which recovery
+    // rounds ran: the ladder continuation's own citable count
+    // and the budget's trim list existed on the diag and were
+    // never surfaced. Normalized and bounded like every other
+    // late field; absent entirely on a run whose gather
+    // recorded none of it.
+    let recordRungs = null;
+    try {
+      const rungsRaw = diag && Array.isArray(diag.rungs) ? diag.rungs : null;
+      if (rungsRaw && rungsRaw.length > 0) {
+        recordRungs = rungsRaw.slice(0, 6).map((r) => ({
+          terms: String((r && r.terms) || "").slice(0, 200),
+          got: Number.isFinite(r && r.got) ? Math.max(0, Math.floor(r.got)) : 0,
+          ...(r && r.continuation ? { continuation: true } : {}),
+          perSource: (Array.isArray(r && r.perSource) ? r.perSource : []).slice(0, 16).map((s) => ({
+            source: String((s && s.source) || "").slice(0, 40),
+            status: String((s && s.status) || "").slice(0, 20),
+            count: Number.isFinite(s && s.count) ? Math.max(0, Math.floor(s.count)) : 0,
+            ...(s && s.notSearched ? { notSearched: true } : {}),
+            ...(s && typeof s.error === "string" && s.error ? { error: s.error.slice(0, 120) } : {}),
+          })).filter((s) => s.source),
+        })).filter((r) => r.perSource.length > 0);
+        if (recordRungs.length === 0) recordRungs = null;
+      }
+    } catch { recordRungs = null; }
+    let recordLadderContinuation = null;
+    try {
+      const lc = diag && diag.ladderContinuation;
+      if (lc && typeof lc === "object") {
+        recordLadderContinuation = {
+          rungsRun: Number.isFinite(lc.rungsRun) ? Math.max(0, Math.floor(lc.rungsRun)) : null,
+          citable: Number.isFinite(lc.citable) ? Math.max(0, Math.floor(lc.citable)) : null,
+        };
+      }
+    } catch { recordLadderContinuation = null; }
+    let recordBudgetTrims = null;
+    try {
+      const bt = diag && diag.budgetTrims;
+      if (Array.isArray(bt) && bt.length > 0) {
+        recordBudgetTrims = bt.map((t) => String(t == null ? "" : t)).filter(Boolean).slice(0, 20);
+        if (recordBudgetTrims.length === 0) recordBudgetTrims = null;
+      }
+    } catch { recordBudgetTrims = null; }
+
     // Wave sixteen (brief item 1): the subject serve — present
     // only when the final cited set failed the subject
     // engagement test: how many papers the answer cited and the
@@ -23231,6 +23288,9 @@ export function buildSearchRecord(input) {
       ...(recordSubjectServe ? { subjectServe: recordSubjectServe } : {}),
       ...(recordFactCheckTrace ? { factCheckTrace: recordFactCheckTrace } : {}),
       ...(recordRetrievalBudget ? { retrievalBudget: recordRetrievalBudget } : {}),
+      ...(recordRungs ? { rungs: recordRungs } : {}),
+      ...(recordLadderContinuation ? { ladderContinuation: recordLadderContinuation } : {}),
+      ...(recordBudgetTrims ? { budgetTrims: recordBudgetTrims } : {}),
     };
   } catch {
     return null;
@@ -25682,6 +25742,29 @@ export const CEREBRUM_SYSTEM_v1 = {
  * assembled the full prompt plus the brief and was never
  * called, is deleted, and wave 2 folds the brief into the
  * compact messages it actually races on. */
+/* Citation depth floor (2026-10-28, written depth lane, panel
+ * verdict of the same day): the October 28 acceptance draws
+ * served a full slice of 12 papers through every upstream
+ * stage and shipped 2 cited and 1 cited, and the twelve scorer
+ * panel ruled the cause a prompt and instruction problem, 12
+ * of 12: the contract below carried format and honesty rules
+ * but no citation minimum of any kind, so a leg complied with
+ * every recorded rule while citing one paper. The floor is
+ * therefore stated here, once, as a block of this shared
+ * contract, so every serving prompt built from it carries the
+ * floor (the full evidence prompt by the append at its build
+ * site, the compact, bulletproof, quality retry and citation
+ * retry prompts by their builders). The floor is conditioned
+ * on relevance and support throughout: it asks a leg to use
+ * the shelf it was given, never to pad, never to attach a
+ * citation a source does not back, and never to invent one.
+ * When fewer than 3 served sources directly address the
+ * question, the block says so and the thin evidence behaviour
+ * above stands unchanged; the zero evidence prompt never
+ * receives this block at all. Like every contract block, the
+ * text carries no dash characters. */
+export const CITATION_DEPTH_FLOOR_TEXT =
+  "Citation depth floor. Ground the answer across the sources in front of you, not on one source alone when more of them speak directly to the question. Where at least 3 of the sources in front of you directly address the question and support claims in the answer, cite at least 3 of them, each at the end of a sentence that source itself supports. Spread the citations across the claims they back; never attach a citation to a claim its source does not report, never cluster citations on one sentence to reach the count, and never invent a citation. When fewer than 3 of the sources in front of you directly address the question, cite the ones that do and say plainly that the rest do not cover it.";
 export const SYNTHESIS_CONTRACT_BLOCKS = [
   {
     name: "paper usage protocol",
@@ -25702,6 +25785,10 @@ export const SYNTHESIS_CONTRACT_BLOCKS = [
   {
     name: "single weak source flagging",
     text: "Single weak source flagging. When only one study supports a claim, flag that where you make the claim, in plain words, and say it has not been independently replicated. When the best evidence for a claim is a single small, in vitro, or case level result, the claim carries that limit with it, not only in the confidence section.",
+  },
+  {
+    name: "citation depth floor",
+    text: CITATION_DEPTH_FLOOR_TEXT,
   },
 ];
 export const SYNTHESIS_CONTRACT_TEXT = SYNTHESIS_CONTRACT_BLOCKS.map((b) => b.text).join(" ");
@@ -27854,6 +27941,18 @@ async function gatherPapersBody(rawQuery, opts) {
       const key = o.source === "openAlexCommon" ? "openAlex" : o.source;
       const prev = diag.sourceTotals.get(key) || { source: key, ok: false, count: 0, attempts: 0, notSearched: 0 };
       prev.ok = prev.ok || o.status === "fulfilled";
+      // Pool collapse lane (2026-10-28): the most recent failure
+      // a later success has not superseded rides the totals, so
+      // the record's database list can say WHY a source that
+      // never answered failed (the fetcher's own error string,
+      // already captured per rung above) instead of showing a
+      // bare ok false. The October 28 honey collapse record
+      // showed crossref ok false with no reason anywhere: the
+      // error existed here and the totals fold dropped it. A
+      // fulfilled attempt clears it; the public sourcesQueried
+      // map names its own fields and never carries this one.
+      if (o.error) prev.error = o.error;
+      else if (o.status === "fulfilled") prev.error = null;
       prev.count += o.count;
       if (o.notSearched) prev.notSearched += 1;
       else prev.attempts += 1;
@@ -34227,6 +34326,15 @@ async function runSearchPipeline(pctx) {
     // zero evidence branch is exempt by construction: it has no
     // papers to cite, and its own hard prohibitions govern it.
     if (useEvidence) systemPrompt = systemPrompt + "\n\n" + SYNTHESIS_CONTRACT_TEXT;
+    // Written depth lane (2026-10-28): the reference source
+    // branch above serves written answers from web references
+    // rather than evidence papers, so the paper contract as a
+    // whole does not ride on it, but the citation depth floor
+    // does, stated on its own: its condition (at least 3 served
+    // sources directly addressing the question) is the only
+    // part of the floor that can bind a reference source set,
+    // and the zero evidence branch below it stays exempt.
+    else if (useWeb) systemPrompt = systemPrompt + "\n\n" + CITATION_DEPTH_FLOOR_TEXT;
 
     const messages = [{ role: "system", content: systemPrompt }];
 

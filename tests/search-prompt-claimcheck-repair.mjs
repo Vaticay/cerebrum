@@ -26,6 +26,18 @@
  *         same support ledger as the deep claim check. It now
  *         returns no support count, in either direction.
  *
+ * Written depth lane (2026-10-28, panel verdict of the same
+ * day): the October 28 acceptance draws served a full slice
+ * of 12 papers through every upstream stage and shipped 2
+ * cited and 1 cited, and the twelve scorer panel ruled the
+ * cause a prompt and instruction problem, 12 of 12, because
+ * the synthesis instructions carried format and honesty rules
+ * but no citation minimum of any kind. The citation depth
+ * floor is now a sixth block of the shared contract above, and
+ * the pins below assert that every serving prompt variant
+ * carries it, that its wording stays conditioned on relevance
+ * and support, and that the zero evidence prompt stays exempt.
+ *
  * Run with: node tests/search-prompt-claimcheck-repair.mjs
  */
 
@@ -40,7 +52,7 @@ const search = await import(join(root, "functions/api/search.js"));
 const { clampMessages } = await import(join(root, "functions/lib/inputGuard.js"));
 
 const {
-  SYNTHESIS_CONTRACT_BLOCKS, SYNTHESIS_CONTRACT_TEXT,
+  SYNTHESIS_CONTRACT_BLOCKS, SYNTHESIS_CONTRACT_TEXT, CITATION_DEPTH_FLOOR_TEXT,
   buildCompactSystemPrompt, buildBulletproofSystemPrompt,
   buildQualityRetrySystemPrompt, buildCitationRetrySystemPrompt,
   factCheckKind, factCheckSupport, factCheckNamePresence,
@@ -76,12 +88,17 @@ function assertContract(messages, leg) {
 group("L4-1 — every serving leg's messages carry the shared contract blocks");
 
 await test("the contract names the five remainder blocks and carries no dash characters", () => {
+  // Pin changed 2026-10-28 (written depth lane): the block
+  // list gains a sixth entry, the citation depth floor, after
+  // the five remainder blocks. The five above keep their
+  // names and their order.
   assert.deepEqual(SYNTHESIS_CONTRACT_BLOCKS.map((b) => b.name), [
     "paper usage protocol",
     "thin evidence first sentence rule",
     "citation permission protocol",
     "measured versus inferred separation",
     "single weak source flagging",
+    "citation depth floor",
   ]);
   assert.ok(!/[-—–]/.test(SYNTHESIS_CONTRACT_TEXT),
     "the contract text carries a dash character");
@@ -169,6 +186,81 @@ await test("the handler wires every leg through the shared builders and no dead 
     "the full prompt does not append the shared contract");
   assert.ok(!src.includes("const buildBriefMessages ="), "buildBriefMessages still exists as a dead prompt constructor");
   assert.ok(!src.includes("buildBriefMessages(brief)"), "a caller still reaches for the dead constructor");
+});
+
+// ═══════════════════════════════════════════════════════════
+group("Written depth (2026-10-28) — every serving prompt variant carries the citation depth floor");
+
+await test("the floor text states a relevance and support conditioned minimum of 3, never a bare count", () => {
+  const floor = CITATION_DEPTH_FLOOR_TEXT;
+  assert.ok(floor.includes("Citation depth floor."), "the floor lost its name line");
+  assert.ok(floor.includes("Where at least 3 of the sources in front of you directly address the question and support claims in the answer, cite at least 3 of them"),
+    "the floor lost its conditioned minimum of 3");
+  assert.ok(floor.includes("each at the end of a sentence that source itself supports"),
+    "the floor lost its per sentence support placement");
+  assert.ok(floor.includes("never attach a citation to a claim its source does not report"),
+    "the floor could now license citing a source for a claim it does not support");
+  assert.ok(floor.includes("never cluster citations on one sentence to reach the count"),
+    "the floor could now be met by padding one sentence");
+  assert.ok(floor.includes("never invent a citation"), "the floor lost its no invention rule");
+  assert.ok(floor.includes("When fewer than 3 of the sources in front of you directly address the question, cite the ones that do and say plainly that the rest do not cover it."),
+    "the floor lost its thin pool sentence, so a thin or no evidence shaped set could be read as owing 3 citations");
+  assert.ok(!/[-—–]/.test(floor), "the floor text carries a dash character");
+  // The block in the shared contract is this exact text, so
+  // no serving builder can carry a drifted copy of the floor.
+  const block = SYNTHESIS_CONTRACT_BLOCKS.find((b) => b.name === "citation depth floor");
+  assert.ok(block, "the shared contract has no citation depth floor block");
+  assert.equal(block.text, floor, "the contract block is not the shared floor text");
+  assert.ok(SYNTHESIS_CONTRACT_TEXT.includes(floor), "the assembled contract text lost the floor");
+});
+
+await test("each serving prompt builder carries the floor verbatim", () => {
+  const variants = {
+    "compact (waves 1 and 2, rescue, delayed rescue, minimum support retry)": buildCompactSystemPrompt({
+      id: "You are Cerebrum. ", mechanismShape: false, lengthHint: "", structure: "STRUCTURE", existenceRule: "",
+    }),
+    "compact, mechanism shape": buildCompactSystemPrompt({
+      id: "You are Cerebrum. ", mechanismShape: true, lengthHint: "", structure: "STRUCTURE", existenceRule: "",
+    }),
+    "bulletproof, evidence (wave 3)": buildBulletproofSystemPrompt({
+      id: "You are Cerebrum. ", structure: "STRUCTURE", useEvidence: true, existenceRule: "",
+    }),
+    "bulletproof, no evidence flag (wave 3)": buildBulletproofSystemPrompt({
+      id: "You are Cerebrum. ", structure: "STRUCTURE", useEvidence: false, existenceRule: "",
+    }),
+    "quality retry": buildQualityRetrySystemPrompt(),
+    "citation retry": buildCitationRetrySystemPrompt(),
+  };
+  for (const [leg, prompt] of Object.entries(variants)) {
+    assert.ok(prompt.includes(CITATION_DEPTH_FLOOR_TEXT), leg + " is missing the citation depth floor");
+  }
+});
+
+await test("the handler wiring keeps the floor on the full prompt and off the zero evidence prompt", () => {
+  // The full evidence prompt takes the whole contract, floor
+  // included, by the append the L4-1 test above already pins.
+  // The reference source (web) branch of that same prompt
+  // takes the floor alone, in this exact form.
+  assert.ok(src.includes('else if (useWeb) systemPrompt = systemPrompt + "\\n\\n" + CITATION_DEPTH_FLOOR_TEXT'),
+    "the full prompt's reference source branch lost its floor append");
+  // The floor text is referenced exactly three times in the
+  // source: its definition, the contract block entry, and the
+  // reference source append. A fourth reference would be a
+  // new prompt site carrying it (the zero evidence branch
+  // among them, which must stay exempt by construction), and
+  // a missing one would be a serving variant that dropped it.
+  assert.equal(src.split("CITATION_DEPTH_FLOOR_TEXT").length - 1, 3,
+    "the floor text is referenced somewhere other than its definition, its contract block, and the reference source append");
+  // The legs with no prompt constructor of their own consume
+  // the compact or full messages, floor included: the rescue
+  // and the minimum support retry build their messages from
+  // exactly those two arrays.
+  assert.ok(src.includes("const rescueMsgs = compactMessages || messages;"),
+    "the rescue wave no longer consumes the compact or full messages");
+  assert.ok(src.includes("const retryMsgs = (compactMessages || messages).map("),
+    "the minimum support retry no longer consumes the compact or full messages");
+  assert.ok(src.includes("callForLegLabel(label, compactMessages || messages,"),
+    "the delayed rescue no longer consumes the compact or full messages");
 });
 
 // ═══════════════════════════════════════════════════════════
