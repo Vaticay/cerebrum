@@ -3060,7 +3060,7 @@ function Dive({ P, accent, q, contextual = false, videosLocated = false, stream 
    geometry, no placeholder blocks pretending to be content. */
 function DiveInline({ P, accent, label = "Working" }) {
   return (
-    <div role="status" aria-label={label} style={{ padding: "30px 4px" }}>
+    <div role="status" aria-label={label} className="cb-ar-panel" style={{ padding: "30px 4px" }}>
       <div className="cb-readhead" style={{ background: P.line }}>
         <span className="cb-readhead-marker" style={{ background: accent }} />
       </div>
@@ -4893,6 +4893,7 @@ function FactCheck({ fc, P, accent, inTray = false }) {
       <div style={{ marginTop: inTray ? 0 : 16 }}>
         <button
           type="button"
+          className="cb-ar-fctoggle"
           onClick={() => setOpen((v) => !v)}
           style={{
             display: "inline-flex", alignItems: "center", gap: 8,
@@ -4911,7 +4912,7 @@ function FactCheck({ fc, P, accent, inTray = false }) {
         {open && (
           /* Pass 2 (instrument): the explanation is a ruled block, not a
              card. Hairline on top, plain text. */
-          <div style={{
+          <div className="cb-ar-expand" style={{
             marginTop: 10, padding: "12px 4px 4px",
             borderTop: `1px solid ${P.line}`,
             fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.65,
@@ -8830,7 +8831,7 @@ function EvidenceBand({ t, P, accent, tab, setTab, citationStyle, setCitationSty
           </button>
         </div>
       )}>
-      <div role="tabpanel" id={tabUid + "-panel"} aria-labelledby={tabUid + "-tab-" + tab}>
+      <div role="tabpanel" className="cb-ar-panel" id={tabUid + "-panel"} aria-labelledby={tabUid + "-tab-" + tab}>
       {tab === "videos" ? (
         videos.length > 0 ? (
           <VideoFilmstrip bare videos={videos} P={P} accent={accent} onOpen={onOpenVideo} />
@@ -9537,7 +9538,7 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
       <div key={n} id={`evref-${n}`} data-rel={rel} data-active={isActive ? "true" : undefined}
         /* Declarative sync highlight: present exactly while this citation
            is active, gone the moment it isn't. No timers, no leftovers. */
-        className={"cb-ledger-row" + (isActive ? " cb-source-linked" : "")}
+        className={"cb-ledger-row cb-ar-evrow" + (isActive ? " cb-source-linked" : "")}
         /* Interiors wave, 2026-10-26: in the rail each row is an
            evidence card, a raised panel with its own border and
            radius, so the rail reads as a tray of evidence instead of
@@ -9551,6 +9552,7 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
           borderRadius: RADIUS.lg,
           padding: "12px 14px",
           boxShadow: SHADOW.xs(P),
+          ["--cb-ar-i"]: Math.min(i, 8),
           ...(isActive ? { ["--cb-link-accent"]: accent } : {}),
         }}>
         <button type="button" className="cb-ledger-num" onClick={() => onActivate(n)}
@@ -9603,13 +9605,13 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
         background: P.bg, borderTop: `1px solid ${P.line}`, borderRadius: `${RADIUS.xl}px ${RADIUS.xl}px 0 0`,
         boxShadow: P.shadow,
         display: "flex", flexDirection: "column",
-        animation: "cbSheetIn .3s cubic-bezier(0.16, 1, 0.3, 1) both",
+        animation: "cbSheetIn 320ms var(--cb-ease) both",
       } : {
         position: "fixed", top: 0, right: 0, bottom: 0, width: "min(400px, 94vw)", zIndex: Z.drawer,
         background: P.bg, borderLeft: `1px solid ${P.line}`, borderRadius: 0,
         boxShadow: P.shadow,
         display: "flex", flexDirection: "column",
-        animation: "cbDrawerIn .28s cubic-bezier(0.16, 1, 0.3, 1) both",
+        animation: "cbDrawerIn 300ms var(--cb-ease) both",
       }}>
       {isMobile && (
         <div aria-hidden="true" style={{ padding: "12px 0 2px", display: "flex", justifyContent: "center", flexShrink: 0 }}>
@@ -10500,11 +10502,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             /* Evidence table view: the same studies as rows, columns follow
                the question type. Toggled from the view switch below the
                answer — prose remains the default. */
-            <div role="tabpanel" id={viewTabUid + "-panel"} aria-labelledby={viewTabUid + "-tab-table"}>
+            <div role="tabpanel" className="cb-ar-panel" id={viewTabUid + "-panel"} aria-labelledby={viewTabUid + "-tab-table"}>
               <EvidenceTableAnswerView t={t} P={P} accent={accent} onOpenPaper={(n) => onOpenPaper(t, n)} />
             </div>
           ) : (
-            <div role="tabpanel" id={viewTabUid + "-panel"} aria-labelledby={viewTabUid + "-tab-prose"}>
+            <div role="tabpanel" className="cb-ar-panel" id={viewTabUid + "-panel"} aria-labelledby={viewTabUid + "-tab-prose"}>
               {renderAnswer(tierText || shown, t.sources, P, accent, hoverCite, setHoverCite, activeCite, setActiveCite, claimSink, () => setEvidenceOpen(true), evidenceMap, extractQueryTerms(t.q || ""))}
             </div>
           )}
@@ -10517,7 +10519,7 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
             <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>View:</span>
             <div role="tablist" aria-label="Answer view" onKeyDown={tabListKeyDown} style={{ display: "inline-flex", border: `1px solid ${P.line}`, borderRadius: RADIUS.viewport, overflow: "hidden" }}>
               {[["prose", "Prose"], ["table", "Table"]].map(([id, label]) => (
-                <button key={id} type="button" role="tab" aria-selected={evidenceView === id}
+                <button key={id} type="button" role="tab" className="cb-ar-segbtn" aria-selected={evidenceView === id}
                   id={viewTabUid + "-tab-" + id} aria-controls={viewTabUid + "-panel"} tabIndex={evidenceView === id ? 0 : -1}
                   onClick={() => setEvidenceView(id)}
                   style={{
@@ -14582,7 +14584,7 @@ function AnswerSection({ eyebrow, title, right, children, P, accent, style, quie
           own headings instead of one continuous ledger. The eyebrow
           stays outside the tray as the section's heading register. */}
       {tray ? (
-        <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, padding: "18px 20px", boxShadow: SHADOW.sm(P) }}>
+        <div className="cb-ar-tray" style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, padding: "18px 20px", boxShadow: SHADOW.sm(P) }}>
           {children}
         </div>
       ) : children}
@@ -17932,12 +17934,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               )}
             </div>
             {docOutline.length >= 2 && (
-              <nav aria-label="Document outline" style={{ marginBottom: 16, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "10px 12px" }}>
+              <nav aria-label="Document outline" className="cb-doc-outline" style={{ marginBottom: 16, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "10px 12px" }}>
                 <div style={{ ...docEyebrow, marginBottom: 8 }}>Outline</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                   {docOutline.slice(0, 16).map((o) => (
-                    <button key={o.seg} type="button" onClick={() => scrollToSegment(o.seg)}
-                      style={{ minHeight: 44, textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "6px 4px", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <button key={o.seg} type="button" className="cb-doc-outline-btn" onClick={() => scrollToSegment(o.seg)}
+                      style={{ minHeight: 48, textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "6px 8px", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {o.title}
                     </button>
                   ))}
@@ -17971,7 +17973,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             {/* Same measure at use as the sky tip: the popup anchors to
                 coordinates captured when the selection was made. */}
             {pendingHL && (
-              <div data-hl-action
+              <div data-hl-action className="cb-doc-hlpop"
                 style={{
                 position: "fixed", left: Math.min(Math.max(pendingHL.x - 70, 8), (typeof window !== "undefined" ? window.innerWidth : 400) - 148),
                 top: pendingHL.y, zIndex: Z.tooltip,
@@ -17991,7 +17993,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   </div>
                 )}
                 {highlights.slice().sort((a, b) => a.start - b.start).map((h) => (
-                  <div key={h.id} style={{ borderTop: `1px solid ${P.line}`, padding: "12px 0" }}>
+                  <div key={h.id} className="cb-doc-mark" style={{ borderTop: `1px solid ${P.line}`, padding: "12px 0" }}>
                     <button onClick={() => scrollToHighlight(h)} title="Jump to this passage"
                       style={{ background: "none", border: "none", cursor: "pointer", textAlign: "left", padding: 0, width: "100%" }}>
                       <div style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.6, borderLeft: `2px solid ${accent}`, paddingLeft: 10 }}>
@@ -18361,7 +18363,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                   <div style={{
                     height: "100%", borderRadius: RADIUS.sm, background: accent,
                     width: `${Math.round((analyzeProgress.done / analyzeProgress.total) * 100)}%`,
-                    transition: "width 400ms ease",
+                    transition: "width 400ms var(--cb-ease)",
                   }} />
                 </div>
               </>
@@ -18463,7 +18465,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               const docMedia = docMediaOf(summary);
               if (!docMedia) return null;
               return (
-                <div style={{ marginBottom: 22, maxWidth: 640 }}>
+                <div className="cb-doc-fig" style={{ marginBottom: 22, maxWidth: 640 }}>
                   <MediaFigure P={P} media={docMedia} title={docDisplayTitle} />
                 </div>
               );
@@ -18668,7 +18670,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
        regions, no 48%-of-the-screen split: on a phone the whole page is
        one vertical reflow. */
     <div
-      role="region" aria-label="Document Reader"
+      role="region" aria-label="Document Reader" className="cb-doc-enter"
       style={asPage
         ? {
             position: "relative", display: "flex", flexDirection: "column",
@@ -18765,12 +18767,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
           gap: isMobile ? 24 : 28, alignItems: "start",
         }}>
           {/* SOURCE — the document, rendered by renderDocSource below. */}
-          <section aria-label="Document source" style={{ minWidth: 0, ...docPanelCard }}>
+          <section aria-label="Document source" className="cb-doc-panel-in" style={{ minWidth: 0, ...docPanelCard }}>
             {renderDocSource()}
           </section>
 
           {/* READER — the analysis, rendered by renderDocReader below. */}
-          <section aria-label="Document analysis" style={{ minWidth: 0 }}>
+          <section aria-label="Document analysis" className="cb-doc-panel-in cb-doc-panel-in-2" style={{ minWidth: 0 }}>
             {renderDocReader()}
           </section>
         </div>
@@ -18791,12 +18793,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       </>) : (
         <div style={{ flex: 1, display: "flex", flexDirection: isMobile ? "column" : "row", overflow: "hidden" }}>
           {/* LEFT PANE — the source, rendered by renderDocSource below. */}
-          <div style={{ ...paneBase, overflowY: "auto", borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
+          <div className="cb-doc-panel-in" style={{ ...paneBase, overflowY: "auto", borderRight: isMobile ? "none" : `1px solid ${P.line}`, borderBottom: isMobile ? `1px solid ${P.line}` : "none", padding: 20, maxHeight: isMobile ? "48%" : "none" }}>
             {renderDocSource("overlay")}
           </div>
 
           {/* RIGHT PANE — the analysis, rendered by renderDocReader below. */}
-          <div style={{ ...paneBase, overflowY: "auto", padding: 20 }}>
+          <div className="cb-doc-panel-in cb-doc-panel-in-2" style={{ ...paneBase, overflowY: "auto", padding: 20 }}>
             {renderDocReader("overlay")}
           </div>
         </div>
@@ -28776,6 +28778,111 @@ body.cb-motion-off .cb-lib-card:hover { transform: none; }
 @media (max-width: 480px) {
   .cb-lib-tabs { flex-wrap: nowrap !important; }
   .cb-lib-tab { flex: 1 1 0 !important; padding-left: 10px !important; padding-right: 10px !important; }
+}
+
+/* ── Answer and Reader polish, 2026-10-28 ──
+   Phase 2 fitted polish for the answer stack and the paper
+   Reader. The assembly classes the renderer already emits
+   (cb-assemble-para on every answer paragraph, cb-cite-enter
+   on every citation chip) finally carry their motion:
+   paragraphs rise in as the assembly reveals them, the
+   sections they group into open with a calmer rise, and the
+   chips settle with a small scale on the inline stagger the
+   chip already carries. Transform and opacity only, on the
+   one curve var(--cb-ease); no filter is animated anywhere
+   here. The fact check and bibliography trays rise instead
+   of snapping, the evidence rail cards stagger in capped at
+   eight, the prose and table panels and the evidence band
+   panel cross instead of snapping, and the Reader page, its
+   two panels, its outline, its figure, its marks and its
+   annotation popup enter the same way. Both reduced motion
+   hammers collapse everything in this section. */
+@keyframes cbArAssembleIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cbArSectIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cbArCiteIn {
+  from { transform: scale(0.45); }
+  to { transform: scale(1); }
+}
+@keyframes cbArTrayIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cbArPanelIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cbArEvRowIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cbArDocIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cbArHlPopIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.cb-assemble-para { animation: cbArAssembleIn 420ms var(--cb-ease) both; }
+.cb-answer-sect { animation: cbArSectIn 460ms var(--cb-ease) both; }
+.cb-cite-enter { animation: cbArCiteIn 300ms var(--cb-ease) both; }
+.cb-ar-tray { animation: cbArTrayIn 420ms var(--cb-ease) both; }
+.cb-ar-panel { animation: cbArPanelIn 280ms var(--cb-ease) both; }
+.cb-ar-evrow {
+  animation: cbArEvRowIn 380ms var(--cb-ease) both;
+  animation-delay: calc(var(--cb-ar-i, 0) * 45ms);
+}
+.cb-ar-segbtn { transition: background-color 200ms var(--cb-ease), color 200ms var(--cb-ease); }
+.cb-ar-fctoggle { min-height: 48px; }
+.cb-ar-expand { animation: cbArPanelIn 300ms var(--cb-ease) both; }
+.cb-doc-enter { animation: cbArDocIn 460ms var(--cb-ease) both; }
+.cb-doc-panel-in { animation: cbArTrayIn 420ms var(--cb-ease) both; }
+.cb-doc-panel-in-2 { animation-delay: 70ms; }
+.cb-doc-hlpop { animation: cbArHlPopIn 240ms var(--cb-ease) both; }
+.cb-doc-fig { animation: cbArTrayIn 460ms var(--cb-ease) both; }
+.cb-doc-mark { animation: cbArPanelIn 320ms var(--cb-ease) both; }
+.cb-doc-outline-btn {
+  border-radius: var(--cb-r-md);
+  transition: background-color 180ms var(--cb-ease), transform 180ms var(--cb-ease);
+}
+.cb-doc-outline-btn:hover { background: rgba(127, 127, 127, 0.07); transform: translateX(2px); }
+@media (prefers-reduced-motion: reduce) {
+  .cb-assemble-para, .cb-answer-sect, .cb-cite-enter, .cb-ar-tray,
+  .cb-ar-panel, .cb-ar-evrow, .cb-ar-expand, .cb-doc-enter,
+  .cb-doc-panel-in, .cb-doc-hlpop, .cb-doc-fig, .cb-doc-mark { animation: none; }
+  .cb-ar-segbtn, .cb-doc-outline-btn { transition: none; }
+  .cb-doc-outline-btn:hover { transform: none; }
+}
+body.cb-motion-off .cb-assemble-para,
+body.cb-motion-off .cb-answer-sect,
+body.cb-motion-off .cb-cite-enter,
+body.cb-motion-off .cb-ar-tray,
+body.cb-motion-off .cb-ar-panel,
+body.cb-motion-off .cb-ar-evrow,
+body.cb-motion-off .cb-ar-expand,
+body.cb-motion-off .cb-doc-enter,
+body.cb-motion-off .cb-doc-panel-in,
+body.cb-motion-off .cb-doc-hlpop,
+body.cb-motion-off .cb-doc-fig,
+body.cb-motion-off .cb-doc-mark { animation: none !important; }
+body.cb-motion-off .cb-ar-segbtn,
+body.cb-motion-off .cb-doc-outline-btn { transition: none !important; }
+body.cb-motion-off .cb-doc-outline-btn:hover { transform: none; }
+@media (max-width: 480px) {
+  /* At 360px the tray keeps its frame but gives the reading
+     measure back the six pixels each side the desktop padding
+     spends, and the claim rail and ledger rows stay in one
+     column inside the answer measure. */
+  .cb-ar-tray { padding: 14px !important; }
+  .cb-answer-sect { min-width: 0; }
+  .cb-answer-wrap .cb-ledger-row { padding-left: 0; padding-right: 0; }
+  .cb-doc-outline { max-width: 100%; }
 }
 
 `;

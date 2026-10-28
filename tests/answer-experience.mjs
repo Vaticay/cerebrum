@@ -386,7 +386,10 @@ await test("evidence drawer: portaled dialog, closed by default, declarative syn
   assert.match(block, /createPortal\(/, "drawer not portaled to document.body");
   assert.match(block, /aria-label=\{`Sources,/, "drawer missing source count label");
   // Active-row highlight is declarative — no sticky timer/class bug possible.
-  assert.match(block, /className=\{"cb-ledger-row" \+ \(isActive \? " cb-source-linked" : ""\)\}/, "drawer row highlight not declarative");
+  // Pin moved 2026-10-28 (Answer and Reader polish lane): the rail rows
+  // gained the cb-ar-evrow entrance class, so the class string carries it
+  // between the ledger contract and the active highlight.
+  assert.match(block, /className=\{"cb-ledger-row cb-ar-evrow" \+ \(isActive \? " cb-source-linked" : ""\)\}/, "drawer row highlight not declarative");
   assert.ok(!/setTimeout/.test(block), "drawer uses a timer for highlight state");
   // Escape closes; the number rows still activate the citation sync.
   assert.match(block, /e\.key === "Escape"/, "drawer missing Escape-to-close");
