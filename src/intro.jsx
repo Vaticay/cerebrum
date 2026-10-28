@@ -998,7 +998,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     if (specimenHeld || sourcesOpen) return undefined;
     if (!specimenVisible) return undefined;
     const t = setInterval(
-      () => setSpecimenIdx((i) => (i + 1) % specimenCount),
+      () => { if (typeof document !== "undefined" && document.hidden) return; setSpecimenIdx((i) => (i + 1) % specimenCount); },
       isMobile ? 12000 : 9000
     );
     return () => clearInterval(t);
@@ -1020,11 +1020,25 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, null), 420);
   };
 
+  /* Loops on the door (the plate sheen, the scroll cue) pause while
+     the tab is hidden: the wrap takes cb-door-hidden and the CSS
+     stands their animations down. */
+  const [docHidden, setDocHidden] = useState(false);
+  useEffect(() => {
+    const onVis = () => setDocHidden(typeof document !== "undefined" && !!document.hidden);
+    onVis();
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
   const animate = animationMode !== "off" && !reduced;
-  /* The ceremony is a single quiet fade of the room on a first visit.
-     Returning visitors skip it: chrome renders composed, the wrap
-     takes the still class, and only the film and the rotation run,
-     as they do for everyone. */
+  /* The ceremony is the staged entrance on a first visit (2026-10-28:
+     film, wordmark, sentence, the way in, Nova, the specimen card,
+     staged on one curve in the cb-door-stage rules; it replaced the
+     single quiet fade of the whole room). Returning visitors skip
+     it: chrome renders composed, the wrap takes the still class,
+     and only the film and the rotation run, as they do for
+     everyone. */
   const ceremony = animate && !enteredBefore;
   /* The door's own darks, as the film doors always carried them: the
      film is graded to near black, and the chrome sits on these values
@@ -1044,9 +1058,10 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, letterSpacing: "normal",
     color: ink2, textDecoration: "none",
     fontWeight: 500, padding: "10px 6px", whiteSpace: "nowrap",
+    display: "inline-flex", alignItems: "center", minHeight: 48,
   };
 
-  const wrapCls = [leaving ? "cb-intro-leaving" : "", (reduced || enteredBefore) && !leaving ? "cb-intro-still" : ""]
+  const wrapCls = [leaving ? "cb-intro-leaving" : "", (reduced || enteredBefore) && !leaving ? "cb-intro-still" : "", ceremony ? "cb-door-in" : "", docHidden ? "cb-door-hidden" : ""]
     .filter(Boolean).join(" ") || undefined;
 
   return (
@@ -1078,7 +1093,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           off, so the door never opens onto black and never moves for
           a visitor who asked it not to. No dot field, no haze fields,
           no grain: where they would fight the film, the film wins. */}
-      <div aria-hidden="true" style={{
+      <div aria-hidden="true" className="cb-door-film" style={{
         position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
         filter: "brightness(0.22) saturate(0.60) blur(12px)",
       }}>
@@ -1091,15 +1106,26 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         />
       </div>
 
+      {/* Film grain, 2026-10-28 (round 4, allowed under the film
+          laws): a static fractal noise tile at five percent over the
+          graded band, texture only, never animated. It sits outside
+          the graded wrapper so the blur cannot smear it, and above
+          the film but below every chrome layer. */}
+      <div aria-hidden="true" style={{
+        position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none", opacity: 0.05,
+        backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E\")",
+        backgroundSize: "180px 180px",
+      }} />
+
       {/* ── Header: the masthead lockup and quiet links. The lockup
           is the search stage's pairing (Mark at 22 in the accent,
           the name in Inter 500, title case), so the door opens with
           the same nameplate the app carries inside. */}
-      <header className="cb-intro-chrome" style={{
+      <header className="cb-intro-chrome cb-door-stage-1" style={{
         position: "relative", zIndex: 30,
       }}>
         <div style={{
-          maxWidth: LAYOUT.stage, margin: "0 auto", padding: "14px 24px",
+          maxWidth: LAYOUT.stage, margin: "0 auto", padding: "max(14px, env(safe-area-inset-top)) 24px 14px",
           display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
@@ -1142,12 +1168,11 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         position: "relative", zIndex: 20, flex: 1,
         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
         padding: isMobile ? "20px 20px 24px" : "30px 24px 30px",
-        animation: ceremony ? "cbIntroStillIn 0.7s ease both" : undefined,
       }}>
       <div style={{ width: "100%", maxWidth: LAYOUT.stage }}>
         {/* The one plain sentence, the search home stage's own, word
             for word. */}
-        <p style={{
+        <p className="cb-door-stage-2" style={{
           // Look modernization, 2026-10-26: the door sentence steps
           // up to a grand scale (42 desktop, 28 phones) with tighter
           // leading, answering the panel fault that the one surface
@@ -1165,13 +1190,13 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         {/* The single way in: the app's primary button, the flat
             accent fill with its contrast ink. Nothing else on the
             door competes with it. */}
-        <div>
+        <div className="cb-door-stage-3">
           <button type="button" onClick={() => go("", false)} className="cb-intro-go"
             autoFocus={enteredBefore || undefined}
             onMouseEnter={() => setDoorHover(true)}
             onMouseLeave={() => setDoorHover(false)}
             style={{
-            marginTop: isMobile ? 26 : 32, cursor: "pointer",
+            marginTop: isMobile ? 28 : 32, cursor: "pointer",
             textTransform: "none", whiteSpace: "nowrap", letterSpacing: "normal",
             background: doorHover
               ? "color-mix(in srgb, " + introAccent + " 86%, #ffffff)"
@@ -1180,8 +1205,9 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             border: "1px solid transparent", borderRadius: RADIUS.md,
             boxShadow: "none",
             padding: isMobile ? "14px 34px" : "14px 44px", minHeight: 48,
+            width: isMobile ? "100%" : undefined,
             fontSize: FONT_SIZES.body, fontWeight: 500, fontFamily: "var(--cb-font)",
-            transition: "background-color 150ms ease-out",
+            transition: "background-color 150ms ease-out, transform 200ms var(--cb-ease)",
           }}>Start researching</button>
         </div>
       </div>
@@ -1193,8 +1219,8 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             touches nothing else on the door. In the 2026-10-23
             rearrangement she waits low in the frame, above the
             specimen plate, the last voice before the evidence. */}
-        <div style={{
-          marginBottom: isMobile ? 22 : 26, display: "flex", alignItems: "center",
+        <div className="cb-door-stage-4" style={{
+          marginBottom: isMobile ? 20 : 26, display: "flex", alignItems: "center",
           gap: isMobile ? 12 : 14, maxWidth: 520,
         }}>
           <span aria-hidden="true" style={{ display: "block", flex: "0 0 auto" }}>
@@ -1212,16 +1238,24 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
 
         {/* The specimen: one verified claim at a time on a solid
             matte placard. The claim in the reading serif, and the
-            citation with the paper one tap away. The
-            change is a plain fade (cb-specimen-in), a page turning,
+            citation with the paper one tap away. The change is a
+            soft rise with a fade (cb-door-spec-in, 2026-10-28; it
+            replaced the plain cb-specimen-in fade, and unlike that
+            class it also runs on touch devices), a page turning,
             never a scene change. Hover and focus hold the rotation.
             Since 2026-10-23 the placard is a wide low plate spanning
             the room's column at the foot of the frame, the label
             under the film: on desktop the citation stands at the
             plate's right end behind a hairline, on phones it stacks
-            under the claim as it always did. */}
+            under the claim as it always did. 2026-10-28: the plate
+            holds a minimum height, so a longer claim never shifts
+            the room when the rotation turns, and the proof line
+            moved inside the plate as its footer row, bound to the
+            card instead of floating under it. A slow sheen sweep
+            crosses the plate while motion runs. */}
         <div
           ref={specimenWrapRef}
+          className="cb-door-stage-5"
           onMouseEnter={() => setSpecimenHeld(true)}
           onMouseLeave={() => setSpecimenHeld(false)}
           onFocus={() => setSpecimenHeld(true)}
@@ -1230,18 +1264,25 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         >
           <div
             key={specimenIdx}
-            className={animate ? "cb-specimen-in" : undefined}
+            className={animate ? "cb-door-spec-in" : undefined}
             style={{
               background: plateBg,
               border: "1px solid " + hairline,
               borderRadius: RADIUS.lg,
               padding: isMobile ? "22px 20px" : "24px 28px",
               textAlign: "left",
-              display: isMobile ? undefined : "flex",
-              alignItems: isMobile ? undefined : "center",
+              position: "relative",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: isMobile ? "column" : "row",
+              flexWrap: isMobile ? undefined : "wrap",
+              alignItems: isMobile ? "stretch" : "center",
+              justifyContent: "center",
               gap: isMobile ? undefined : 28,
+              minHeight: isMobile ? 252 : 176,
             }}
           >
+            {animate && <span aria-hidden="true" className="cb-door-sheen" />}
             <p style={{
               fontFamily: "var(--cb-serif)",
               fontSize: FONT_SIZES.section,
@@ -1267,33 +1308,41 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
                   color: introAccent, fontWeight: 500,
                   textDecoration: "none", whiteSpace: "nowrap",
                   borderBottom: "1px solid " + accentA(0.4),
+                  display: "inline-block", padding: "14px 4px", margin: "-14px -4px",
                 }}>
                 Open the paper &#8599;
               </a>
             </p>
-          </div>
-
-          {/* The honest proof, once, under the placard: the claim
-              traces to the real paper linked on it, and the index
-              count is the product's real source list, the same
-              SCHOLARLY_SOURCES the workspace searches. The line opens
-              the Research sources dialog, so the count can be checked
-              against the list. */}
-          <div ref={proofRef} style={{ marginTop: 14, textAlign: "left" }}>
-            <button type="button" onClick={() => setSourcesOpen(true)} aria-label="Research sources"
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 8,
-                background: "none", border: "none", cursor: "pointer",
-                padding: "10px 8px",
-                fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 400,
-                lineHeight: 1.5, color: faint,
-              }}>
-              <span aria-hidden="true" style={{
-                width: 7, height: 7, flex: "0 0 auto",
-                background: introAccent,
-              }} />
-              <span>Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes</span>
-            </button>
+            {/* The honest proof, once, as the plate's footer row
+                (2026-10-28: bound inside the card instead of
+                floating under it): the claim traces to the real
+                paper linked on it, and the index count is the
+                product's real source list, the same
+                SCHOLARLY_SOURCES the workspace searches. The line
+                opens the Research sources dialog, so the count can
+                be checked against the list. The scroll cue still
+                keys on this row through proofRef: it remains the
+                evidence group's last element. */}
+            <div ref={proofRef} style={{
+              flex: "1 1 100%", textAlign: "left",
+              borderTop: "1px solid " + hairline,
+              marginTop: isMobile ? 16 : 20, paddingTop: isMobile ? 4 : 8,
+            }}>
+              <button type="button" onClick={() => setSourcesOpen(true)} aria-label="Research sources"
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  background: "none", border: "none", cursor: "pointer",
+                  padding: "12px 8px", minHeight: 48,
+                  fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 400,
+                  lineHeight: 1.5, color: faint,
+                }}>
+                <span aria-hidden="true" style={{
+                  width: 7, height: 7, flex: "0 0 auto",
+                  background: introAccent,
+                }} />
+                <span>Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1322,7 +1371,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           and no text, so nothing on the door reads any
           differently. */}
       {!proofVisible && !leaving && !sourcesOpen && (
-        <div aria-hidden="true" style={{
+        <div aria-hidden="true" className="cb-door-chevron" style={{
           position: "fixed", left: "50%", bottom: 16, transform: "translateX(-50%)",
           zIndex: 40, pointerEvents: "none", color: faint, opacity: 0.85,
           display: "flex", alignItems: "center", justifyContent: "center",
@@ -1335,7 +1384,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       )}
 
       {/* ── Footer: one quiet line. */}
-      <footer className="cb-intro-chrome" style={{
+      <footer className="cb-intro-chrome cb-door-stage-6" style={{
         position: "relative", zIndex: 20,
         paddingBottom: "max(16px, env(safe-area-inset-bottom))",
       }}>

@@ -467,7 +467,12 @@ await test("focus-pull keyframes exist and resolve blur to sharp", () => {
 });
 
 await test("hero text uses a premium entrance (focus-pull or specimen-in)", () => {
-  assert.ok(src.includes('"cb-focus-in"') || src.includes('"cb-specimen-in"'), "no premium entrance applied to hero text");
+  /* Pin updated 2026-10-28 (door motion wave): the door plate's
+     entrance is now cb-door-spec-in, the door's own rise and fade,
+     which also runs on touch devices where cb-specimen-in is
+     killed. The intent is unchanged: the hero text takes a named
+     premium entrance class. */
+  assert.ok(src.includes('"cb-focus-in"') || src.includes('"cb-specimen-in"') || src.includes('"cb-door-spec-in"'), "no premium entrance applied to hero text");
 });
 
 await test("old fade-and-rise entrance is fully gone", () => {
