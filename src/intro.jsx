@@ -20,6 +20,7 @@ import { safeHref } from "./textUtils.js";
 import { staticFieldCss } from "./cerebrumField.js";
 import { SCHOLARLY_SOURCES } from "../functions/lib/product.js";
 import { NovaRive } from "./NovaRive.jsx";
+import { IntroAtmosphere } from "./introAtmosphere.jsx";
 import { cbMotionOff, Dialog } from "./flowcharts.jsx";
 
 function InvestigationOpening({ accent, animationMode }) {
@@ -102,48 +103,19 @@ const FILM_CLIPS_PORTRAIT = [
   videoUrl("/assets/cinematic/ambient-07.mp4"),
 ];
 
-/* Intro reel for the ceremonial door. Dark, slow, atmospheric only.
-   No literal footage of people, no bright scenes, and never, under any
-   circumstances, fire or burning books. Dusty has ordered the burning
-   books clip gone repeatedly; it kept surviving because the Mixkit URL
-   below was labelled "storm clouds" in this file while the file it
-   actually serves is a book on fire. Verified by pulling real frames
-   from every clip on 2026-10-12:
-   - Mixkit 52298 serves a BURNING BOOK. Never re add it, whatever any
-     listing or comment claims it shows.
-   - Mixkit 5774 is a bright lab scene with a man in a VR headset.
-     Removed the same day: literal, bright, recognizable footage.
-   Rule for anyone editing this list: pull a frame and look at it
-   before the clip ships. A comment is not verification. */
-/* Photo fix 2026-10-20 (owner photo of the door on a MacBook in
-   Safari): the swirling clouds clip (20231) put large bright soft
-   patches at placard height behind the sentence and the lockup.
-   Measured, not guessed: five frames pulled across each clip on
-   2026-10-20 (ffmpeg plus a PIL luminance pass, Rec.709 luma on a
-   0 to 255 scale). 20231 opens as a bright daytime cloud scene and
-   only darkens late: first frame mean 159.5, p95 234.8, placard
-   band (middle 30 to 70 percent) mean 165.1, band p95 238.8; across
-   five frames mean 80.0, p95 mean 127.2. Even under the new door
-   grade below its band p95 still lands at 24.7, the brightest large
-   region left on the door, so it is swapped out under the task
-   rule, not merely graded harder. Its replacement is the darkest
-   frame checked calm clip, 10011 (stars): five frames, mean 1.4,
-   p95 mean 4.9, max p95 5.4, band mean 1.3, band p95 mean 4.5, and
-   the frames were looked at: a near black star field, no large
-   soft patches, nothing literal. The other calm candidates were
-   measured and rejected the same day: 15711 (night clouds label,
-   actually a literal dusk cityscape, mean 45.5, p95 142.7), 3147
-   (moon clouds, a pink dusk scene, mean 35.7, early frame mean
-   73.7), and 35007 (moon behind clouds, a blown bright moon disc,
-   mean 77.0, p95 mean 184.8, band p95 mean 220.5). 30563 stays:
-   mean 21.4, p95 mean 78.6, band p95 mean 102.5, and under the new
-   grade its mean lands at 10.4 and its band p95 at 15.7. 10011 now
-   appears in both the intro and calm reels; the lists are separate
-   picks, so the calm reel is unchanged. */
-const FILM_CLIPS_INTRO = [
-  "https://assets.mixkit.co/videos/30563/30563-720.mp4", // Flying through dark matter in space. Frame checked 2026-10-12, measured again 2026-10-20.
-  "https://assets.mixkit.co/videos/10011/10011-720.mp4", // Stars rotating slowly in the night sky. Frame checked and measured 2026-10-20: darkest calm clip, swapped in for 20231 above.
-];
+/* The intro reel is retired (2026-10-28, the owner's order on the
+   reimagined door: "bring in all new cinematic elements and
+   backgrounds, do not reuse any of the old ones"). The pair that
+   played here (Mixkit 30563, dark matter flight, and 10011, the
+   star field) is gone from the door with the grade that covered
+   it; the door's background is now the authored atmosphere in
+   introAtmosphere.jsx, rendered live, with no footage in it at
+   all. The frame check history that chose those clips (the
+   2026-10-12 burning book ban, the 2026-10-20 luminance
+   measurements) stays on record in git history and in the film
+   guard at scripts/check.mjs section 8, which still bans the
+   banned ids everywhere. The calm reel below is the workspace's
+   own material and is untouched by this order. */
 
 /* Calm reel (2026-10-08, refreshed): quieter clips for the main search page.
    Dusty's note: "different ones (less eye sore for the main page)." Night
@@ -171,10 +143,11 @@ const FILM_CLIPS_CALM = [
    rotation and resize instead of freezing at first render; the hooks'
    windowless defaults land on landscape, the fallback above. */
 function filmReel(pro, reel, portrait) {
-  // Named reels (2026-10-08): "intro" for the dramatic 4K door clips,
-  // "calm" for the quieter main-page clips. These bypass the portrait
-  // check — the clips are chosen to crop well.
-  if (reel === "intro") return FILM_CLIPS_INTRO;
+  // Named reels (2026-10-08): "calm" for the quieter main-page
+  // clips, bypassing the portrait check — the clips are chosen to
+  // crop well. The "intro" pick retired 2026-10-28 with the door's
+  // reel itself (see the note at the retired list's site): the door
+  // plays no reel now, so nothing asks for it.
   if (reel === "calm") return FILM_CLIPS_CALM;
   // 2026-10-07: Pro clips (science-*) are 404 on the CDN — they were never
   // uploaded. Pro users get the working ambient reel until the Pro clips
@@ -923,6 +896,21 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
    poster still (filmBlocked's contract inside the reel) and one
    composed fade; leaving takes the 420ms descent; consent appears
    on the way in, in the shell, never on this door.
+
+   Evening addendum, 2026-10-28 (the owner's material order): the
+   paragraph above and the restoration history it closes describe
+   the door as it stood that morning. His verdict on the
+   reimagined door shipped at noon was that it looked the same
+   but with animations, because the cinematic material underneath
+   never changed, and his order was all new cinematic elements
+   and backgrounds with none of the old ones reused. The reel,
+   its grade, its poster, and its grain tile are therefore gone
+   from this door as of this evening; the foundation is now the
+   authored atmosphere in introAtmosphere.jsx (mist strata, a
+   breathing light, motes, grain), and reduced motion gets one
+   composed still frame of that same material. The staging, the
+   sentence, Nova, the specimens, and the way in are untouched
+   by the order and stand as described.
    ════════════════════════════════════════════════════════════════════ */
 function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   /* Cinema mode, 2026-10-28 (the owner's call, for commercial
@@ -932,8 +920,10 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
      session flag says, one specimen (the Van Dongen card the door
      opens on) is held for the whole take, and everything that is
      not part of the pitch (nav links, the footer line, the scroll
-     cue) stays out of frame. The film, the arrangement, Nova's
-     line, the fonts, and the palette are exactly the live door's. */
+     cue) stays out of frame. The atmosphere, the arrangement,
+     Nova's line, the fonts, and the palette are exactly the live
+     door's; the atmosphere's clock starts from its fixed take
+     time, so the take's light is the same on every recording. */
   const [cinema] = useState(() => {
     try {
       const v = new URLSearchParams(window.location.search).get("cinema");
@@ -955,7 +945,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   }, [cinema]);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   /* Stepping through: the door opens (2026-10-28, the owner's call:
-     two black leaves part over the film light, 720ms, and the app
+     two black leaves part over the light, 720ms, and the app
      is entered at 700ms; this replaced the 420ms chamber descent).
      The no-motion path is untouched: animation off or reduced motion
      goes straight through, instantly, and never mounts the split.
@@ -1057,22 +1047,22 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
 
   const animate = animationMode !== "off" && !reduced;
   /* The ceremony is the staged entrance on a first visit (2026-10-28:
-     film, wordmark, sentence, the way in, Nova, the specimen card,
-     staged on one curve in the cb-door-stage rules; it replaced the
-     single quiet fade of the whole room). Returning visitors skip
-     it: chrome renders composed, the wrap takes the still class,
-     and only the film and the rotation run, as they do for
-     everyone. */
+     atmosphere, wordmark, sentence, the way in, Nova, the specimen
+     card, staged on one curve in the cb-door-stage rules; it
+     replaced the single quiet fade of the whole room). Returning
+     visitors skip it: chrome renders composed, the wrap takes the
+     still class, and only the atmosphere and the rotation run, as
+     they do for everyone. */
   const ceremony = animate && !enteredBefore;
   /* Cinema takes run the staged entrance once per load whatever the
      session flag says, so the wrap takes the ceremony class there
      too. */
   const doorIn = ceremony || (!!cinema && animate);
   /* The door's own darks, as the film doors always carried them: the
-     film is graded to near black, and the chrome sits on these values
-     in every palette. The smallest text (the proof line, the footer)
-     takes the 0.58 alpha, which clears 4.5 to 1 against the graded
-     ground; secondary text takes 0.72. */
+     atmosphere is authored near black, and the chrome sits on these
+     values in every palette. The smallest text (the proof line, the
+     footer) takes the 0.58 alpha, which clears 4.5 to 1 against the
+     atmosphere's clamped ground; secondary text takes 0.72. */
   const ink = "#eef1ee";
   const ink2 = "rgba(238,241,238,0.72)";
   const faint = "rgba(238,241,238,0.58)";
@@ -1099,52 +1089,38 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       display: "flex", flexDirection: "column",
       fontFamily: "var(--cb-font)", background: "#05070a", color: ink,
     }}>
-      {/* The film (restored 2026-10-20): the ambient science reel is
-          the door's foundation again. The grade is the 2026-10-08
-          ruling in values, darkened the same day (2026-10-20) on the
-          owner's photo of this door, which showed large bright soft
-          cloud patches at placard height behind the sentence and the
-          lockup competing with the text. Door local grade only (the
-          app home film keeps its own settings): brightness 0.22
-          (very dark, down from 0.30), saturate 0.60, blur 12px
-          (heavily blurred, so no clip reads as footage), over clips
-          that hold 11 seconds each (very slow), and intensity 0.30
-          below (down from 0.50), so the solid dim layer (#0b0d10,
-          luminance 12.8) covers at opacity 0.70. Graded luminance is
-          therefore 0.066 times frame luminance plus 8.95, against
-          0.15 times plus 6.40 before. Measured 2026-10-20 on five
-          pulled frames per clip (see FILM_CLIPS_INTRO): the kept
-          dark matter clip lands at mean 10.4, p95 14.1; the swapped
-          in stars clip at mean 9.0, p95 9.3; the removed clouds clip
-          would still have landed at band p95 24.7, so it went.
-          filmBlocked inside the reel stands it down to its graded
-          poster still under reduced motion, Save-Data, or animation
-          off, so the door never opens onto black and never moves for
-          a visitor who asked it not to. No dot field, no haze fields,
-          no grain: where they would fight the film, the film wins. */}
-      <div aria-hidden="true" className="cb-door-film" style={{
+      {/* The atmosphere (2026-10-28, the owner's material order):
+          the door's foundation is no longer the film. The reel that
+          stood here from the 2026-10-20 restoration (two stock
+          clips under the door grade, brightness 0.22, saturate
+          0.60, blur 12px, intensity 0.30) is retired with its
+          grade, its poster, and the static grain tile that lay
+          over it, on the owner's verdict that the reimagined door
+          still looked the same because the material never changed.
+          What stands here now is IntroAtmosphere: mist in three
+          drifting strata, a light breathing low in the frame,
+          motes and animated grain, authored for this door and
+          rendered live (see introAtmosphere.jsx for the world and
+          its contracts). There is no filter on this wrapper and no
+          file behind it: the darkness is the material's own
+          palette, clamped in the shader. Reduced motion, animation
+          off, and Save-Data draw one composed still of the same
+          world, so the door never opens onto black and never moves
+          for a visitor who asked it not to. While the door is
+          leaving, the light swells, so the parting leaves below
+          open over this material brightening, not over a painted
+          light layer. No dot field, no haze fields: where they
+          would fight the atmosphere, the atmosphere wins. */}
+      <div aria-hidden="true" className="cb-door-atmo" style={{
         position: cinema ? "absolute" : "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
-        filter: "brightness(0.22) saturate(0.60) blur(12px)",
       }}>
-        <CinematicFilm
-          reel="intro"
+        <IntroAtmosphere
           animationMode={animationMode}
-          intensity={0.3}
-          onAutoplayBlocked={() => {}}
-          onPlaybackChange={() => {}}
+          still={reduced || animationMode === "off"}
+          swell={leaving}
+          fixedClock={!!cinema}
         />
       </div>
-
-      {/* Film grain, 2026-10-28 (round 4, allowed under the film
-          laws): a static fractal noise tile at five percent over the
-          graded band, texture only, never animated. It sits outside
-          the graded wrapper so the blur cannot smear it, and above
-          the film but below every chrome layer. */}
-      <div aria-hidden="true" style={{
-        position: cinema ? "absolute" : "fixed", inset: 0, zIndex: 1, pointerEvents: "none", opacity: 0.05,
-        backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E\")",
-        backgroundSize: "180px 180px",
-      }} />
 
       {/* ── Header: the masthead lockup and quiet links. The lockup
           is the search stage's pairing (Mark at 22 in the accent,
@@ -1188,9 +1164,13 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           the foot (rendered after this main, below): the specimen
           set as captions are set, claim, citation, proof, no card,
           no plate, no border box. Nothing about the identity
-          moved: the film and its grade, the sentence word for
-          word, one way in, Nova once with her line word for word,
-          real specimens with their papers one tap away. Phones:
+          moved at noon: the sentence word for word, one way in,
+          Nova once with her line word for word, real specimens
+          with their papers one tap away. (The material inside
+          the frame did move that evening, on the owner's order:
+          the graded reel named in this paragraph is retired and
+          the authored atmosphere fills the frame instead; see
+          the mount's own comment above.) Phones:
           the whole frame fits the first screenful at 360 by 667
           (masthead near 57, the title block near 300, the strip
           near 230), so nothing on the door waits below a fold. */}
@@ -1268,7 +1248,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       {/* ── The caption strip (2026-10-28, the reimagined door): the
           specimen stands at the foot of the frame the way captions
           stand in a film, on a full width band of the door's own
-          solid ground, a hard cut from the film above it. No card,
+          solid ground, a hard cut from the atmosphere above it. No card,
           no plate, no border box, no radius: the claim in the
           reading serif, the citation with the paper one tap away,
           and the honest proof line, three quiet lines of type on
@@ -1278,7 +1258,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           a page turning, never a scene change; hover and focus
           hold the rotation. The claim zone holds a reserved height
           sized to the longest specimen, so the strip never changes
-          height when the rotation turns and the film area above it
+          height when the rotation turns and the frame above it
           never moves. */}
       <div
         ref={specimenWrapRef}
@@ -1361,10 +1341,13 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       {/* The door opening (2026-10-28): mounted only on the animated
           way in, purely visual, pointer events off. Entry fires on
           the leave timer in go() whatever this overlay does, and
-          the no motion paths never mount it. */}
+          the no motion paths never mount it. Reworked the same
+          evening for the new material: the painted light layer that
+          sat under the leaves is gone, and the light is the
+          atmosphere's own, swelling through the swell prop on the
+          mount above as the leaves part. */}
       {leaving && animate && (
         <div aria-hidden="true" className="cb-door-split" style={cinema ? { position: "absolute" } : undefined}>
-          <div className="cb-split-light" />
           <div className="cb-split-half cb-split-l" />
           <div className="cb-split-half cb-split-r" />
         </div>
@@ -1378,11 +1361,12 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   if (!cinema) return doorRoot;
   /* The cinema frame: a fixed recordable box on a black stage. The
      door inside it is the live door, laid out in the frame (the
-     portrait frame takes the phone arrangement), its film and grain
+     portrait frame takes the phone arrangement), its atmosphere
      bound to the frame instead of the viewport. What the frame
-     holds after the entrance is the held end frame: film still
-     turning, the Van Dongen card held, nothing rotating, ready to
-     loop or to cut into the app on the way in. */
+     holds after the entrance is the held end frame: the atmosphere
+     still breathing on its fixed clock, the Van Dongen card held,
+     nothing rotating, ready to loop or to cut into the app on the
+     way in. */
   return (
     <div style={{
       position: "fixed", inset: 0, background: "#000",
@@ -2191,7 +2175,6 @@ export {
   // Film block (4076-4465): constants + helpers
   FILM_CLIPS_LANDSCAPE,
   FILM_CLIPS_PORTRAIT,
-  FILM_CLIPS_INTRO,
   FILM_CLIPS_CALM,
   videoUrl,
   filmReel,

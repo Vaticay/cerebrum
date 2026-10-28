@@ -66,16 +66,22 @@ await test("workspace CinematicFilm mount exists, darker than before", () => {
   // back. The intro mount returns and three mounts stand again
   // (intro, calm, workspace), the door's reel under the same unified
   // grade asserted below. Pin updated to the corrected contract.
+  // 2026-10-28 (evening, the owner's material order): the door's
+  // reel is retired for good, with its door grade (brightness 0.22,
+  // intensity 0.30). His verdict on the noon reimagination was that
+  // it looked the same but with animations because the material
+  // never changed; his order was all new cinematic elements and
+  // backgrounds, none of the old ones reused. The door now mounts
+  // IntroAtmosphere, an authored shader material, and two
+  // CinematicFilm mounts stand (calm, workspace). The shell's
+  // unified grade assertions below are untouched: the workspace
+  // keeps its film exactly as before.
   const mounts = (appSrc.match(/<CinematicFilm/g) || []).concat(introSrc.match(/<CinematicFilm/g) || []);
-  assert.strictEqual(mounts.length, 3, `expected intro+calm+workspace mounts, found ${mounts.length}`);
+  assert.strictEqual(mounts.length, 2, `expected calm+workspace mounts, found ${mounts.length}`);
   const introFn = introSrc.slice(introSrc.indexOf("function Intro({"), introSrc.indexOf("function CerebrumFieldCanvas"));
-  assert.ok(introFn.includes("<CinematicFilm"), "the restored intro lost the film reel");
-  /* Pin updated 2026-10-20 (owner photo of the door: bright clouds
-     at placard height): the door grade darkened door locally to
-     brightness 0.22 with intensity 0.30, so the door no longer
-     carries the unified grade asserted for the shell below. The
-     shell surfaces keep the unified grade; only the door moved. */
-  assert.ok(introFn.includes('filter: "brightness(0.22) saturate(0.60) blur(12px)"'), "the door's film is not under its darker door grade");
+  assert.ok(introFn.includes("<IntroAtmosphere"), "the door lost its authored atmosphere");
+  assert.ok(!introFn.includes("<CinematicFilm"), "the door mounts the film reel again");
+  assert.ok(!introFn.includes("brightness(0.22)"), "the retired door grade is back on the door");
   assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
   /* Pin updated 2026-10-19 (S7 shell lane, audit H6): the workspace reel
      no longer grades brighter than the search home. Both wrappers carry

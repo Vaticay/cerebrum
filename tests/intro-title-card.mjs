@@ -104,6 +104,28 @@
  * core-identity asserts the film is present in the Intro, and no
  * flat door pin exists in this file or that one.
  *
+ * 2026-10-28 (the owner's material order, evening): the door was
+ * reimagined at noon the same day (film frame, title block,
+ * caption strip) and his verdict on it was that it looks the same
+ * but with animations, because the cinematic material underneath
+ * never changed. His order: "bring in all new cinematic elements
+ * and backgrounds, do not reuse any of the old ones." The reel,
+ * its exact clip list, the door grade (brightness 0.22, saturate
+ * 0.60, blur 12px), the intensity dim, the graded poster, and the
+ * static grain tile are all retired from the door. In their place
+ * the door mounts IntroAtmosphere (src/introAtmosphere.jsx):
+ * mist strata, a breathing light, motes, and animated grain,
+ * authored for this door and rendered live in a shader, with one
+ * composed still of the same material for reduced motion. The
+ * three pins that guarded the old material (the film mount and
+ * grade pin, the exact reel pair pin, and the calm is the film
+ * pin) are rewritten at their sites below, each marked with this
+ * date and order, to guard the new material instead: the
+ * atmosphere mounted, the old material absent, the banned clips
+ * still banned. Every structural pin (the sentence word for
+ * word, Nova once with her line, one way in, the specimens and
+ * their papers, the proof line, no dashes) stands unmodified.
+ *
  * Run with: node tests/intro-title-card.mjs
  */
 
@@ -256,9 +278,9 @@ await test("the old worked-example section is gone — the specimen is the examp
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("The door and the film (restored 2026-10-20)");
+group("The door and its material (film restored 2026-10-20; new material 2026-10-28)");
 
-await test("the door mounts the film under the one calm grade; the field and the haze stay off", () => {
+await test("the door mounts the new atmosphere; the reel and its grade are gone", () => {
   // 2026-10-16: this pin replaced the film mount pin of the restored
   // door. The rebuilt door mounted no reel, no atmosphere, and no
   // grain; its ground was the palette's flat background.
@@ -273,21 +295,33 @@ await test("the door mounts the film under the one calm grade; the field and the
   // dot field and haze fields leave the door, because where the
   // field and the film would fight, the film wins. The grain and
   // the old glow atmosphere fields stay banned.
-  assert.ok(introFn.includes("<CinematicFilm"), "the door lost the film reel");
-  assert.ok(introFn.includes('reel="intro"'), "the door does not play the intro reel");
-  /* Pin updated 2026-10-20 (owner photo of the door: bright clouds
-     at placard height). The door grade is door local now and darker
-     than the app's unified grade: brightness 0.22, and the door's
-     intensity is 0.30, so the dim layer covers at 0.70. The other
-     surfaces keep brightness 0.30; only the door moved. */
-  assert.ok(introFn.includes('filter: "brightness(0.22) saturate(0.60) blur(12px)"'), "the door's film is not under its calm grade");
-  assert.ok(!introFn.includes('filter: "brightness(0.30) saturate(0.60) blur(12px)"'), "the door's film drifted back to the brighter grade");
-  assert.ok(introFn.includes("intensity={0.3}"), "the door's film intensity is not 0.30");
-  assert.ok(!introFn.includes("intensity={0.5}"), "the door's film intensity drifted back to 0.50");
-  assert.ok(introFn.includes('background: "#05070a"'), "the door ground is not the film door's near black");
-  assert.ok(!introFn.includes("<DotField"), "the dot field is back on the door, fighting the film");
+  // 2026-10-28 (evening, the owner's material order): reversed
+  // again at his word, and this time the material itself is what
+  // changed. The reimagined door shipped at noon kept the reel
+  // (30563 and 10011) under the door grade (brightness 0.22,
+  // saturate 0.60, blur 12px, intensity 0.30), and his verdict was
+  // that it looked the same but with animations. His order: all
+  // new cinematic elements and backgrounds, none of the old ones
+  // reused. This pin now guards the replacement: the door mounts
+  // IntroAtmosphere with its three contracts wired (the still for
+  // reduced motion and Off, the swell for the door opening, the
+  // fixed clock for cinema), and the old material is absent, not
+  // merely unpinned: no reel mount, no intro reel pick, no grade
+  // filter, no intensity dim on the door. The dot field, haze, and
+  // old atmosphere field bans stand exactly as before: where they
+  // would fight the atmosphere, the atmosphere wins.
+  assert.ok(introFn.includes("<IntroAtmosphere"), "the door lost its atmosphere");
+  assert.ok(introFn.includes('still={reduced || animationMode === "off"}'), "the atmosphere does not take the still contract");
+  assert.ok(introFn.includes("swell={leaving}"), "the atmosphere does not take the opening swell");
+  assert.ok(introFn.includes("fixedClock={!!cinema}"), "the atmosphere does not take the cinema fixed clock");
+  assert.ok(!introFn.includes("<CinematicFilm"), "the film reel is back on the door");
+  assert.ok(!introFn.includes('reel="intro"'), "the door plays the retired intro reel");
+  assert.ok(!introFn.includes("brightness(0.22)"), "the old door grade is back on the door");
+  assert.ok(!introFn.includes("intensity={0.3}"), "the old film dim is back on the door");
+  assert.ok(introFn.includes('background: "#05070a"'), "the door ground is not the door's near black");
+  assert.ok(!introFn.includes("<DotField"), "the dot field is back on the door, fighting the atmosphere");
   assert.ok(!introFn.includes("cb-intro-haze"), "the haze fields are back on the door");
-  assert.ok(!introFn.includes("cb-intro-atmosphere"), "the door's atmosphere fields are back");
+  assert.ok(!introFn.includes("cb-intro-atmosphere"), "the door's old atmosphere fields are back");
   assert.ok(!introFn.includes("cb-intro-grain"), "the door's grain layer is back");
   assert.ok(introFn.includes("const animate = animationMode !== \"off\" && !reduced;"), "motion gate changed");
 });
@@ -379,9 +413,9 @@ await test("the specimen sits on the door's solid caption strip; no gradients, n
   assert.ok(!/boxShadow: (?!\"none\")/.test(introFn), "a shadow is cast on the door");
 });
 
-await test("the film guard stands: the intro reel is the frame checked pair", () => {
+await test("the film guard stands: the banned clips never return, and the door carries no clip at all", async () => {
   // eb500f7's permanent guard (scripts/check.mjs section 8) allowlists
-  // frame checked clips at build time. The door's reel is the pair
+  // frame checked clips at build time. The door's reel was the pair
   // verified by pulled frames on 2026-10-12; the banned clips (52298
   // burning book, 5774 bright VR lab) never return as URLs.
   // Pin updated 2026-10-20 (owner photo of the door): the second
@@ -390,17 +424,24 @@ await test("the film guard stands: the intro reel is the frame checked pair", ()
   // p95 234.8, placard band p95 238.8) and is out of the intro reel.
   // Its replacement is 10011 (stars), the darkest frame checked
   // calm clip, measured the same day: mean 1.4, p95 mean 4.9 across
-  // five frames, frames looked at. The exact list is pinned below
+  // five frames, frames looked at. The exact list was pinned below
   // so the reel cannot silently drift brighter again.
-  const reel = src.slice(src.indexOf("const FILM_CLIPS_INTRO"), src.indexOf("const FILM_CLIPS_CALM"));
-  assert.ok(reel.includes("videos/30563/30563-720.mp4"), "dark matter clip missing from the intro reel");
-  assert.ok(reel.includes("videos/10011/10011-720.mp4"), "stars clip missing from the intro reel");
-  assert.ok(!reel.includes("videos/20231"), "the bright clouds clip is back in the intro reel");
-  const urls = [...reel.matchAll(/https:\/\/assets\.mixkit\.co\/videos\/\d+\/[\d-]+\.mp4/g)].map((m) => m[0]);
-  assert.deepEqual(urls, [
-    "https://assets.mixkit.co/videos/30563/30563-720.mp4",
-    "https://assets.mixkit.co/videos/10011/10011-720.mp4",
-  ], "the intro reel is not the exact frame checked pair");
+  // Pin rewritten 2026-10-28 (evening, the owner's material order):
+  // there is no reel list left to pin. The door's material is the
+  // authored atmosphere, which is procedural: no clip, no file, no
+  // URL. The guard's job is now the negative space: the retired
+  // list is gone, the door mounts no video and names no clip host,
+  // the atmosphere's own source carries no footage reference of any
+  // kind, and the banned ids stay banned in the whole file, exactly
+  // as before. The build time half of the guard (check.mjs section
+  // 8) still allowlists the workspace's own clips, untouched.
+  assert.ok(!src.includes("const FILM_CLIPS_INTRO"), "the retired intro reel list is back");
+  assert.ok(!introFn.includes("assets.mixkit.co"), "the door names a stock clip host again");
+  assert.ok(!introFn.includes("<video"), "a video element is back on the door");
+  const atmoSrc = await readFile(join(root, "src/introAtmosphere.jsx"), "utf8");
+  assert.ok(!atmoSrc.includes("mixkit"), "the atmosphere names a stock clip host");
+  assert.ok(!atmoSrc.includes("assets/cinematic"), "the atmosphere reaches for a reel file");
+  assert.ok(!atmoSrc.includes(".mp4"), "the atmosphere references footage");
   assert.ok(!src.includes("videos/52298"), "the burning book clip is back");
   assert.ok(!src.includes("videos/5774"), "the bright VR lab clip is back");
 });
@@ -555,16 +596,24 @@ await test("the ledger is gone: no records, no numbers, no ruled header", () => 
   assert.ok(!introFn.includes("gridTemplateColumns"), "the two column room is back");
 });
 
-await test("the calm is the film under the grade, not a field of dots", () => {
+await test("the calm is the authored atmosphere, not a field of dots", () => {
   /* New pin 2026-10-20 (same verdict), replacing the 2026-10-19
      calm air pin: the door's atmosphere is the graded reel alone.
      The haze keyframes stay defined in the shell stylesheet for
      other surfaces; the door mounts neither layer. Pin updated
      later on 2026-10-20 (owner photo: bright clouds at placard
      height): the door grade darkened to brightness 0.22 with
-     intensity 0.30, door local only. */
-  assert.ok(introFn.includes('filter: "brightness(0.22) saturate(0.60) blur(12px)"'), "the door's calm grade is missing");
-  assert.ok(introFn.includes("intensity={0.3}"), "the door's dim layer intensity is missing");
+     intensity 0.30, door local only.
+     Pin rewritten 2026-10-28 (evening, the owner's material
+     order): the graded reel is retired from the door, grade and
+     dim with it. The door's calm is now the authored atmosphere
+     alone (IntroAtmosphere: mist strata, a breathing light,
+     motes, grain), which carries its darkness in its own palette
+     and clamp rather than in a filter over footage. The haze and
+     dot field bans stand exactly as pinned in 2026-10-20. */
+  assert.ok(introFn.includes("<IntroAtmosphere"), "the door's authored atmosphere is missing");
+  assert.ok(!introFn.includes('filter: "brightness(0.22) saturate(0.60) blur(12px)"'), "the retired door grade is back");
+  assert.ok(!introFn.includes("intensity={0.3}"), "the retired film dim is back");
   assert.ok(!introFn.includes('className="cb-intro-haze"'), "the haze layer is back on the door");
   assert.ok(!introFn.includes("<DotField"), "the dot field is back on the door");
 });
@@ -597,7 +646,7 @@ await test("repeat visits in a session collapse the ceremony", () => {
   assert.ok(introFn.includes("(reduced || enteredBefore) && !leaving"), "returning door does not take the still treatment");
 });
 
-await test("reduced motion is one still, composed frame", () => {
+await test("reduced motion is one still, composed frame", async () => {
   // No entrance choreography (the gate above), no rotation (the
   // effect's early return above), and the wrap takes the still class
   // whose CSS resolves the chrome in a single fade. 2026-10-16: the
@@ -606,8 +655,16 @@ await test("reduced motion is one still, composed frame", () => {
   // film is back, and its freeze is the reel's own contract
   // (filmBlocked mounts the graded poster still), so there is still
   // no door level freeze left to pin here.
+  // 2026-10-28 (evening, the owner's material order): there is a
+  // door level freeze to pin again. The atmosphere takes the still
+  // prop from the door's own reduced and Off state (asserted at the
+  // mount pin above), and its still is one drawn frame at the
+  // composed time, of the new material itself, not a poster file.
   assert.ok(introFn.includes('"cb-intro-still"'), "still class never applied");
   assert.ok(cssSrc.includes(".cb-intro-still .cb-intro-chrome { animation: cbIntroStillIn"), "the still frame has no composed entrance");
+  const atmoSrc = await readFile(join(root, "src/introAtmosphere.jsx"), "utf8");
+  assert.ok(atmoSrc.includes("draw(ATMOSPHERE_STILL_T)"), "the atmosphere does not draw its composed still");
+  assert.ok(atmoSrc.includes("export const ATMOSPHERE_STILL_T"), "the composed still time is not a named constant");
 });
 
 // ══════════════════════════════════════════════════════════════════════════

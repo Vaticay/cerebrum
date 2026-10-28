@@ -26417,11 +26417,13 @@ summary::-webkit-details-marker { display: none; }
 @media (hover: none), (pointer: coarse) {
   .cb-focus-in { animation: none; filter: none; opacity: 1; }
 }
-/* The reduced-motion door (§6.2): the poster frame is already there
-   (filmBlocked mounts the graded still instead of the reel), and the
-   chrome arrives on one short opacity crossfade — composed, dramatic,
-   zero travel. No blur, no rise: the in-product Off toggle and the OS
-   setting both land here through useReducedMotion(). */
+/* The reduced-motion door (§6.2): the composed frame is already
+   there (the door atmosphere draws one still frame of its material
+   instead of running; before 2026-10-28 this was the reel's graded
+   poster under filmBlocked), and the chrome arrives on one short
+   opacity crossfade — composed, dramatic, zero travel. No blur, no
+   rise: the in-product Off toggle and the OS setting both land here
+   through useReducedMotion(). */
 @keyframes cbIntroStillIn { from { opacity: 0; } to { opacity: 1; } }
 .cb-intro-still .cb-intro-chrome { animation: cbIntroStillIn 0.7s ease both; }
 /* The opening beat: near-black holds briefly, then lifts over two and a
@@ -26440,7 +26442,7 @@ summary::-webkit-details-marker { display: none; }
 /* The door's staged entrance, 2026-10-28 (the reimagined door; the
    beats below replace the same morning's arrangement pass at the
    owner's redirect): a directed sequence on one curve,
-   var(--cb-ease). The film fades up from black first, like a
+   var(--cb-ease). The atmosphere fades up from black first, like a
    projector coming up, over 1.15s; the masthead dissolves; the
    title rises; the way in rises with a soft scale; Nova fades;
    the caption strip fades last. The sequence settles inside 1.8
@@ -26454,7 +26456,7 @@ summary::-webkit-details-marker { display: none; }
 @keyframes cbDoorRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes cbDoorScale { from { opacity: 0; transform: translateY(8px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @media (prefers-reduced-motion: no-preference) {
-  #cb-intro-wrap.cb-door-in .cb-door-film { animation: cbDoorFade 1.15s var(--cb-ease) both; }
+  #cb-intro-wrap.cb-door-in .cb-door-atmo { animation: cbDoorFade 1.15s var(--cb-ease) both; }
   #cb-intro-wrap.cb-door-in .cb-door-stage-1 { animation: cbDoorFade 0.7s var(--cb-ease) 0.15s both; }
   #cb-intro-wrap.cb-door-in .cb-door-stage-2 { animation: cbDoorRise 0.85s var(--cb-ease) 0.38s both; }
   #cb-intro-wrap.cb-door-in .cb-door-stage-3 { animation: cbDoorScale 0.7s var(--cb-ease) 0.6s both; }
@@ -26475,16 +26477,18 @@ summary::-webkit-details-marker { display: none; }
   .cb-door-spec-in { animation: none; }
 }
 /* The door opening, 2026-10-28 (the owner's call): on the way in,
-   two black leaves part over a band of film light, done at 720ms,
-   inside the 800ms bound. The light layer sits under the leaves;
-   the leaves hold for the first beat, then part on the intro curve.
-   Transform and opacity only. The overlay never takes pointer
-   events, and entry itself fires on the timer in go(), so nothing
-   here can gate or delay the way in; the no motion paths in go()
-   never mount it, and reduced motion hides it outright. */
+   two black leaves part over the light, done at 720ms, inside the
+   800ms bound. The leaves hold for the first beat, then part on
+   the intro curve. Transform and opacity only. The overlay never
+   takes pointer events, and entry itself fires on the timer in
+   go(), so nothing here can gate or delay the way in; the no
+   motion paths in go() never mount it, and reduced motion hides
+   it outright. Evening rework, same day: the painted light layer
+   that sat under the leaves is retired with the old film
+   material; the light between the leaves is now the door
+   atmosphere's own, swelling through its swell prop while the
+   leaves part. */
 .cb-door-split { position: fixed; inset: 0; z-index: 90; pointer-events: none; overflow: hidden; }
-.cb-split-light { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 90% at 50% 45%, rgba(226,236,220,0.5), rgba(139,168,136,0.22) 45%, rgba(5,7,10,0) 75%), #0b0d10; animation: cbSplitLight 0.72s var(--cb-ease) both; }
-@keyframes cbSplitLight { from { opacity: 0; } 25% { opacity: 1; } to { opacity: 1; } }
 .cb-split-half { position: absolute; top: 0; bottom: 0; width: 50.5%; background: #05070a; }
 .cb-split-l { left: 0; animation: cbSplitL 0.72s var(--cb-ease) both; }
 .cb-split-r { right: 0; animation: cbSplitR 0.72s var(--cb-ease) both; }
