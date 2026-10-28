@@ -27639,6 +27639,18 @@ body.cb-motion-off .cb-shell-brand { animation: none !important; transition: non
 .cb-hero    { animation: cbHero  460ms var(--cb-ease) both; }
 .cb-modal   { animation: cbModal 560ms var(--cb-ease) both; }
 .cb-backdrop { animation: cbBackdrop 300ms var(--cb-ease) both; }
+
+/* Settings polish, 2026-10-28: the settings panel stack moves as one
+   region when a section is opened or switched to, instead of snapping
+   or flat fading. Transform and opacity only, on the one curve. The
+   content is visible by default, so if the animation never runs the
+   panels still read. The global reduced motion and motion off hammers
+   above collapse this with everything else. */
+@keyframes cbSetPanelIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.cb-set-panel { opacity: 1; animation: cbSetPanelIn 320ms var(--cb-ease) both; }
 /* (cb-answer-enter's entrance now lives in the Innovation Refinement block
    above as cbAnswerFocus — a focus pull rather than a plain fade.)
 
