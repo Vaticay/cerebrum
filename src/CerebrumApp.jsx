@@ -11165,7 +11165,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
                   <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setRenamingId(null)}>Cancel</UIButton>
                 </span>
               ) : (
-                <UIButton P={P} variant="ghost" onClick={() => setActiveId(c.id)} onDoubleClick={() => { if (c.id !== "all" && c.id !== "uncategorized") { setRenamingId(c.id); setRenameValue(c.name); } }} style={{ minHeight: 44, flex: 1, textAlign: "left", padding: "7px 8px", fontSize: FONT_SIZES.label, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: activeId === c.id ? withAlpha(accent, 0.12) : "transparent", color: activeId === c.id ? accentInk(P, accent) : P.ink2, fontFamily: "var(--cb-font)" }}>
+                <UIButton P={P} variant="ghost" onClick={() => setActiveId(c.id)} onDoubleClick={() => { if (c.id !== "all" && c.id !== "uncategorized") { setRenamingId(c.id); setRenameValue(c.name); } }} style={{ minHeight: 48, flex: 1, textAlign: "left", padding: "7px 8px", fontSize: FONT_SIZES.label, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: activeId === c.id ? withAlpha(accent, 0.12) : "transparent", color: activeId === c.id ? accentInk(P, accent) : P.ink2, fontFamily: "var(--cb-font)", transition: "background-color 200ms var(--cb-ease), color 200ms var(--cb-ease)" }}>
                   <span style={{ display: "block" }}>{c.name} <span style={{ opacity: 0.6 }}>({countFor(c.id)})</span></span>
                   {c.id !== "all" && c.id !== "uncategorized" && collMeta(c.id).span && (
                     <span style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 400, opacity: 0.75, marginTop: 2 }}>{collMeta(c.id).span}</span>
@@ -11194,10 +11194,10 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
           ))}
           <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
             <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} placeholder="Name a new collection" aria-label="New collection name" style={{ flex: 1, padding: "7px 8px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink }} />
-            <UIButton P={P} variant="ghost" onClick={() => { if (newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} aria-label="Create collection" style={{ background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: RADIUS.md, padding: "0 12px", cursor: "pointer" }}><Icon name="plus" size={13} /></UIButton>
+            <UIButton P={P} variant="ghost" onClick={() => { if (newName.trim()) { onCreateCollection(newName.trim()); setNewName(""); } }} aria-label="Create collection" style={{ background: withAlpha(accent, 0.12), color: accent, border: "none", borderRadius: RADIUS.md, padding: "0 12px", cursor: "pointer", minHeight: 48, minWidth: 48 }}><Icon name="plus" size={13} /></UIButton>
           </div>
         </div>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <div key={activeId} className="cb-lib-panel" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "16px 24px", borderBottom: `1px solid ${P.line}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink }}>{activeId === "all" ? "All saved" : activeId === "uncategorized" ? "Not in a collection" : collections.find((c) => c.id === activeId)?.name || "Collection"}</div>
@@ -11215,7 +11215,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
             {visible.length === 0 ? (
-              <div style={{ fontSize: FONT_SIZES.label, color: P.faint, textAlign: "center", padding: "40px 0" }}>
+              <div className="cb-lib-empty" style={{ fontSize: FONT_SIZES.label, color: P.faint, textAlign: "center", padding: "40px 20px", border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface }}>
                 {activeId === "all" ? "Nothing saved yet. Save a paper from an answer first, and it will show up here." : "Nothing is in this group yet. Go to All saved, then use the collection list next to a paper to put it here."}
               </div>
             ) : visible.map((s, i) => (
@@ -11231,7 +11231,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
                  judged instead of by title alone. Fields the
                  record lacks still leave their place empty; the
                  move control and its handler are untouched. */
-              <div key={sourceKey(s)} style={{ padding: "14px 4px", borderTop: i ? `1px solid ${P.line}` : "none", display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div key={sourceKey(s)} className="cb-lib-item" style={{ padding: "14px 4px", borderTop: i ? `1px solid ${P.line}` : "none", display: "flex", alignItems: "flex-start", gap: 12, "--cb-lib-i": Math.min(i, 8) }}>
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>{s.title}</span>
                   <span style={{ display: "block", fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", marginTop: 4, lineHeight: 1.5 }}>
@@ -12779,9 +12779,9 @@ function WorkspacePage({ P, accent, isMobile, title, count, description, actions
 
 /* One empty state for the whole workspace, so Library, Investigations and
    Collections agree with each other and with the profile tabs. */
-function WorkspaceEmpty({ P, accent, icon, title, body, action, isMobile = false }) {
+function WorkspaceEmpty({ P, accent, icon, title, body, action, isMobile = false, className = "" }) {
   return (
-    <div style={{
+    <div className={className} style={{
       display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center",
       /* A real surface, not a dashed dropzone. Opaque shell (2026-09-17
          redesign pass 1): the ambient film is gone, so the glass recipe
@@ -24662,7 +24662,7 @@ function App({ profileHandle = null } = {}) {
             title="Your library" count={saved.length + history.length + flowcharts.length}
             description="Everything you have saved, in one place: papers, answers, and Diagram Studio diagrams. The number at the top is all of those added together. Collections are folders you can put papers in, and the Collections tab number is how many folders you have."
             actions={saved.length > 0 ? (
-              <div style={{ display: "flex", gap: 8, flexWrap: isMobile ? "nowrap" : "wrap", overflowX: isMobile ? "auto" : "visible", maxWidth: "100%", paddingBottom: isMobile ? 4 : 0 }}>
+              <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap", maxWidth: "100%" }}>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); libDownload("RIS", "cerebrum-saved.ris", toRIS(saved)); }}>Download citations as RIS</UIButton>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); libDownload("BibTeX", "cerebrum-saved.bib", toBibTeX(saved)); }}>Download citations as BibTeX</UIButton>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="upload" onClick={() => { sfx(); setImportOpen(true); setImportPreview(null); setImportSelected(new Set()); }}
@@ -24689,7 +24689,7 @@ function App({ profileHandle = null } = {}) {
                 own kind, labeled in plain words. Exports are not a
                 tab or a category; export receipts are recent
                 activity at the foot of the Papers tab. */}
-            <div role="tablist" aria-label="Library sections" style={{ display: "flex", flexWrap: "wrap", border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, marginBottom: 30, overflow: "hidden" }}>
+            <div role="tablist" aria-label="Library sections" className="cb-lib-tabs" style={{ display: "flex", flexWrap: "wrap", border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, marginBottom: SP.xl, overflow: "hidden" }}>
               {[
                 { key: "papers", label: "Papers and answers", count: saved.length + history.length },
                 { key: "maps", label: "Diagram Studio", count: flowcharts.length },
@@ -24697,13 +24697,13 @@ function App({ profileHandle = null } = {}) {
               ].map((c, i) => {
                 const on = libraryTab === c.key;
                 return (
-                  <button key={c.key} role="tab" aria-selected={on} onClick={() => setLibraryTab(c.key)}
+                  <button key={c.key} role="tab" aria-selected={on} data-on={on ? "true" : "false"} className="cb-lib-tab" onClick={() => setLibraryTab(c.key)}
                     style={{
                       flex: "1 1 130px", minWidth: 0, border: "none",
                       borderLeft: i ? `1px solid ${P.line}` : "none",
                       background: on ? withAlpha(accent, 0.08) : "none",
                       padding: "16px 16px", textAlign: "left", cursor: "pointer", fontFamily: "var(--cb-font)",
-                      minHeight: 44,
+                      minHeight: 48,
                     }}>
                     <div className="cb-mono" style={{ fontSize: 20, fontWeight: 500, color: P.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{c.count}</div>
                     <div style={{ fontSize: FONT_SIZES.caption, color: on ? P.ink : P.faint, marginTop: 3 }}>{c.label}</div>
@@ -24715,16 +24715,16 @@ function App({ profileHandle = null } = {}) {
                 here for a few seconds with an Undo that restores the
                 record, instead of only a confirm before the fact. */}
             {libUndo && (
-              <div role="status" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 18, padding: "12px 16px", borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: withAlpha(accent, 0.07) }}>
+              <div role="status" className="cb-lib-panel" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: SP.md, padding: "12px 16px", borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: withAlpha(accent, 0.07) }}>
                 <span style={{ fontSize: FONT_SIZES.label, color: P.ink, fontFamily: "var(--cb-font)", flex: "1 1 220px" }}>{libUndo.text}</span>
                 <UIButton P={P} accent={accent} at={at} size="sm" variant="primary" onClick={undoLibDelete}>Undo</UIButton>
                 <button type="button" onClick={() => { clearTimeout(libUndoTimer.current); setLibUndo(null); }} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", minHeight: 44, padding: "0 8px" }}>Dismiss</button>
               </div>
             )}
             {libraryTab === "papers" && (
-            <div id="lib-papers" style={{ scrollMarginTop: 80 }}>
+            <div key="papers" id="lib-papers" className="cb-lib-panel" style={{ scrollMarginTop: 80 }}>
             {saved.length === 0 && history.length === 0 ? (
-              <WorkspaceEmpty P={P} accent={accent} icon="bookmark"
+              <WorkspaceEmpty P={P} accent={accent} icon="bookmark" className="cb-lib-empty"
                 title="You have not saved anything yet"
                 body="When you read an answer, press Save on a paper you want to keep. It will show up here with its authors, journal, and year, ready to use in your own writing."
                 action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Ask a question</UIButton>} />
@@ -24750,7 +24750,7 @@ function App({ profileHandle = null } = {}) {
                     options={[{ id: "all", label: "Everything" }, { id: "papers", label: `Papers (${saved.length})` }, { id: "answers", label: `Answers (${history.length})` }]} />
                 </div>
                 {libraryKind !== "answers" && visibleSaved.length === 0 && saved.length > 0 ? (
-                  <WorkspaceEmpty P={P} accent={accent} icon="search"
+                  <WorkspaceEmpty P={P} accent={accent} icon="search" className="cb-lib-empty"
                     title="No matches"
                     body={`Nothing in your library matches "${libraryQuery}". Try part of a title, an author last name, or part of a journal name.`}
                     action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setLibraryQuery("")}>Clear the search</UIButton>} />
@@ -24759,7 +24759,7 @@ function App({ profileHandle = null } = {}) {
                     {/* Bulk bar: appears the moment anything is selected. Export,
                         file, or remove the selection as one operation. */}
                     {selectedSavedKeys.size > 0 && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12, padding: "12px 16px", borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: withAlpha(accent, 0.07) }}>
+                      <div className="cb-lib-panel" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: SP.sm, padding: "12px 16px", borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: withAlpha(accent, 0.07) }}>
                         <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>{selectedSavedKeys.size} picked</span>
                         <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); libDownload("RIS", "cerebrum-selected.ris", toRIS(sel)); }}>Download citations as RIS</UIButton>
                         <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { const sel = saved.filter((s) => selectedSavedKeys.has(sourceKey(s))); libDownload("BibTeX", "cerebrum-selected.bib", toBibTeX(sel)); }}>Download citations as BibTeX</UIButton>
@@ -24814,9 +24814,9 @@ function App({ profileHandle = null } = {}) {
                         const titleText = sv.title ? renderCleanTitle(sv.title) : ([sv.authors, sv.year].filter(Boolean).join(" · ") || sv.url || "Untitled paper");
                         const abstractText = String(sv.abstract || sv.tldr || sv.summary || "").replace(/\s+/g, " ").trim();
                         return (
-                          <div key={key} role="listitem"
+                          <div key={key} role="listitem" className="cb-lib-item"
                             onClick={() => { if (selectedSavedKeys.size > 0) toggleSavedKey(key); else setPeekSavedKey(key); }}
-                            style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: "16px", borderTop: i ? `1px solid ${P.line}` : "none", background: checked ? withAlpha(accent, 0.06) : "transparent", minWidth: isMobile ? 0 : 780, cursor: "pointer" }}>
+                            style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: "16px", borderTop: i ? `1px solid ${P.line}` : "none", background: checked ? withAlpha(accent, 0.06) : "transparent", minWidth: isMobile ? 0 : 780, cursor: "pointer", "--cb-lib-i": Math.min(i, 8) }}>
                             {/* The checkbox visual stays small, but its
                                 tap target is a full 44 square: the bare
                                 18 square was the whole target on a phone,
@@ -24932,7 +24932,7 @@ function App({ profileHandle = null } = {}) {
                   {history
                     .filter((h) => { const q = libraryQuery.trim().toLowerCase(); return !q || String(h.title || "").toLowerCase().includes(q); })
                     .map((h, i) => (
-                      <div key={h.id} role="listitem" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "14px 16px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+                      <div key={h.id} role="listitem" className="cb-lib-item" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "14px 16px", borderTop: i ? `1px solid ${P.line}` : "none", "--cb-lib-i": Math.min(i, 8) }}>
                         <span style={{ flex: "1 1 220px", minWidth: 0 }}>
                           <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{h.title || "Untitled answer"}</span>
                           <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)" }}>
@@ -24964,8 +24964,8 @@ function App({ profileHandle = null } = {}) {
               ) : (
                 <div role="list" aria-label="Your downloads and imports" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, overflow: "hidden" }}>
                   {exportLog.slice(0, 8).map((r, i) => (
-                    <div key={`${r.at ?? r.ts}-${i}`} role="listitem"
-                      style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none" }}>
+                    <div key={`${r.at ?? r.ts}-${i}`} role="listitem" className="cb-lib-item"
+                      style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none", "--cb-lib-i": Math.min(i, 8) }}>
                       <span className="cb-mono" style={{ flex: "1 1 160px", minWidth: 0, fontSize: FONT_SIZES.label, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.filename}>{r.filename}</span>
                       <span className="cb-pill" style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: RADIUS.viewport, padding: "3px 12px", fontFamily: "var(--cb-font)", lineHeight: 1.4 }}>{r.kind}</span>
                       {!isMobile && (
@@ -24988,7 +24988,7 @@ function App({ profileHandle = null } = {}) {
               own. The whole view now mounts one WorkspacePage, one resident
               Nova, and one top level heading. */}
           {libraryTab === "maps" && (
-          <div id="lib-maps" style={{ scrollMarginTop: 80 }}>
+          <div key="maps" id="lib-maps" className="cb-lib-panel" style={{ scrollMarginTop: 80 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
               <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Diagram Studio</h2>
               {flowcharts.length > 0 && (
@@ -25000,7 +25000,7 @@ function App({ profileHandle = null } = {}) {
             </div>
             <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>Things you have built in Diagram Studio, from answers, from papers, and from steps you wrote yourself. When you are signed in they are saved to your account too. When you are not, they stay in this browser.</p>
             {flowcharts.length === 0 ? (
-              <WorkspaceEmpty P={P} accent={accent} icon="flowchart"
+              <WorkspaceEmpty P={P} accent={accent} icon="flowchart" className="cb-lib-empty"
                 title="No Diagram Studio diagrams yet"
                 body="Build a picture of a process, a method, or a decision, as a list of steps in order. You can start from an answer, or write the steps yourself."
                 action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => { sfx(); setView("studio"); }}>Make a diagram in Diagram Studio</UIButton>} />
@@ -25021,8 +25021,8 @@ function App({ profileHandle = null } = {}) {
                     handlers, unchanged: the cover and Open open
                     the diagram, SVG file downloads it, Remove
                     parks an undo. */}
-                {flowcharts.map((fc) => (
-                  <div key={fc.id} role="listitem" style={{ display: "flex", flexDirection: "column", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs(P), overflow: "hidden" }}>
+                {flowcharts.map((fc, i) => (
+                  <div key={fc.id} role="listitem" className="cb-lib-item cb-lib-card" style={{ display: "flex", flexDirection: "column", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs(P), overflow: "hidden", "--cb-lib-i": Math.min(i, 8) }}>
                     <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }} aria-label={`Open ${fc.title || "untitled diagram"}`}
                       style={{ width: "100%", height: 150, flexShrink: 0, padding: 0, border: "none", borderBottom: `1px solid ${P.line}`, background: P.raised, cursor: "pointer", overflow: "hidden", display: "block" }}>
                       <FcThumb chart={fc} accent={accent} />
@@ -25058,6 +25058,7 @@ function App({ profileHandle = null } = {}) {
           </div>
           )}
           {libraryTab === "collections" && (
+            <div key="collections" className="cb-lib-panel">
             <CollectionsModal
               page narrow={isMobile}
               P={P} accent={accent} at={at} S={S} saved={saved} collections={collections}
@@ -25065,6 +25066,7 @@ function App({ profileHandle = null } = {}) {
               onDeleteCollection={deleteCollection} onMoveSource={moveSourceToCollection}
               close={() => setLibraryTab("papers")}
             />
+            </div>
           )}
           </WorkspacePage>
         </Reveal>
@@ -28721,6 +28723,59 @@ button.cb-cite { min-height: 0; min-width: 0; }
 @keyframes cbSheetIn { from { opacity: 0; transform: translateY(48px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
   .cb-ev-rail { animation: none !important; }
+}
+
+/* ── Library polish, 2026-10-28 ──
+   Phase 2 fitted polish for the one Library page. Tab panels,
+   ledger rows, answer rows, diagram cards, collection rows and
+   the workspace empty states move on the one curve, transform
+   and opacity only, never a filter. Panels remount per tab
+   (keyed by the active tab at the call site) and rise in once;
+   rows and cards enter with a calm stagger through the
+   --cb-lib-i index the call sites set, capped there so a long
+   library never cascades for seconds. The tab buttons carry a
+   sliding accent underline that grows in on the active tab
+   instead of the selection snapping. Both reduced motion
+   hammers collapse everything here, on top of the global ones.
+   At phone widths the three tabs share one row at equal widths
+   so nothing wraps or clips at 360px. */
+@keyframes cbLibPanelIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cbLibItemIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cb-lib-panel { animation: cbLibPanelIn 320ms var(--cb-ease) both; }
+.cb-lib-item { animation: cbLibItemIn 380ms var(--cb-ease) both; animation-delay: calc(var(--cb-lib-i, 0) * 45ms); }
+.cb-lib-tab { position: relative; transition: background-color 200ms var(--cb-ease); }
+.cb-lib-tab::after {
+  content: ""; position: absolute; left: 14px; right: 14px; bottom: 0; height: 2px;
+  background: var(--cb-accent, #8ba888); border-radius: 2px;
+  transform: scaleX(0); transform-origin: left center;
+  transition: transform 280ms var(--cb-ease), opacity 200ms var(--cb-ease);
+  opacity: 0; pointer-events: none;
+}
+.cb-lib-tab[data-on="true"]::after { transform: scaleX(1); opacity: 1; }
+.cb-lib-card { transition: transform 200ms var(--cb-ease), border-color 200ms var(--cb-ease); }
+.cb-lib-card:hover { transform: translateY(-2px); }
+.cb-lib-empty { animation: cbLibPanelIn 380ms var(--cb-ease) both; }
+@media (prefers-reduced-motion: reduce) {
+  .cb-lib-panel, .cb-lib-item, .cb-lib-empty { animation: none; }
+  .cb-lib-tab, .cb-lib-tab::after, .cb-lib-card { transition: none; }
+  .cb-lib-card:hover { transform: none; }
+}
+body.cb-motion-off .cb-lib-panel,
+body.cb-motion-off .cb-lib-item,
+body.cb-motion-off .cb-lib-empty { animation: none !important; }
+body.cb-motion-off .cb-lib-tab,
+body.cb-motion-off .cb-lib-tab::after,
+body.cb-motion-off .cb-lib-card { transition: none !important; }
+body.cb-motion-off .cb-lib-card:hover { transform: none; }
+@media (max-width: 480px) {
+  .cb-lib-tabs { flex-wrap: nowrap !important; }
+  .cb-lib-tab { flex: 1 1 0 !important; padding-left: 10px !important; padding-right: 10px !important; }
 }
 
 `;
