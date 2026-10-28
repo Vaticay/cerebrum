@@ -901,11 +901,13 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
      "Cerebrum" in Inter 500, the pairing the search stage carries,
      with the quiet links.
    - The one plain sentence, the stage's own, word for word.
-   - ONE specimen at a time on a solid matte placard, rotating on
+   - ONE specimen at a time in the caption strip at the foot of
+     the frame (2026-10-28 reimagination; the placard is retired),
+     rotating on
      the same timer with the same pauses (hold, dialog, off
      screen, reduced motion). Not a set, not a ledger: one claim,
      its paper one tap away.
-   - The honest proof line under the placard, opening the sources
+   - The honest proof line as the strip's last line, opening the sources
      dialog, its count from the real SCHOLARLY_SOURCES list.
    - The single way in, "Start researching". No composer on the
      door, ever.
@@ -997,21 +999,11 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
      see. Reduced motion still stops the rotation entirely. */
   const specimenWrapRef = useRef(null);
   const [specimenVisible, setSpecimenVisible] = useState(true);
-  /* Scroll cue state (2026-10-24): is the proof line, the evidence
-     group's last element, fully in view? Starts true so the cue
-     never flashes on screens where the door already fits; the
-     observer below corrects it on mount where it does not. */
-  const proofRef = useRef(null);
-  const [proofVisible, setProofVisible] = useState(true);
-  useEffect(() => {
-    const el = proofRef.current;
-    if (!el || typeof IntersectionObserver === "undefined") return undefined;
-    const io = new IntersectionObserver((entries) => {
-      setProofVisible(entries.some((e) => e.intersectionRatio >= 0.99));
-    }, { threshold: 1 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
+  /* The scroll cue and its proof line observer retired 2026-10-28
+     with the reimagined door: the specimen stands in the caption
+     strip at the foot of the flex frame, inside the first
+     screenful on the phone range the cue served, so there is no
+     below the fold evidence left to hint at. */
   useEffect(() => {
     const el = specimenWrapRef.current;
     if (!el || typeof IntersectionObserver === "undefined") return undefined;
@@ -1085,10 +1077,11 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   const ink2 = "rgba(238,241,238,0.72)";
   const faint = "rgba(238,241,238,0.58)";
   const hairline = "rgba(255,255,255,0.10)";
-  /* The placard's solid matte ground: the one piece of text furniture
-     on the door sits on a fully opaque plate, per the standing rule
-     that a surface carrying text is solid. */
-  const plateBg = "#0b0d0c";
+  /* The specimen's ground (2026-10-28, the reimagined door): the
+     caption strip at the foot of the frame is the door's own solid
+     ground, #05070a, fully opaque, so the claim and its proof sit
+     on solid black exactly as the standing rule for text carrying
+     surfaces requires, with no card between them and the frame. */
 
   const navLink = {
     fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, letterSpacing: "normal",
@@ -1179,31 +1172,32 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         </div>
       </header>
 
-      {/* ── The room, rearranged 2026-10-23 (owner's order: keep the
-          cinematic feel, rearrange and reimagine). The old room was
-          one centred stack in the middle of the frame: sentence, way
-          in, placard, proof, Nova, all reading centre. The new room
-          is two quiet groups on the header's own axis, with the film
-          breathing between them. High in the frame, the title group:
-          the sentence and the way in, left aligned on the same edge
-          as the lockup. Low in the frame, the evidence group: Nova's
-          line, then the specimen on its wide low plate, then the
-          proof line. Nothing was added and nothing was taken away;
-          the elements moved, and the move is also the grade fix the
-          owner asked for on 2026-10-20 without touching the grade:
-          measured on five pulled frames per intro clip the way the
-          photo wave measured, the dark matter clip's text bands sit
-          at graded p95 14.6 (sentence) and 15.1 (placard) in the old
-          centre bands, against 11.1 and 10.7 in the new high and low
-          bands. The stars clip is near black at every height.
-          Phones keep the way in inside the first screenful at 360 by
-          667, higher than before: header near 57, main top padding
-          20, the serif sentence near four lines (about 135), the 26
-          gap, and the 48 tall button ends near 290 from the top. */}
+      {/* ── The room, reimagined 2026-10-28 (the owner's redirect:
+          "completely re imagined and cinematic, please stop just
+          moving stuff around"). The October 23 arrangement (two
+          quiet groups, film between, specimen plate at the foot)
+          and the polish pass built on it the same morning are
+          superseded. The door is now staged as a film frame. The
+          graded reel fills the whole frame and the upper frame is
+          left to it, empty. One title block stands low in the
+          frame, the way a title sits in a title sequence: the
+          sentence at title scale, the way in under it, and Nova's
+          line under that, her voice the last thing before the
+          evidence. The evidence itself is the frame's caption
+          strip, a full width band of the door's solid ground at
+          the foot (rendered after this main, below): the specimen
+          set as captions are set, claim, citation, proof, no card,
+          no plate, no border box. Nothing about the identity
+          moved: the film and its grade, the sentence word for
+          word, one way in, Nova once with her line word for word,
+          real specimens with their papers one tap away. Phones:
+          the whole frame fits the first screenful at 360 by 667
+          (masthead near 57, the title block near 300, the strip
+          near 230), so nothing on the door waits below a fold. */}
       <main className="cb-intro-chrome" style={{
         position: "relative", zIndex: 20, flex: 1,
-        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
-        padding: isMobile ? "20px 20px 24px" : "30px 24px 30px",
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end",
+        padding: isMobile ? "16px 20px 26px" : "24px 24px 36px",
       }}>
       <div style={{ width: "100%", maxWidth: LAYOUT.stage }}>
         {/* The one plain sentence, the search home stage's own, word
@@ -1246,17 +1240,13 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             transition: "background-color 150ms ease-out, transform 200ms var(--cb-ease)",
           }}>Start researching</button>
         </div>
-      </div>
-
-      <div style={{ width: "100%", maxWidth: LAYOUT.stage, marginTop: "auto" }}>
         {/* Nova, quiet: her figure once and one short line in her dry
-            voice. No section, no box, no wordmark; she stands in the
-            room like the rest of the furniture, and lifting her out
-            touches nothing else on the door. In the 2026-10-23
-            rearrangement she waits low in the frame, above the
-            specimen plate, the last voice before the evidence. */}
+            voice. No section, no box, no wordmark. In the reimagined
+            frame she closes the title block, her line the last voice
+            before the evidence strip at the foot, and lifting her
+            out touches nothing else on the door. */}
         <div className="cb-door-stage-4" style={{
-          marginBottom: isMobile ? 20 : 26, display: "flex", alignItems: "center",
+          marginTop: isMobile ? 24 : 28, display: "flex", alignItems: "center",
           gap: isMobile ? 12 : 14, maxWidth: 520,
         }}>
           <span aria-hidden="true" style={{ display: "block", flex: "0 0 auto" }}>
@@ -1272,170 +1262,101 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           </p>
         </div>
 
-        {/* The specimen: one verified claim at a time on a solid
-            matte placard. The claim in the reading serif, and the
-            citation with the paper one tap away. The change is a
-            soft rise with a fade (cb-door-spec-in, 2026-10-28; it
-            replaced the plain cb-specimen-in fade, and unlike that
-            class it also runs on touch devices), a page turning,
-            never a scene change. Hover and focus hold the rotation.
-            Since 2026-10-23 the placard is a wide low plate spanning
-            the room's column at the foot of the frame, the label
-            under the film: on desktop the citation stands at the
-            plate's right end behind a hairline, on phones it stacks
-            under the claim as it always did. 2026-10-28: the plate
-            holds a minimum height, so a longer claim never shifts
-            the room when the rotation turns, and the proof line
-            moved inside the plate as its footer row, bound to the
-            card instead of floating under it. A slow sheen sweep
-            crosses the plate while motion runs. */}
-        <div
-          ref={specimenWrapRef}
-          className="cb-door-stage-5"
-          onMouseEnter={() => setSpecimenHeld(true)}
-          onMouseLeave={() => setSpecimenHeld(false)}
-          onFocus={() => setSpecimenHeld(true)}
-          onBlur={() => setSpecimenHeld(false)}
-          style={{ width: "100%" }}
-        >
-          <div
-            key={specimenIdx}
-            className={animate ? "cb-door-spec-in" : undefined}
-            style={{
-              background: plateBg,
-              border: "1px solid " + hairline,
-              borderRadius: RADIUS.lg,
-              padding: isMobile ? "22px 20px" : "24px 28px",
-              textAlign: "left",
-              position: "relative",
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: isMobile ? "column" : "row",
-              flexWrap: isMobile ? undefined : "wrap",
-              alignItems: isMobile ? "stretch" : "center",
-              justifyContent: "center",
-              gap: isMobile ? undefined : 28,
-              minHeight: isMobile ? 252 : 176,
-            }}
-          >
-            {animate && <span aria-hidden="true" className="cb-door-sheen" />}
-            <p style={{
-              fontFamily: "var(--cb-serif)",
-              fontSize: FONT_SIZES.section,
-              fontWeight: 400, lineHeight: 1.55,
-              color: ink, margin: 0, textAlign: "left",
-              flex: isMobile ? undefined : "1 1 auto",
-            }}>
-              &ldquo;{spec.claim}&rdquo;
-            </p>
-            <p style={{
-              margin: isMobile ? "12px 0 0" : 0,
-              paddingTop: isMobile ? 12 : 0,
-              borderTop: isMobile ? "1px solid " + hairline : "none",
-              borderLeft: isMobile ? "none" : "1px solid " + hairline,
-              paddingLeft: isMobile ? 0 : 24,
-              flex: isMobile ? undefined : "0 0 250px",
-              fontSize: FONT_SIZES.label, lineHeight: 1.6,
-              color: ink2, textAlign: "left",
-            }}>
-              {spec.paper}{" "}
-              <a href={spec.doi} target="_blank" rel="noopener noreferrer"
-                style={{
-                  color: introAccent, fontWeight: 500,
-                  textDecoration: "none", whiteSpace: "nowrap",
-                  borderBottom: "1px solid " + accentA(0.4),
-                  display: "inline-block", padding: "14px 4px", margin: "-14px -4px",
-                }}>
-                Open the paper &#8599;
-              </a>
-            </p>
-            {/* The honest proof, once, as the plate's footer row
-                (2026-10-28: bound inside the card instead of
-                floating under it): the claim traces to the real
-                paper linked on it, and the index count is the
-                product's real source list, the same
-                SCHOLARLY_SOURCES the workspace searches. The line
-                opens the Research sources dialog, so the count can
-                be checked against the list. The scroll cue still
-                keys on this row through proofRef: it remains the
-                evidence group's last element. */}
-            <div ref={proofRef} style={{
-              flex: "1 1 100%", textAlign: "left",
-              borderTop: "1px solid " + hairline,
-              marginTop: isMobile ? 16 : 20, paddingTop: isMobile ? 4 : 8,
-            }}>
-              <button type="button" onClick={() => setSourcesOpen(true)} aria-label="Research sources"
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 8,
-                  background: "none", border: "none", cursor: "pointer",
-                  padding: "12px 8px", minHeight: 48,
-                  fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 400,
-                  lineHeight: 1.5, color: faint,
-                }}>
-                <span aria-hidden="true" style={{
-                  width: 7, height: 7, flex: "0 0 auto",
-                  background: introAccent,
-                }} />
-                <span>Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
       </div>
       </main>
 
-      {/* ── Scroll cue, short phones only in practice (2026-10-24).
-          On phones 640 to 740px tall the evidence group above sits
-          below the fold with no hint it exists: the door's content
-          is taller than the viewport, and marginTop auto on the
-          evidence group collapses instead of fitting it in. Gentle
-          compression cannot close that gap for every specimen,
-          because the plate's height changes with each claim's
-          length, so the fix is this cue instead: no layout, copy,
-          or rhythm on the door changes at all. The chevron is keyed
-          to the proof line, the evidence group's last element, not
-          to the plate: the plate can be partly in view while the
-          proof line is still clipped, and the cue must stay until
-          the whole group has been seen. Its observer below watches
-          the proof line at full visibility, so the cue renders only
-          while that line is not fully in view, and it is gone the
-          moment the visitor scrolls far enough to bring it fully
-          in, and while leaving or while the sources dialog is
-          open. Fixed and centred so it never takes a row of its
-          own, pointer events off so it can never block the way in,
-          and no text, so nothing on the door reads any
-          differently. */}
-      {!cinema && !proofVisible && !leaving && !sourcesOpen && (
-        <div aria-hidden="true" className="cb-door-chevron" style={{
-          position: "fixed", left: "50%", bottom: 16, transform: "translateX(-50%)",
-          zIndex: 40, pointerEvents: "none", color: faint, opacity: 0.85,
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+      {/* ── The caption strip (2026-10-28, the reimagined door): the
+          specimen stands at the foot of the frame the way captions
+          stand in a film, on a full width band of the door's own
+          solid ground, a hard cut from the film above it. No card,
+          no plate, no border box, no radius: the claim in the
+          reading serif, the citation with the paper one tap away,
+          and the honest proof line, three quiet lines of type on
+          solid black. The ground is fully opaque, so the standing
+          rule for text carrying surfaces holds without furniture.
+          The change is a soft rise with a fade (cb-door-spec-in),
+          a page turning, never a scene change; hover and focus
+          hold the rotation. The claim zone holds a reserved height
+          sized to the longest specimen, so the strip never changes
+          height when the rotation turns and the film area above it
+          never moves. */}
+      <div
+        ref={specimenWrapRef}
+        className="cb-door-strip cb-door-stage-5"
+        onMouseEnter={() => setSpecimenHeld(true)}
+        onMouseLeave={() => setSpecimenHeld(false)}
+        onFocus={() => setSpecimenHeld(true)}
+        onBlur={() => setSpecimenHeld(false)}
+        style={{
+          position: "relative", zIndex: 20,
+          background: "#05070a",
+          borderTop: "1px solid " + hairline,
+        }}
+      >
+        <div
+          key={specimenIdx}
+          className={animate ? "cb-door-spec-in" : undefined}
+          style={{
+            maxWidth: LAYOUT.stage, margin: "0 auto",
+            padding: isMobile ? "20px 20px 6px" : "22px 24px 8px",
+            textAlign: "left",
+          }}
+        >
+          <p style={{
+            fontFamily: "var(--cb-serif)",
+            fontSize: FONT_SIZES.section,
+            fontWeight: 400, lineHeight: 1.55,
+            color: ink, margin: 0, textAlign: "left",
+            minHeight: isMobile ? 124 : 62,
+          }}>
+            &ldquo;{spec.claim}&rdquo;
+          </p>
+          <p style={{
+            margin: "14px 0 0",
+            fontSize: FONT_SIZES.label, lineHeight: 1.6,
+            color: ink2, textAlign: "left",
+          }}>
+            {spec.paper}{" "}
+            <a href={spec.doi} target="_blank" rel="noopener noreferrer"
+              style={{
+                color: introAccent, fontWeight: 500,
+                textDecoration: "none", whiteSpace: "nowrap",
+                borderBottom: "1px solid " + accentA(0.4),
+                display: "inline-block", padding: "14px 4px", margin: "-14px -4px",
+              }}>
+              Open the paper &#8599;
+            </a>
+          </p>
+          {/* The honest proof, once, as the strip's last line: the
+              claim traces to the real paper linked on it, and the
+              index count is the product's real source list, the
+              same SCHOLARLY_SOURCES the workspace searches. The
+              line opens the Research sources dialog, so the count
+              can be checked against the list. */}
+          <div style={{ textAlign: "left", marginTop: 6 }}>
+            <button type="button" onClick={() => setSourcesOpen(true)} aria-label="Research sources"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                background: "none", border: "none", cursor: "pointer",
+                padding: "12px 8px", minHeight: 48,
+                fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 400,
+                lineHeight: 1.5, color: faint,
+              }}>
+              <span aria-hidden="true" style={{
+                width: 7, height: 7, flex: "0 0 auto",
+                background: introAccent,
+              }} />
+              <span>Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes</span>
+            </button>
+          </div>
         </div>
-      )}
+      </div>
 
-      {/* ── Footer: one quiet line. */}
-      <footer className="cb-intro-chrome cb-door-stage-6" style={{
-        position: "relative", zIndex: 20,
-        display: cinema ? "none" : undefined,
-        paddingBottom: "max(16px, env(safe-area-inset-bottom))",
-      }}>
-        <div style={{
-          maxWidth: LAYOUT.stage, margin: "0 auto", padding: "16px 24px 0",
-          display: "flex", alignItems: "center", flexWrap: "wrap",
-          gap: "10px 22px",
-          fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, letterSpacing: "normal",
-          color: faint,
-        }}>
-          <span style={{ flex: 1 }} />
-          <span>© {new Date().getFullYear()} Cerebrum</span>
-        </div>
-      </footer>
+      {/* The scroll cue and the footer line retired 2026-10-28
+          with the reimagined door: the caption strip is the foot
+          of the frame and sits inside the first screenful on the
+          phone range the cue served, and the frame carries no
+          footer row under its captions. */}
 
       {/* The door opening (2026-10-28): mounted only on the animated
           way in, purely visual, pointer events off. Entry fires on

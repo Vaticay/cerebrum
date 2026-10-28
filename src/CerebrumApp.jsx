@@ -26437,59 +26437,43 @@ summary::-webkit-details-marker { display: none; }
   background: #06080a;
   animation: cbVeilLift 2.4s var(--cb-ease-out) 280ms both;
 }
-/* The door's staged entrance, 2026-10-28 (the owner's commercial bar,
-   with round 4): one curve everywhere on the intro, var(--cb-ease),
-   the system's expo out. Film presence first, then the wordmark, the
-   sentence, the way in, Nova, and the specimen card last; the whole
-   sequence settles inside 1.8 seconds. The way in is never gated:
-   the stages animate opacity and transform only, pointer events are
-   untouched, and the button is live from the first frame. The block
-   sits inside no-preference, so reduced motion never stages at all;
-   returning visitors skip the ceremony class entirely and take the
-   still fade above. */
+/* The door's staged entrance, 2026-10-28 (the reimagined door; the
+   beats below replace the same morning's arrangement pass at the
+   owner's redirect): a directed sequence on one curve,
+   var(--cb-ease). The film fades up from black first, like a
+   projector coming up, over 1.15s; the masthead dissolves; the
+   title rises; the way in rises with a soft scale; Nova fades;
+   the caption strip fades last. The sequence settles inside 1.8
+   seconds. The way in is never gated: the stages animate opacity
+   and transform only, pointer events are untouched, and the button
+   is live from the first frame. The block sits inside
+   no-preference, so reduced motion never stages at all; returning
+   visitors skip the ceremony class entirely and take the still
+   fade above. */
 @keyframes cbDoorFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes cbDoorRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes cbDoorScale { from { opacity: 0; transform: translateY(8px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @media (prefers-reduced-motion: no-preference) {
-  #cb-intro-wrap.cb-door-in .cb-door-film { animation: cbDoorFade 1s var(--cb-ease) both; }
-  #cb-intro-wrap.cb-door-in .cb-door-stage-1 { animation: cbDoorFade 0.7s var(--cb-ease) 0.1s both; }
-  #cb-intro-wrap.cb-door-in .cb-door-stage-2 { animation: cbDoorRise 0.85s var(--cb-ease) 0.28s both; }
-  #cb-intro-wrap.cb-door-in .cb-door-stage-3 { animation: cbDoorScale 0.7s var(--cb-ease) 0.5s both; }
-  #cb-intro-wrap.cb-door-in .cb-door-stage-4 { animation: cbDoorFade 0.7s var(--cb-ease) 0.68s both; }
-  #cb-intro-wrap.cb-door-in .cb-door-stage-5 { animation: cbDoorRise 0.85s var(--cb-ease) 0.86s both; }
-  #cb-intro-wrap.cb-door-in .cb-door-stage-6 { animation: cbDoorFade 0.6s var(--cb-ease) 1.05s both; }
+  #cb-intro-wrap.cb-door-in .cb-door-film { animation: cbDoorFade 1.15s var(--cb-ease) both; }
+  #cb-intro-wrap.cb-door-in .cb-door-stage-1 { animation: cbDoorFade 0.7s var(--cb-ease) 0.15s both; }
+  #cb-intro-wrap.cb-door-in .cb-door-stage-2 { animation: cbDoorRise 0.85s var(--cb-ease) 0.38s both; }
+  #cb-intro-wrap.cb-door-in .cb-door-stage-3 { animation: cbDoorScale 0.7s var(--cb-ease) 0.6s both; }
+  #cb-intro-wrap.cb-door-in .cb-door-stage-4 { animation: cbDoorFade 0.7s var(--cb-ease) 0.8s both; }
+  #cb-intro-wrap.cb-door-in .cb-door-stage-5 { animation: cbDoorFade 0.8s var(--cb-ease) 1s both; }
   .cb-intro-go:hover { transform: translateY(-1px); }
   .cb-intro-go:active { transform: translateY(0) scale(0.99); }
-  .cb-door-chevron { animation: cbDoorFade 0.5s var(--cb-ease) both, cbChevronBob 2.4s ease-in-out 0.6s infinite alternate; }
 }
-@keyframes cbChevronBob { from { transform: translate(-50%, 0); } to { transform: translate(-50%, 5px); } }
-/* Specimen change on the door plate: a soft rise with the fade, on
-   every pointer type. The app wide cb-specimen-in stays an opacity
-   fade, and its coarse pointer kill does not reach this class, so
-   phones get the transition too (mobile first, 2026-10-28). */
+/* Specimen change in the caption strip: a soft rise with the fade,
+   on every pointer type. The app wide cb-specimen-in stays an
+   opacity fade, and its coarse pointer kill does not reach this
+   class, so phones get the transition too (mobile first,
+   2026-10-28). The plate sheen and the scroll cue retired with
+   the plate and the arrangement that needed them. */
 @keyframes cbDoorSpecIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .cb-door-spec-in { animation: cbDoorSpecIn 0.7s var(--cb-ease) both; }
 @media (prefers-reduced-motion: reduce) {
   .cb-door-spec-in { animation: none; }
-  .cb-door-sheen { display: none; }
-  .cb-door-chevron { animation: none; }
 }
-/* Continuous life on the specimen plate: one slow, faint sweep, most
-   of its eleven seconds spent off the plate. Transform only. It
-   stands down while the tab is hidden (the wrap takes cb-door-hidden)
-   and under reduced motion. */
-@keyframes cbDoorSheen {
-  0% { transform: translateX(-130%) skewX(-8deg); }
-  22% { transform: translateX(130%) skewX(-8deg); }
-  100% { transform: translateX(130%) skewX(-8deg); }
-}
-.cb-door-sheen {
-  position: absolute; inset: 0; pointer-events: none;
-  background: linear-gradient(100deg, rgba(255,255,255,0) 34%, rgba(255,255,255,0.04) 47%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.04) 53%, rgba(255,255,255,0) 66%);
-  animation: cbDoorSheen 11s ease-in-out infinite;
-}
-#cb-intro-wrap.cb-door-hidden .cb-door-sheen,
-#cb-intro-wrap.cb-door-hidden .cb-door-chevron { animation-play-state: paused; }
 /* The door opening, 2026-10-28 (the owner's call): on the way in,
    two black leaves part over a band of film light, done at 720ms,
    inside the 800ms bound. The light layer sits under the leaves;

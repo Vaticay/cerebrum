@@ -271,15 +271,18 @@ const DOOR_SPECIMEN = {
  * app door itself: wordmark, headline, one short line (the honest
  * count, no database roll call; the full source list lives on About
  * and Features), the way in, Nova's line word for word, and one
- * specimen card with the proof line bound under it. The visible
+ * specimen with the proof line under it. The visible
  * text fell from 337 words to 101. The layer is painted as
  * the door's face, with the shipped door's own values from
  * src/intro.jsx: ground #05070a, ink #eef1ee, secondary text at
- * 0.72 alpha, faintest at 0.58, hairlines at 0.10 white, the
- * specimen plate #0b0d0c, and Start researching as the door's
- * button (sage #8ba888 fill, #0f172a ink, radius 10, padding 14px
- * 44px, min height 48). React still replaces this on mount, so
- * the rendered door is unchanged. */
+ * 0.72 alpha, faintest at 0.58, hairlines at 0.10 white, and
+ * Start researching as the door's button (sage #8ba888 fill,
+ * #0f172a ink, radius 10, padding 14px 44px, min height 48).
+ * 2026-10-28 (the reimagined door): the static specimen drops
+ * its card to match the new face; it stands as three lines over
+ * a hairline, the static echo of the app's caption strip.
+ * React still replaces this on mount, so the rendered door is
+ * unchanged. */
 const doorMain = `
     <main class="cb-prerender" style="min-height:100dvh;background:#05070a;color:#eef1ee;font:16px/1.7 'Inter Tight','Inter',system-ui,-apple-system,'Segoe UI',sans-serif">
       <div style="max-width:44rem;margin:0 auto;padding:3rem 1.25rem">
@@ -290,10 +293,10 @@ const doorMain = `
       <p style="font-size:1.05rem;color:rgba(238,241,238,0.72)">Cerebrum searches 14 open scholarly databases and answers from the papers it finds. Every claim links to a paper you can open, and when nothing is found, it says so plainly.</p>
       <p><a href="/" style="display:inline-block;box-sizing:border-box;background:#8ba888;color:#0f172a;border:1px solid transparent;border-radius:10px;padding:14px 44px;min-height:48px;font:500 16px/1.25 'Inter Tight','Inter',system-ui,sans-serif;text-decoration:none">Start researching</a></p>
       <p style="font-family:'Source Serif 4',Charter,Georgia,'Times New Roman',serif;font-size:1rem;color:rgba(238,241,238,0.72);margin:2.5rem 0 1rem">Good specimens, these. The lab is open when you are ready.</p>
-      <div style="background:#0b0d0c;border:1px solid rgba(255,255,255,0.10);border-radius:14px;padding:1.25rem 1.5rem">
+      <div style="border-top:1px solid rgba(255,255,255,0.10);padding-top:1.25rem">
         <p style="font-family:'Source Serif 4',Charter,Georgia,'Times New Roman',serif;font-size:1.1rem;line-height:1.55;margin:0">&ldquo;${DOOR_SPECIMEN.claim}&rdquo;</p>
         <p style="font-size:.9rem;color:rgba(238,241,238,0.72);margin:.6rem 0 0">${DOOR_SPECIMEN.cite} <a href="${DOOR_SPECIMEN.doi}" style="color:#8ba888">Open the paper</a></p>
-        <p style="font-size:.8rem;color:rgba(238,241,238,0.58);border-top:1px solid rgba(255,255,255,0.10);padding-top:.75rem;margin:.9rem 0 0"><span style="display:inline-block;width:7px;height:7px;background:#8ba888;margin-right:8px"></span>Traced to a real paper &middot; Searched across 14 scholarly indexes</p>
+        <p style="font-size:.8rem;color:rgba(238,241,238,0.58);margin:.9rem 0 0"><span style="display:inline-block;width:7px;height:7px;background:#8ba888;margin-right:8px"></span>Traced to a real paper &middot; Searched across 14 scholarly indexes</p>
       </div>
       </div>
     </main>`;

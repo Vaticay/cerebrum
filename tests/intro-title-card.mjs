@@ -346,7 +346,7 @@ await test("appUtils carries the height hook in the same style as the width hook
     "useWindowHeight is not exported from appUtils");
 });
 
-await test("the specimen sits on a solid matte placard; no gradients, no shadows on the door", () => {
+await test("the specimen sits on the door's solid caption strip; no gradients, no shadows on the door", () => {
   // 2026-10-16: this pin replaced the calm air pin. The specimen
   // cards carried the UICard expressions from designSystem.jsx (the
   // palette surface with the dark palette override, a 1px border,
@@ -360,10 +360,21 @@ await test("the specimen sits on a solid matte placard; no gradients, no shadows
   // gradient and shadow bans stand exactly as pinned in 2026-10-16:
   // the old film door's glass, glow, and sheen do not come back
   // with the film.
-  assert.ok(introFn.includes("background: plateBg"), "the placard is not on its solid matte ground");
-  assert.ok(introFn.includes('const plateBg = "#0b0d0c";'), "the placard ground is not the solid matte plate");
-  assert.ok(introFn.includes('border: "1px solid " + hairline'), "the placard lost the 1px border treatment");
-  assert.ok(introFn.includes("borderRadius: RADIUS.lg"), "the placard is not on the plan radius");
+  // 2026-10-28: pin rewritten at the owner's redirect ("completely
+  // re imagined and cinematic, please stop just moving stuff
+  // around"). The placard and the October 23 arrangement that
+  // carried it are retired by the same authority that created
+  // them. The specimen now stands in the frame's caption strip: a
+  // full width band of the door's own solid ground at the foot of
+  // the frame, no card, no border box, no radius. The rule the
+  // plate served survives in the strip's terms: the ground under
+  // the text stays fully opaque (the strip is #05070a itself, the
+  // door ground), and the gradient and shadow bans stand exactly
+  // as before. The plate's sheen is retired with the plate.
+  assert.ok(introFn.includes('className="cb-door-strip cb-door-stage-5"'), "the caption strip is missing");
+  assert.ok(introFn.includes('background: "#05070a"'), "the strip is not on the solid door ground");
+  assert.ok(!introFn.includes("background: plateBg"), "the placard ground is back");
+  assert.ok(!introFn.includes("cb-door-sheen"), "the plate sheen is back");
   assert.ok(!introFn.includes("radial-gradient") && !introFn.includes("linear-gradient"), "a gradient is painted on the door");
   assert.ok(!/boxShadow: (?!\"none\")/.test(introFn), "a shadow is cast on the door");
 });
