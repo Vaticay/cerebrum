@@ -166,7 +166,7 @@ function PaperSharePicker({ P, accent, at, paper, threads, onClose, onSent }) {
       setBusyKey("");
     }
   };
-  const rowStyle = { display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 44, padding: "10px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)" };
+  const rowStyle = { display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 48, padding: "10px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)" };
   return (
     <ModalChrome label="Share paper" eyebrow="Inbox" title="Send this paper" onClose={onClose} accent={accent} P={P} width={520}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -276,7 +276,7 @@ function ReportConductModal({ P, accent, at, kind, targetLabel, threadId, report
               <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink2, marginBottom: 8 }}>Reason</div>
               <div role="radiogroup" aria-label="Report reason" style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {REPORT_REASONS.map((r) => (
-                  <UIButton P={P} variant="ghost" key={r.id} type="button" role="radio" aria-checked={reason === r.id} onClick={() => setReason(r.id)} style={{ minHeight: 44,
+                  <UIButton P={P} variant="ghost" key={r.id} type="button" role="radio" aria-checked={reason === r.id} onClick={() => setReason(r.id)} style={{ minHeight: 48,
                     fontSize: FONT_SIZES.caption, padding: "6px 12px", borderRadius: RADIUS.md, cursor: "pointer",
                     fontFamily: "var(--cb-font)", fontWeight: 500, transition: "background-color 150ms ease, color 150ms ease, border-color 150ms ease",
                     background: reason === r.id ? withAlpha(accent, 0.16) : "transparent",
