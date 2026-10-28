@@ -1539,7 +1539,7 @@ function WatchList({ P, accent, at, user, onAsk, refreshKey, deck = false, onCou
               }}>{item.newCount > 99 ? "99+" : item.newCount}</span>
             )}
             <button onClick={() => drop(item)} title={`Stop watching ${item.topic}`} aria-label={`Stop watching ${item.topic}`}
-              style={{ flexShrink: 0, minWidth: 44, minHeight: 44, background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 3, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+              style={{ flexShrink: 0, minWidth: 48, minHeight: 48, background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 3, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
               <Icon name="close" size={13} />
             </button>
           </div>
@@ -1659,7 +1659,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
   const deckIsEmpty = !lastQ && !revisit && !(user && (totalTurns > 0 || (saved || []).length > 0));
 
   return (
-    <div ref={deckRef} style={{
+    <div ref={deckRef} className="cb-home-deck" style={{
       /* Same measure as the composer above it: the deck takes the
          stage column's full width, whatever that width is. They used
          to be 700 and 880: two column widths stacked on one screen,
@@ -1676,7 +1676,10 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
          above it is the instrument you type into, below it is your own
          work. At 34px the two zones read as one long undifferentiated
          column. */
-      marginTop: (deckIsEmpty || flush) ? 0 : (isMobile ? 24 : 40),
+      /* 2026-10-28 (search home polish): the mobile gap moves onto
+         the SP scale (SP.lg); the desktop gap already sits on it
+         (SP.xxl, written as the token now). */
+      marginTop: (deckIsEmpty || flush) ? 0 : (isMobile ? SP.lg : SP.xxl),
       display: "flex", flexDirection: "column", gap: 14,
     }}>
       {/* The greeting, in its new home: left-aligned, at the size of a
@@ -1938,7 +1941,7 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        style={{ minHeight: 44,
+        style={{ minHeight: 48,
           alignSelf: isMobile ? "flex-start" : "center",
           display: "inline-flex", alignItems: "center", gap: 8,
           padding: "6px 16px", borderRadius: RADIUS.pill, cursor: "pointer",
@@ -1989,7 +1992,7 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile }) {
                   key={val} type="button" title={blurb}
                   onClick={() => { onChange(val); setOpen(false); }}
                   aria-pressed={on}
-                  style={{ minHeight: 44,
+                  style={{ minHeight: 48,
                     fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", fontWeight: 500,
                     letterSpacing: "0", flexShrink: 0, whiteSpace: "nowrap",
                     padding: "6px 16px", borderRadius: RADIUS.pill, cursor: "pointer",
@@ -2389,7 +2392,7 @@ function SignalComposer({
     <div
       role="search"
       onPointerDownCapture={() => { engageRef.current = true; }}
-      className={"cb-ask" + (variant === "stage" ? " cb-ask--stage" : "") + (showRecents ? " cb-ask--recents-open" : "")}
+      className={"cb-ask" + (variant === "stage" ? " cb-ask--stage" : "") + (showRecents ? " cb-ask--recents-open" : "") + (busy ? " cb-ask--busy" : "")}
       style={{
         scrollMarginBottom: keyboardInset ? `${keyboardInset + 96}px` : undefined,
         "--cb-acc": accent,
@@ -24335,12 +24338,16 @@ function App({ profileHandle = null } = {}) {
                 </p>
 
                   {/* The composer as an instrument. */}
-                  <div style={{ marginTop: isMobile ? 22 : 26 }}>
+                  {/* 2026-10-28 (search home polish): the composer gap
+                      sits on the SP scale (SP.lg) at both widths, and
+                      the attached image remove control's invisible
+                      hit area grows from 40px to 48px. */}
+                  <div style={{ marginTop: SP.lg }}>
                     {attachedImage && (
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 12px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, maxWidth: "fit-content" }}>
                         <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: RADIUS.md, objectFit: "cover" }} />
                         <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImageName}</span>
-                        <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ position: "relative", minWidth: 0, minHeight: 0, background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><span aria-hidden="true" style={{ position: "absolute", inset: -13, borderRadius: "50%" }} /><Icon name="close" size={14} /></button>
+                        <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ position: "relative", minWidth: 0, minHeight: 0, background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><span aria-hidden="true" style={{ position: "absolute", inset: -17, borderRadius: "50%" }} /><Icon name="close" size={14} /></button>
                       </div>
                     )}
                     <SignalComposer
@@ -24364,7 +24371,7 @@ function App({ profileHandle = null } = {}) {
                       on the answer itself and on the About page,
                       where they belong. */}
                   {askMode !== "explain" && (
-                    <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
+                    <div style={{ marginTop: SP.md, display: "flex", justifyContent: "flex-end" }}>
                       <button type="button" onClick={() => setAskMode("explain")}
                         style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: P.faint, fontSize: FONT_SIZES.label, flexShrink: 0 }}
                         title="Detected mode. Click to reset to Explain.">
@@ -24393,7 +24400,7 @@ function App({ profileHandle = null } = {}) {
                       is quoted untouched; a heading is never
                       manufactured by cutting words out of it. */}
                   {stageLastQ && (
-                    <div style={{ marginTop: 30, borderTop: `1px solid ${P.line}`, paddingTop: 16 }}>
+                    <div style={{ marginTop: SP.xl, borderTop: `1px solid ${P.line}`, paddingTop: SP.md }}>
                       <div style={{ fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, color: P.faint }}>Continue</div>
                       <div style={{
                         fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: 15,
@@ -24414,9 +24421,9 @@ function App({ profileHandle = null } = {}) {
                       composer so the question can be edited before
                       it runs. Hidden while typing. */}
                   {!input.trim() && stageInquiries.length > 0 && (
-                    <div style={{ marginTop: 34 }}>
+                    <div style={{ marginTop: SP.xl }}>
                       <div style={{ fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, color: P.faint }}>Try asking</div>
-                      <div style={{ marginTop: 6 }}>
+                      <div style={{ marginTop: SP.sm }}>
                         {stageInquiries.map((ex) => (
                           <button key={ex.q} type="button" className="cb-stage-inq"
                             onClick={() => { setInput(ex.q); setTimeout(() => inputRef.current?.focus(), 30); }}
@@ -24425,7 +24432,7 @@ function App({ profileHandle = null } = {}) {
                               display: "flex", alignItems: "baseline", gap: 14,
                               width: "100%", textAlign: "left", background: "none",
                               border: "none", borderTop: `1px solid ${P.line}`,
-                              padding: "13px 0", cursor: "pointer",
+                              padding: "13px 0", cursor: "pointer", minHeight: 48,
                             }}
                           >
                             <span className="cb-stage-inq-q" style={{
@@ -24466,7 +24473,7 @@ function App({ profileHandle = null } = {}) {
                      rows from top to bottom. In light palettes the
                      panel sits inside the stage's opaque backing and
                      takes the surface tone above it. */
-                  <div style={{ marginTop: 36, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, padding: isMobile ? "18px 16px" : "22px 24px", boxShadow: SHADOW.sm(P) }}>
+                  <div style={{ marginTop: SP.xxl, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, padding: isMobile ? `${SP.md}px ${SP.md}px` : `${SP.lg}px ${SP.lg}px`, boxShadow: SHADOW.sm(P) }}>
                     <HomeDeck
                       suppressContinue
                       stageDeck
@@ -28382,6 +28389,150 @@ button, a {
 @media (prefers-reduced-motion: reduce) {
   .cb-deck-card::before { transform: scaleX(1); }
 }
+
+/* ── Search home polish, 2026-10-28 ─────────────────────────────
+   Phase 2 fitted polish for the signed in search home: the stage,
+   the composer, and the home deck. One curve (var(--cb-ease)),
+   transform and opacity only, nothing here animates a filter.
+   Entrances use fill backwards, never both: the deck cards also
+   carry the pointer tilt, which writes inline transforms, and a
+   forwards fill would sit on top of those transforms forever.
+   The global hammers (prefers-reduced-motion and body.cb-motion-off
+   near the trace deck) already collapse every duration below; the
+   explicit kills at the foot of this section are the belt to that
+   brace, matching how the neighbouring sections guard themselves. */
+
+/* The deck cards arrive calmly, in reading order. The 2026-10-26
+   purge removed the old GSAP stagger from this surface; this is a
+   smaller, stylesheet only return of the same idea, 8px and three
+   steps, because the stage entrance (the Reveal above) moves the
+   column as one block and the cards inside it snapped in. */
+@keyframes cbDeckIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.cb-home-deck .cb-tilt-wrap > * {
+  animation: cbDeckIn 500ms var(--cb-ease) backwards;
+}
+.cb-home-deck .cb-tilt-wrap > *:nth-child(2) { animation-delay: 70ms; }
+.cb-home-deck .cb-tilt-wrap > *:nth-child(3) { animation-delay: 140ms; }
+.cb-home-deck .cb-tilt-wrap > *:nth-child(n+4) { animation-delay: 210ms; }
+
+/* Deck card life: a 2px hover lift and a quiet press, on the one
+   curve. The tilt card overrides the lift with its own inline
+   transform while the pointer is on it, which is the intended
+   layering: tilt on the lead card, lift on the rest. */
+.cb-deck-card {
+  transition: transform 280ms var(--cb-ease), border-color 150ms ease, background-color 150ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cb-deck-card:hover { transform: translateY(-2px); }
+}
+.cb-deck-card:active { transform: translateY(0) scale(0.995); }
+
+/* Composer state changes move on the one curve instead of snapping
+   between per rule ad hoc easings. The stage field keeps its
+   registration frame treatment (border only, no lift); only the
+   timing language changes there. */
+.cb-ask-field {
+  transition: border-color 280ms var(--cb-ease), box-shadow 280ms var(--cb-ease), transform 280ms var(--cb-ease);
+}
+.cb-ask--stage .cb-ask-field {
+  transition: border-color 150ms var(--cb-ease);
+}
+.cb-ask-tool {
+  transition: color 280ms var(--cb-ease), background-color 280ms var(--cb-ease), transform 280ms var(--cb-ease);
+}
+.cb-ask-tool:active { transform: scale(0.94); }
+.cb-ask-go {
+  transition: background-color 280ms var(--cb-ease), border-color 280ms var(--cb-ease), opacity 280ms var(--cb-ease), transform 280ms var(--cb-ease);
+}
+.cb-ask-go:active:not(:disabled) { transform: scale(0.96); }
+.cb-ask--stage .cb-ask-go--round {
+  transition: background-color 150ms var(--cb-ease), color 150ms var(--cb-ease), transform 280ms var(--cb-ease);
+}
+.cb-ask--stage .cb-ask-go--round:active:not(:disabled) { transform: scale(0.94); }
+
+/* Searching state: while a search is in flight the field settles
+   down 1px and its border takes the accent at rest strength, so
+   submitting reads as the instrument engaging rather than the box
+   freezing. Pure presentation on the busy flag the composer
+   already receives; the request flow is untouched. */
+.cb-ask--busy .cb-ask-field {
+  border-color: color-mix(in srgb, var(--cb-acc) 45%, transparent);
+  transform: translateY(1px);
+}
+.cb-ask--stage.cb-ask--busy .cb-ask-field {
+  border-color: var(--cb-acc);
+  transform: none;
+}
+
+/* The mode badge and the paper chip arrive and respond on the one
+   curve (they faded in on plain ease before, and the badge had no
+   press at all). */
+.cb-shape {
+  transition: background-color 280ms var(--cb-ease), color 280ms var(--cb-ease), transform 280ms var(--cb-ease);
+  animation: cbPhIn 280ms var(--cb-ease) both;
+}
+.cb-shape:active { transform: scale(0.97); }
+.cb-paperchip { animation: cbPhIn 280ms var(--cb-ease) both; }
+.cb-paperchip-x {
+  transition: color 280ms var(--cb-ease), background-color 280ms var(--cb-ease);
+}
+
+/* Recents: the active row glides instead of snapping, and a press
+   reads on the row itself. */
+.cb-ask-recent-item {
+  transition: background-color 200ms var(--cb-ease), color 200ms var(--cb-ease);
+}
+.cb-ask-recent-item:active { transform: scale(0.99); }
+
+/* Stage inquiries: the arrow slides the last few pixels toward the
+   question it points at, the row presses quietly, and the row
+   always carries a full thumb height even where its text is one
+   short line. The text buttons get the same press. */
+.cb-stage-inq { transition: transform 280ms var(--cb-ease); min-height: 48px; }
+.cb-stage-inq .cb-stage-inq-arrow {
+  transition: transform 280ms var(--cb-ease), color 280ms var(--cb-ease);
+}
+.cb-stage-inq:hover .cb-stage-inq-arrow,
+.cb-stage-inq:focus-visible .cb-stage-inq-arrow { transform: translateX(3px); }
+.cb-stage-inq:active { transform: scale(0.995); }
+.cb-stage-textbtn { transition: transform 280ms var(--cb-ease); }
+.cb-stage-textbtn:active { transform: scale(0.96); }
+
+/* Thumb targets on the stage composer: 48px on the controls a
+   thumb actually hits (the app wide floor elsewhere stays 44).
+   The tools row grows by 8px in total; the field is flex, so the
+   input simply takes what is left. */
+.cb-ask-tool { width: 48px; height: 48px; }
+.cb-ask-mic { width: 48px; height: 48px; }
+.cb-ask-go { min-height: 48px; }
+.cb-ask-go--round { width: 48px; height: 48px; min-height: 48px; }
+.cb-ask--stage .cb-ask-go--round { width: 48px; height: 48px; min-height: 48px; }
+.cb-ask-recent-item { min-height: 48px; }
+.cb-stage-textbtn { min-height: 48px; }
+.cb-starter-item { min-height: 48px; }
+
+/* Phone composition at 360px: the field stays one row (the input
+   is flex with min-width 0, so it takes what the 48px tools leave,
+   which at 360px is still a usable line), the inquiry rows tighten
+   their gap so the arrow stays on the question line, and the deck
+   grid is pinned to one column at this width even on the non
+   mobile flag path (the isMobile path already stacks it). */
+@media (max-width: 400px) {
+  .cb-stage-inq { gap: 8px; }
+  .cb-home-deck .cb-tilt-wrap { grid-template-columns: 1fr !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cb-home-deck .cb-tilt-wrap > * { animation: none; }
+  .cb-deck-card, .cb-ask-tool, .cb-ask-go, .cb-shape,
+  .cb-ask-recent-item, .cb-stage-inq, .cb-stage-textbtn { transition: none; }
+  .cb-deck-card:hover, .cb-deck-card:active,
+  .cb-ask--busy .cb-ask-field { transform: none; }
+}
+body.cb-motion-off .cb-home-deck .cb-tilt-wrap > * { animation: none !important; }
 
 
 /* ── Interactive list rows ──
