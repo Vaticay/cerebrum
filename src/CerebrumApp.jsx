@@ -12383,7 +12383,10 @@ function MediaFigure({ P, media, title, still = false, linkCredit = true, aspect
    media is never marked. */
 function TrendThumb({ P, media, title, large = false }) {
   const [failed, setFailed] = useState(false);
-  useEffect(() => { setFailed(false); }, [media && media.url, media && media.poster]);
+  /* Today polish, 2026-10-28: the thumb fades in through opacity
+     alone once it loads, on the one curve. No filter ever animates. */
+  const [ready, setReady] = useState(false);
+  useEffect(() => { setFailed(false); setReady(false); }, [media && media.url, media && media.poster]);
   if (!media || failed) return null;
   const src = media.kind === "video" ? media.poster || null : media.url;
   if (!src) return null;
@@ -12400,8 +12403,9 @@ function TrendThumb({ P, media, title, large = false }) {
         background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)",
       }}>
         <img src={safeHref(src)} alt="" loading="lazy" referrerPolicy="no-referrer" sizes={large ? "132px" : "88px"} decoding="async"
+          onLoad={() => setReady(true)}
           onError={() => setFailed(true)}
-          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", opacity: ready ? 1 : 0, transition: "opacity 320ms var(--cb-ease)" }} />
         {media.kind === "video" && (
           <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span style={{ width: 26, height: 26, borderRadius: "50%", background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -12428,13 +12432,13 @@ function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = f
   const storySaved = isStorySaved ? !!isStorySaved(item) : false;
   return (
     <div
-      className="cb-row"
+      className="cb-row cb-today-cardpress"
       style={{
         background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl,
         padding: isMobile ? 18 : 24, boxShadow: SHADOW.sm(P),
       }}
     >
-      <button
+      <button className="cb-today-press"
         type="button" onClick={() => onExpand(item)}
         style={{
           display: "grid", gridTemplateColumns: isMobile || !media ? "1fr" : "minmax(0, 1.05fr) minmax(0, 0.95fr)",
@@ -12481,9 +12485,9 @@ function TrendingHero({ P, accent, at, item, onExpand, generatedAt, isMobile = f
         )}
       </button>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
-        <button type="button" aria-pressed={storySaved}
+        <button type="button" aria-pressed={storySaved} className="cb-today-ctl"
           onClick={() => onSaveStory && onSaveStory(item)}
-          style={{ minHeight: 44, padding: "9px 16px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer" }}>
+          style={{ minHeight: 48, padding: "9px 16px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer" }}>
           {storySaved ? "Saved" : "Save to Library"}
         </button>
       </div>
@@ -12550,9 +12554,12 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
               <MediaFigure P={P} media={leadMedia} title={(item.title || "").replace(/\*/g, "")} sizes="(max-width: 700px) 100vw, 592px" />
             </div>
           )}
-          <button onClick={close} aria-label="Close" style={{ minWidth: 44, minHeight: 44, position: "absolute", top: 8, right: 8, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }}><span style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.45)", color: "#fff" }}><Icon name="close" size={16} /></span></button>
+          <button onClick={close} aria-label="Close" className="cb-today-ctl" style={{ minWidth: 48, minHeight: 48, position: "absolute", top: 8, right: 8, width: 48, height: 48, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", cursor: "pointer", padding: 0 }}><span style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.45)", color: "#fff" }}><Icon name="close" size={16} /></span></button>
         </div>
-        <div ref={bodyRef} style={{ flex: 1, overflowY: "auto", padding: 26 }}>
+        {/* Today polish, 2026-10-28: the story body remounts under
+            the story key, so moving between stories through Up next
+            moves on the one curve instead of snapping. */}
+        <div key={trendStoryKey(item)} className="cb-today-stack" ref={bodyRef} style={{ flex: 1, overflowY: "auto", padding: 26 }}>
           {item.source && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />
@@ -12568,7 +12575,7 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
             <div style={{ marginTop: 22 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.eyebrow, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>More coverage of this story · {item.coverage.length} reports</div>
               {item.coverage.filter((c) => c.url !== item.url).map((c, i) => (
-                <a key={c.url || i} href={safeHref(c.url)} target="_blank" rel="noreferrer" style={{ display: "block", padding: "9px 0", borderBottom: `1px solid ${P.line}`, textDecoration: "none" }}>
+                <a key={c.url || i} href={safeHref(c.url)} target="_blank" rel="noreferrer" className="cb-today-ctl" style={{ display: "block", minHeight: 48, boxSizing: "border-box", padding: "9px 0", borderBottom: `1px solid ${P.line}`, textDecoration: "none" }}>
                   <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.4 }}>{renderInlineMdLite(c.title, P)}</span>
                   <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3 }}>{c.source || c.category}</span>
                 </a>
@@ -12581,24 +12588,25 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
               the original is still one tap away, just no longer the only
               thing on offer. */}
           <div style={{ alignItems: "center", display: "flex", flexWrap: "wrap", gap: 10, marginTop: 24 }}>
-            <UIButton P={P} variant="ghost"
+            <UIButton P={P} variant="ghost" className="cb-today-ctl"
               onClick={() => { if (onAsk) { const doi = trendingDoiOf(item); onAsk(`What does the research actually show about this: ${item.title}${doi ? ` (DOI: ${doi})` : ""}${item.source ? `, reported by ${item.source}` : ""}`); close(); } }}
-              style={{ minHeight: 44,
+              style={{ minHeight: 48,
                 display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 16px",
                 fontSize: FONT_SIZES.label, fontWeight: 500, color: at, background: accent,
                 borderRadius: RADIUS.viewport, border: "none", cursor: "pointer", fontFamily: "var(--cb-font)",
               }}
             ><Icon name="bookOpen" size={14} /> Ask Cerebrum what the research says</UIButton>
-            <UIButton P={P} variant="ghost"
+            <UIButton P={P} variant="ghost" className="cb-today-ctl"
               onClick={() => onSaveStory && onSaveStory(item)}
               aria-pressed={isStorySaved ? !!isStorySaved(item) : false}
-              style={{ minHeight: 44,
+              style={{ minHeight: 48,
                 display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 16px",
                 fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, background: "transparent",
                 borderRadius: RADIUS.viewport, border: `1px solid ${P.line2}`, cursor: "pointer", fontFamily: "var(--cb-font)",
               }}
             >{isStorySaved && isStorySaved(item) ? "Saved" : "Save to Library"}</UIButton>
-            <a href={safeHref(item.url)} target="_blank" rel="noreferrer" style={{
+            <a href={safeHref(item.url)} target="_blank" rel="noreferrer" className="cb-today-ctl" style={{
+              minHeight: 48, boxSizing: "border-box",
               display: "inline-flex", alignItems: "center", gap: 8, padding: "12px 16px",
               fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink2, background: "transparent",
               border: `1px solid ${P.line2}`, borderRadius: RADIUS.viewport, textDecoration: "none",
@@ -12660,8 +12668,8 @@ function TrendingArticleModal({ P, accent, at, item, close, onAsk, upNext = [], 
             <div style={{ marginTop: 26 }}>
               <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.eyebrow, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 8 }}>Up next</div>
               {upNext.map((nx, i) => (
-                <button key={nx.url || i} onClick={() => onOpenItem && onOpenItem(nx)}
-                  style={{ minHeight: 44,
+                <button key={nx.url || i} onClick={() => onOpenItem && onOpenItem(nx)} className="cb-today-press"
+                  style={{ minHeight: 48,
                     display: "block", width: "100%", textAlign: "left", padding: "11px 0",
                     background: "transparent", border: "none", borderBottom: `1px solid ${P.line}`,
                     cursor: "pointer", fontFamily: "var(--cb-font)",
@@ -13442,7 +13450,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
        and sort carrying the accent wash. The block's desktop and
        phone placements are unchanged (above the hero on desktop,
        after it on a phone, per the October 23 owner photo). */
-    <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: "14px 16px", marginBottom: 26 }}>
+    <div className="cb-today-controls" style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: "14px 16px", marginBottom: 26 }}>
   {/* ══════════════════════════════════════════════════════
       Sections. A newspaper's section index as filter pills:
       the active section sits in an accent wash, the rest sit
@@ -13453,13 +13461,13 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
       {categories.map((cat) => {
         const on = trendCat === cat;
         return (
-          <UIButton P={P} variant="ghost"
+          <UIButton P={P} variant="ghost" className="cb-today-ctl"
             key={cat}
             type="button"
             onClick={() => setTrendCat(cat)}
             aria-pressed={on}
             style={{
-              minHeight: 44, padding: "9px 16px", borderRadius: RADIUS.viewport, cursor: "pointer",
+              minHeight: 48, padding: "9px 16px", borderRadius: RADIUS.viewport, cursor: "pointer",
               fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", letterSpacing: "0",
               fontWeight: on ? 500 : 500,
               background: on ? withAlpha(accent, 0.24) : "transparent",
@@ -13474,15 +13482,15 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
   {status === "ready" && (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", justifyContent: "space-between" }}>
       <div style={{ flex: "1 1 260px", maxWidth: 420 }}>
-        <input value={trendQuery} onChange={(e) => setTrendQuery(e.target.value)} placeholder="Search this edition" aria-label="Search this edition"
-          style={{ width: "100%", boxSizing: "border-box", padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16 }} />
+        <input value={trendQuery} onChange={(e) => setTrendQuery(e.target.value)} placeholder="Search this edition" aria-label="Search this edition" className="cb-today-ctl"
+          style={{ width: "100%", boxSizing: "border-box", minHeight: 48, padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16 }} />
       </div>
-      <div role="group" aria-label="Sort stories" style={{ display: "inline-flex", flexWrap: "wrap", gap: 4 }}>
+      <div role="group" aria-label="Sort stories" className="cb-today-sort" style={{ display: "inline-flex", flexWrap: "wrap", gap: 4 }}>
         {[{ id: "trend", label: "Stayed in the edition longest" }, { id: "edition", label: "Order they came in" }, { id: "newest", label: "Newest first" }].map((o) => {
           const on = effectiveSort === o.id;
           return (
-            <button key={o.id} type="button" onClick={() => setTrendSort(o.id)} aria-pressed={on}
-              style={{ minHeight: 44, padding: "9px 14px", borderRadius: RADIUS.pill, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: on ? 500 : 500, background: on ? withAlpha(accent, 0.24) : "transparent", color: on ? P.ink : P.ink2, border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}` }}>
+            <button key={o.id} type="button" onClick={() => setTrendSort(o.id)} aria-pressed={on} className="cb-today-ctl"
+              style={{ minHeight: 48, padding: "9px 14px", borderRadius: RADIUS.pill, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: on ? 500 : 500, background: on ? withAlpha(accent, 0.24) : "transparent", color: on ? P.ink : P.ink2, border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}` }}>
               {o.label}
             </button>
           );
@@ -13492,8 +13500,14 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
   )}
     </div>
   );
+  /* Today polish, 2026-10-28: the hero remounts when the edition
+     or the section or sort view changes, so day navigation and
+     filtering move on the one curve instead of snapping. The
+     search text is not part of the key, so typing never restages
+     the hero. */
+  const editionKey = `${viewingEdition || "current"}|${trendCat}|${effectiveSort}`;
   const heroBlock = hero ? (
-    <div style={{ marginBottom: 26 }}><TrendingHero P={P} accent={accent} at={at} item={hero} onExpand={setExpanded} generatedAt={generatedAt} isMobile={isMobile} heroLabel={heroLabel} onSaveStory={onSaveStory} isStorySaved={isStorySaved} /></div>
+    <div key={editionKey} className="cb-today-hero" style={{ marginBottom: 26 }}><TrendingHero P={P} accent={accent} at={at} item={hero} onExpand={setExpanded} generatedAt={generatedAt} isMobile={isMobile} heroLabel={heroLabel} onSaveStory={onSaveStory} isStorySaved={isStorySaved} /></div>
   ) : null;
 
   // A newspaper dateline, not a "Live" badge. The feed refreshes on a real
@@ -13504,14 +13518,14 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
 
   return (
     <div style={{ flex: 1, minHeight: 0 }}>
-      <div style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: isMobile ? "72px 18px 48px" : "34px 32px 68px" }}>
+      <div className="cb-today-page" style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: isMobile ? "72px 18px 48px" : "34px 32px 68px" }}>
         {/* ══════════════════════════════════════════════════════
             The masthead. Trending is a daily edition, not a dashboard:
             nameplate, dateline, and the one honest disclaimer, ruled off
             from the stories like a front page. No pulse dot, no "Live"
             badge — the feed refreshes hourly and says so in words.
             ══════════════════════════════════════════════════════ */}
-        <div style={{ marginBottom: 26, borderBottom: `2px solid ${P.ink}`, paddingBottom: 18 }}>
+        <div className="cb-today-mast" style={{ marginBottom: 26, borderBottom: `2px solid ${P.ink}`, paddingBottom: 18 }}>
           {/* The nameplate. The surface is called what it is: a daily
               edition of new science. There is no Nova figure here;
               the masthead is a newspaper block and reads as one. */}
@@ -13531,14 +13545,14 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
               <span role="status" style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.55 }}>
                 {stories.length} stories in this edition.{missingSources.length > 0 ? " One or more of the four sources gave no stories this time." : ""}{(feedMeta.degraded || feedMeta.stale) ? " This is the last good edition while the live feed recovers." : ""}{citationHealth && !citationHealth.ok && citationHealth.attempted > 0 ? " Citation counts are partial this round." : ""}
               </span>
-              <button type="button" onClick={() => setHealthOpen((v) => !v)} aria-expanded={healthOpen}
-                style={{ minHeight: 44, padding: "6px 12px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, cursor: "pointer" }}>
+              <button type="button" onClick={() => setHealthOpen((v) => !v)} aria-expanded={healthOpen} className="cb-today-ctl"
+                style={{ minHeight: 48, padding: "6px 12px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, cursor: "pointer" }}>
                 About this edition
               </button>
             </div>
           )}
           {healthOpen && status === "ready" && stories.length > 0 && (
-            <div>
+            <div className="cb-today-stack">
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 22px", marginTop: 14, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
                 <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{stories.length}</strong> stories in this edition</span>
                 <span><strong style={{ color: P.ink, fontVariantNumeric: "tabular-nums" }}>{paperCount}</strong> papers and preprints</span>
@@ -13584,9 +13598,9 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 14, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>
               <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                 Pick an edition
-                <select aria-label="Choose an edition" value={viewingEdition || ""}
+                <select aria-label="Choose an edition" value={viewingEdition || ""} className="cb-today-ctl"
                   onChange={(e) => { const v = e.target.value; if (v) openEdition(v); else backToCurrent(); }}
-                  style={{ minHeight: 44, padding: "6px 10px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, cursor: "pointer" }}>
+                  style={{ minHeight: 48, padding: "6px 10px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, cursor: "pointer" }}>
                   <option value="">Latest edition</option>
                   {editions.slice(1).map((e) => (
                     <option key={e.id} value={e.id}>{fmtEditionDay(e.generatedAt)}</option>
@@ -13599,8 +13613,8 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
           {status === "ready" && viewingEdition && (
             <div role="status" style={{ marginTop: 12, fontSize: FONT_SIZES.caption, color: P.ink2, background: withAlpha(accent, 0.08), border: `1px solid ${withAlpha(accent, 0.3)}`, borderRadius: RADIUS.md, padding: "9px 13px", maxWidth: 640, lineHeight: 1.55, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <span>You are reading a past edition, as it was gathered on {fmtEditionDay(generatedAt)}. It does not update.</span>
-              <button type="button" onClick={backToCurrent}
-                style={{ minHeight: 44, padding: "6px 12px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer" }}>
+              <button type="button" onClick={backToCurrent} className="cb-today-ctl"
+                style={{ minHeight: 48, padding: "6px 12px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer" }}>
                 Back to the latest edition
               </button>
             </div>
@@ -13618,9 +13632,16 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
         {/* A loading state is a line of text, not six shimmering cards.
             The feed takes a moment; it says so, quietly. */}
         {status === "loading" && (
-          <div style={{ padding: "72px 0", textAlign: "center" }}>
-            <div style={{ fontSize: FONT_SIZES.body, color: P.faint, fontFamily: "var(--cb-font)" }}>
+          <div className="cb-today-load" role="status" style={{
+            maxWidth: 460, margin: "56px auto", textAlign: "center",
+            padding: "36px 32px", borderRadius: RADIUS.lg,
+            background: P.surface, border: `1px solid ${P.line}`,
+          }}>
+            <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
               Gathering the latest science stories…
+            </div>
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 8, lineHeight: 1.6 }}>
+              The edition appears here as soon as it is ready.
             </div>
           </div>
         )}
@@ -13654,9 +13675,9 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
               The service that sends us the stories did not answer. It is usually just busy,
               not broken, so trying again in a few seconds normally works.
             </div>
-            <UIButton P={P} variant="ghost"
+            <UIButton P={P} variant="ghost" className="cb-today-ctl"
               onClick={() => setReloadTick((t) => t + 1)}
-              style={{ minHeight: 44,
+              style={{ minHeight: 48,
                 padding: "12px 22px", borderRadius: RADIUS.sm, cursor: "pointer",
                 fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
                 background: accent, color: at, border: "none",
@@ -13670,12 +13691,12 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
             {isMobile && heroBlock}
             {isMobile && controlsBlock}
             {visibleItems.length === 0 && (
-              <WorkspaceEmpty P={P} accent={accent} icon="chart" isMobile={isMobile}
+              <WorkspaceEmpty P={P} accent={accent} icon="chart" isMobile={isMobile} className="cb-today-load"
                 title="No stories match what you picked"
                 body={query ? `No story here matches "${trendQuery.trim()}". Try different words, or show the whole edition.` : "This part of the edition has no stories today. Pick a different part above, or show the whole edition."}
                 action={(
-                  <UIButton P={P} variant="ghost" onClick={() => { setTrendQuery(""); setTrendCat("All"); }}
-                    style={{ minHeight: 44, padding: "10px 20px", borderRadius: RADIUS.pill, background: accent, color: at, border: "none", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}
+                  <UIButton P={P} variant="ghost" className="cb-today-ctl" onClick={() => { setTrendQuery(""); setTrendCat("All"); }}
+                    style={{ minHeight: 48, padding: "10px 20px", borderRadius: RADIUS.pill, background: accent, color: at, border: "none", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}
                   >Show the whole edition</UIButton>
                 )} />
             )}
@@ -13697,20 +13718,26 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
                 <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{rest.length} more {rest.length === 1 ? "story" : "stories"}</span>
               </div>
             )}
-            {rest.length > 0 && (<div style={{ borderTop: `1px solid ${P.line}` }} className="cb-stagger">
+            {rest.length > 0 && (<div key={editionKey} style={{ borderTop: `1px solid ${P.line}` }}>
               {rest.map((item, i) => {
                 const tier2 = i < 3;
                 return (
-                <div key={item.url || i} className="cb-row"
+                /* Today polish, 2026-10-28: rows carry their own
+                   staggered entrance through the index in the style
+                   below, capped at 8. The old cb-stagger class on
+                   the container only set delays and the rows brought
+                   no animation of their own, so nothing moved. */
+                <div key={item.url || i} className="cb-row cb-today-row"
                   style={{
-                    display: "flex", flexDirection: narrow ? "column" : "row", alignItems: narrow ? "stretch" : "flex-start", gap: narrow ? 6 : 16, width: "100%",
+                    display: "flex", flexDirection: narrow ? "column" : "row", alignItems: narrow ? "stretch" : "flex-start", gap: narrow ? SP.sm : SP.md, width: "100%",
                     padding: tier2 ? "28px 6px" : "24px 6px",
                     borderBottom: `1px solid ${P.line}`, fontFamily: "var(--cb-font)",
+                    "--cb-today-i": Math.min(i, 8),
                   }}
                 >
-                  <button type="button" onClick={() => setExpanded(item)}
+                  <button type="button" onClick={() => setExpanded(item)} className="cb-today-press"
                     style={{
-                      display: "flex", flexDirection: narrow ? "column" : "row", alignItems: narrow ? "stretch" : "baseline", gap: narrow ? 6 : 16, flex: 1, minWidth: 0, textAlign: "left",
+                      display: "flex", flexDirection: narrow ? "column" : "row", alignItems: narrow ? "stretch" : "baseline", gap: narrow ? SP.sm : SP.md, flex: 1, minWidth: 0, textAlign: "left",
                       padding: 0, background: "transparent", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)",
                     }}
                   >
@@ -13744,9 +13771,9 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
                   {/* Every story can be filed into the Library from the
                       row itself, through the same save path the source
                       cards use. */}
-                  <button type="button" aria-pressed={isStorySaved ? !!isStorySaved(item) : false}
+                  <button type="button" aria-pressed={isStorySaved ? !!isStorySaved(item) : false} className="cb-today-ctl"
                     onClick={() => onSaveStory && onSaveStory(item)}
-                    style={{ minHeight: 44, padding: "8px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer", flexShrink: 0 }}>
+                    style={{ minHeight: 48, padding: "8px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 500, cursor: "pointer", flexShrink: 0, alignSelf: narrow ? "flex-start" : undefined }}>
                     {isStorySaved && isStorySaved(item) ? "Saved" : "Save"}
                   </button>
                 </div>
@@ -28776,6 +28803,66 @@ body.cb-motion-off .cb-lib-card:hover { transform: none; }
 @media (max-width: 480px) {
   .cb-lib-tabs { flex-wrap: nowrap !important; }
   .cb-lib-tab { flex: 1 1 0 !important; padding-left: 10px !important; padding-right: 10px !important; }
+}
+
+/* ── Today in Science polish, 2026-10-28 ──
+   Phase 2 fitted polish for the daily edition surface. The
+   masthead, the controls strip and the hero enter in one calm
+   staged rise on the one curve, transform and opacity only,
+   never a filter. Digest rows carry their own stagger through
+   the --cb-today-i index the row sets, capped at the call site
+   so a long edition never cascades for seconds. Day navigation
+   remounts the hero and the digest under the edition key, and
+   the article body remounts under the story key, so moving
+   between days or stories moves instead of snapping. Pressable
+   story surfaces settle on press, and the edition controls
+   transition their selection instead of snapping. Story images
+   fade in through opacity alone in the components; no filter
+   animates anywhere here. Both reduced motion hammers collapse
+   everything, on top of the global ones. At phone widths the
+   page gutters tighten to the SP rhythm, the controls strip
+   fits inside them, and the sort group spans the strip with
+   equal targets so nothing clips or wraps off at 360px. */
+@keyframes cbTodayIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cbTodayRowIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cb-today-mast { animation: cbTodayIn 380ms var(--cb-ease) both; }
+.cb-today-controls { animation: cbTodayIn 380ms var(--cb-ease) 60ms both; }
+.cb-today-hero { animation: cbTodayIn 460ms var(--cb-ease) 90ms both; }
+.cb-today-stack { animation: cbTodayIn 320ms var(--cb-ease) both; }
+.cb-today-load { animation: cbTodayIn 320ms var(--cb-ease) both; }
+.cb-today-row { animation: cbTodayRowIn 380ms var(--cb-ease) both; animation-delay: calc(var(--cb-today-i, 0) * 45ms); }
+.cb-today-press { transition: transform 180ms var(--cb-ease); }
+.cb-today-press:active { transform: scale(0.99); }
+.cb-today-cardpress { transition: transform 200ms var(--cb-ease), border-color 200ms var(--cb-ease); }
+.cb-today-cardpress:active { transform: scale(0.995); }
+.cb-today-ctl { transition: background-color 200ms var(--cb-ease), border-color 200ms var(--cb-ease), color 200ms var(--cb-ease); }
+@media (prefers-reduced-motion: reduce) {
+  .cb-today-mast, .cb-today-controls, .cb-today-hero, .cb-today-stack, .cb-today-load, .cb-today-row { animation: none; }
+  .cb-today-press, .cb-today-cardpress, .cb-today-ctl { transition: none; }
+  .cb-today-press:active, .cb-today-cardpress:active { transform: none; }
+}
+body.cb-motion-off .cb-today-mast,
+body.cb-motion-off .cb-today-controls,
+body.cb-motion-off .cb-today-hero,
+body.cb-motion-off .cb-today-stack,
+body.cb-motion-off .cb-today-load,
+body.cb-motion-off .cb-today-row { animation: none !important; }
+body.cb-motion-off .cb-today-press,
+body.cb-motion-off .cb-today-cardpress,
+body.cb-motion-off .cb-today-ctl { transition: none !important; }
+body.cb-motion-off .cb-today-press:active,
+body.cb-motion-off .cb-today-cardpress:active { transform: none; }
+@media (max-width: 480px) {
+  .cb-today-page { padding-left: 14px !important; padding-right: 14px !important; }
+  .cb-today-controls { padding: 12px !important; }
+  .cb-today-sort { width: 100%; }
+  .cb-today-sort > button { flex: 1 1 auto; }
 }
 
 `;
