@@ -237,7 +237,10 @@ assert.ok(studioSrc.includes('isMobile ? "down"'), 'phones default to Down direc
 assert.ok(studioSrc.includes('{isMobile && kindSelect}') && studioSrc.includes('{!isMobile && kindSelect}'),
   'narrow step rows move the kind select to the second line');
 assert.ok(studioSrc.includes('ds-step-') && studioSrc.includes('scrollIntoView'), 'selecting a node brings its editor row into view on phones');
-assert.ok(studioSrc.includes('minHeight: 44'), 'studio fields stand at the 44 floor');
+// 2026-10-28 (phase 2 fitted polish): the studio target floor rose
+// from 44 to 48 across buttons, small buttons, fields, and the
+// direction toggle, so the pin follows the new floor.
+assert.ok(studioSrc.includes('minHeight: 48'), 'studio fields stand at the 48 floor');
 assert.ok(studioSrc.includes('initialFocus={topFocusRef}'), 'the dialog focuses a plain container, not the title input');
 assert.ok(studioSrc.includes('exportWrapRef') && studioSrc.includes('navigator.share'), 'the export menu closes on outside taps and offers Share');
 

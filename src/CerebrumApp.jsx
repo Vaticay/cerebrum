@@ -26182,6 +26182,39 @@ summary::-webkit-details-marker { display: none; }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-accent, #8ba888) 16%, transparent);
 }
 @media (prefers-reduced-motion: reduce) { .cb-doc-intake { transition: none; } }
+/* Diagram polish, 2026-10-28
+   Diagram Studio motion, in the one system: var(--cb-ease), transform
+   and opacity only, never a filter. The studio entrance stages its
+   panels in (the delay helpers below), state changes move instead of
+   snapping: the export menu scales from its anchor corner, a step
+   card rises the first time it lands, the source and detail panels
+   rise as they open, and the canvas fades when its chain is rebuilt
+   (a step added, removed, or the direction flipped). Reduced motion
+   collapses every one of these below, and body.cb-motion-off reaches
+   them through the global duration hammer. */
+@keyframes cbDsIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+@keyframes cbDsFade {
+  from { opacity: 0.25; }
+  to   { opacity: 1; }
+}
+@keyframes cbDsMenuIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+.cb-ds-in { animation: cbDsIn 420ms var(--cb-ease) both; }
+.cb-ds-panel { animation: cbDsIn 420ms var(--cb-ease) both; }
+.cb-ds-d1 { animation-delay: 70ms; }
+.cb-ds-d2 { animation-delay: 140ms; }
+.cb-ds-menu { transform-origin: top right; animation: cbDsMenuIn 200ms var(--cb-ease) both; }
+.cb-ds-step { animation: cbDsIn 260ms var(--cb-ease) both; }
+.cb-ds-detail { animation: cbDsIn 280ms var(--cb-ease) both; }
+.cb-ds-canvas-in { animation: cbDsFade 240ms var(--cb-ease) both; }
+@media (prefers-reduced-motion: reduce) {
+  .cb-ds-in, .cb-ds-panel, .cb-ds-menu, .cb-ds-step, .cb-ds-detail, .cb-ds-canvas-in { animation: none; }
+}
 /* Document Mode analysis leading (2026-10-19, M30): the old override
    pushing analysis prose to 1.75 is deleted. Analysis prose now keeps
    the plan leading of 1.55 from the shared renderer, the same leading
