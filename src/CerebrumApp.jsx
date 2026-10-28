@@ -14693,7 +14693,9 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
               fontSize: small ? FONT_SIZES.caption : FONT_SIZES.label,
               fontWeight: on ? 500 : 500, fontFamily: "var(--cb-font)",
               letterSpacing: TYPE.heading.letterSpacing, whiteSpace: "nowrap", flexShrink: 0,
-              transition: "color 150ms ease",
+              /* Shell polish, 2026-10-28: the tab colour change moves
+                 on the one curve, matching the shell tab bars. */
+              transition: "color 200ms var(--cb-ease)",
             }}
           >{lab}</button>
         );
@@ -14705,7 +14707,10 @@ function SegControl({ options, value, onChange, P, accent, ariaLabel, small = fa
         /* scaleX grows from the left edge: with the default center origin
            the underline would sit half a tab left of its target. */
         transformOrigin: "left center",
-        transition: "transform 280ms cubic-bezier(0.16, 1, 0.3, 1)",
+        /* Shell polish, 2026-10-28: the bar was the one tab
+           indicator still naming the curve literally, and its
+           opacity snapped; both now move on var(--cb-ease). */
+        transition: "transform 280ms var(--cb-ease), opacity 200ms var(--cb-ease)",
         opacity: bar.visible ? 1 : 0,
       }} />
     </div>
@@ -18996,7 +19001,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       borderRight: `1px solid ${P.line}`,
       display: "flex", flexDirection: "column",
       transform: isMobile ? "translateX(-100%)" : "none",
-      transition: "transform 280ms cubic-bezier(0.16, 1, 0.3, 1)",
+      transition: "transform 280ms var(--cb-ease)",
     },
     sidebarMobileOpen: { transform: "translateX(0)", boxShadow: P.shadow },
     sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "24px 22px 24px", cursor: "pointer", flexShrink: 0 },
@@ -19008,7 +19013,10 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          global 44px button floor via inline style). */
       padding: "9px 12px", minHeight: 44, borderRadius: RADIUS.lg, border: "none", background: "transparent",
       color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500,
-      fontFamily: "var(--cb-font)", transition: "background 150ms ease, color 150ms ease",
+      /* Shell polish, 2026-10-28: the row state change (hover fill,
+         active fill, ink) moves on the one curve instead of the
+         generic ease it carried. */
+      fontFamily: "var(--cb-font)", transition: "background 200ms var(--cb-ease), color 200ms var(--cb-ease)",
     },
     /* Pass 3 (2026-09-17): the active row is signalled by a 2px left sage
        rule and inked text — no pill fill, no inset shadow. One channel,
@@ -19022,7 +19030,10 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       boxShadow: `none`,
     },
     sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: RADIUS.viewport, fontFamily: "var(--cb-font)" },
-    sidebarFooter: { flexShrink: 0, padding: "12px 12px 16px", borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 2 },
+    /* Shell polish, 2026-10-28: on phones the rail is a full height
+       drawer, so its footer clears the home indicator inset; desktop
+       keeps the plain 16px foot. */
+    sidebarFooter: { flexShrink: 0, padding: isMobile ? "12px 12px calc(16px + env(safe-area-inset-bottom, 0px))" : "12px 12px 16px", borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 2 },
     // `position: relative` + `zIndex: 1` are load-bearing, not decoration:
     // without them this is a plain static box, which CSS paints in the
     // in-flow layer — strictly below ANY positioned element in the same
@@ -19914,7 +19925,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
          Desktop is unaffected: the spread and the inert attribute only
          apply on mobile while closed. */
       {...(isMobile && !mobileOpen ? { inert: "" } : {})}
-      style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), width: railW, transition: "width 280ms cubic-bezier(0.16, 1, 0.3, 1), transform 280ms cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear " + (isMobile && !mobileOpen ? "280ms" : "0s"), overflowX: "hidden", visibility: isMobile && !mobileOpen ? "hidden" : "visible", ...(railCollapsed && railHover && !isMobile ? { boxShadow: "none" } : {}) }}>
+      style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), width: railW, transition: "width 280ms var(--cb-ease), transform 280ms var(--cb-ease), visibility 0s linear " + (isMobile && !mobileOpen ? "280ms" : "0s"), overflowX: "hidden", visibility: isMobile && !mobileOpen ? "hidden" : "visible", ...(railCollapsed && railHover && !isMobile ? { boxShadow: "none" } : {}) }}>
       {/* Explicit close button for the mobile drawer. */}
       {isMobile && mobileOpen && (
         <UIButton P={P} variant="ghost"
@@ -19922,7 +19933,9 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
           aria-label="Close menu"
           style={{
             position: "absolute", top: 8, right: 8, zIndex: Z.float,
-            width: 44, height: 44, borderRadius: "50%",
+            /* Shell polish, 2026-10-28: 48px, the thumb target the
+               fitted standard asks of mobile shell chrome. */
+            width: 48, height: 48, borderRadius: "50%",
             background: "transparent", border: `1px solid ${P.line}`,
             color: P.ink, cursor: "pointer",
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -19930,7 +19943,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
           }}
         >✕</UIButton>
       )}
-      <div style={{ ...S.sidebarBrand, ...(expanded ? {} : { padding: "24px 0 24px", justifyContent: "center" }) }} onClick={onLogoClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLogoClick(); } }} aria-label="Back to landing page">
+      <div className="cb-shell-brand" style={{ ...S.sidebarBrand, ...(expanded ? {} : { padding: "24px 0 24px", justifyContent: "center" }) }} onClick={onLogoClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLogoClick(); } }} aria-label="Back to landing page">
         <Mark size={22} accent={accent} glow={false} />
         {expanded && <span style={{ fontWeight: 500, fontSize: FONT_SIZES.section, color: P.ink, fontFamily: "var(--cb-font)" }}>Cerebrum</span>}
       </div>
@@ -19945,6 +19958,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
               border: `1px solid ${P.line}`, color: P.faint, cursor: "pointer",
               fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)",
+              transition: "background 200ms var(--cb-ease)",
             }}
             onMouseEnter={hoverIn} onMouseLeave={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}>
             <Icon name="search" size={15} />
@@ -19962,13 +19976,13 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
              to guess at the rail's structure. */
           <button key={key} data-nav={key} onClick={() => onNavigate(key)} title={expanded ? undefined : label}
             style={{ ...itemStyle(key), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
-            aria-current={view === key ? "page" : undefined} aria-label={key === "inbox" && inboxUnread > 0 ? `Inbox, ${inboxUnread} unread` : label} className=""
+            aria-current={view === key ? "page" : undefined} aria-label={key === "inbox" && inboxUnread > 0 ? `Inbox, ${inboxUnread} unread` : label} className="cb-shell-navitem"
             onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
             <Icon name={icon} size={16} />
             {expanded && <span>{label}</span>}
             {key === "inbox" && inboxUnread > 0 && (expanded
-              ? <span style={S.sidebarItemBadge}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>
-              : <span aria-hidden="true" style={{ position: "absolute", top: 5, right: 5, minWidth: 16, height: 16, borderRadius: RADIUS.viewport, background: accent, color: at, fontSize: 10, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>)}
+              ? <span className="cb-shell-badge" style={S.sidebarItemBadge}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>
+              : <span className="cb-shell-badge" aria-hidden="true" style={{ position: "absolute", top: 5, right: 5, minWidth: 16, height: 16, borderRadius: RADIUS.viewport, background: accent, color: at, fontSize: 10, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>)}
           </button>
           );
         })}
@@ -19977,7 +19991,8 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             place you work, and it was previously sandwiched between Find
             People and the mute toggle as though it were peer to both. */}
         <div style={{ marginTop: "auto", paddingTop: 10 }}>
-          <button onClick={() => onNavigate("settings")} title={expanded ? undefined : "Settings"} aria-label="Settings"
+          <button onClick={() => onNavigate("settings")} title={expanded ? undefined : "Settings"} aria-label="Settings" className="cb-shell-navitem"
+            aria-current={view === "settings" ? "page" : undefined}
             style={{ ...itemStyle("settings"), width: "100%", ...(expanded ? {} : { padding: "11px 0", justifyContent: "center" }) }}
             onMouseEnter={hoverIn} onMouseLeave={hoverOut("settings")}>
             <Icon name="settings" size={16} />{expanded && <span>Settings</span>}
@@ -20009,10 +20024,10 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
                 width: 44, height: 44, borderRadius: 2, cursor: "pointer",
                 background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
-                transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
+                transition: "background 200ms var(--cb-ease), color 200ms var(--cb-ease), border-color 200ms var(--cb-ease)",
               }}
               onMouseEnter={hoverIn} onMouseLeave={hoverOut("__rail")}>
-              <span style={{ display: "inline-flex", transform: railCollapsed ? "rotate(180deg)" : "none", transition: "transform 280ms ease" }}>
+              <span style={{ display: "inline-flex", transform: railCollapsed ? "rotate(180deg)" : "none", transition: "transform 280ms var(--cb-ease)" }}>
                 <Icon name="chevronLeft" size={16} />
               </span>
             </UIButton>
@@ -20023,13 +20038,14 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               width: 44, height: 44, borderRadius: 2, cursor: "pointer",
               background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
-              transition: "background 150ms ease, color 150ms ease, border-color 150ms ease",
+              transition: "background 200ms var(--cb-ease), color 200ms var(--cb-ease), border-color 200ms var(--cb-ease)",
             }}>
             <Icon name={muted ? "volumeOff" : "volumeOn"} size={16} />
           </button>
         </div>
         {user ? (
           <button
+            className="cb-shell-navitem"
             onClick={() => setAcctOpen(true)}
             aria-current={view === "profile" ? "page" : undefined}
             title={expanded ? "Account" : (user.name || user.email || "Account")}
@@ -20042,7 +20058,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               borderRadius: RADIUS.md, cursor: "pointer",
               border: `1px solid ${view === "profile" ? withAlpha(accent, 0.35) : P.line}`,
               background: view === "profile" ? withAlpha(accent, 0.1) : "transparent",
-              transition: "background 150ms ease, border-color 150ms ease",
+              transition: "background 200ms var(--cb-ease), border-color 200ms var(--cb-ease)",
             }}
           >
             <span aria-hidden="true" style={{
@@ -20078,7 +20094,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               padding: expanded ? "12px 12px" : "12px 0", borderRadius: RADIUS.md, cursor: "pointer",
               border: `1px solid ${withAlpha(accent, 0.4)}`, background: withAlpha(accent, 0.1),
               color: P.ink, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
-              transition: "background 150ms ease",
+              transition: "background 200ms var(--cb-ease)",
             }}
           >
             <Icon name="user" size={15} />
@@ -24019,7 +24035,11 @@ function App({ profileHandle = null } = {}) {
         onOpenInvestigation={openHistoryItem}
         onOpenPalette={() => { setCmdOpen(true); setTimeout(() => cmdRef.current?.focus(), 40); }}
       />
-      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar), outline: "none"}}>
+      {/* Shell polish, 2026-10-28: the main column margin moves on
+          the same 280ms curve as the rail width, so collapsing or
+          expanding the rail carries the content with it instead of
+          the rail sliding while the page snaps sideways. */}
+      <main id="cb-main" ref={mainRef} tabIndex={-1} aria-label="Main content" style={{...S.appMain, marginLeft: isMobile ? 0 : (railCollapsed ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar), outline: "none", transition: "margin-left 280ms var(--cb-ease)"}}>
       {/* Commit 46: the top header is gone for good — every destination it
           used to hold (search command bar, Inbox, Profile/Sign-in, the
           brand/back-to-landing mark) already lives in the Sidebar too (see
@@ -24062,6 +24082,7 @@ function App({ profileHandle = null } = {}) {
         return (
           <React.Fragment>
             <div
+              className="cb-shell-topbar-in"
               onTouchStart={(e) => { headerTouchY.current = e.touches[0].clientY; }}
               onTouchMove={(e) => {
                 const dy = e.touches[0].clientY - headerTouchY.current;
@@ -24069,7 +24090,13 @@ function App({ profileHandle = null } = {}) {
               }}
               style={{
                 position: "fixed", top: 0, left: 0, right: 0, height: 56, zIndex: Z.headerBar,
-                display: "flex", alignItems: "center", padding: "0 8px 0 12px", gap: 2,
+                /* Shell polish, 2026-10-28: the side padding now
+                   clears the landscape notch insets, matching the
+                   bottom bar below. The 56px height itself is
+                   pinned by every view's top padding, so the top
+                   inset stays a cross surface call, noted in the
+                   lane notes. */
+                display: "flex", alignItems: "center", padding: "0 max(8px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px))", gap: 2,
                 /* Opaque fill, no backdrop blur: a full-width fixed bar over
                    scrolling content is per-frame compositor work on a phone
                    for zero legibility gain at 56px. */
@@ -24082,7 +24109,9 @@ function App({ profileHandle = null } = {}) {
                 aria-label="Open menu"
                 title="More"
                 style={{
-                  width: 44, height: 44, borderRadius: "50%", flexShrink: 0,
+                  /* Shell polish, 2026-10-28: 48px thumb target,
+                     still inside the 56px bar. */
+                  width: 48, height: 48, borderRadius: "50%", flexShrink: 0,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   background: "transparent",
                   border: `1px solid ${P.line}`,
@@ -24092,7 +24121,7 @@ function App({ profileHandle = null } = {}) {
                 <Icon name="menu" size={18} />
               </button>
               <div style={{ flex: 1, minWidth: 0, padding: "0 6px" }}>
-                <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{headerTitle}</div>
+                <div key={headerTitle} className="cb-shell-title-in" style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{headerTitle}</div>
               </div>
               {/* 2026-10-22 (simplify audit SH3): Inbox and Account
                   left the mobile header. The bottom nav carries both,
@@ -24100,11 +24129,16 @@ function App({ profileHandle = null } = {}) {
                   title only and nothing on this screen is offered
                   three times. */}
             </div>
-            <nav aria-label="Primary" style={{
+            <nav aria-label="Primary" className="cb-shell-tabbar-in" style={{
               position: "fixed", bottom: 0, left: 0, right: 0, zIndex: Z.headerBar,
               display: "flex", alignItems: "stretch",
               background: P.bg, borderTop: `1px solid ${P.line}`,
               paddingBottom: "env(safe-area-inset-bottom)",
+              /* Shell polish, 2026-10-28: side insets so the end
+                 tabs clear a landscape notch, same treatment as
+                 the top bar above. */
+              paddingLeft: "env(safe-area-inset-left, 0px)",
+              paddingRight: "env(safe-area-inset-right, 0px)",
             }}>
               {[
                 { key: "search", label: "Home", icon: "search" },
@@ -24117,6 +24151,7 @@ function App({ profileHandle = null } = {}) {
                 const isActiveTab = view === t.key;
                 return (
                   <button key={t.key} onClick={() => { sfx(); stableSidebarNavigate(t.key); }}
+                    className="cb-shell-tab" data-active={isActiveTab ? "true" : undefined}
                     aria-label={t.badge > 0 ? `${t.label}, ${t.badge} unread` : t.label} aria-current={isActiveTab ? "page" : undefined}
                     style={{
                       flex: 1, minHeight: 64, display: "flex", flexDirection: "column",
@@ -24126,8 +24161,14 @@ function App({ profileHandle = null } = {}) {
                       fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
                       position: "relative",
                     }}>
+                    {/* Shell polish, 2026-10-28: the active tab
+                        carries a top rule that grows in on the one
+                        curve; the New search action is the raised
+                        circle, never the current destination, so it
+                        carries no rule. */}
+                    {!t.fab && <span aria-hidden="true" className="cb-shell-tab-ind" />}
                     {t.fab ? (
-                      <span style={{
+                      <span className="cb-shell-fab" style={{
                         width: 48, height: 48, borderRadius: "50%", marginTop: -22,
                         /* accentText(accent), the ink picked FOR the accent
                            ground: this once read `color: accentInk`, the
@@ -24152,10 +24193,10 @@ function App({ profileHandle = null } = {}) {
                             4.93 to 1 and reads as the same red. The
                             count itself is spoken by the button's
                             aria-label above; the badge stays hidden. */}
-                        {t.badge > 0 && <span style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: RADIUS.md, background: "#d13438", color: "#fff", fontSize: 10, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }} aria-hidden="true">{t.badge > 9 ? "9+" : t.badge}</span>}
+                        {t.badge > 0 && <span className="cb-shell-badge" style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: RADIUS.md, background: "#d13438", color: "#fff", fontSize: 10, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }} aria-hidden="true">{t.badge > 9 ? "9+" : t.badge}</span>}
                       </span>
                     )}
-                    <span>{t.label}</span>
+                    <span style={{ whiteSpace: "nowrap" }}>{t.label}</span>
                   </button>
                 );
               })}
@@ -24172,7 +24213,7 @@ function App({ profileHandle = null } = {}) {
          gone. Selecting text now does what selecting text does everywhere
          else; SelectionAsk offers the search as a button the reader has to
          actually press. */
-      <div style={S.scroll} ref={threadRef}>
+      <div style={S.scroll} ref={threadRef} className="cb-shell-view-in">
         <SelectionAsk onAsk={(q) => ask(q)} P={P} accent={accent} containerRef={threadRef} />
         <div style={view === "search" ? { ...S.container, maxWidth: 1760 } : S.container}>
           {!started ? (
@@ -27326,6 +27367,92 @@ body.cb-motion-off * { transition-duration: 0.01ms !important; animation-duratio
   * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
 
+/* ── Shell polish, 2026-10-28 ──
+   The app frame in the one motion system: var(--cb-ease), transform
+   and opacity only, nothing animated on a filter. Three gaps closed.
+   First, the search view was the one destination with no entrance at
+   all: every other view arrives through Reveal, the search thread
+   snapped. It cannot borrow .cb-view-ascend, whose keyframes settle
+   on translateY(0): a settled transform makes the thread the
+   containing block for its fixed descendants (the SelectionAsk pill
+   positions from viewport coordinates), so these keyframes end on
+   transform: none, the same fix cbAnswerFocus documents. Second,
+   the mobile top bar and bottom tab bar mounted with no entrance
+   and their state changes snapped: the bars now settle in on first
+   mount, the active tab carries a rule that grows in, and the tab
+   colour change transitions. Third, nav state in the sidebar: the
+   active row gains a left rule that scales in on the same curve
+   (the row already exposes its state as aria-current), and unread
+   badges pop once when they appear instead of snapping in. Two
+   smaller closings ride along: the underlined tab row (.cb-tab,
+   the evidence and sort tab bars) had no transition of its own and
+   took the generic button ease, so its colour change now moves on
+   the one curve here rather than by editing the redesign layer
+   that owns its shape; and the sidebar wordmark, the home click,
+   gets a quiet opacity press so the click lands somewhere visible.
+   The universal hammers above already collapse every one of these
+   under body.cb-motion-off and prefers-reduced-motion; the named
+   kill below is belt and braces in the house convention. */
+@keyframes cbShellViewIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+.cb-shell-view-in { animation: cbShellViewIn 460ms var(--cb-ease) both; }
+@keyframes cbShellTopIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: none; }
+}
+.cb-shell-topbar-in { animation: cbShellTopIn 460ms var(--cb-ease) both; }
+@keyframes cbShellBottomIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.cb-shell-tabbar-in { animation: cbShellBottomIn 460ms var(--cb-ease) both; }
+@keyframes cbShellTitleIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.cb-shell-title-in { animation: cbShellTitleIn 280ms var(--cb-ease) both; }
+@keyframes cbShellBadgeIn {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
+.cb-shell-badge { animation: cbShellBadgeIn 280ms var(--cb-ease) both; }
+.cb-shell-navitem { position: relative; }
+.cb-shell-navitem::before {
+  content: ""; position: absolute; left: 0; top: 50%;
+  width: 3px; height: 20px; margin-top: -10px;
+  border-radius: 0 var(--cb-r-sm) var(--cb-r-sm) 0; background: var(--cb-accent, #7c9a82);
+  opacity: 0; transform: scaleY(0.4); pointer-events: none;
+  transition: opacity 200ms var(--cb-ease), transform 280ms var(--cb-ease);
+}
+.cb-shell-navitem[aria-current="page"]::before { opacity: 1; transform: scaleY(1); }
+.cb-shell-tab { transition: color 200ms var(--cb-ease); }
+.cb-shell-tab-ind {
+  position: absolute; top: 0; left: 50%;
+  width: 24px; height: 3px; margin-left: -12px;
+  border-radius: 0 0 var(--cb-r-sm) var(--cb-r-sm); background: var(--cb-accent, #7c9a82);
+  opacity: 0; transform: scaleX(0.4); pointer-events: none;
+  transition: opacity 200ms var(--cb-ease), transform 280ms var(--cb-ease);
+}
+.cb-shell-tab[data-active="true"] .cb-shell-tab-ind { opacity: 1; transform: scaleX(1); }
+.cb-shell-fab { transition: transform 150ms var(--cb-ease); }
+.cb-shell-tab:active .cb-shell-fab { transform: scale(0.94); }
+.cb-tab { transition: color 200ms var(--cb-ease); }
+.cb-shell-brand { transition: opacity 200ms var(--cb-ease); }
+.cb-shell-brand:active { opacity: 0.7; }
+body.cb-motion-off .cb-shell-view-in,
+body.cb-motion-off .cb-shell-topbar-in,
+body.cb-motion-off .cb-shell-tabbar-in,
+body.cb-motion-off .cb-shell-title-in,
+body.cb-motion-off .cb-shell-badge,
+body.cb-motion-off .cb-shell-navitem::before,
+body.cb-motion-off .cb-shell-tab,
+body.cb-motion-off .cb-shell-tab-ind,
+body.cb-motion-off .cb-shell-fab,
+body.cb-motion-off .cb-tab,
+body.cb-motion-off .cb-shell-brand { animation: none !important; transition: none !important; }
+
 /* ── Trace deck: the honest waiting state, rebuilt as an instrument.
    The sweep is a radar, not a progress bar — indeterminate by design,
    because the client genuinely does not know what the server is doing
@@ -27413,7 +27540,7 @@ body.cb-motion-off * { transition-duration: 0.01ms !important; animation-duratio
 .cb-rise    { opacity: 1; animation: cbRise  320ms var(--cb-ease) both; }
 .cb-hero    { animation: cbHero  460ms var(--cb-ease) both; }
 .cb-modal   { animation: cbModal 560ms var(--cb-ease) both; }
-.cb-backdrop { animation: cbBackdrop 300ms ease both; }
+.cb-backdrop { animation: cbBackdrop 300ms var(--cb-ease) both; }
 /* (cb-answer-enter's entrance now lives in the Innovation Refinement block
    above as cbAnswerFocus — a focus pull rather than a plain fade.)
 
