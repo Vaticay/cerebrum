@@ -11,7 +11,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { apiDataAction, toast, REPORT_REASONS, apiDataGet, cbNotify, cbBlip, avatarSkin, relativeTime, statusBad, statusGood } from "./appUtils.js";
 import { useKeyboardInset } from "./keyboardInset.js";
 import { historyNav } from "./historyNav.js";
-import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, TYPE, Z, SHADOW, Icon, UIButton } from "./designSystem.jsx";
+import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, TYPE, Z, SHADOW, SP, Icon, UIButton } from "./designSystem.jsx";
 import { ensureE2EEDevice, decryptThreadMessages, encryptMessage } from "./e2ee/messaging.js";
 import { safeHref } from "./textUtils.js";
 import { Dialog, ModalChrome } from "./flowcharts.jsx";
@@ -179,7 +179,7 @@ function PaperSharePicker({ P, accent, at, paper, threads, onClose, onSent }) {
             <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.faint, marginBottom: 6 }}>Your conversations</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
               {(threads || []).map((t) => (
-                <button key={t.id} onClick={() => sendToThread(t.id)} disabled={!!busyKey} style={rowStyle}>
+                <button key={t.id} onClick={() => sendToThread(t.id)} disabled={!!busyKey} className="cb-row" style={rowStyle}>
                   <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name || "Conversation"}</span>
                   <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, flexShrink: 0 }}>{busyKey === "thread:" + t.id ? "Sending…" : "Send"}</span>
                 </button>
@@ -199,7 +199,7 @@ function PaperSharePicker({ P, accent, at, paper, threads, onClose, onSent }) {
           {results.length > 0 && (
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
               {results.map((r) => (
-                <button key={r.id} onClick={() => startAndSend(r)} disabled={!!busyKey} style={rowStyle}>
+                <button key={r.id} onClick={() => startAndSend(r)} disabled={!!busyKey} className="cb-row" style={rowStyle}>
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name || r.username}</span>
                     {r.username && <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint }}>@{r.username}</span>}
@@ -1921,6 +1921,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     : threads;
   const displayThreads = showArchived ? archivedThreads : filteredThreads;
 
+  /* Fitted polish, 2026-10-28 (phase 2, inbox lane): the motion
+     classes below (cb-inbox-row-in, cb-inbox-thread-in,
+     cb-inbox-bubble, cb-inbox-menu-in, cb-inbox-pop-in) live in the
+     "Inbox polish, 2026-10-28" section of the shared style block in
+     CerebrumApp.jsx. They move transform and opacity only, on the
+     one var(--cb-ease) curve, and collapse under the reduced motion
+     hammers. Nothing here changes a handler, a poll, or a payload:
+     motion and fit only. */
   return (
     <>
     {/* Screen reader announcements: an arrival in the open thread is
@@ -1941,8 +1949,8 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         the app's own fixed chrome, which overlays the parent too. */}
     <div style={{ height: "100%", maxHeight: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 0 : 16, boxSizing: "border-box", background: P.bg, paddingTop: isMobile ? 56 : 16, paddingRight: isMobile ? 0 : 16, paddingBottom: isMobile ? `calc(72px + env(safe-area-inset-bottom, 0px) + ${keyboardInset}px)` : 16, paddingLeft: isMobile ? 0 : 16 }}>
       {showList && (
-        <div style={{ width: isMobile ? "100%" : 336, flexShrink: 0, borderRight: isMobile ? "none" : undefined, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, background: P.surface, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden", display: "flex", flexDirection: "column", height: "100%" }}>
-          <div style={{ padding: "18px 18px 12px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+        <div className="cb-inbox-thread-in" style={{ width: isMobile ? "100%" : 336, flexShrink: 0, borderRight: isMobile ? "none" : undefined, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, background: P.surface, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden", display: "flex", flexDirection: "column", height: "100%" }}>
+          <div style={{ padding: `${SP.lg}px ${SP.lg}px ${SP.md}px`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
               <div style={{ minWidth: 0 }}>
                 <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, lineHeight: TYPE.heading.lineHeight }}>Inbox</h1>
@@ -1950,19 +1958,19 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            <button onClick={() => setGroupModalOpen(true)} aria-label="New group" title="New group" style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <button onClick={() => setGroupModalOpen(true)} aria-label="New group" title="New group" style={{ width: 48, height: 48, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Icon name="network" size={16} />
             </button>
-            <button onClick={() => { const next = !showArchived; setShowArchived(next); if (next) refreshArchived(); }} aria-label="Archived conversations" title="Archived conversations" aria-pressed={showArchived} style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: showArchived ? withAlpha(accent, 0.28) : withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <button onClick={() => { const next = !showArchived; setShowArchived(next); if (next) refreshArchived(); }} aria-label="Archived conversations" title="Archived conversations" aria-pressed={showArchived} style={{ width: 48, height: 48, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: showArchived ? withAlpha(accent, 0.28) : withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Icon name="folder" size={16} />
             </button>
-            <button onClick={onCompose} aria-label="New message" title="New message" style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <button onClick={onCompose} aria-label="New message" title="New message" style={{ width: 48, height: 48, borderRadius: RADIUS.md, border: "none", cursor: "pointer", background: withAlpha(accent, 0.12), color: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <Icon name="edit" size={15} />
             </button>
             </div>
           </div>
           {threads.length > 0 && (
-            <div style={{ padding: "0 18px 12px" }}>
+            <div style={{ padding: `0 ${SP.lg}px ${SP.md}px` }}>
               <input
                 value={threadQuery}
                 onChange={(e) => setThreadQuery(e.target.value)}
@@ -1973,12 +1981,12 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </div>
           )}
           {threads.length > 0 && listFailed && (
-            <div role="status" style={{ margin: "0 18px 10px", padding: "9px 12px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`, background: withAlpha(STATUS.bad, 0.07), display: "flex", alignItems: "center", gap: 10 }}>
+            <div role="status" className="cb-inbox-pop-in" style={{ margin: `0 ${SP.lg}px ${SP.sm}px`, padding: "9px 12px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(STATUS.bad, 0.35)}`, background: withAlpha(STATUS.bad, 0.07), display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ flex: 1, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.45 }}>Connection lost. This list may be out of date.</span>
               <button onClick={() => { if (listRefreshRef.current) listRefreshRef.current(); }} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: accent, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer", flexShrink: 0 }}>Retry</button>
             </div>
           )}
-          <div aria-busy={!listLoaded} style={{ flex: 1, overflowY: "auto", padding: "0 10px 12px" }}>
+          <div aria-busy={!listLoaded} style={{ flex: 1, overflowY: "auto", padding: `0 ${SP.sm}px ${SP.md}px` }}>
             {/* Commit 100 — "No conversations yet." followed by a <br> was
                 the last hand-written empty state left in this file, and it
                 sat in the narrowest column on the screen where a bare grey
@@ -2027,7 +2035,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             {showArchived && archivedThreads.length === 0 && (
               <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>No archived conversations. When you archive a conversation, it moves here and out of your main list.</div>
             )}
-            {displayThreads.map((t) => {
+            {displayThreads.map((t, rowIdx) => {
               const initials = (t.name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
               const preview = !t.lastMessage
                 ? "No messages yet"
@@ -2057,7 +2065,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               // column now — see functions/api/data.js) instead of every
               // row rendering identically regardless of read state.
               return (
-                <div key={t.id} style={{ position: "relative", display: "flex", alignItems: "stretch", borderBottom: `1px solid ${P.line}`, background: activeId === t.id ? withAlpha(accent, 0.08) : "transparent" }}>
+                <div key={t.id} className="cb-inbox-row-in" style={{ position: "relative", display: "flex", alignItems: "stretch", borderBottom: `1px solid ${P.line}`, background: activeId === t.id ? withAlpha(accent, 0.08) : "transparent", transition: "background-color 240ms var(--cb-ease)", "--cb-inbox-i": Math.min(rowIdx, 8) }}>
                 <button onClick={() => setActiveId(t.id)} className="cb-row" style={{ minHeight: 44,
                   flex: 1, minWidth: 0, textAlign: "left", padding: "12px 10px", borderRadius: 0, border: "none",
                   cursor: "pointer", background: "transparent",
@@ -2103,27 +2111,27 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     )}
                   </span>
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === t.id ? null : t.id); }} aria-label={"Actions for " + (t.name || "this conversation")} aria-expanded={rowMenuId === t.id} style={{ width: 40, minHeight: 44, border: "none", background: "transparent", color: P.faint, cursor: "pointer", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 14, flexShrink: 0 }}>
+                <button onClick={(e) => { e.stopPropagation(); setRowMenuId(rowMenuId === t.id ? null : t.id); }} aria-label={"Actions for " + (t.name || "this conversation")} aria-expanded={rowMenuId === t.id} style={{ width: 48, minHeight: 48, border: "none", background: "transparent", color: P.faint, cursor: "pointer", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 16, flexShrink: 0 }}>
                   <Icon name="moreVertical" size={16} />
                 </button>
                 {rowMenuId === t.id && (
-                  <div role="menu" style={{ position: "absolute", top: 6, right: 44, zIndex: 30, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, boxShadow: SHADOW.lg(P), padding: 5, minWidth: 168, display: "flex", flexDirection: "column" }}>
-                    <button onClick={() => { setRowMenuId(null); toggleThreadPinned(t.id); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                  <div role="menu" className="cb-inbox-menu-in" style={{ position: "absolute", top: 6, right: 52, zIndex: 30, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, boxShadow: SHADOW.lg(P), padding: 5, minWidth: 168, display: "flex", flexDirection: "column" }}>
+                    <button onClick={() => { setRowMenuId(null); toggleThreadPinned(t.id); }} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                       <Icon name={t.pinned ? "pinFilled" : "pin"} size={14} style={{ color: P.ink2 }} /> {t.pinned ? "Unpin" : "Pin"}
                     </button>
-                    <button onClick={() => { setRowMenuId(null); toggleThreadMuted(t.id); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                    <button onClick={() => { setRowMenuId(null); toggleThreadMuted(t.id); }} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                       <Icon name="volumeOff" size={14} style={{ color: P.ink2 }} /> {t.muted ? "Unmute" : "Mute"}
                     </button>
                     {showArchived ? (
-                      <button onClick={() => { setRowMenuId(null); toggleThreadArchived(t.id, false); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                      <button onClick={() => { setRowMenuId(null); toggleThreadArchived(t.id, false); }} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                         <Icon name="folder" size={14} style={{ color: P.ink2 }} /> Move back to list
                       </button>
                     ) : (
-                      <button onClick={() => { setRowMenuId(null); toggleThreadArchived(t.id, true); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                      <button onClick={() => { setRowMenuId(null); toggleThreadArchived(t.id, true); }} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                         <Icon name="folder" size={14} style={{ color: P.ink2 }} /> Archive
                       </button>
                     )}
-                    <button onClick={() => { setRowMenuId(null); setPendingDeleteThreadId(t.id); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                    <button onClick={() => { setRowMenuId(null); setPendingDeleteThreadId(t.id); }} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "8px 10px", border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                       <Icon name="trash" size={14} /> Delete
                     </button>
                   </div>
@@ -2179,10 +2187,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
       {showThread && (
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100%", background: P.bg, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden" }}>
           {activeThread && activeThread.id === activeId ? (<>
-            <div style={{ padding: "13px 18px", borderBottom: `1px solid ${P.line}`, background: P.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div className="cb-inbox-thread-in" style={{ padding: `${SP.md}px ${SP.lg}px`, borderBottom: `1px solid ${P.line}`, background: P.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                 {isMobile && (
-                  <button onClick={() => { if (!historyNav.requestBack("thread", String(activeId))) setActiveId(null); }} aria-label="Back to conversations" style={{ background: "none", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink2, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <button onClick={() => { if (!historyNav.requestBack("thread", String(activeId))) setActiveId(null); }} aria-label="Back to conversations" style={{ background: "none", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink2, cursor: "pointer", width: 48, height: 48, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="arrowRight" size={16} style={{ transform: "rotate(180deg)" }} />
                   </button>
                 )}
@@ -2232,17 +2240,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     to DMs. Block and Report additionally wait until the
                     thread fetch has resolved who "the other person" is. */}
                 <div style={{ position: "relative" }}>
-                    <UIButton P={P} variant="ghost" onClick={() => setMenuOpen((v) => !v)} aria-label="Conversation options" aria-haspopup="true" aria-expanded={menuOpen} style={{ width: 44, height: 44, borderRadius: RADIUS.md, border: "none", background: menuOpen ? withAlpha(accent, 0.12) : "transparent", color: P.ink2, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                    <UIButton P={P} variant="ghost" onClick={() => setMenuOpen((v) => !v)} aria-label="Conversation options" aria-haspopup="true" aria-expanded={menuOpen} style={{ width: 48, height: 48, borderRadius: RADIUS.md, border: "none", background: menuOpen ? withAlpha(accent, 0.12) : "transparent", color: P.ink2, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
                       <Icon name="moreVertical" size={17} />
                     </UIButton>
                     {menuOpen && (<>
                       <div onClick={() => setMenuOpen(false)} aria-hidden="true" style={{ position: "fixed", inset: 0, zIndex: Z.dropdown }} />
-                      <div style={{
+                      <div className="cb-inbox-menu-in" style={{
                         position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: Z.dropdownMenu, minWidth: 200,
                         background: P.dark ? "#161822" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md,
                         boxShadow: "none", padding: 6, display: "flex", flexDirection: "column",
                       }}>
-                        <UIButton P={P} variant="ghost" onClick={markThreadUnread} disabled={markUnreadBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: markUnreadBusy ? "default" : "pointer", textAlign: "left" }}>
+                        <UIButton P={P} variant="ghost" onClick={markThreadUnread} disabled={markUnreadBusy} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: markUnreadBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="mail" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> Mark as unread
                         </UIButton>
                         {/* Pin and Mute apply to every thread kind, like
@@ -2250,23 +2258,23 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                             reader's own list state, stored on their
                             participant row, so they sit outside the DM
                             only block and report gate below. */}
-                        <UIButton P={P} variant="ghost" onClick={toggleThreadPinned} disabled={!!prefBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
+                        <UIButton P={P} variant="ghost" onClick={toggleThreadPinned} disabled={!!prefBusy} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name={activeThread.pinned ? "pinFilled" : "pin"} size={15} style={{ color: P.ink2, flexShrink: 0 }} /> {activeThread.pinned ? "Unpin" : "Pin"}
                         </UIButton>
-                        <UIButton P={P} variant="ghost" onClick={toggleThreadMuted} disabled={!!prefBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
+                        <UIButton P={P} variant="ghost" onClick={toggleThreadMuted} disabled={!!prefBusy} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="volumeOff" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> {activeThread.muted ? "Unmute" : "Mute"}
                         </UIButton>
-                        <UIButton P={P} variant="ghost" onClick={() => toggleThreadArchived()} disabled={!!prefBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
+                        <UIButton P={P} variant="ghost" onClick={() => toggleThreadArchived()} disabled={!!prefBusy} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: prefBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="folder" size={15} style={{ color: P.ink2, flexShrink: 0 }} /> Archive
                         </UIButton>
-                        <button onClick={() => { setMenuOpen(false); setPendingDeleteThreadId(activeId); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                        <button onClick={() => { setMenuOpen(false); setPendingDeleteThreadId(activeId); }} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                           <Icon name="trash" size={15} style={{ flexShrink: 0 }} /> Delete conversation
                         </button>
                         {activeThread.kind === "dm" && activeThread.otherId && (<>
-                        <UIButton P={P} variant="ghost" onClick={toggleBlock} disabled={blockBusy} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
+                        <UIButton P={P} variant="ghost" onClick={toggleBlock} disabled={blockBusy} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: blockBusy ? "default" : "pointer", textAlign: "left" }}>
                           <Icon name="block" size={15} style={{ minHeight: 44, color: P.ink2, flexShrink: 0 }} /> {activeThread.blocked ? "Unblock" : "Block"} {activeThread.name}
                         </UIButton>
-                        <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ minHeight: 44, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                        <button onClick={() => { setMenuOpen(false); setReportModal({ kind: "user" }); }} style={{ minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", color: statusBad(P), fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
                           <Icon name="flag" size={15} style={{ flexShrink: 0 }} /> Report {activeThread.name}
                         </button>
                         </>)}
@@ -2281,7 +2289,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                  (raised ground, hairline border, small radius), so the
                  shared work reads one way in the list, on the shelf,
                  and in the thread itself. */
-              <div style={{ padding: "8px 18px 10px", borderBottom: `1px solid ${P.line}`, background: P.surface, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+              <div className="cb-inbox-thread-in" style={{ padding: `${SP.sm}px ${SP.lg}px ${SP.sm}px`, borderBottom: `1px solid ${P.line}`, background: P.surface, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", animationDelay: "50ms" }}>
                 <Icon name="bookOpen" size={12} style={{ color: accent, flexShrink: 0 }} />
                 <span>Shared in this conversation</span>
                 {sharedCounts.paper > 0 && <span style={{ color: P.ink, fontWeight: 500, background: P.raised || P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "2px 8px" }}>{sharedCounts.paper} {sharedCounts.paper === 1 ? "paper" : "papers"}</span>}
@@ -2289,7 +2297,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               </div>
             )}
             {activeThread.blocked && (
-              <div style={{ padding: "12px 24px", background: withAlpha(STATUS.bad, 0.08), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="cb-inbox-thread-in" style={{ padding: `${SP.md}px ${SP.xl}px`, background: withAlpha(STATUS.bad, 0.08), borderBottom: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: P.ink2, display: "flex", alignItems: "center", gap: 8, animationDelay: "70ms" }}>
                 <Icon name="block" size={14} style={{ color: statusBad(P), flexShrink: 0 }} />
                 You blocked {activeThread.name}. Neither of you can send messages here until you unblock them from the menu above.
               </div>
@@ -2302,7 +2310,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 keeps a short thread resting on the composer, exactly as it
                 does everywhere else, and has no effect once the thread is
                 long enough to scroll. */}
-            <div ref={msgPaneRef} onScroll={handleMsgScroll} style={{ flex: 1, overflowY: "auto", padding: isMobile ? "18px 14px" : "22px 24px", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 14, minHeight: 0, background: P.bg }}>
+            <div ref={msgPaneRef} onScroll={handleMsgScroll} className="cb-inbox-thread-in" style={{ flex: 1, overflowY: "auto", padding: isMobile ? `${SP.lg}px ${SP.md}px` : `${SP.xl}px ${SP.xl}px`, display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: SP.md, minHeight: 0, background: P.bg, animationDelay: "90ms" }}>
               {(activeThread.messages || []).length === 0 && (
                 <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.label, marginTop: 20, lineHeight: 1.6 }}>No messages yet. Write the first one below.</div>
               )}
@@ -2384,7 +2392,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 {showDay && (
                   <div style={{ alignSelf: "center", margin: "10px 0 2px", padding: "4px 12px", background: P.raised || P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.pill, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{dayLabel}</div>
                 )}
-                <div className="cb-msg-bubble" id={m.id ? "cb-msg-" + m.id : undefined} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start", marginTop: groupedWithPrev ? -10 : 6, borderRadius: RADIUS.lg, ...(highlightMessageId && m.id === highlightMessageId ? { outline: `2px solid ${accent}`, outlineOffset: 3, background: withAlpha(accent, 0.07) } : {}) }}
+                <div className="cb-msg-bubble cb-inbox-bubble" id={m.id ? "cb-msg-" + m.id : undefined} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start", marginTop: groupedWithPrev ? -10 : 6, borderRadius: RADIUS.lg, ...(highlightMessageId && m.id === highlightMessageId ? { outline: `2px solid ${accent}`, outlineOffset: 3, background: withAlpha(accent, 0.07) } : {}) }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
                   onTouchStart={() => { if (longPressRef.current) clearTimeout(longPressRef.current); longPressRef.current = setTimeout(() => setActionMsgId(m.id || key), 450); }}
                   onTouchEnd={() => { if (longPressRef.current) clearTimeout(longPressRef.current); }}
@@ -2613,8 +2621,8 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               })}
             </div>
             {showNewMessages && (
-              <div style={{ display: "flex", justifyContent: "center", padding: "9px 0", background: P.surface, borderTop: `1px solid ${P.line}` }}>
-                <button onClick={jumpToLatest} style={{ minHeight: 44, padding: "7px 18px", borderRadius: RADIUS.pill, border: "none", background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer", boxShadow: SHADOW.sm(P) }}>
+              <div className="cb-inbox-pop-in" style={{ display: "flex", justifyContent: "center", padding: "9px 0", background: P.surface, borderTop: `1px solid ${P.line}` }}>
+                <button onClick={jumpToLatest} className="cb-press" style={{ minHeight: 48, padding: "7px 18px", borderRadius: RADIUS.pill, border: "none", background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer", boxShadow: SHADOW.sm(P) }}>
                   New messages ↓
                 </button>
               </div>
@@ -2623,7 +2631,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 reading ground and the controls dock in a raised tray
                 lifted on the small shadow, a designed place at the foot
                 of the column instead of a leftover row on the surface. */}
-            <div style={{ padding: "13px 18px 15px", borderTop: showNewMessages ? "none" : `1px solid ${P.line}`, background: P.bg }}>
+            <div className="cb-inbox-thread-in" style={{ padding: `${SP.md}px ${SP.lg}px ${SP.md}px`, borderTop: showNewMessages ? "none" : `1px solid ${P.line}`, background: P.bg, animationDelay: "150ms" }}>
               {/* The durable outbox could not be written (storage full
                   or unavailable): failed sends are NOT saved for retry
                   in this browser right now, and pretending otherwise
@@ -2641,13 +2649,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   You blocked {activeThread.name}. Unblock them from the menu above to send a message.
                 </div>
               ) : (<>
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", background: P.raised || P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm(P), padding: 8 }}>
+                <div className="cb-inbox-composer" style={{ display: "flex", gap: 8, alignItems: "flex-end", background: P.raised || P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm(P), padding: 8 }}>
                   <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: "none" }} aria-hidden="true" />
                   <UIButton P={P} variant="ghost"
                     onClick={() => imageInputRef.current?.click()}
                     disabled={attachBusy}
                     aria-label="Attach an image" title="Attach an image"
-                    style={{ width: 44, height: 44, borderRadius: RADIUS.lg, flexShrink: 0, background: "transparent", border: "none", color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    style={{ width: 48, height: 48, borderRadius: RADIUS.lg, flexShrink: 0, background: "transparent", border: "none", color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                   ><Icon name={attachBusy ? "refresh" : "image"} size={16} className={attachBusy ? "cb-spin" : undefined} /></UIButton>
                   <textarea
                     ref={composerRef}
@@ -2659,7 +2667,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     style={{ flex: 1, padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.45, resize: "none", maxHeight: 140, overflowY: "auto", outline: "none" }}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !isTouch) { e.preventDefault(); sendMessage(); } }}
                   />
-                  <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ width: 44, height: 44, borderRadius: RADIUS.lg, background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ width: 48, height: 48, borderRadius: RADIUS.lg, background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, transition: "opacity 180ms var(--cb-ease)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="send" size={16} />
                   </button>
                 </div>
@@ -2676,7 +2684,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                problem and offering the retry beats the placeholder
                below, which cannot tell "nothing picked yet" from
                "the conversation would not load". */
-            <div role="alert" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 32, gap: 10 }}>
+            <div role="alert" className="cb-inbox-pop-in" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 32, gap: 10 }}>
               <div style={{
                 width: 46, height: 46, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
                 background: withAlpha(STATUS.bad, 0.1), color: statusBad(P), marginBottom: 2,
@@ -2696,7 +2704,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                Inbox and it held one grey sentence, centred, with nothing
                else. "Nothing here yet." in the middle of a 900px column is
                indistinguishable from a page that failed to load. */
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 32, gap: 10 }}>
+            <div className="cb-inbox-pop-in" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 32, gap: 10 }}>
               {loadingThread ? (
                 <div style={{ color: P.faint, fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)" }}>Opening thread…</div>
               ) : threads.length === 0 ? (
@@ -2731,7 +2739,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         scrimStyle={{ background: "rgba(0,0,0,0.9)", padding: 28 }}
         panelStyle={{ background: "transparent", border: "none", boxShadow: "none", borderRadius: 0, overflow: "visible", alignItems: "center", justifyContent: "center", cursor: "zoom-out", maxHeight: "92dvh", width: "auto" }}
       >
-        <img src={lightbox} alt="Attached" role="button" tabIndex={0} aria-label="Attached image. Activate to close."
+        <img src={lightbox} alt="Attached" role="button" tabIndex={0} aria-label="Attached image. Activate to close." className="cb-inbox-pop-in"
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLightbox(null); } }}
           style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: RADIUS.lg, objectFit: "contain" }} onClick={() => setLightbox(null)} />
       </Dialog>
@@ -2827,7 +2835,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             {groupResults.length > 0 && (
               <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
                 {groupResults.map((r) => (
-                  <button key={r.id} onClick={() => { setGroupMembers((prev) => [...prev, r]); setGroupQuery(""); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44 }}>
+                  <button key={r.id} onClick={() => { setGroupMembers((prev) => [...prev, r]); setGroupQuery(""); }} className="cb-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 48 }}>
                     <span style={{ width: 32, height: 32, borderRadius: "50%", background: withAlpha(accent, 0.14), color: accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.caption, fontWeight: 500, flexShrink: 0 }}>
                       {(r.name || r.username || "?").charAt(0).toUpperCase()}
                     </span>
@@ -2955,7 +2963,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             {settingsResults.length > 0 && (
               <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 220, overflowY: "auto" }}>
                 {settingsResults.map((r) => (
-                  <button key={r.id} onClick={() => addGroupMembers([r.id])} disabled={settingsBusy === "add"} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: settingsBusy === "add" ? "default" : "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 44, opacity: settingsBusy === "add" ? 0.5 : 1 }}>
+                  <button key={r.id} onClick={() => addGroupMembers([r.id])} disabled={settingsBusy === "add"} className="cb-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: RADIUS.md, border: "none", background: "transparent", cursor: settingsBusy === "add" ? "default" : "pointer", textAlign: "left", fontFamily: "var(--cb-font)", minHeight: 48, opacity: settingsBusy === "add" ? 0.5 : 1 }}>
                     <span style={{ width: 32, height: 32, borderRadius: "50%", background: withAlpha(accent, 0.14), color: accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.caption, fontWeight: 500, flexShrink: 0 }}>
                       {(r.name || r.username || "?").charAt(0).toUpperCase()}
                     </span>
