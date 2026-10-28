@@ -557,7 +557,11 @@ function SourcesDialog({ onClose, accent, P = null }) {
 
 const SPECIMENS = [
   {
-    claim: "Two weeks of six-hour nights impairs your thinking as much as two nights with no sleep at all.",
+    /* 2026-10-28 (round 4 verify): the paper's conclusion is deficits
+       equivalent to UP TO two nights of total sleep deprivation;
+       "can impair" carries that qualifier in plain words. The flat
+       "impairs" stated the maximum as the general value. */
+    claim: "Two weeks of six-hour nights can impair your thinking as much as two nights with no sleep at all.",
     paper: "H. P. A. Van Dongen et al., \u201cThe cumulative cost of additional wakefulness,\u201d Sleep 26(2), 2003.",
     doi: "https://doi.org/10.1093/sleep/26.2.117",
   },
