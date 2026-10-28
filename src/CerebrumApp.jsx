@@ -26430,6 +26430,69 @@ summary::-webkit-details-marker { display: none; }
 @keyframes cbSplitL { 0%, 18% { transform: translateX(0); } 100% { transform: translateX(-103%); } }
 @keyframes cbSplitR { 0%, 18% { transform: translateX(0); } 100% { transform: translateX(103%); } }
 @media (prefers-reduced-motion: reduce) { .cb-door-split { display: none; } }
+/* ── Inbox polish, 2026-10-28 ───────────────────────────────
+   Phase 2 fitted polish, inbox lane. The thread list, the open
+   conversation, its bubbles, and its menus take the intro curve
+   var(--cb-ease) with transform and opacity only, never a filter.
+   Entrances are staged and calm: rows cascade in a short capped
+   run, the conversation bands settle in reading order, and a
+   bubble rises the last few pixels as it lands. The global
+   reduced motion hammers (the prefers-reduced-motion duration
+   block and body.cb-motion-off below) collapse every duration
+   here; the explicit kills under these rules keep the same
+   promise if a hammer ever moves. */
+@keyframes cbInboxRowIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.cb-inbox-row-in {
+  animation: cbInboxRowIn 420ms var(--cb-ease) both;
+  animation-delay: calc(var(--cb-inbox-i, 0) * 36ms);
+}
+@keyframes cbInboxThreadIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.cb-inbox-thread-in { animation: cbInboxThreadIn 380ms var(--cb-ease) both; }
+@keyframes cbInboxBubbleIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.cb-inbox-bubble { animation: cbInboxBubbleIn 300ms var(--cb-ease) both; }
+@keyframes cbInboxMenuIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.cb-inbox-menu-in {
+  animation: cbInboxMenuIn 180ms var(--cb-ease) both;
+  transform-origin: top right;
+}
+@keyframes cbInboxPopIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.cb-inbox-pop-in { animation: cbInboxPopIn 240ms var(--cb-ease) both; }
+/* The composer field takes the same focus treatment the document
+   intake uses: the border lights in the reader accent and a soft
+   ring gathers, both moving on the one curve. --cb-accent is set
+   on the app shell (see S.page). */
+.cb-inbox-composer textarea {
+  transition: border-color 180ms var(--cb-ease), box-shadow 180ms var(--cb-ease);
+}
+.cb-inbox-composer textarea:focus {
+  border-color: var(--cb-accent, #8ba888) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cb-accent, #8ba888) 16%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-inbox-row-in, .cb-inbox-thread-in, .cb-inbox-bubble,
+  .cb-inbox-menu-in, .cb-inbox-pop-in { animation: none; }
+  .cb-inbox-composer textarea { transition: none; }
+}
+body.cb-motion-off .cb-inbox-row-in,
+body.cb-motion-off .cb-inbox-thread-in,
+body.cb-motion-off .cb-inbox-bubble,
+body.cb-motion-off .cb-inbox-menu-in,
+body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 /* Leaving: the chrome fades fast. (The workspace-handoff half of this
    rule — a graded still bridging into the app — retired with the ambient
    stack in the 2026-09-17 pass 1; the intro keeps its own film frame.) */
