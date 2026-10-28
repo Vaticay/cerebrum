@@ -26378,6 +26378,23 @@ summary::-webkit-details-marker { display: none; }
 }
 #cb-intro-wrap.cb-door-hidden .cb-door-sheen,
 #cb-intro-wrap.cb-door-hidden .cb-door-chevron { animation-play-state: paused; }
+/* The door opening, 2026-10-28 (the owner's call): on the way in,
+   two black leaves part over a band of film light, done at 720ms,
+   inside the 800ms bound. The light layer sits under the leaves;
+   the leaves hold for the first beat, then part on the intro curve.
+   Transform and opacity only. The overlay never takes pointer
+   events, and entry itself fires on the timer in go(), so nothing
+   here can gate or delay the way in; the no motion paths in go()
+   never mount it, and reduced motion hides it outright. */
+.cb-door-split { position: fixed; inset: 0; z-index: 90; pointer-events: none; overflow: hidden; }
+.cb-split-light { position: absolute; inset: 0; background: radial-gradient(ellipse 70% 90% at 50% 45%, rgba(226,236,220,0.5), rgba(139,168,136,0.22) 45%, rgba(5,7,10,0) 75%), #0b0d10; animation: cbSplitLight 0.72s var(--cb-ease) both; }
+@keyframes cbSplitLight { from { opacity: 0; } 25% { opacity: 1; } to { opacity: 1; } }
+.cb-split-half { position: absolute; top: 0; bottom: 0; width: 50.5%; background: #05070a; }
+.cb-split-l { left: 0; animation: cbSplitL 0.72s var(--cb-ease) both; }
+.cb-split-r { right: 0; animation: cbSplitR 0.72s var(--cb-ease) both; }
+@keyframes cbSplitL { 0%, 18% { transform: translateX(0); } 100% { transform: translateX(-103%); } }
+@keyframes cbSplitR { 0%, 18% { transform: translateX(0); } 100% { transform: translateX(103%); } }
+@media (prefers-reduced-motion: reduce) { .cb-door-split { display: none; } }
 /* Leaving: the chrome fades fast. (The workspace-handoff half of this
    rule — a graded still bridging into the app — retired with the ambient
    stack in the 2026-09-17 pass 1; the intro keeps its own film frame.) */

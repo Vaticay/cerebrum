@@ -923,13 +923,41 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
    on the way in, in the shell, never on this door.
    ════════════════════════════════════════════════════════════════════ */
 function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
-  const isMobile = useIsMobile();
+  /* Cinema mode, 2026-10-28 (the owner's call, for commercial
+     takes): ?cinema locks the door into a fixed recordable frame,
+     9 by 16 by default, 16 by 9 with ?cinema=wide. Inside it the
+     staged entrance runs once on its fixed clock whatever the
+     session flag says, one specimen (the Van Dongen card the door
+     opens on) is held for the whole take, and everything that is
+     not part of the pitch (nav links, the footer line, the scroll
+     cue) stays out of frame. The film, the arrangement, Nova's
+     line, the fonts, and the palette are exactly the live door's. */
+  const [cinema] = useState(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get("cinema");
+      if (v === "wide" || v === "169") return "wide";
+      if (v !== null && v !== "" && v !== "0" && v !== "off") return "portrait";
+    } catch { /* no location to read: no cinema */ }
+    return null;
+  });
+  const isMobileWin = useIsMobile();
+  const isMobile = isMobileWin || cinema === "portrait";
   const reduced = useReducedMotion();
+  /* The frame swallows the page scroll: the take is the frame and
+     nothing outside it. */
+  useEffect(() => {
+    if (!cinema) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [cinema]);
   const [sourcesOpen, setSourcesOpen] = useState(false);
-  /* Stepping through: the whole chamber descends 6vh and fades (CSS,
-     420ms) — the Dive motif in reverse, sinking into the workspace.
+  /* Stepping through: the door opens (2026-10-28, the owner's call:
+     two black leaves part over the film light, 720ms, and the app
+     is entered at 700ms; this replaced the 420ms chamber descent).
      The no-motion path is untouched: animation off or reduced motion
-     goes straight through. A second press while leaving is ignored. */
+     goes straight through, instantly, and never mounts the split.
+     A second press while leaving is ignored. */
   const [leaving, setLeaving] = useState(false);
   const leaveTimer = useRef(null);
   useEffect(() => () => clearTimeout(leaveTimer.current), []);
@@ -994,6 +1022,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     return () => io.disconnect();
   }, []);
   useEffect(() => {
+    if (cinema) return undefined;
     if (reduced || animationMode === "off") return undefined;
     if (specimenHeld || sourcesOpen) return undefined;
     if (!specimenVisible) return undefined;
@@ -1003,6 +1032,9 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     );
     return () => clearInterval(t);
   }, [reduced, animationMode, specimenHeld, sourcesOpen, specimenVisible, specimenCount, isMobile]);
+  /* Cinema holds this binding at index 0, the Van Dongen card: the
+     rotation effect above never runs in cinema, so the index never
+     advances for the whole take. */
   const spec = SPECIMENS[specimenIdx % specimenCount];
 
   /* ── The door rule ──
@@ -1017,7 +1049,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     if (animationMode === "off" || reduced) { onEnter(payload, !!submit, null); return; }
     setLeaving(true);
     clearTimeout(leaveTimer.current);
-    leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, null), 420);
+    leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, null), 700);
   };
 
   /* Loops on the door (the plate sheen, the scroll cue) pause while
@@ -1040,6 +1072,10 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
      and only the film and the rotation run, as they do for
      everyone. */
   const ceremony = animate && !enteredBefore;
+  /* Cinema takes run the staged entrance once per load whatever the
+     session flag says, so the wrap takes the ceremony class there
+     too. */
+  const doorIn = ceremony || (!!cinema && animate);
   /* The door's own darks, as the film doors always carried them: the
      film is graded to near black, and the chrome sits on these values
      in every palette. The smallest text (the proof line, the footer)
@@ -1061,12 +1097,12 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     display: "inline-flex", alignItems: "center", minHeight: 48,
   };
 
-  const wrapCls = [leaving ? "cb-intro-leaving" : "", (reduced || enteredBefore) && !leaving ? "cb-intro-still" : "", ceremony ? "cb-door-in" : "", docHidden ? "cb-door-hidden" : ""]
+  const wrapCls = [leaving ? "cb-intro-leaving" : "", (reduced || enteredBefore) && !leaving ? "cb-intro-still" : "", doorIn ? "cb-door-in" : "", docHidden ? "cb-door-hidden" : ""]
     .filter(Boolean).join(" ") || undefined;
 
-  return (
+  const doorRoot = (
     <div id="cb-intro-wrap" className={wrapCls} style={{
-      minHeight: "100dvh", position: "relative", overflowX: "clip",
+      minHeight: cinema ? "100%" : "100dvh", height: cinema ? "100%" : undefined, position: "relative", overflowX: "clip",
       display: "flex", flexDirection: "column",
       fontFamily: "var(--cb-font)", background: "#05070a", color: ink,
     }}>
@@ -1094,7 +1130,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           a visitor who asked it not to. No dot field, no haze fields,
           no grain: where they would fight the film, the film wins. */}
       <div aria-hidden="true" className="cb-door-film" style={{
-        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+        position: cinema ? "absolute" : "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
         filter: "brightness(0.22) saturate(0.60) blur(12px)",
       }}>
         <CinematicFilm
@@ -1112,7 +1148,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           the graded wrapper so the blur cannot smear it, and above
           the film but below every chrome layer. */}
       <div aria-hidden="true" style={{
-        position: "fixed", inset: 0, zIndex: 1, pointerEvents: "none", opacity: 0.05,
+        position: cinema ? "absolute" : "fixed", inset: 0, zIndex: 1, pointerEvents: "none", opacity: 0.05,
         backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E\")",
         backgroundSize: "180px 180px",
       }} />
@@ -1136,7 +1172,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             }}>Cerebrum</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 22 }}>
-            {!isMobile && ["About", "Privacy", "Terms", "Contact"].map((item) => (
+            {!cinema && !isMobile && ["About", "Privacy", "Terms", "Contact"].map((item) => (
               <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={navLink}>{item}</a>
             ))}
           </div>
@@ -1370,7 +1406,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           own, pointer events off so it can never block the way in,
           and no text, so nothing on the door reads any
           differently. */}
-      {!proofVisible && !leaving && !sourcesOpen && (
+      {!cinema && !proofVisible && !leaving && !sourcesOpen && (
         <div aria-hidden="true" className="cb-door-chevron" style={{
           position: "fixed", left: "50%", bottom: 16, transform: "translateX(-50%)",
           zIndex: 40, pointerEvents: "none", color: faint, opacity: 0.85,
@@ -1386,6 +1422,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       {/* ── Footer: one quiet line. */}
       <footer className="cb-intro-chrome cb-door-stage-6" style={{
         position: "relative", zIndex: 20,
+        display: cinema ? "none" : undefined,
         paddingBottom: "max(16px, env(safe-area-inset-bottom))",
       }}>
         <div style={{
@@ -1400,8 +1437,44 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         </div>
       </footer>
 
+      {/* The door opening (2026-10-28): mounted only on the animated
+          way in, purely visual, pointer events off. Entry fires on
+          the leave timer in go() whatever this overlay does, and
+          the no motion paths never mount it. */}
+      {leaving && animate && (
+        <div aria-hidden="true" className="cb-door-split" style={cinema ? { position: "absolute" } : undefined}>
+          <div className="cb-split-light" />
+          <div className="cb-split-half cb-split-l" />
+          <div className="cb-split-half cb-split-r" />
+        </div>
+      )}
+
       {sourcesOpen && <SourcesDialog P={P} accent={introAccent} onClose={() => setSourcesOpen(false)} />}
 
+    </div>
+  );
+
+  if (!cinema) return doorRoot;
+  /* The cinema frame: a fixed recordable box on a black stage. The
+     door inside it is the live door, laid out in the frame (the
+     portrait frame takes the phone arrangement), its film and grain
+     bound to the frame instead of the viewport. What the frame
+     holds after the entrance is the held end frame: film still
+     turning, the Van Dongen card held, nothing rotating, ready to
+     loop or to cut into the app on the way in. */
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "#000",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      overflow: "hidden",
+    }}>
+      <div style={{
+        position: "relative", overflow: "hidden", background: "#05070a", flex: "0 0 auto",
+        width: cinema === "wide" ? "min(100vw, calc(100dvh * 16 / 9))" : "min(100vw, calc(100dvh * 9 / 16))",
+        height: cinema === "wide" ? "min(100dvh, calc(100vw * 9 / 16))" : "min(100dvh, calc(100vw * 16 / 9))",
+      }}>
+        {doorRoot}
+      </div>
     </div>
   );
 }
