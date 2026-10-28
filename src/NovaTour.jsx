@@ -303,7 +303,7 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
         <span key={i} style={{
           width: i === step ? 20 : 7, height: 7, borderRadius: 2,
           background: i === step ? accent : "rgba(255,255,255,0.28)",
-          transition: "all .25s",
+          transition: "width 250ms var(--cb-ease), background 250ms var(--cb-ease)",
         }} />
       ))}
     </div>

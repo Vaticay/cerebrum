@@ -2253,14 +2253,40 @@ const SANS = "var(--cb-font)";
 /* Wordmark only (2026-10-15, owner pick Orbitron 800): the standalone word Nova, never headings or body text. */
 const WORDMARK = "'Orbitron', 'Inter Tight', ui-sans-serif, system-ui, sans-serif";
 const CSS = `
-.lv-rise { animation: lvRise .45s cubic-bezier(.05,.7,.1,1) both; }
+/* One motion system (phase 2 fitted polish, 2026-10-28): every
+   curve below is the site curve var(--cb-ease), and every
+   animation and transition moves transform and opacity only.
+   The old private curves (the .05,.7,.1,1 rise, the overshoot
+   pop, the linear button press) retired into it, so a Nova
+   surface now moves the way the door and the rest of the site
+   move. Durations kept where they were settled; the verdict
+   colour change on an option runs a touch longer so a check
+   reads as a move, not a snap. */
+.lv-rise { animation: lvRise .45s var(--cb-ease) both; }
 @keyframes lvRise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
-.lv-sheet { animation: lvSheet .38s cubic-bezier(.05,.7,.1,1) both; }
+.lv-sheet { animation: lvSheet .38s var(--cb-ease) both; }
 @keyframes lvSheet { from { transform: translateY(102%); } to { transform: none; } }
-.lv-btn { transition: transform 80ms linear, box-shadow 80ms linear, background .15s, opacity .15s; }
+/* Staged entrances (phase 2, 2026-10-28): containers that list
+   her world (the catalog, the shelf, the path rows, the unit
+   rows) fade their children in sequence instead of all at
+   once. Opacity only on these children, so a running entrance
+   can never fight a hover transform, a press state, or the
+   pulse on the current node. Delays stop at the eighth child
+   so a long list never trails. */
+.lv-fade { animation: lvFade .5s var(--cb-ease) both; }
+@keyframes lvFade { from { opacity: 0; } to { opacity: 1; } }
+.lv-stagger > * { animation: lvFade .45s var(--cb-ease) both; }
+.lv-stagger > *:nth-child(2) { animation-delay: 45ms; }
+.lv-stagger > *:nth-child(3) { animation-delay: 90ms; }
+.lv-stagger > *:nth-child(4) { animation-delay: 135ms; }
+.lv-stagger > *:nth-child(5) { animation-delay: 180ms; }
+.lv-stagger > *:nth-child(6) { animation-delay: 225ms; }
+.lv-stagger > *:nth-child(7) { animation-delay: 270ms; }
+.lv-stagger > *:nth-child(n+8) { animation-delay: 315ms; }
+.lv-btn { transition: transform 120ms var(--cb-ease), box-shadow 150ms var(--cb-ease), background 150ms var(--cb-ease), opacity 150ms var(--cb-ease); }
 .lv-btn-primary { box-shadow: none; }
 .lv-btn-primary:active { transform: translateY(4px); box-shadow: none; }
-.lv-opt { transition: border-color .15s, background .15s, transform .15s; }
+.lv-opt { transition: border-color 180ms var(--cb-ease), background 180ms var(--cb-ease), transform 180ms var(--cb-ease); }
 .lv-opt:not(:disabled):hover { transform: translateY(-1px); }
 /* Option hover (audit fix, 2026-10-15): on a real pointer the
    border moves to the accent, so a hover reads as a state and
@@ -2286,21 +2312,21 @@ const CSS = `
   .lv-sheet { padding-bottom: calc(24px + 72px + env(safe-area-inset-bottom, 0px)) !important; }
   .lv-screen { padding-bottom: calc(48px + 72px + env(safe-area-inset-bottom, 0px)) !important; }
 }
-.lv-shake { animation: lvShake .4s ease both; }
+.lv-shake { animation: lvShake .4s var(--cb-ease) both; }
 @keyframes lvShake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
-.lv-pop { animation: lvPop .3s cubic-bezier(.2,1.4,.4,1) both; }
-@keyframes lvPop { from { transform: scale(0); } to { transform: scale(1); } }
-.lv-fill { transition: width .5s cubic-bezier(.05,.7,.1,1); }
+.lv-pop { animation: lvPop .32s var(--cb-ease) both; }
+@keyframes lvPop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: scale(1); } }
+.lv-fill { transition: width .55s var(--cb-ease); }
 .lv-pulse { animation: lvPulse 1.8s ease-in-out infinite; }
 @keyframes lvPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,.28); } 50% { box-shadow: 0 0 0 9px rgba(255,255,255,0); } }
-.lv-node { transition: transform .15s; }
+.lv-node { transition: transform 180ms var(--cb-ease), border-color 180ms var(--cb-ease); }
 .lv-node:hover { transform: translateY(-2px); }
 /* The home section navigation (home restructure wave): a flat
    segmented row, gold underline for the current screen, nothing
    rounded beyond the foundation tokens. */
 .lv-nav { scrollbar-width: none; }
 .lv-nav::-webkit-scrollbar { display: none; }
-.lv-tab { transition: color 0.15s, border-color 0.15s; }
+.lv-tab { transition: color 180ms var(--cb-ease), border-color 180ms var(--cb-ease); }
 /* The wave 3 home layout: band, status row, and the two column
    body are grid zones on desktop and a single column on mobile. */
 .lv-band { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: stretch; }
@@ -2318,13 +2344,13 @@ const CSS = `
   .lv-cols { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .lv-rise, .lv-sheet, .lv-shake, .lv-pop, .lv-pulse { animation: none !important; }
+  .lv-rise, .lv-sheet, .lv-shake, .lv-pop, .lv-pulse, .lv-fade, .lv-stagger > * { animation: none !important; }
   .lv-btn, .lv-opt, .lv-fill, .lv-node, .lv-topic, .lv-chip { transition: none !important; }
 }
 .lv-catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 16px; }
-.lv-topic { transition: transform .15s, border-color .15s; }
+.lv-topic { transition: transform 180ms var(--cb-ease), border-color 180ms var(--cb-ease); }
 .lv-topic:hover { transform: translateY(-2px); }
-.lv-chip { transition: background .15s, color .15s, border-color .15s; }
+.lv-chip { transition: background 180ms var(--cb-ease), color 180ms var(--cb-ease), border-color 180ms var(--cb-ease), transform 180ms var(--cb-ease); }
 @media (max-width: 680px) {
   .lv-home { padding: 22px 16px 44px !important; }
   .lv-head { flex-direction: column !important; gap: 12px !important; }
@@ -3078,6 +3104,13 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
       }
     };
     const tickBrain = () => {
+      /* Her idle life pauses while the tab is hidden (phase 2
+         fitted polish, 2026-10-28): no expression changes, no
+         glance, no line is spent on a screen nobody is looking
+         at. The clock still runs, so when the tab returns she
+         has honestly been idle and the picker reads that span
+         as it always did. */
+      if (typeof document !== "undefined" && document.hidden) return;
       if (!brainRef.current) brainRef.current = createNovaBrain(null);
       const nowB = Date.now();
       if (nowB - lineFactsAt.current > 30000) {
@@ -3264,7 +3297,10 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     <span ref={wrapRef} data-nova-mood={brainUi.mood} data-nova-stage={sleepStage} data-nova-doing={doingNow} style={{
       display: "inline-flex", position: "relative", ...vars, cursor: "pointer",
       transform: (lift ? "translateY(-2px)" : "translateY(0px)") + (beat ? " scale(1.07)" : "") + " translate(" + lean.x + "px, " + lean.y + "px) rotate(" + lean.r + "deg)",
-      transition: "transform 0.3s cubic-bezier(0.22, 0.9, 0.28, 1)",
+      /* The site curve (phase 2 fitted polish, 2026-10-28): her
+         lift, lean, and poke beat settle on var(--cb-ease) like
+         everything else, transform only, 300ms as before. */
+      transition: "transform 300ms var(--cb-ease)",
     }}
       onClick={onTap}>
       {/* NovaRive renders her now (2026-10-15): the brain above
@@ -13543,7 +13579,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                   const wrongHere = checked && card.items[i] !== item;
                   return (
                     <button key={"p" + i} onClick={() => orderTap(item)} disabled={checked}
-                      className="lv-opt"
+                      className="lv-opt lv-fade"
                       style={{
                         appearance: "none", WebkitAppearance: "none", width: "100%", boxSizing: "border-box",
                         display: "flex", gap: 12, alignItems: "center", textAlign: "left",
@@ -13574,7 +13610,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
                           appearance: "none", WebkitAppearance: "none", boxSizing: "border-box",
                           background: CREAM, border: "2px solid " + CREAM_LINE, borderRadius: RADIUS.pill,
                           padding: "10px 16px", fontSize: FONT_SIZES.body, fontWeight: 500, lineHeight: 1.4,
-                          color: CREAM_INK, cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 46,
+                          color: CREAM_INK, cursor: checked ? "default" : "pointer", fontFamily: "var(--cb-font)", minHeight: 48,
                         }}>
                         <RichText text={item} />
                       </button>
@@ -13678,7 +13714,7 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
   return (
     <div style={{ maxWidth: LAYOUT.lesson, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", "--lv-accent": accent }}>
       <style>{CSS}</style>
-      <button onClick={onBack} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16, minHeight: 48, display: "inline-flex", alignItems: "center" }}>
         ← All courses
       </button>
       <div className="lv-rise">
@@ -13701,7 +13737,7 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
       </div>
 
       {/* the path: one node per lesson, in the order the field built it */}
-      <div style={{ position: "relative", marginLeft: 27 }}>
+      <div className="lv-stagger" style={{ position: "relative", marginLeft: 27 }}>
         <div style={{ position: "absolute", left: 0, top: 12, bottom: 12, width: 2, background: P.line }} aria-hidden="true" />
         {course.lessons.map((lesson, i) => {
           const isDone = done.has(lesson.id);
@@ -13744,11 +13780,11 @@ function PathView({ course, claims, P, accent, at, onPlay, onBack, onDelete }) {
         {confirmDelete ? (
           <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <span style={{ fontSize: FONT_SIZES.body, color: P.ink2 }}>Delete this course and its review schedule?</span>
-            <button onClick={onDelete} style={{ background: STATUS.bad, color: "#fff", border: "none", borderRadius: 2, padding: "8px 14px", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Delete</button>
-            <button onClick={() => setConfirmDelete(false)} style={{ background: "transparent", color: P.ink2, border: "1px solid " + P.line, borderRadius: 2, padding: "8px 14px", fontSize: FONT_SIZES.label, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep</button>
+            <button onClick={onDelete} style={{ background: STATUS.bad, color: "#fff", border: "none", borderRadius: 2, padding: "8px 14px", minHeight: 48, display: "inline-flex", alignItems: "center", fontSize: FONT_SIZES.label, fontWeight: 500, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Delete</button>
+            <button onClick={() => setConfirmDelete(false)} style={{ background: "transparent", color: P.ink2, border: "1px solid " + P.line, borderRadius: 2, padding: "8px 14px", minHeight: 48, display: "inline-flex", alignItems: "center", fontSize: FONT_SIZES.label, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep</button>
           </span>
         ) : (
-          <button onClick={() => setConfirmDelete(true)} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", padding: 0 }}>
+          <button onClick={() => setConfirmDelete(true)} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)", padding: 0, minHeight: 48, display: "inline-flex", alignItems: "center" }}>
             Delete course
           </button>
         )}
@@ -13769,7 +13805,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
   return (
     <div style={{ maxWidth: LAYOUT.lesson, margin: "0 auto", padding: "26px 24px 56px", fontFamily: "var(--cb-font)", "--lv-accent": accent }}>
       <style>{CSS}</style>
-      <button onClick={onBack} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16 }}>
+      <button onClick={onBack} style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", padding: "4px 0", marginBottom: 16, minHeight: 48, display: "inline-flex", alignItems: "center" }}>
         ← Nova home
       </button>
       <div className="lv-rise">
@@ -13796,7 +13832,7 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
       </div>
 
       {path.units.map((unit, ui) => (
-        <div key={unit.id} style={{ marginTop: 34 }}>
+        <div key={unit.id} className="lv-stagger" style={{ marginTop: 34 }}>
           <div style={{
             background: withAlphaSafe(accent, P.dark ? 0.16 : 0.1), border: "1px solid " + P.line,
             borderRadius: 2, padding: "16px 20px", marginBottom: 26,
@@ -15146,7 +15182,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           wiring is the same NovaLive, so her mood, stage, and
           doing still read on the container, and a tap on her
           still pokes her. */}
-      <div data-tour-anchor="stage" style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 24, margin: "20px 0 20px" }}>
+      <div data-tour-anchor="stage" className="lv-fade" style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 24, margin: "20px 0 20px" }}>
         <div style={{ display: "flex", gap: 28, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", maxWidth: "100%" }}>
             {!tourOpen && <NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" />}
@@ -15249,7 +15285,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
               One object for each path you finished completely. The shelf is a record of finished work, not a step you need to learn.
             </p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
+            <div className="lv-stagger" style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
               {shelf.map((o) => (
                 <div key={o.pathId} style={{ width: 64, textAlign: "center" }}>
                   <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 64, height: 64, background: CREAM, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl }}>
@@ -15306,7 +15342,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               {reviewDueCount + " thing" + (reviewDueCount === 1 ? " is" : "s are") + " due: " + due.length + " scheduled question" + (due.length === 1 ? "" : "s") + " and " + fadingAll.length + " fading lesson" + (fadingAll.length === 1 ? "" : "s") + ". The bench is this list of what is due. Scheduled questions are ones Nova set a date for when you first answered them. A fading lesson is a finished lesson you have not revisited in days, so it is starting to slip. One tap plays exactly what is due."}
             </p>
             {(
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+              <div className="lv-stagger" style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
                 {due.length > 0 && (
                   <button onClick={startReview}
                     style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", minHeight: 64, boxSizing: "border-box", textAlign: "left", background: CREAM, color: CREAM_INK, border: "1px solid " + CREAM_LINE, borderRadius: RADIUS.xl, padding: "12px 16px", cursor: "pointer", fontFamily: "var(--cb-font)" }}>
@@ -15356,7 +15392,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           count. The map itself lives in the path detail view
           only, so the two surfaces stop redrawing each other. */}
       {pathsView === "paths" && (
-      <div data-tour-anchor="paths" style={{ marginBottom: 30 }}>
+      <div data-tour-anchor="paths" className="lv-fade" style={{ marginBottom: 30 }}>
         <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: "0.12em", color: ink, marginBottom: 8 }}>LEARNING PATHS</div>
         <h2 style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, margin: "0 0 8px", lineHeight: 1.3 }}>Your journey</h2>
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 18px" }}>
@@ -15416,7 +15452,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             </button>
           ))}
         </div>
-        <div className="lv-catalog">
+        <div className="lv-catalog lv-stagger">
           {CATALOG.filter((c) => catFilter === "All" || catFilter === c.name).flatMap((cat) => cat.topics.map((t) => ({ cat, t }))).map(({ cat, t }) => {
             const topicPath = topicPathFor(t.t);
             const tpp = topicPath ? pathProgress(topicPath, builtinProgress) : null;
