@@ -190,18 +190,23 @@ const EGG_CSS = `
 .ne-rig { position: absolute; pointer-events: none; }
 .ne-rig-live { pointer-events: auto; cursor: pointer; }
 .ne-shadow { position: absolute; left: 12%; right: 12%; bottom: -13px; height: 15px; border-radius: 50%; background: rgba(0,0,0,0.35); filter: blur(7px); }
-.ne-bubble { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 290px; background: #FDF3D7; color: #1A1A1A; border: 1px solid rgba(26,26,26,0.16); border-radius: 2px; padding: 11px 34px 11px 14px; font-size: 14.5px; line-height: 1.5; pointer-events: auto; box-shadow: none; animation: neBubbleIn 0.35s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
+.ne-bubble { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 290px; background: #FDF3D7; color: #1A1A1A; border: 1px solid rgba(26,26,26,0.16); border-radius: 2px; padding: 11px 48px 11px 14px; font-size: 14.5px; line-height: 1.5; pointer-events: auto; box-shadow: none; animation: neBubbleIn 0.35s var(--cb-ease) both; }
 @keyframes neBubbleIn { from { opacity: 0; transform: translateX(-50%) translateY(6px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 .ne-bubble-tail { position: absolute; bottom: -7px; left: 50%; margin-left: -7px; width: 13px; height: 13px; background: #FDF3D7; border-right: 1px solid rgba(26,26,26,0.16); border-bottom: 1px solid rgba(26,26,26,0.16); transform: rotate(45deg); }
-.ne-bubble-x { position: absolute; top: 3px; right: 3px; width: 28px; height: 28px; background: none; border: none; color: #6E675C; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+/* The close hit area is 44px (phase 2 fitted polish,
+   2026-10-28), the same area the sidebar pop and the sheet
+   dismiss carry; the glyph size is unchanged, and the bubble
+   padding above reserves the wider box. The 28px box it
+   replaces sat under every tap floor on the site. */
+.ne-bubble-x { position: absolute; top: 0; right: 0; width: 44px; height: 44px; background: none; border: none; color: #6E675C; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 /* The celebration visit is a still visit too: she fades in
    at the corner, pleased, says her line, and fades out. */
 .ne-celebrate { right: 22px; bottom: 22px; }
-.ne-celebrate.ne-ph-show { animation: neStillIn 0.6s ease both; }
-.ne-celebrate.ne-ph-leave { animation: neStillOut 0.7s ease both; }
+.ne-celebrate.ne-ph-show { animation: neStillIn 0.6s var(--cb-ease) both; }
+.ne-celebrate.ne-ph-leave { animation: neStillOut 0.7s var(--cb-ease) both; }
 /* The summon entrance: she rises in the middle and stays to talk. */
 .ne-summon { left: 50%; bottom: 5%; }
-.ne-summon.ne-ph-rise { animation: neSummonRise 1.6s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
+.ne-summon.ne-ph-rise { animation: neSummonRise 1.6s var(--cb-ease) both; }
 @keyframes neSummonRise {
   0% { transform: translateX(-50%) translateY(72%) scale(0.86); opacity: 0; }
   22% { transform: translateX(-50%) translateY(78%) scale(0.87); opacity: 1; }
@@ -209,7 +214,7 @@ const EGG_CSS = `
   100% { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
 }
 .ne-summon.ne-ph-speak { transform: translateX(-50%) translateY(0); }
-.ne-summon.ne-ph-leave { animation: neSummonLeave 1.8s cubic-bezier(0.5, 0, 0.8, 0.4) both; }
+.ne-summon.ne-ph-leave { animation: neSummonLeave 1.8s var(--cb-ease) both; }
 @keyframes neSummonLeave {
   0% { transform: translateX(-50%) translateY(0); opacity: 1; }
   100% { transform: translateX(-50%) translateY(46%); opacity: 0; }
@@ -217,12 +222,25 @@ const EGG_CSS = `
 /* The still visit, for quiet motion settings: she fades in at
    the corner, says her line, fades out. No travel, no particles. */
 .ne-still { right: 22px; bottom: 22px; }
-.ne-still.ne-ph-show { animation: neStillIn 0.6s ease both; }
+.ne-still.ne-ph-show { animation: neStillIn 0.6s var(--cb-ease) both; }
 @keyframes neStillIn { from { opacity: 0; } to { opacity: 1; } }
-.ne-still.ne-ph-leave { animation: neStillOut 0.7s ease both; }
+.ne-still.ne-ph-leave { animation: neStillOut 0.7s var(--cb-ease) both; }
 @keyframes neStillOut { from { opacity: 1; } to { opacity: 0; } }
+/* Phone fit (phase 2 fitted polish, 2026-10-28): the corner
+   visits sit 22px off the right edge, and a bubble centered on
+   the figure at its 290px cap ran past a 360px screen, where
+   the stage's hidden overflow clipped its right half. At
+   phone widths the corner bubbles anchor to the figure's
+   right edge instead and cap inside the viewport; the tail
+   moves to stay over the figure. The centered summon bubble
+   is untouched: the middle of the screen has room for it. */
+@media (max-width: 480px) {
+  .ne-celebrate .ne-bubble, .ne-still .ne-bubble { left: auto; right: -4px; transform: none; max-width: calc(100vw - 40px); animation-name: neBubbleInEdge; }
+  .ne-celebrate .ne-bubble-tail, .ne-still .ne-bubble-tail { left: auto; right: 52px; margin-left: 0; }
+  @keyframes neBubbleInEdge { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+}
 @media (prefers-reduced-motion: reduce) {
-  .ne-rig { animation: none !important; }
+  .ne-rig, .ne-bubble { animation: none !important; }
 }
 `;
 

@@ -155,19 +155,23 @@ function probePopContext(extra) {
 const POP_CSS = `
 .nsp-stage { position: fixed; z-index: 29; pointer-events: none; }
 .nsp-fig { position: absolute; pointer-events: auto; cursor: pointer; }
-.nsp-fig-d.nsp-ph-enter { animation: nspSlideInD 0.6s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
+/* Every curve here is the site curve var(--cb-ease) (phase 2
+   fitted polish, 2026-10-28); the private slide and fade
+   curves this file carried retired into it. Transform and
+   opacity only, durations unchanged. */
+.nsp-fig-d.nsp-ph-enter { animation: nspSlideInD 0.6s var(--cb-ease) both; }
 @keyframes nspSlideInD { from { transform: translateX(-80%); } to { transform: translateX(0); } }
-.nsp-fig-d.nsp-ph-exit { animation: nspSlideOutD 0.55s cubic-bezier(0.5, 0, 0.8, 0.4) both; }
+.nsp-fig-d.nsp-ph-exit { animation: nspSlideOutD 0.55s var(--cb-ease) both; }
 @keyframes nspSlideOutD { from { transform: translateX(0); } to { transform: translateX(-80%); } }
-.nsp-fig-m.nsp-ph-enter { animation: nspSlideInM 0.6s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
+.nsp-fig-m.nsp-ph-enter { animation: nspSlideInM 0.6s var(--cb-ease) both; }
 @keyframes nspSlideInM { from { transform: translateX(-112%); } to { transform: translateX(0); } }
-.nsp-fig-m.nsp-ph-exit { animation: nspSlideOutM 0.55s cubic-bezier(0.5, 0, 0.8, 0.4) both; }
+.nsp-fig-m.nsp-ph-exit { animation: nspSlideOutM 0.55s var(--cb-ease) both; }
 @keyframes nspSlideOutM { from { transform: translateX(0); } to { transform: translateX(-112%); } }
-.nsp-still.nsp-ph-enter, .nsp-still.nsp-ph-hold { animation: nspFadeIn 0.45s ease both; }
+.nsp-still.nsp-ph-enter, .nsp-still.nsp-ph-hold { animation: nspFadeIn 0.45s var(--cb-ease) both; }
 @keyframes nspFadeIn { from { opacity: 0; } to { opacity: 1; } }
-.nsp-still.nsp-ph-exit { animation: nspFadeOut 0.45s ease both; }
+.nsp-still.nsp-ph-exit { animation: nspFadeOut 0.45s var(--cb-ease) both; }
 @keyframes nspFadeOut { from { opacity: 1; } to { opacity: 0; } }
-.nsp-bubble { position: absolute; width: max-content; max-width: 290px; background: #FDF3D7; color: #1A1A1A; border: 1px solid rgba(26, 26, 26, 0.16); border-radius: 2px; padding: 11px 50px 11px 14px; font-size: ${FONT_SIZES.body}px; line-height: 1.5; pointer-events: auto; box-shadow: none; animation: nspBubbleIn 0.35s cubic-bezier(0.22, 0.9, 0.28, 1) both; }
+.nsp-bubble { position: absolute; width: max-content; max-width: 290px; background: #FDF3D7; color: #1A1A1A; border: 1px solid rgba(26, 26, 26, 0.16); border-radius: 2px; padding: 11px 50px 11px 14px; font-size: ${FONT_SIZES.body}px; line-height: 1.5; pointer-events: auto; box-shadow: none; animation: nspBubbleIn 0.35s var(--cb-ease) both; }
 @keyframes nspBubbleIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .nsp-bubble-d { left: calc(100% + 10px); top: 2px; }
 .nsp-bubble-m { bottom: calc(100% + 10px); left: 0; }
