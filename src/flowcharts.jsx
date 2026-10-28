@@ -172,7 +172,7 @@ export function Dialog({
         // Controlled dim — no backdrop-filter blur on the scrim (§4).
         background: "rgba(0,0,0,0.65)",
         opacity: animate ? (entered ? 1 : 0) : 1,
-        transition: animate ? "opacity 280ms ease" : "none",
+        transition: animate ? "opacity 280ms var(--cb-ease)" : "none",
         ...scrimStyle,
       }}
     >
@@ -203,7 +203,7 @@ export function Dialog({
           animation: "none",
           opacity: animate ? (entered ? 1 : 0) : 1,
           transform: animate ? (entered ? "translateY(0) scale(1)" : "translateY(10px) scale(0.985)") : "none",
-          transition: animate ? "opacity 280ms ease, transform 280ms cubic-bezier(0.16, 1, 0.3, 1)" : "none",
+          transition: animate ? "opacity 280ms var(--cb-ease), transform 280ms var(--cb-ease)" : "none",
           ...panelStyle,
         }}
       >
@@ -1146,13 +1146,17 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
     setExportOpen(false);
   };
 
+  /* Fitted polish, 2026-10-28: every studio control a thumb hits
+     stands at the 48 floor, primary and small alike (the small style
+     sat at 36 before this pass). */
   const btnStyle = {
-    minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, cursor: "pointer",
+    minHeight: 48, padding: "0 14px", borderRadius: RADIUS.sm, cursor: "pointer",
     background: "transparent", color: P.ink, border: `1px solid ${P.line2}`,
     fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
     display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, whiteSpace: "nowrap",
+    transition: "background-color 200ms var(--cb-ease), border-color 200ms var(--cb-ease), opacity 200ms var(--cb-ease)",
   };
-  const smallBtnStyle = { ...btnStyle, minHeight: 36, padding: "0 10px", fontSize: FONT_SIZES.caption };
+  const smallBtnStyle = { ...btnStyle, minHeight: 48, padding: "0 12px", fontSize: FONT_SIZES.caption };
   const tabStyle = (active) => ({
     ...btnStyle,
     background: active ? withAlpha(accent, 0.14) : "transparent",
@@ -1169,8 +1173,9 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
   };
   const fieldStyle = {
     boxSizing: "border-box", background: P.bg, border: `1px solid ${P.line}`,
-    borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px", minHeight: 44,
+    borderRadius: RADIUS.md, color: P.ink, padding: "8px 12px", minHeight: 48,
     fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)",
+    transition: "border-color 200ms var(--cb-ease)",
   };
 
   const quotaLine = tier === "pro"
@@ -1189,10 +1194,18 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
     guardLoad("closing", () => onClose());
   };
 
+  /* Fitted polish, 2026-10-28: the page studio stages in through the
+     cb-ds classes (global style block in CerebrumApp.jsx). In dialog
+     mode the Dialog panel already carries the entrance, so the inner
+     staging stays off and nothing double moves. */
+  const dsPanel = dialog ? undefined : "cb-ds-panel";
+  const dsPanelD1 = dialog ? undefined : "cb-ds-panel cb-ds-d1";
+  const dsPanelD2 = dialog ? undefined : "cb-ds-panel cb-ds-d2";
+
   const content = (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14, fontFamily: "var(--cb-font)", color: P.ink }}>
+    <div className={dialog ? undefined : "cb-ds-in"} style={{ display: "flex", flexDirection: "column", gap: 14, fontFamily: "var(--cb-font)", color: P.ink }}>
       {/* Header block */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className={dsPanel} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {!dialog && (
           <div style={{ fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, lineHeight: 1.3 }}>Diagram Studio</div>
         )}
@@ -1210,12 +1223,12 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
             <div role="group" aria-label="Which way the steps run" style={{ display: "inline-flex", border: `1px solid ${P.line2}`, borderRadius: RADIUS.sm, padding: 3, gap: 2 }}>
               <button type="button" aria-pressed={direction === "down"}
                 onClick={() => { pushHistory(); setDirection("down"); setSaveState("idle"); }}
-                style={{ minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "down" ? accent : "transparent", color: direction === "down" ? at : P.ink }}>
+                style={{ minHeight: 48, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "down" ? accent : "transparent", color: direction === "down" ? at : P.ink, transition: "background-color 200ms var(--cb-ease), color 200ms var(--cb-ease)" }}>
                 Top to bottom
               </button>
               <button type="button" aria-pressed={direction === "across"}
                 onClick={() => { pushHistory(); setDirection("across"); setSaveState("idle"); }}
-                style={{ minHeight: 44, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "across" ? accent : "transparent", color: direction === "across" ? at : P.ink }}>
+                style={{ minHeight: 48, padding: "0 14px", borderRadius: RADIUS.sm, border: "none", cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: direction === "across" ? accent : "transparent", color: direction === "across" ? at : P.ink, transition: "background-color 200ms var(--cb-ease), color 200ms var(--cb-ease)" }}>
                 Left to right
               </button>
             </div>
@@ -1233,7 +1246,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                   Export
                 </button>
                 {exportOpen && (
-                  <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 6, padding: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, minWidth: 160 }}>
+                  <div className="cb-ds-menu" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 6, padding: 8, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, minWidth: 160 }}>
                     <button type="button" onClick={doExportSVG} style={btnStyle}>SVG file</button>
                     <button type="button" onClick={doExportPNG} style={btnStyle}>PNG image</button>
                     <button type="button" onClick={doExportText} style={btnStyle}>Text outline</button>
@@ -1288,7 +1301,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
 
       {/* Unsaved work guard */}
       {pendingLoad && (
-        <div role="alertdialog" aria-label="Unsaved work" style={{ background: P.surface, border: `1px solid ${accent}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div role="alertdialog" aria-label="Unsaved work" className="cb-ds-detail" style={{ background: P.surface, border: `1px solid ${accent}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
             {pendingLoad.label === "closing" ? "Closing now will leave work that is not saved." : `Loading ${pendingLoad.label} will replace work that is not saved.`}
           </div>
@@ -1306,7 +1319,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
 
       {/* Older format notice */}
       {readOnly && (
-        <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="cb-ds-detail" style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
             This diagram was made with an older version of Diagram Studio. It uses branches or words on its arrows. This version works as one list of steps in order, so it cannot keep those parts. It is open for reading only, so nothing gets changed by accident.
           </div>
@@ -1324,7 +1337,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
 
       {/* Source choices, the Start group of the toolbar */}
       {!dialog && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className={dsPanelD1} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <span style={groupLabelStyle}>Start</span>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" onClick={() => guardLoad("a new diagram", resetStudio)} style={tabStyle(false)}>
@@ -1344,11 +1357,12 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
           </div>
           {sourceTab === "paper" && (
             eligiblePapers.length === 0 ? (
-              <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.5 }}>
+              <div className="cb-ds-detail" style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.5 }}>
                 None of your saved papers has the words we need yet. Save a paper from an answer first, then pick it here.
               </div>
             ) : (
               <select
+                className="cb-ds-detail"
                 aria-label="Saved paper"
                 value={paperPick}
                 onChange={(e) => {
@@ -1368,7 +1382,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
             )
           )}
           {sourceTab === "saved" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="cb-ds-detail" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {diagrams.length === 0 && (
                 <div style={{ fontSize: FONT_SIZES.body, color: P.faint }}>You have not saved a Diagram Studio diagram yet. When you save one, it will appear here and in your Library.</div>
               )}
@@ -1398,7 +1412,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
       {/* Extraction found too little: say so, show the source text, and
           let the user pick sentences from it as steps. */}
       {extractNote && (
-        <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="cb-ds-detail" style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
             {steps.length === 0
               ? "We could not find any steps in this text. It may be written as long sentences with no list. The text is below. Press Use this as a step next to any sentence you want in your diagram."
@@ -1425,8 +1439,8 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
       )}
 
       {/* Main area */}
-      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", gap: 16, alignItems: "stretch" }}>
-        <div style={{ order: isMobile ? 3 : 1, flex: "1 1 auto", minWidth: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 12, boxShadow: P.shadowSm, backgroundImage: `radial-gradient(${P.line2} 1px, transparent 1.2px)`, backgroundSize: "22px 22px" }}>
+      <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", flexWrap: "wrap", gap: 14, alignItems: "stretch" }}>
+        <div className={dsPanelD2} style={{ order: isMobile ? 3 : 1, flex: "1 1 auto", minWidth: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, boxShadow: P.shadowSm, backgroundImage: `radial-gradient(${P.line2} 1px, transparent 1.2px)`, backgroundSize: "22px 22px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
             <button type="button" onClick={fitZoom} style={smallBtnStyle}>Fit whole diagram</button>
             <button type="button" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(0.3, Math.round((z - 0.1) * 100) / 100))} style={smallBtnStyle}>Zoom out</button>
@@ -1466,7 +1480,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                 )}
               </div>
             ) : (
-              <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} width={Math.max(1, displayW)} height={Math.max(1, displayH)} style={{ display: "block" }} role="img" aria-label={title || "Untitled diagram"}>
+              <svg key={`${steps.length}:${direction}`} className="cb-ds-canvas-in" viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} width={Math.max(1, displayW)} height={Math.max(1, displayH)} style={{ display: "block" }} role="img" aria-label={title || "Untitled diagram"}>
                 <defs>
                   <marker id="dsArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
                     <path d="M 0 1 L 9 5 L 0 9 z" fill={P.ink2} />
@@ -1503,7 +1517,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
 
         {/* The one step list, always visible. Each row owns its label,
             kind, detail, and source as one unit. */}
-        <div style={{ order: isMobile ? 1 : 2, width: isMobile ? "auto" : 360, flexShrink: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, boxShadow: P.shadowSm }}>
+        <div className={dsPanelD2} style={{ order: isMobile ? 1 : 2, width: isMobile ? "auto" : 360, flexShrink: 0, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, boxShadow: P.shadowSm }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
             <span style={{ ...TYPE.subhead, color: P.ink, flex: "1 1 auto" }}>Steps, in order</span>
             <button type="button" onClick={undo} disabled={!past.length} style={{ ...smallBtnStyle, opacity: past.length ? 1 : 0.5 }}>Undo</button>
@@ -1528,7 +1542,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
                 </select>
               );
               return (
-                <div key={step.id} id={`ds-step-${step.id}`} onClick={() => setSelectedId(step.id)} style={{ display: "flex", flexDirection: "column", gap: 6, border: `1px solid ${selectedId === step.id ? accent : P.line}`, borderRadius: RADIUS.md, padding: 10, background: selectedId === step.id ? P.raised : "transparent" }}>
+                <div key={step.id} id={`ds-step-${step.id}`} className="cb-ds-step" onClick={() => setSelectedId(step.id)} style={{ display: "flex", flexDirection: "column", gap: 6, border: `1px solid ${selectedId === step.id ? accent : P.line}`, borderRadius: RADIUS.md, padding: 10, background: selectedId === step.id ? P.raised : "transparent", transition: "border-color 200ms var(--cb-ease), background-color 200ms var(--cb-ease)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     {/* Interiors wave, 2026-10-26: the step number
                         wears the same disc the canvas puts on the
@@ -1587,7 +1601,7 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
           picture (mobile Bug 2). On a wide screen it wraps onto its
           own full width row under both. */}
       {selectedStep && (selectedStep.detail || selectedSource) && (
-        <div style={{ order: isMobile ? 2 : 3, flex: isMobile ? undefined : "1 1 100%", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div key={selectedStep.id} className="cb-ds-detail" style={{ order: isMobile ? 2 : 3, flex: isMobile ? undefined : "1 1 100%", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink }}>More about the step you picked</div>
           {selectedStep.detail && (
             <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55 }}>{selectedStep.detail}</div>
@@ -1625,7 +1639,10 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
   }
 
   return (
-    <div style={{ padding: isMobile ? 16 : 24, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)" }}>
+    /* Fitted polish, 2026-10-28: on a phone the page studio pads its
+       foot with the safe area inset, so the last step controls never
+       sit in the home indicator zone. */
+    <div style={{ padding: isMobile ? "16px 16px calc(16px + env(safe-area-inset-bottom))" : 24, background: P.bg, color: P.ink, fontFamily: "var(--cb-font)" }}>
       {content}
     </div>
   );
