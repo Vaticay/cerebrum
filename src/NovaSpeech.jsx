@@ -777,7 +777,7 @@ export function NovaBubble({ text, children, variant = "header", tail = null, on
         ? { left: -7, top: 17, borderLeft: "1px solid " + SPEECH_BUBBLE_LINE, borderBottom: "1px solid " + SPEECH_BUBBLE_LINE }
         : null;
   return (
-    <span ref={bubbleRef} role="status" title={v === "sheet" ? undefined : "Dismiss"} onClick={v === "sheet" ? undefined : onDismiss}
+    <span ref={bubbleRef} className="cb-nova-bubble" role="status" title={v === "sheet" ? undefined : "Dismiss"} onClick={v === "sheet" ? undefined : onDismiss}
       style={{ ...base, ...variantStyle, ...(style || {}) }}>
       {tailStyle && (
         <span aria-hidden="true" style={{

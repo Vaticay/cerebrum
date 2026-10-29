@@ -180,8 +180,19 @@ const POP_CSS = `
 .nsp-bubble-m .nsp-bubble-tail { bottom: -7px; left: 38px; border-right: 1px solid rgba(26, 26, 26, 0.16); border-bottom: 1px solid rgba(26, 26, 26, 0.16); }
 /* 44px hit area (2026-10-16, layout audit finding 20); the glyph size is unchanged and its center stays 17px from each edge, where it sat in the old 28px box; the bubble padding above reserves the wider box. */
 .nsp-bubble-x { position: absolute; top: -5px; right: -5px; width: 44px; height: 44px; min-width: 44px; min-height: 44px; background: none; border: none; color: #6E675C; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+/* The shell spotlight (follow on polish, 2026-10-28): a soft pool
+   of her own cream light behind the figure while she visits the
+   shell, feathered to nothing at its edge. It is a backdrop light
+   only: no border, no ring, nothing that frames her, and it
+   drives nothing in the host. It fades in with her entrance on
+   the site curve and out again as she leaves. */
+.nsp-spot { position: absolute; inset: -32% -48%; border-radius: 50%; background: radial-gradient(closest-side, rgba(253, 243, 215, 0.16), rgba(253, 243, 215, 0) 72%); pointer-events: none; animation: nspSpotIn 0.6s var(--cb-ease) both; }
+@keyframes nspSpotIn { from { opacity: 0; } to { opacity: 1; } }
+.nsp-fig.nsp-ph-exit .nsp-spot { animation: nspSpotOut 0.55s var(--cb-ease) both; }
+@keyframes nspSpotOut { from { opacity: 1; } to { opacity: 0; } }
+.nsp-still .nsp-spot { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  .nsp-fig, .nsp-bubble { animation: none !important; }
+  .nsp-fig, .nsp-bubble, .nsp-spot { animation: none !important; }
 }
 `;
 
@@ -325,6 +336,11 @@ export default function NovaSidebarPop({ searchRunning = false, inCall = false, 
         style={figStyle}
         onClick={onFigureClick}
       >
+        {/* Her light arrives with her: a soft pool behind the
+            figure for the length of the visit (follow on polish,
+            2026-10-28). Pure backdrop, pointer events none, and
+            aria hidden; the canvas below paints over it. */}
+        <span className="nsp-spot" aria-hidden="true" />
         {/* The canvas surface has no wave trigger, so the wave
             counter also feeds the celebrate counter NovaRive
             binds: the bump at the second wave beat fires the

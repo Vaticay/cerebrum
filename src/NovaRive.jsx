@@ -480,7 +480,7 @@ function NovaCanvas(props) {
   const h = fullBody ? Math.round(size) : Math.round(size);
   const bustInner = Math.round(size * 1.85);
   return (
-    <span ref={anchorRef} style={{ position: "relative", display: "inline-flex" }}>
+    <span ref={anchorRef} className="cb-nova-sprite" style={{ position: "relative", display: "inline-flex" }}>
       {fullBody ? (
         <span ref={boxRef} style={{ width: w, height: h, maxWidth: "100%", display: "block" }}>
           <RiveComponent />

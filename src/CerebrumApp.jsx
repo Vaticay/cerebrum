@@ -29527,6 +29527,32 @@ body.cb-motion-off .cb-prof-pop { animation: none !important; }
 }
 body.cb-motion-off .cb-people-in,
 body.cb-motion-off .cb-people-row { animation: none !important; }
+/* Nova's motion set, the part of the phase 2 Nova lane that never
+   reached disk: her canvas sprite and her speech timing, carried
+   as named CSS on the one curve. The sprite surface fades in as
+   one surface when it mounts instead of snapping in when the
+   asset lands. Her speech bubble fades in at 350ms, the same
+   timing her egg and sidebar pop bubbles already used, instead
+   of popping in cold on the main surfaces; opacity only, because
+   the header and stage bubbles are placed by a translateX in
+   their own style and a transform keyframe would fight it. Her
+   brain cadence, speech pacing, and behavior cooldowns are
+   behavior, not motion, and are untouched here. */
+@keyframes cbNovaSpriteIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.cb-nova-sprite { animation: cbNovaSpriteIn 320ms var(--cb-ease) both; }
+@keyframes cbNovaBubbleIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.cb-nova-bubble { animation: cbNovaBubbleIn 350ms var(--cb-ease) both; }
+@media (prefers-reduced-motion: reduce) {
+  .cb-nova-sprite, .cb-nova-bubble { animation: none; }
+}
+body.cb-motion-off .cb-nova-sprite,
+body.cb-motion-off .cb-nova-bubble { animation: none !important; }
 
 `;
 
