@@ -1641,6 +1641,62 @@ function trueFalseCard(claim, allClaims, sources, opts = {}) {
     why: useFalse ? falseStatementNote(detail) + claim.text : claim.text,
   };
 }
+/* Cloze tell screen (2026-10-29, Nova course fix wave): the
+   builder used to seed every cloze card's distractors with the
+   correct value scaled by 1.5 and by 0.6, so the correct value
+   was the only option that two other options were exact
+   multiples of, and a learner who spotted the pattern once
+   never had to read another cloze stem. A set of values has
+   the tell when exactly one of them is a hub: two or more of
+   the others are that value scaled by a clean ratio (a half,
+   three fifths, three quarters, five quarters, three halves,
+   or a double), allowing the rounding the values carry. */
+const CLOZE_TELL_RATIOS = [0.5, 0.6, 0.75, 1.25, 1.5, 2];
+/* How many of the other values are exact multiples of one
+   value: scaled by a clean ratio and rounded at the value's
+   own precision, the rounding the builder itself applies, so
+   83 counts as 55 scaled by 1.5 because 82.5 rounds to 83. */
+function clozePartnersOf(value, others) {
+  const v = parseNumberValue(value);
+  if (!isFinite(v.num) || v.num === 0) return 0;
+  const m = String(value || "").match(/[\d,]+(?:\.(\d+))?/);
+  const dec = m && m[1] ? m[1].length : 0;
+  let n = 0;
+  for (const o of others || []) {
+    const u = parseNumberValue(o).num;
+    if (isFinite(u) && CLOZE_TELL_RATIOS.some((f) => Number((v.num * f).toFixed(dec)) === u)) n++;
+  }
+  return n;
+}
+export function clozeTellProblem(values) {
+  const arr = values || [];
+  if (arr.length < 4) return false;
+  let hubs = 0;
+  for (let i = 0; i < arr.length; i++) {
+    if (clozePartnersOf(arr[i], arr.filter((_, j) => j !== i)) >= 2) hubs++;
+  }
+  return hubs === 1;
+}
+/* The factors cloze distractors are scaled by now: a wide set
+   of unclean ratios, drawn two at a time per card under the
+   card's seed, so no fixed pair of multiples frames the correct
+   value from card to card. */
+const CLOZE_GEN_FACTORS = [1.33, 0.77, 1.18, 0.86, 1.42, 0.68, 1.58, 0.55, 1.83, 2.2, 0.92, 1.08, 1.27, 0.73, 1.63, 0.63, 1.38, 0.82, 1.22, 0.58];
+/* Format a number at exactly the precision and in exactly the
+   dress of a NUMBER_RE value string: same decimal places, same
+   comma habit, same unit suffix. A distractor at a different
+   precision than the correct value reads as manufactured, so
+   every candidate, scaled or sibling, is redressed this way. */
+function formatClozeValue(num, likeRaw) {
+  const m = String(likeRaw || "").match(/^([\d,]+(?:\.\d+)?)(.*)$/);
+  if (!m || !isFinite(num)) return null;
+  const dec = (m[1].split(".")[1] || "").length;
+  let s = num.toFixed(dec);
+  if (m[1].includes(",") && Math.abs(num) >= 1000) {
+    s = Number(s).toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  }
+  return s + m[2];
+}
 function clozeCard(claim, allClaims, sources, opts = {}) {
   const m = claim.text.match(NUMBER_RE);
   if (!m) return null;
@@ -1653,15 +1709,45 @@ function clozeCard(claim, allClaims, sources, opts = {}) {
      never offered as a temperature. The card needs three
      distractors, four options in all, or it does not build. */
   const unit = parseNumberValue(value).unit;
-  const scaled = [scaleNumberIn(claim.text, 1.5), scaleNumberIn(claim.text, 0.6)]
-    .filter(Boolean)
-    .map((t) => { const mm = t.match(NUMBER_RE); return mm ? mm[1].replace(/\s+/g, " ").trim() : null; })
-    .filter((v) => v && v !== value);
-  const others = numbersIn(allClaims).filter((n) => n !== value && !scaled.includes(n)
-    && parseNumberValue(n).unit === unit);
-  const pool = [...new Set([...scaled, ...seededShuffle(others, hashStr(claim.text) + (opts.salt || 0))])];
-  if (pool.length < 3) return null;
-  const picks = pool.slice(0, 3);
+  const base = parseNumberValue(value).num;
+  if (!isFinite(base) || base === 0) return null;
+  const seed = hashStr(claim.text) + (opts.salt || 0);
+  const siblings = [...new Set(
+    numbersIn(allClaims)
+      .filter((n) => n !== value && parseNumberValue(n).unit === unit)
+      .map((n) => formatClozeValue(parseNumberValue(n).num, value))
+      .filter((s) => s && s !== value)
+  )];
+  /* Two scaled candidates per attempt, the factor pair drawn
+     from the wide set under the card's seed, siblings shuffled
+     in behind them. Every candidate set of three is screened
+     by clozeTellProblem before it ships: a set where one value
+     is uniquely recoverable as the hub of two exact multiples
+     is rejected and the next set is tried, and a claim whose
+     values cannot form a clean set builds no cloze card. */
+  const factors = seededShuffle(CLOZE_GEN_FACTORS, seed + 71);
+  let picks = null;
+  for (let a = 0; a + 1 < factors.length && !picks; a += 2) {
+    const scaled = [factors[a], factors[a + 1]]
+      .map((f) => formatClozeValue(base * f, value))
+      .filter((s) => s && s !== value);
+    const pool = [...new Set([...scaled, ...seededShuffle(siblings, seed + a)])];
+    if (pool.length < 3) continue;
+    for (let i = 0; i < pool.length && !picks; i++) {
+      for (let j = i + 1; j < pool.length && !picks; j++) {
+        for (let k = j + 1; k < pool.length && !picks; k++) {
+          const combo = [pool[i], pool[j], pool[k]];
+          /* The shipped set must carry no unique hub, and the
+             correct value must not be a hub at all, even a
+             shared one: two exact multiples of it in the set
+             is the pattern the audit named, whoever else
+             shares it. */
+          if (!clozeTellProblem([value, ...combo]) && clozePartnersOf(value, combo) < 2) picks = combo;
+        }
+      }
+    }
+  }
+  if (!picks) return null;
   const options = seededShuffle([value, ...picks], hashStr(claim.text) + 13 + (opts.salt || 0));
   return {
     kind: "cloze",
@@ -1723,8 +1809,47 @@ function extractVocab(claims) {
   }
   return [...byTerm.values()].slice(0, 6);
 }
+/* Self answering stems (2026-10-29, Nova course fix wave): a
+   vocabulary card gives its answer away when the stem sentence
+   itself carries the acronym the blanked term belongs to. The
+   audit's exhibit: the stem spelled "Severe acute respiratory
+   _____ coronavirus-2" and then printed "(SARS-CoV-2)" in the
+   same sentence, and the acronym's letters are the initials of
+   the words ending at the blank. The screen reads the words
+   ending at the term, builds their initials a letter at a time,
+   and calls the stem self answering when a parenthesised
+   acronym in the same sentence starts with those initials or
+   is started by them. */
+function stemRevealsTerm(term, text) {
+  const acronyms = [...String(text || "").matchAll(/\(([A-Za-z][A-Za-z0-9-]{1,})\)/g)]
+    .map((mm) => mm[1].replace(/[^A-Za-z]/g, "").toUpperCase())
+    .filter((a) => a.length >= 3);
+  if (!acronyms.length) return false;
+  const words = String(text || "").split(/[^A-Za-z]+/).filter(Boolean);
+  const termWords = String(term || "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (!termWords.length) return false;
+  const last = termWords[termWords.length - 1];
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].toLowerCase() !== last) continue;
+    let ok = true;
+    for (let k = 1; k < termWords.length; k++) {
+      if (!words[i - k] || words[i - k].toLowerCase() !== termWords[termWords.length - 1 - k]) { ok = false; break; }
+    }
+    if (!ok) continue;
+    let initials = "";
+    for (let j = i; j >= 0 && initials.length < 8; j--) {
+      initials = words[j][0].toUpperCase() + initials;
+      if (initials.length >= 3 && acronyms.some((a) => a.startsWith(initials) || initials.startsWith(a))) return true;
+    }
+  }
+  return false;
+}
 function vocabCard(entry, allTerms, sources) {
   const claim = entry.claim;
+  /* A term whose own stem sentence spells it through an
+     acronym builds no card; the learner would be reading the
+     answer off the stem, not recalling the term. */
+  if (stemRevealsTerm(entry.term, claim.text)) return null;
   const esc = entry.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const blanked = claim.text.replace(new RegExp(esc, "i"), "_____");
   if (blanked === claim.text) return null;
@@ -2120,7 +2245,11 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
       const q = reviewCheckFor(c);
       if (q) cards.push(q);
     }
-    lessons.push({ id: "review", title: "Review", subtitle: "Every idea, asked again", cards: dropLessonRepeats(cards) });
+    /* Subtitle corrected 2026-10-29 (Nova course fix wave): the
+       review lesson re asks only the ideas that carry a check,
+       never every taught idea, so the subtitle says the checked
+       ideas and claims no more than the lesson does. */
+    lessons.push({ id: "review", title: "Review", subtitle: "The checked ideas, asked again", cards: dropLessonRepeats(cards) });
   }
 
   /* Course level duplicate gate (2026-10-23, Nova quality wave):
@@ -2158,18 +2287,34 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     .filter((l) => teachIds.has(l.id))
     .reduce((n, l) => n + checkCount(l), 0);
   if (totalTeachChecks === 0) return null;
+  /* Folded notes (2026-10-29, Nova course fix wave): a note
+     that folds into another lesson joins before that lesson's
+     first check, never after its checks, and takes the kicker
+     of the lesson it lands in. The audit's first sample course
+     carried a teaching note after the second lesson's checks
+     under the third lesson's kicker, teaching after the
+     quizzing was done inside a lesson whose title the kicker
+     contradicted. */
+  const foldNotesInto = (target, notes) => {
+    if (!notes.length) return;
+    const host = target.cards.find((c) => c.kind === "note");
+    const landed = notes.map((n) => (host && n.kicker !== host.kicker ? { ...n, kicker: host.kicker } : n));
+    const at = target.cards.findIndex((c) => c.kind !== "note" && c.kind !== "summary");
+    if (at < 0) target.cards.push(...landed);
+    else target.cards.splice(at, 0, ...landed);
+  };
   const shipped = [];
   let pendingNotes = [];
   for (const lesson of lessons) {
     if (teachIds.has(lesson.id) && checkCount(lesson) === 0) {
       const notes = lesson.cards.filter((c) => c.kind === "note");
-      if (shipped.length) shipped[shipped.length - 1].cards.push(...notes);
+      if (shipped.length) foldNotesInto(shipped[shipped.length - 1], notes);
       else pendingNotes.push(...notes);
       continue;
     }
     if (lesson.id === "vocab" && !lesson.cards.some((c) => c.vocab)) continue;
     if (pendingNotes.length && lesson.cards.length) {
-      lesson.cards.splice(1, 0, ...pendingNotes);
+      foldNotesInto(lesson, pendingNotes);
       pendingNotes = [];
     }
     shipped.push(lesson);
@@ -2215,7 +2360,23 @@ export function createCourseFromResults(query, sources, answerMd, conflicts) {
     lessons: shipped,
     doneLessons: [],
     xpEarned: 0,
-    vocab: vocab.map((v) => ({ term: v.term, text: v.claim.text })),
+    /* The record's term list (2026-10-29, Nova course fix
+       wave): derived from the shipped cards themselves, so the
+       list is always exactly the terms some shipped card asks
+       about. It used to be the extraction pool, and the audit
+       found a course whose record listed three terms no card
+       asked while three asked terms were never listed. */
+    vocab: (() => {
+      const byTerm = new Map();
+      for (const l of shipped) {
+        for (const c of l.cards) {
+          if (!c.vocab) continue;
+          const key = String(c.vocab).toLowerCase();
+          if (!byTerm.has(key)) byTerm.set(key, { term: c.vocab, text: c.why || "" });
+        }
+      }
+      return [...byTerm.values()];
+    })(),
   };
 
   // Register every interactive card's question for spaced review.
@@ -3811,6 +3972,28 @@ export function feedbackCorrectionFor(card, { good = false, correctText = null }
   return null;
 }
 
+/* The caught line (2026-10-29, Nova course fix wave): on a
+   false statement card the why opens with the change note,
+   which is written as a correction. Spoken after a wrong
+   answer it teaches; spoken after a right answer it corrects
+   a mistake the learner never made, as the outside audit
+   found. On a right answer the same facts are spoken as what
+   the learner caught: the statement said this, the finding
+   says that, and they spotted the difference. Returns null
+   when the why carries no change note to reframe. */
+function falseStatementCaughtLine(card, why) {
+  if (!card || card.kind !== "truefalse" || card.answer !== false || !why) return null;
+  const negPrefix = "The statement adds a \"not\" that the finding does not have. ";
+  if (why.startsWith(negPrefix)) {
+    return "Caught. The statement added a \"not\" that the finding does not have. " + why.slice(negPrefix.length);
+  }
+  const m = why.match(/^The statement says (.+?) where the finding says (.+?)\.\s+/);
+  if (m) {
+    return "Caught. The statement said " + m[1] + " where the finding says " + m[2] + ". " + why.slice(m[0].length);
+  }
+  return null;
+}
+
 /* Her full spoken teaching for one answered card: on a miss,
    the correction plainly stated, then the card's authored
    why in her voice (the why itself is never rewritten; it
@@ -3819,6 +4002,10 @@ export function feedbackCorrectionFor(card, { good = false, correctText = null }
    card carries nothing to teach. */
 export function feedbackTeachLine(card, ctx = {}) {
   const why = plainSpeechText(card && card.why);
+  if (ctx && ctx.good) {
+    const caught = falseStatementCaughtLine(card, why);
+    if (caught) return caught;
+  }
   const correction = feedbackCorrectionFor(card, ctx);
   if (correction && why) {
     /* No passage twice in one breath (2026-10-18, the quiz repeat
@@ -14098,6 +14285,23 @@ function BuiltinPathView({ path, progress, P, accent, at, onPlay, onBack }) {
   );
 }
 
+/* The course build gate (2026-10-29, Nova course fix wave):
+   the build refuses when the search's answer is not a real
+   written answer. The tier label alone used to decide, and the
+   outside audit caught a course built from a degraded answer
+   whose own text said the providers were unavailable and the
+   summary was assembled from the papers: its tier said
+   research, so the gate waved it through. A degraded answer
+   is excerpts by another name, whatever its label, and takes
+   the same refusal. Returns "excerpts" for the refusal the
+   caller reports, or null when the build may proceed. */
+export function courseBuildRefusal(data) {
+  if (!data) return null;
+  if (data.degraded === true) return "excerpts";
+  if (["limited", "weak", "background", "definition"].includes(data.answerTier)) return "excerpts";
+  return null;
+}
+
 /* Run the search the same way the main search box does: streamed.
    A streamed search sends stage frames while it works, which keeps
    the connection warm; a silent single fetch can be cut by the
@@ -14616,8 +14820,12 @@ export default function LearnView({ P, accent, at, onNavigate }) {
          limited, weak, background, and definition tiers are
          source excerpts pulled together, and a course built from
          excerpts would teach nothing, so the build refuses here
-         with the reason in plain words. */
-      if (["limited", "weak", "background", "definition"].includes(data.answerTier)) {
+         with the reason in plain words. Since 2026-10-29 the
+         gate (courseBuildRefusal) also refuses a degraded
+         answer under any tier label: its text is assembled from
+         source excerpts after a pipeline failure, which is the
+         same material under a better label. */
+      if (courseBuildRefusal(data) === "excerpts") {
         emitNovaActivity("search", "degraded");
         setBuildError("The search could only pull source excerpts together for this topic right now and a course built from excerpts would teach nothing, so try again in a little while.");
         return;

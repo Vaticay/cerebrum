@@ -94,6 +94,11 @@ const WANTED = [
   "moveFrontClause", "rotateMidClause", "moveTrailingPhrase", "moveBecauseClause", "screenedFrontMove", "screenedRotateMove", "falseStatementNote", "restateClaim", "withinOptionBand",
   "shuffledOptionsForCard",
   "quizCard", "clozeCard", "trueFalseCard", "cardCourseSignature", "courseDuplicateProblem",
+  /* Nova course fix wave (2026-10-29): the cloze tell screen and
+     its value formatter, the self answering stem screen, the
+     caught line reframer, and the course build gate. */
+  "CLOZE_TELL_RATIOS", "clozePartnersOf", "clozeTellProblem", "CLOZE_GEN_FACTORS", "formatClozeValue",
+  "stemRevealsTerm", "falseStatementCaughtLine", "courseBuildRefusal",
   "VOCAB_STOP", "extractVocab", "vocabCard",
   "loadJSON", "saveJSON", "loadClaims", "saveClaims", "createCourseFromResults",
   "todayKey", "cortexLoopProblem",
@@ -189,6 +194,7 @@ const {
   applyCortexImport, restateClaim, quizCard, clozeCard, trueFalseCard, extractClaims, firstWordsOf, normKey,
   hasAttributionShape, createCourseFromResults, looksLikeFragment,
   mutatedVariantDetails, mutatedVariants, negateCopula, negateCopulaDetail, flipDirection, flipDirectionDetail, swapVocabTerm, swapVocabTermDetail, moveBecauseClause, parseNumberValue,
+  clozeTellProblem, courseBuildRefusal,
   courseDuplicateProblem, cardCourseSignature, extractVocab, vocabCard, NUMBER_RE,
   quantifierOnlyOption, cardOptionQualityProblem,
   QUIZ_SIMILARITY_MAX, cardTextSimilarity, textContainsPassage, passagesRepeat, cardInternalRepeat, lessonRepeatProblem,
@@ -6615,6 +6621,164 @@ await test("the first generated lesson opens on the course's question, one parag
   assert.equal(note.kind, "note");
   assert.equal(note.title, "Why does sleep help memory?", "the first note does not open on the course's question");
   assert.ok(note.text.includes("\n\n"), "the note is still one joined block instead of a paragraph per idea");
+});
+
+/* ── Nova course fix wave (2026-10-29) ─────────────────────────
+   The outside round 2 audit's verified deterministic defects:
+   the cloze multiples tell, the degraded answer gate, the
+   correction spoken on right answers, the review subtitle's
+   universal claim, the self answering vocabulary stem, the
+   folded note landing after checks, and the course record's
+   term list disagreeing with its cards. One pin each. */
+group("Nova course fix wave: the audit's verified defects (2026-10-29)");
+
+await test("cloze options never leave one value uniquely recoverable by exact multiples", () => {
+  // The audit's own shipped sets all carried the tell: the
+  // correct value was the only one two others were multiples of.
+  assert.equal(clozeTellProblem(["40%", "33%", "83%", "55%"]), true,
+    "the audit's first cloze set no longer reads as the tell it was");
+  assert.equal(clozeTellProblem(["40%", "55%", "60%", "24%"]), true,
+    "the audit's second cloze set no longer reads as the tell it was");
+  assert.equal(clozeTellProblem(["55%", "69%", "42%", "40%"]), false,
+    "a set with no unique multiples hub reads as a tell");
+  for (const c of QUIZ_CLAIMS) {
+    const card = clozeCard(c, QUIZ_CLAIMS, QUIZ_SOURCES);
+    if (!card) continue;
+    assert.equal(clozeTellProblem(card.options), false,
+      `a cloze card shipped with the multiples tell: ${card.options.join(", ")}`);
+  }
+  let seen = 0;
+  for (const { topic, course } of NOVA_COURSES) {
+    for (const lesson of course.lessons) for (const card of lesson.cards) {
+      if (card.kind !== "cloze") continue;
+      seen++;
+      assert.equal(clozeTellProblem(card.options), false,
+        `${topic.query}: a cloze card shipped with the multiples tell: ${card.options.join(", ")}`);
+    }
+  }
+  assert.ok(seen >= 1, "no cloze card was generated anywhere to judge");
+});
+
+await test("the course gate refuses a degraded answer under a research label, and a written one builds", () => {
+  assert.equal(courseBuildRefusal({ answerTier: "research", degraded: true }), "excerpts",
+    "a degraded research tier answer passed the course gate on its label");
+  assert.equal(courseBuildRefusal({ answerTier: "weak" }), "excerpts",
+    "an excerpt tier answer passed the course gate");
+  assert.equal(courseBuildRefusal({ answerTier: "research", degraded: false }), null,
+    "a written research tier answer was refused");
+  assert.equal(courseBuildRefusal({ answerTier: "research" }), null,
+    "an unflagged research tier answer was refused");
+  const course = createCourseFromResults("Why does sleep help memory?", LEAK_SOURCES, LEAK_MD);
+  assert.ok(course, "a written answer no longer builds a course");
+});
+
+await test("a correct judgement of a false statement is spoken as a catch, a wrong one keeps the correction", () => {
+  const claim = { text: "Photosynthesis is the process plants use to turn light energy into chemical energy stored in sugars.", sourceIdx: 1 };
+  let card = null;
+  for (let salt = 0; salt < 8 && !card; salt++) {
+    const c = trueFalseCard(claim, [claim], QUIZ_SOURCES, { salt });
+    if (c && c.answer === false) card = c;
+  }
+  assert.ok(card, "the fixture claim built no false statement card");
+  assert.ok(card.why.startsWith("The statement adds a \"not\""),
+    `the false card's why lost its change note: ${card.why}`);
+  const right = feedbackTeachLine(card, { good: true, correctText: "False" });
+  assert.ok(right && right.startsWith("Caught. The statement added a \"not\" that the finding does not have. "),
+    `a right answer was spoken as a correction: ${right}`);
+  assert.ok(right.includes(claim.text), "the caught line dropped the true statement");
+  const wrong = feedbackTeachLine(card, { good: false, correctText: "False" });
+  assert.ok(wrong && wrong.includes("The statement adds a \"not\" that the finding does not have. " + claim.text),
+    `a wrong answer lost the correction note: ${wrong}`);
+  assert.ok(!wrong.startsWith("Caught."), "a wrong answer was spoken as a catch");
+  const numClaim = { text: "Losing sleep the night after learning reduces recall by about 40% compared with sleeping normally.", sourceIdx: 3 };
+  let numCard = null;
+  for (let salt = 0; salt < 8 && !numCard; salt++) {
+    const c = trueFalseCard(numClaim, [numClaim], QUIZ_SOURCES, { salt });
+    if (c && c.answer === false) numCard = c;
+  }
+  assert.ok(numCard, "the numbered fixture claim built no false statement card");
+  const saidRight = feedbackTeachLine(numCard, { good: true, correctText: "False" });
+  assert.ok(saidRight && saidRight.startsWith("Caught. The statement said ") && saidRight.includes(" where the finding says "),
+    `a right answer on a changed statement was spoken as a correction: ${saidRight}`);
+  assert.ok(saidRight && !saidRight.startsWith("The statement says"),
+    "the correction framing survived on a right answer");
+  assert.ok(saidRight && saidRight.includes(numClaim.text), "the caught line dropped the true statement");
+});
+
+await test("the review subtitle claims only the checked ideas", () => {
+  const md = `## Summary
+
+${LONE_CLAIM.text} [1]
+Adults who slept under six hours showed a 23% higher rate of infection over the following winter. [1]
+Sleep loss raised next day sleepiness scores by 41% among residents working overnight shifts. [2]
+Volunteers taking the supplement showed reaction times that were 12% faster with daily use. [1]
+`;
+  const course = createCourseFromResults("light and sleep", LEAK_SOURCES, md);
+  assert.ok(course, "the fixture course did not build");
+  assert.ok(course.droppedChecks > 0,
+    "the fixture course checks every taught claim, so this pin would prove nothing");
+  const review = course.lessons.find((l) => l.id === "review");
+  assert.ok(review, "the course built no review lesson");
+  assert.equal(review.subtitle, "The checked ideas, asked again",
+    "the review subtitle does not name the checked ideas");
+  assert.ok(!/every idea/i.test(review.subtitle), "the review subtitle still claims every idea");
+});
+
+await test("a vocabulary stem that spells its term through an acronym builds no card", () => {
+  const sarsClaim = { text: "The COVID-19 pandemic is a globalized health concern caused by a beta-coronavirus named Severe acute respiratory syndrome coronavirus-2 (SARS-CoV-2).", sourceIdx: 1 };
+  const filler = { text: "Trained immunity can improve protection against later infections in adults.", sourceIdx: 1 };
+  const pool = [
+    { term: "syndrome", claim: sarsClaim },
+    { term: "vaccination", claim: filler },
+    { term: "induction", claim: filler },
+    { term: "activation", claim: filler },
+  ];
+  assert.equal(vocabCard(pool[0], pool, QUIZ_SOURCES), null,
+    "a card shipped whose stem spells the blanked term through its acronym");
+  const protClaim = { text: "BCG vaccination can improve protection against later infections in adults who receive it early.", sourceIdx: 1 };
+  const pool2 = [
+    { term: "protection", claim: protClaim },
+    { term: "vaccination", claim: protClaim },
+    { term: "induction", claim: protClaim },
+    { term: "activation", claim: protClaim },
+  ];
+  const ok = vocabCard(pool2[0], pool2, QUIZ_SOURCES);
+  assert.ok(ok && ok.vocab === "protection", "a term its stem does not spell stopped building");
+});
+
+await test("no teaching note lands after a lesson's checks, and folded notes take the host kicker", () => {
+  for (const { topic, course } of NOVA_COURSES) {
+    for (const lesson of course.lessons) {
+      const firstCheck = lesson.cards.findIndex((c) => c.kind !== "note" && c.kind !== "summary");
+      if (firstCheck < 0) continue;
+      const notesAfter = lesson.cards.slice(firstCheck).filter((c) => c.kind === "note");
+      assert.equal(notesAfter.length, 0, `${topic.query}: lesson ${lesson.id} teaches after its checks`);
+      const host = lesson.cards.find((c) => c.kind === "note");
+      if (host) for (const c of lesson.cards) {
+        if (c.kind === "note") assert.equal(c.kicker, host.kicker,
+          `${topic.query}: a folded note kept a foreign kicker in lesson ${lesson.id}`);
+      }
+    }
+  }
+  const photo = NOVA_COURSES[0].course;
+  const deeper = photo.lessons.find((l) => l.id === "deeper");
+  assert.ok(deeper, "the photosynthesis course lost its second lesson");
+  const notes = deeper.cards.filter((c) => c.kind === "note");
+  assert.ok(notes.length >= 2, "the folded third chunk note is missing from the second lesson");
+  assert.ok(notes.every((n) => n.kicker === "Going deeper"),
+    "a folded note kept the third lesson's kicker");
+});
+
+await test("the course record lists exactly the terms its shipped cards ask", () => {
+  for (const { topic, course } of NOVA_COURSES) {
+    const asked = new Set();
+    for (const lesson of course.lessons) for (const card of lesson.cards) {
+      if (card.vocab) asked.add(String(card.vocab).toLowerCase());
+    }
+    const listed = new Set((course.vocab || []).map((v) => String(v.term).toLowerCase()));
+    assert.deepEqual([...listed].sort(), [...asked].sort(),
+      `${topic.query}: the record's terms and the asked terms disagree`);
+  }
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);
