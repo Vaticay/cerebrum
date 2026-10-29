@@ -744,10 +744,37 @@ await test("the stage carries the plain order and no corpus number", () => {
   assert.ok(stage.includes("maxWidth: LAYOUT.answer"), "stage column is not the thread measure");
   assert.ok(stage.includes("cb-stage-wordmark"), "masthead wordmark missing from the stage");
   assert.ok(stage.includes(">Cerebrum<"), "masthead does not carry the name");
+  /* 2026-10-28 (declutter verdict): the stage lockup renders on
+     mobile only. On desktop the sidebar brand beside the stage
+     already carries the name, and the owner's photo showed the
+     wordmark twice on one screen. The gate sits between the
+     masthead opening and the resident Nova. */
+  const mastheadSeg = stage.slice(stage.indexOf("cb-stage-masthead"), stage.indexOf("NovaLive"));
+  assert.ok(mastheadSeg.includes("isMobile &&"), "stage wordmark is not gated to mobile");
+  /* 2026-10-28 (declutter verdict): the stage sentence is rewritten
+     in plain words. The owner flagged "from the research papers"
+     directly; the promise (ask, answer, sources attached) stays,
+     the flagged phrase is gone from the stage. The door keeps its
+     own sentence, pinned at its own site above. */
+  assert.ok(stage.includes("Ask a question and get an answer with the sources attached."), "the plain stage sentence is missing");
+  assert.ok(!stage.includes("from the research papers, with the sources attached"), "the flagged headline wording survives on the stage");
   assert.ok(stage.includes('variant="stage"'), "composer not in its stage variant");
   assert.ok(!stage.includes("Plate II · Inquiry"), "the plate eyebrow survives on the stage");
   assert.ok(!stage.includes("Every answer is written from the papers"), "the manifesto headline survives on the stage");
   assert.ok(!stage.includes("Each answer opens with"), "the marketing paragraph survives under the composer");
+  /* 2026-10-28 (declutter verdict): the Continue row's re ask
+     action is named for what it does. It read "Keep going", which
+     names no function; it is "Ask again" now, here and on the deck
+     card that carries the same action off stage. */
+  assert.ok(stage.includes(">Ask again<"), "continue row re ask action is not named in plain words");
+  assert.ok(!stage.includes(">Keep going<"), "the stray Keep going label survives on the stage");
+  assert.ok(!appSrc.includes(">Keep going</DeckBtn>"), "the stray Keep going label survives on the deck card");
+  /* 2026-10-28 (declutter verdict): the evidence filter's default
+     blurb was a slogan ("Everything, from lab work to large
+     trials. Start here.") duplicating the proof line's pitch. It
+     is gone from the app; the blurb now describes the tier. */
+  assert.ok(!appSrc.includes("Everything, from lab work to large trials. Start here."), "the slogan blurb survives in the evidence filter");
+  assert.ok(appSrc.includes("Every kind of study counts, from work in cells and animals to trials in people. Nothing is filtered out."), "the plain all tier blurb is missing");
   assert.ok(stage.includes(">Continue<"), "continue row missing its plain label");
   assert.ok(!stage.includes("Continue investigation"), "the plate continue label survives");
   assert.ok(stage.includes(">Try asking<"), "example questions missing their plain label");
@@ -767,7 +794,7 @@ await test("the stage carries the plain order and no corpus number", () => {
   assert.ok(stage.includes("SCHOLARLY_SOURCES.length"), "the proof line does not read the source count");
 });
 
-await test("the stage column carries a solid backing in light palettes and the proof line sets at the label role", () => {
+await test("the stage column carries a solid backing in every palette and the proof line sets at the label role", () => {
   /* 2026-10-20, readability residue wave: in the Light palette the
      stage text tones are dark and sat directly over the graded calm
      film, computing to 0.98 to 3.50 to 1 against the film patches,
@@ -776,14 +803,22 @@ await test("the stage column carries a solid backing in light palettes and the p
      nothing, so their rendering is unchanged), which puts every
      stage tone at 5.16 to 1 or better. The proof line under the
      sentence also rose from the caption role (12) to the label
-     role (13) in the same wave. */
+     role (13) in the same wave.
+     Pin updated 2026-10-28 (declutter verdict): the owner
+     photographed the app wearing a murky yellow green haze in dark
+     palettes too, where the stage sat unbacked on the palette
+     ground, the atmo accent glow, and the calm film. The backing
+     now spreads in dark palettes as well (the ground only, no
+     border or padding), so the gate this pin asserted is gone on
+     purpose; the pin now asserts the backing in both branches. */
   const stage = appSrc.slice(
     appSrc.indexOf("The home stage: the empty search home"),
     appSrc.indexOf("<div style={{ ...S.workspace,")
   );
   assert.ok(stage.length > 1000, "stage block not found");
-  assert.ok(stage.includes("...(P.dark ? {} : {"), "stage backing is not gated to light palettes");
-  assert.ok(stage.includes("background: P.bg"), "stage column carries no solid P.bg backing in light palettes");
+  assert.ok(stage.includes("...(P.dark ? {"), "stage backing lost its dark palette branch");
+  assert.ok(!stage.includes("...(P.dark ? {} : {"), "stage backing is gated away from dark palettes again");
+  assert.ok(stage.includes("background: P.bg"), "stage column carries no solid P.bg backing");
   const proof = stage.slice(stage.indexOf("setProvenanceOpen(true)"), stage.indexOf("scholarly databases"));
   assert.ok(proof.includes("fontSize: FONT_SIZES.label"), "stage proof line does not set at the label role");
   assert.ok(!proof.includes("fontSize: FONT_SIZES.caption"), "stage proof line still sets at the caption role");

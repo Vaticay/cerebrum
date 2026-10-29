@@ -1759,7 +1759,7 @@ function HomeDeck({ P, accent, at, user, history, saved, sessions, onAsk, onOpen
               WebkitBoxOrient: "vertical", overflow: "hidden",
             }}>{lastQ}</div>
             <div style={{ alignItems: "center", marginTop: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <DeckBtn primary accent={accent} at={at} P={P} onClick={() => onAsk(lastQ)}>Keep going</DeckBtn>
+              <DeckBtn primary accent={accent} at={at} P={P} onClick={() => onAsk(lastQ)}>Ask again</DeckBtn>
               <DeckBtn accent={accent} at={at} P={P} onClick={onOpenHistory}>History</DeckBtn>
             </div>
           </DeckCard>
@@ -1924,7 +1924,13 @@ function useEdgeMask() {
    papers themselves and hiding it would leave someone unable to recognise it
    later, but it now carries a translation. */
 const EVIDENCE_TIERS = [
-  ["all", "All evidence", "Everything, from lab work to large trials. Start here."],
+  /* 2026-10-28 (declutter verdict): the "all" blurb used to be a
+     three beat slogan (everything, lab work to large trials, start
+     here). The owner photographed the home stage and called it
+     slop: a slogan, and its pitch duplicated the proof line under
+     the headline. It now says what the tier does, the way the
+     other three blurbs do. */
+  ["all", "All evidence", "Every kind of study counts, from work in cells and animals to trials in people. Nothing is filtered out."],
   ["systematic-review", "Systematic reviews", "Papers that pool many studies and weigh them together. The strongest single thing to read on a settled question."],
   ["rct", "Randomised trials", "Studies that tested something on people, with a control group. Best for whether a treatment actually works."],
   ["in-vivo-vitro", "In vivo / in vitro", "Work done in animals or in cells, not yet in people. Early evidence about how something works."],
@@ -23929,8 +23935,16 @@ function App({ profileHandle = null } = {}) {
         <>
         {/* Calm 4K reel (2026-10-08): slow smoke on black behind the search
             atmosphere. Dusty's note: "different ones (less eye sore for the
-            main page)." Heavily darkened; the composer always wins. */}
-        {!cbMotionOff() && animationMode !== "off" && (
+            main page)." Heavily darkened; the composer always wins.
+            2026-10-28 (declutter verdict): the reel no longer mounts
+            on the home stage. The owner's photos showed the stage
+            wearing the film as a murky wash (a third strength through
+            the shell grade, behind text that carried no backing in
+            dark palettes); the stage now sits on the clean atmo
+            ground with a solid backing of its own. The reel still
+            mounts the moment a search starts, over the thread,
+            exactly as before. */}
+        {!cbMotionOff() && animationMode !== "off" && !homeStage && (
           <div aria-hidden="true" style={{
             position: "fixed", inset: 0, zIndex: Z.base + 1, pointerEvents: "none",
             filter: "brightness(0.30) saturate(0.60) blur(12px)",
@@ -24275,7 +24289,14 @@ function App({ profileHandle = null } = {}) {
                top, not a second nav. The first submit yields to
                the existing thread layout.
                ══════════════════════════════════════════════════════ */
-            <Reveal style={{ flex: 1, minWidth: 0, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 40px" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
+            /* 2026-10-28 (declutter verdict): the mobile bottom
+               padding below is 96px, past the fixed tab bar's 64px
+               plus its safe area inset. It was 40px, and the stage's
+               own end (the Continue row, the deck) scrolled to rest
+               underneath the bar, half covered, in the owner's phone
+               photo. The document's body rule alone did not reach
+               this column's end. */
+            <Reveal style={{ flex: 1, minWidth: 0, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 96px" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               <div style={{
                 width: "100%", minWidth: 0, maxWidth: LAYOUT.answer, padding: isMobile ? "0" : "0 24px",
@@ -24297,8 +24318,22 @@ function App({ profileHandle = null } = {}) {
                    Dark palettes spread nothing here, so their
                    rendered stage is unchanged: their light tones pass over the
                    film at 4.85 to 1 or better, and the film still
-                   mounts behind the panel margins in light too. */
-                ...(P.dark ? {} : {
+                   mounts behind the panel margins in light too.
+                   2026-10-28 (declutter verdict) extends the backing
+                   to dark palettes: the owner photographed the app
+                   wearing a murky yellow green haze on phone and
+                   desktop alike, and the dark stage sat directly on
+                   the moving parts of it (the Sage default palette's
+                   green black ground, the atmo's accent glow at 0.20,
+                   and the calm smoke film at a third strength behind
+                   unbacked text). The column now carries the solid
+                   opaque P.bg in every palette, per the same standing
+                   rule; dark palettes take the ground only, no
+                   border, radius, or padding, so their layout is
+                   unchanged and only the haze leaves the text. */
+                ...(P.dark ? {
+                  background: P.bg,
+                } : {
                   background: P.bg, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg,
                   padding: isMobile ? "20px 16px 24px" : "20px 24px 28px",
                 }),
@@ -24310,19 +24345,34 @@ function App({ profileHandle = null } = {}) {
                     The mark and the name in the app's own treatment
                     (the sidebar brand is the same pairing), nothing
                     under it, and no links: navigation lives in the
-                    sidebar alone, so this is a name, not a nav. */}
+                    sidebar alone, so this is a name, not a nav.
+                    2026-10-28 (declutter verdict): on desktop the
+                    lockup stands down. The sidebar beside the stage
+                    already carries the same Mark and name, and the
+                    owner's desktop photo showed the wordmark twice
+                    on one screen. One wordmark presence per screen:
+                    the stage lockup renders on mobile only, where no
+                    sidebar brand is on screen. The header element
+                    itself stays at both widths: it carries the
+                    resident Nova, and the NovaEgg summon watches
+                    this masthead as one of its two wordmark sites
+                    (the sidebar brand is the other). */}
                 <header className="cb-stage-masthead" style={{
                   display: "flex", alignItems: "center", gap: 11,
                   background: "transparent", border: "none",
                 }}>
-                  <Mark size={22} accent={accent} glow={false} />
-                  <span className="cb-stage-wordmark" style={{
-                    fontFamily: "var(--cb-font)", fontWeight: 500,
-                    /* One lockup everywhere (2026-10-19, S7 shell lane, audit H8):
-                       Mark 22 plus the name at section 22 weight 500, the same
-                       pairing as the door and the sidebar. */
-                    fontSize: FONT_SIZES.section, color: P.ink, lineHeight: 1,
-                  }}>Cerebrum</span>
+                  {isMobile && (
+                    <>
+                      <Mark size={22} accent={accent} glow={false} />
+                      <span className="cb-stage-wordmark" style={{
+                        fontFamily: "var(--cb-font)", fontWeight: 500,
+                        /* One lockup everywhere (2026-10-19, S7 shell lane, audit H8):
+                           Mark 22 plus the name at section 22 weight 500, the same
+                           pairing as the door and the sidebar. */
+                        fontSize: FONT_SIZES.section, color: P.ink, lineHeight: 1,
+                      }}>Cerebrum</span>
+                    </>
+                  )}
                   {/* The resident header Nova (2026-10-15) stands
                       at the masthead's right end on the empty home
                       stage, 66px like every other tab. She is this
@@ -24350,11 +24400,17 @@ function App({ profileHandle = null } = {}) {
                     door's sentence and the answers themselves use,
                     instead of the UI sans at body size. The proof
                     line under it keeps its label voice. */}
+                {/* 2026-10-28 (declutter verdict): the sentence is
+                    rewritten in plain words. The owner flagged "from
+                    the research papers" directly and called the
+                    screen slop; the promise is unchanged (ask, get an
+                    answer, sources attached) with the flagged phrase
+                    gone. */}
                 <p style={{
                   margin: "20px 0 0", fontSize: FONT_SIZES.section, lineHeight: 1.45,
                   color: P.ink, maxWidth: "62ch", fontFamily: "var(--cb-serif)",
                 }}>
-                  Ask a question and get an answer from the research papers, with the sources attached.
+                  Ask a question and get an answer with the sources attached.
                   <br />
                   <button type="button" onClick={() => setProvenanceOpen(true)}
                     style={{
@@ -24437,7 +24493,7 @@ function App({ profileHandle = null } = {}) {
                         display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
                       }}>{stageLastQ}</div>
                       <div style={{ display: "flex", gap: 20, marginTop: 8 }}>
-                        <button type="button" onClick={() => ask(stageLastQ)} className="cb-stage-textbtn" style={{ color: accent, fontWeight: 500, fontSize: 13 }}>Keep going</button>
+                        <button type="button" onClick={() => ask(stageLastQ)} className="cb-stage-textbtn" style={{ color: accent, fontWeight: 500, fontSize: 13 }}>Ask again</button>
                         <button type="button" onClick={() => setView("investigations")} className="cb-stage-textbtn" style={{ fontSize: 13, fontWeight: 500 }}>History</button>
                       </div>
                     </div>

@@ -83,6 +83,14 @@ await test("workspace CinematicFilm mount exists, darker than before", () => {
   assert.ok(!introFn.includes("<CinematicFilm"), "the door mounts the film reel again");
   assert.ok(!introFn.includes("brightness(0.22)"), "the retired door grade is back on the door");
   assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
+  /* 2026-10-28 (declutter verdict): the calm reel no longer mounts
+     on the home stage. The owner's photos showed the stage wearing
+     the film as a murky wash behind unbacked text; the stage now
+     sits on the atmo ground with a solid backing, and the reel
+     mounts when a search starts. The mount count above is
+     unchanged (the JSX mount still exists); this pins its gate. */
+  const calmAt = appSrc.indexOf('reel="calm"');
+  assert.ok(calmAt > 0 && appSrc.slice(Math.max(0, calmAt - 700), calmAt).includes("!homeStage"), "the calm reel mounts on the home stage again");
   /* Pin updated 2026-10-19 (S7 shell lane, audit H6): the workspace reel
      no longer grades brighter than the search home. Both wrappers carry
      the one grade, dark and blurred, so this asserts the unified grade
