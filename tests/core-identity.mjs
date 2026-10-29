@@ -174,13 +174,21 @@ await test("slogan is byte-identical", () => {
   // pick): the door carries no verdict either. The promise lives
   // inside the app now, on the home stage's proof line wired to
   // the sources dialog; intro.jsx states nothing about evidence.
+  // Pin updated 2026-10-29 (the owner's pick, Nova runs the
+  // home): the stage proof line itself is retired; the stage is
+  // Nova's room and carries no pitch. The promise's wording now
+  // lives where the work happens, in the composer's own account
+  // of itself as a query line against the scholarly databases,
+  // and in the sources dialog the shell still mounts. The
+  // assertion below holds that the wording survives in the app;
+  // it no longer claims a stage line carries it.
   assert.ok(
     !introSrc.includes("Traced to a real paper"),
     "the door carries a specimen verdict again"
   );
   assert.ok(
     appSrc.includes("scholarly databases"),
-    "the stage proof line that carries the promise is missing"
+    "the promise wording is missing from the app"
   );
 });
 
@@ -347,7 +355,13 @@ group("Home stage: sidebar restored, one column, one navigation");
     assert.ok(stage.includes('width: "100%"') && stage.includes("minWidth: 0") && stage.includes("maxWidth: LAYOUT.answer"), "stage column is not the single wide column");
     assert.ok(!stage.includes("paddingLeft"), "a second left padding crept into the stage column");
     assert.ok(stage.includes("<HomeDeck"), "deck missing from the stage column");
-    assert.ok(stage.includes(">Continue<"), "continue row missing from the column");
+    /* Pin updated 2026-10-29 (the owner's pick, Nova runs the
+       home): the Continue row this line held is retired from
+       the stage; her shelf of past questions stands in the
+       column in its place. The width and left edge contract
+       above is unchanged. */
+    assert.ok(stage.includes("cb-stage-shelf"), "her shelf missing from the column");
+    assert.ok(!stage.includes(">Continue<"), "the retired Continue row is back in the column");
   });
   await test("navigation exists exactly once: no stage top bar", () => {
     assert.ok(!stage.includes("<nav"), "stage still renders its own nav");
@@ -367,6 +381,12 @@ group("Home stage: sidebar restored, one column, one navigation");
     assert.ok(appSrc.includes('case "new": newSession();'), "the new case is not wired to the session reset");
   });
   await test("the stage still renders exactly one Continue row", () => {
+    /* Pin noted 2026-10-29 (Nova runs the home): the one row
+       this test counts is the deck's gated card contract. The
+       stage's own Continue row retired the same day and her
+       shelf replaced it; the deck still renders its card only
+       when the stage does not suppress it, and the stage still
+       suppresses it. */
     const deckUse = stage.slice(stage.indexOf("<HomeDeck"));
     assert.ok(deckUse.startsWith("<HomeDeck\n                      suppressContinue"), "the stage deck lost suppressContinue");
     assert.ok(appSrc.includes("lastQ && !suppressContinue"), "the deck card is no longer gated on the prop");

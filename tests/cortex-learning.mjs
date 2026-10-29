@@ -270,6 +270,10 @@ const {
    declarations are extracted; the components and the quip hook
    stay in the app, and their wiring is pinned by source below. */
 const riveSrc = readFileSync(join(root, "src/NovaRive.jsx"), "utf8");
+/* Added 2026-10-29 (the owner's mascot verdict): her figure is
+   the primitive built vector rig in src/NovaFigure.jsx now, so
+   the Nova pins read the rig's source alongside the seam file. */
+const figureSrc = readFileSync(join(root, "src/NovaFigure.jsx"), "utf8");
 const speechSrc = readFileSync(join(root, "src/NovaSpeech.jsx"), "utf8");
 const riveAst = parse(riveSrc, { sourceType: "module", plugins: ["jsx"] });
 function riveDeclFor(name) {
@@ -4899,18 +4903,42 @@ await test("the state machine contract is the one the editor build is authored a
    fallback branch did not stay. The owner saw the traced rig
    still rendering on the surfaces that had not switched and
    ordered the old model gone, so the wrapper renders the
-   canvas directly and the fallback surface is deleted. */
-await test("the asset has landed: the one switch points at the shipped .riv", () => {
+   canvas directly and the fallback surface is deleted.
+   Pin rewritten 2026-10-29 (the owner's mascot verdict: less
+   cartoonish, more stern, and she has to have life): the .riv
+   asset itself is retired as the rendered figure. A binary
+   Rive artboard cannot be re proportioned from code, and the
+   verdict is a proportion verdict (her head measured at 55
+   to 60 percent of her height on the shipped build), so the
+   figure is now a primitive built vector rig in
+   src/NovaFigure.jsx, rendered by the same NovaCanvas behind
+   the same seams. The contract constants in the test above
+   stay pinned untouched: every consumer still speaks the
+   same Nova language. These assertions hold the new figure
+   seam and keep the retired surfaces out. */
+await test("the figure has landed: the canvas renders the in repo vector rig", () => {
   // Pin updated 2026-10-20 citing the owner photos from 2026-10-20 and his order: the asset constant carries the version query, and NovaCanvas renders no img fallback or poster.
   assert.equal(NOVA_RIVE_ASSET, "/nova/nova.riv?v=3", "the asset switch must carry the shipped versioned asset path");
   assert.ok(NOVA_RIVE_ASSET.includes("?v=3"), "the asset constant carries no version query");
-  assert.ok(!riveSrc.includes("<img"), "NovaRive renders an img; the Nova home figure must come from the Rive canvas only");
+  assert.ok(!riveSrc.includes("<img"), "NovaRive renders an img; the Nova home figure must come from the rig only");
   assert.ok(riveSrc.includes("return <NovaCanvas {...props} />;"), "the wrapper must render the canvas directly");
   assert.ok(!riveSrc.includes("NovaFallback"), "the retired fallback surface is back");
   assert.ok(!riveSrc.includes("<NovaAvatar"), "the canvas file still renders the retired avatar");
-  assert.ok(riveSrc.includes("stateMachines: NOVA_RIVE_STATE_MACHINE"), "the canvas must run the contract state machine");
-  assert.ok(riveSrc.includes("useStateMachineInput"), "the canvas must bind the contract inputs");
-  assert.ok(riveSrc.includes("EventType.RiveEvent"), "the canvas must listen for Rive quip events");
+  assert.ok(riveSrc.includes('from "./NovaFigure.jsx"'), "the canvas does not import the vector rig");
+  assert.ok(riveSrc.includes("<NovaFigure"), "the canvas does not render the vector rig");
+  assert.ok(!riveSrc.includes("@rive-app"), "the Rive runtime is imported again; the figure is the in repo rig now");
+  /* The rig itself: her canvas, her discipline, her named
+     groups. Flat vector only, the model sheet palette carried
+     as constants, and six countable gills, three a side. */
+  assert.ok(figureSrc.includes('viewBox="0 0 480 640"'), "the rig lost its canvas");
+  assert.ok(figureSrc.includes("data-expression={expression}"), "the rig does not key its face off the expression");
+  for (const g of ["Gill_L1", "Gill_L2", "Gill_L3", "Gill_R1", "Gill_R2", "Gill_R3"]) {
+    assert.ok(figureSrc.includes(`id="${g}"`), g + " missing from the rig: her gills must stay countable");
+  }
+  assert.ok(figureSrc.includes("#FDF3D7"), "the parchment cream coat is missing from the rig");
+  assert.ok(figureSrc.includes("#A98A4C"), "the muted gold is missing from the rig");
+  assert.ok(!figureSrc.includes("Gradient"), "a gradient crept into the flat rig");
+  assert.ok(!figureSrc.includes("<filter"), "a filter crept into the flat rig");
 });
 
 /* Regression pin for the dead canvas of 2026-10-15. The asset
@@ -4919,32 +4947,23 @@ await test("the asset has landed: the one switch points at the shipped .riv", ()
    @rive-app/canvas RuntimeLoader defaults to fetching its wasm
    from unpkg (fallback jsDelivr), and the site CSP connect-src
    allows only 'self' plus two API origins, so the runtime never
-   initialized and the canvas stayed 0x0. The fix self hosts the
-   wasm from the installed package. These assertions fail if the
-   loader is ever left at its CDN defaults again. */
-await test("the Rive runtime wasm is self hosted, never fetched from a CDN", () => {
-  assert.ok(riveSrc.includes("RuntimeLoader.setWasmUrl("), "NovaRive must pin the runtime to a local wasm URL");
-  assert.ok(riveSrc.includes("@rive-app/canvas/rive.wasm?url"), "the primary wasm must be the one bundled from the installed @rive-app/canvas package");
-  assert.ok(riveSrc.includes("RuntimeLoader.setWasmFallbackUrl("), "the fallback wasm must be pinned locally too, or a primary failure retries against the CDN");
-  assert.ok(riveSrc.includes("@rive-app/canvas/rive_fallback.wasm?url"), "the fallback wasm must be the one bundled from the installed package");
-  assert.ok(!riveSrc.includes("unpkg.com"), "no unpkg reference may creep into the Rive wiring");
-  assert.ok(!riveSrc.includes("cdn.jsdelivr.net"), "no jsDelivr reference may creep into the Rive wiring");
+   initialized and the canvas stayed 0x0. The fix self hosted the
+   wasm from the installed package, and that pin stood here.
+   Pin rewritten 2026-10-29 (the owner's mascot verdict): the
+   runtime itself is retired. Her figure is the in repo vector
+   rig, so there is no wasm to host, no CDN to fall back to, and
+   no loader to pin. These assertions fail if the runtime ever
+   comes back into the Nova wiring. */
+await test("no Rive runtime ships: the figure is in repo vector code", () => {
+  assert.ok(!riveSrc.includes("RuntimeLoader"), "the Rive runtime loader is back in the Nova wiring");
+  assert.ok(!riveSrc.includes("@rive-app"), "the Rive runtime package is referenced in the Nova wiring again");
+  assert.ok(!riveSrc.includes("rive.wasm"), "a Rive wasm reference is back in the Nova wiring");
+  assert.ok(!riveSrc.includes("unpkg.com"), "no unpkg reference may creep into the Nova wiring");
+  assert.ok(!riveSrc.includes("cdn.jsdelivr.net"), "no jsDelivr reference may creep into the Nova wiring");
   assert.ok(
-    existsSync(join(root, "node_modules/@rive-app/canvas/rive.wasm")),
-    "the installed @rive-app/canvas package must ship rive.wasm at the imported path"
+    existsSync(join(root, "src/NovaFigure.jsx")),
+    "the vector rig file is missing: her figure must live in the repo as vector code"
   );
-  assert.ok(
-    existsSync(join(root, "node_modules/@rive-app/canvas/rive_fallback.wasm")),
-    "the installed @rive-app/canvas package must ship rive_fallback.wasm at the imported path"
-  );
-  /* When a build exists on disk, the emitted bundle must carry
-     the local wasm assets the loader will request. Skipped when
-     dist is absent (a bare test run before any build). */
-  const distAssets = join(root, "dist/assets");
-  if (existsSync(distAssets)) {
-    const emitted = readdirSync(distAssets).filter((f) => /^rive.*\.wasm$/i.test(f));
-    assert.ok(emitted.length >= 1, "dist/assets must contain the emitted Rive wasm asset");
-  }
 });
 
 /* The stage contract (2026-10-15, the owner's verdicts on the
@@ -4962,7 +4981,7 @@ await test("the Rive runtime wasm is self hosted, never fetched from a CDN", () 
    devicePixelRatioUsed for non Layout fits; the runtime's own
    consumer method, resizeDrawingSurfaceToCanvas, is what
    records it). These pins hold all three parts. */
-await test("her stage: full body framing on Today, a DPR synced canvas, the shelf on the stage", () => {
+await test("her stage: full body framing on Today, the living rig, the shelf on the stage", () => {
   // Pin updated 2026-10-16 (layout audit finding 12): the stage
   // size is now phone aware, 264 at widths up to 430px where 288
   // squeezed sideways, and 288 above them.
@@ -4970,8 +4989,20 @@ await test("her stage: full body framing on Today, a DPR synced canvas, the shel
   assert.ok(learnSrc.indexOf("NOVA'S SHELF") < learnSrc.indexOf("Due for review"), "the shelf is not on the stage above the review bench");
   assert.ok(riveSrc.includes('framing === "full" || framing === "panel"'), "the canvas has no full body framing");
   assert.ok(riveSrc.includes("Math.round(size * 1.85)"), "the bust box changed under the small spots");
-  assert.ok(riveSrc.includes("useDevicePixelRatio: true"), "the canvas does not pin the device pixel ratio option");
-  assert.ok(riveSrc.includes("resizeDrawingSurfaceToCanvas"), "the canvas never syncs its drawing surface to the device pixel ratio");
+  /* Pin updated 2026-10-29 (the owner's mascot verdict): the
+     two pins that stood here held the Rive canvas's device
+     pixel ratio sync. There is no drawing surface anymore:
+     sharpness is the vector's own. What the verdict adds is
+     life, so the pins now hold the rig's slow idle set
+     (breathing, blinking, gill sway, an occasional glance)
+     and the reduced motion still, with the seam still
+     passing reduced motion through from the brain. */
+  assert.ok(figureSrc.includes("nvfBreathe"), "the rig lost her breathing cycle");
+  assert.ok(figureSrc.includes("nvfBlink"), "the rig lost her blink cycle");
+  assert.ok(figureSrc.includes("nvfGill"), "the rig lost her gill sway");
+  assert.ok(figureSrc.includes("nvfGlance"), "the rig lost her slow glance");
+  assert.ok(figureSrc.includes("nvf-still"), "the rig has no reduced motion still");
+  assert.ok(riveSrc.includes("reducedMotion={reducedMotion}"), "the canvas no longer passes reduced motion to the rig");
   // Pin replaced 2026-10-15 (the old model purge): this slot
   // pinned the fallback surface mapping "full" onto the
   // avatar's "panel" framing. The fallback is deleted; the

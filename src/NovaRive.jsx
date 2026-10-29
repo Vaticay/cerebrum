@@ -1,29 +1,39 @@
-/* ── Nova in Rive: the code side of the Rive rebuild ──────────
-   The owner approved rebuilding Nova's animation in Rive (state
-   machines, a 2.5D joystick head, an autonomous quirk director)
-   and supplied the spec for it. The .riv art asset itself is
-   authored in the Rive editor in a later step; this file is the
-   live contract that asset drops into, plus everything around
-   it that is code rather than art:
+/* ── Nova's figure and voice: the code side ───────────────────
+   This file began as the code side of the Rive rebuild: the
+   state machine contract (Nova_Controller and its inputs),
+   her quip bank, and the canvas that rendered the editor
+   authored asset at public/nova/nova.riv, live from
+   2026-10-15. What it holds now, after the owner's mascot
+   verdict of 2026-10-29 ("less cartoonish", "more stern",
+   "have life"):
 
-   - The state machine contract (Nova_Controller and its inputs)
-     the editor build is authored against, in one place below.
+   - The contract constants below, kept as the record of the
+     feeds her figure has always consumed. NovaFigure.jsx
+     reads the same feeds under the same names: the behavior
+     state, quizState and appState, the joystick pointer,
+     the sleep stage, the talking flag, reduced motion, and
+     the poke and celebrate counters.
    - Her voice: the categorized quip bank below, in her
      written voice (the personality sheet: calm, dry, short,
      no hype, no exclamation, no dashes of any kind). The
      speaking itself is unified in NovaSpeech.jsx: one speech
      controller arbitrates every line she says anywhere, and
-     these surfaces just render the controller's current line,
-     feed it Rive events, and pulse the isTalking input it
-     times. This file keeps the bank and the pure mapping
-     helpers the controller imports.
-   - The renderer itself: NovaRive is the canvas and nothing
-     else. The asset at public/nova/nova.riv has been live
-     since 2026-10-15, and the SVG rig that used to stand in
-     for it retired the same day (the old model purge: the
-     owner saw the traced rig still rendering and ordered it
-     gone). NOVA_RIVE_ASSET stays as the one place the asset
-     path is named; there is no second surface behind it.
+     these surfaces just render the controller's current line
+     and feed its talking flag to her mouth. This file keeps
+     the bank and the pure mapping helpers the controller
+     imports.
+   - The renderer itself: NovaRive is the figure surface and
+     nothing else. The rendered figure is the primitive rig
+     in NovaFigure.jsx, rebuilt under the 2026-10-29 verdict:
+     adult proportions instead of the editor asset's chibi
+     build (an oversized head and glossy oversized eyes that
+     a .riv binary cannot be re proportioned out of from
+     code), a stern resting face, and slow idle life. The
+     .riv file remains in public/ as the retired asset; it
+     renders nowhere. There is no second surface behind the
+     rig, and no runtime or wasm is fetched for her any more:
+     the self hosted Rive wasm wiring that stood here from
+     2026-10-15 retired with the asset it served.
 
    Palette discipline: the code side visuals here stay in
    the house palette only. The speech bubble itself lives in
@@ -31,36 +41,9 @@
    the line bubble always used. The spec's cyan accent was
    not adopted; Nova's world is gold, cream, and ink. */
 
-import React, { useEffect, useRef } from "react";
-import {
-  useRive,
-  useStateMachineInput,
-  EventType,
-  Layout,
-  Fit,
-  Alignment,
-  RuntimeLoader,
-} from "@rive-app/react-canvas";
-import riveWasmUrl from "@rive-app/canvas/rive.wasm?url";
-import riveWasmFallbackUrl from "@rive-app/canvas/rive_fallback.wasm?url";
+import React from "react";
 import { NovaBubble } from "./NovaSpeech.jsx";
-
-/* ── Self hosted runtime wasm (fix, 2026-10-15) ───────────────
-   The @rive-app/canvas RuntimeLoader fetches its wasm from a
-   CDN by default: unpkg for the primary build, jsDelivr for
-   the fallback. Those fetches are cross origin, and the site
-   Content Security Policy allows connect-src 'self' plus two
-   API origins only, so in production both fetches were blocked,
-   the runtime never initialized, and the canvas sat at 0x0
-   forever while everything around it (the brain, the click
-   handler) worked. The fix pins the loader to the wasm files
-   shipped inside the installed @rive-app/canvas package: vite
-   emits them as local assets, and the loader fetches them from
-   this origin. This runs at module scope, before any useRive
-   call in this file can create a runtime instance, and this
-   file is the app's only Rive consumer. */
-RuntimeLoader.setWasmUrl(riveWasmUrl);
-RuntimeLoader.setWasmFallbackUrl(riveWasmFallbackUrl);
+import { NovaFigure } from "./NovaFigure.jsx";
 
 /* ── The contract ─────────────────────────────────────────────
    State machine: Nova_Controller.
@@ -72,17 +55,22 @@ RuntimeLoader.setWasmFallbackUrl(riveWasmFallbackUrl);
    Triggers: poke, celebrate, sleep, wake.
    Events the asset may fire: EmitIdleQuip, EmitQuizQuip,
    EmitSearchQuip.
-   Canvas box: the character renders on a square 1024
-   artboard, and she fills about 80 percent of it each way
-   (measured on the rest frame: x 0.102 to 0.898, y 0.104 to
-   0.886). NovaCanvas takes a framing prop: "bust" (the
+   Figure box: the rig in NovaFigure.jsx draws on a 480 by
+   640 canvas and fills it edge to edge, standing on its
+   bottom line. NovaCanvas takes a framing prop: "bust" (the
    default for the small spots, a head and shoulders crop of
    the size times 1.85 mount, applied in NovaCanvas below)
    or "full" (a box hugging the figure's own aspect, width
    size * 1.02 by height size), and "panel" means full too,
    the standing figure semantics the large spots always used.
    Her stage on the learning home passes framing "full" at a
-   large size. */
+   large size. The state machine names above are the retired
+   asset's contract, kept as the record; the feeds themselves
+   (the numbers, the booleans, the counter triggers) are what
+   the rig consumes, under the same names, from the same
+   props. The asset's events retired with it: nothing fires
+   EmitIdleQuip any more, and quip offers come from the
+   owners, as they already did for state transitions. */
 export const NOVA_RIVE_STATE_MACHINE = "Nova_Controller";
 export const NOVA_RIVE_SRC = "/nova/nova.riv?v=3";
 export const NOVA_RIVE_ASSET = "/nova/nova.riv?v=3";
@@ -309,27 +297,27 @@ export function quizStateForSheet({ phase = 0, good = false, correctStreak = 0, 
    searchCategoryForState, quipCategoryForRiveEvent,
    quipGateAllows, pickQuipLine). The surfaces below take a
    speech prop (the object useNovaSpeech returns): they render
-   its current line as a NovaBubble, pulse isTalking from its
-   talking flag, and route Rive events into it. A surface with
-   no speech prop renders the figure only: no bubble, talking
-   false, events a no op. State transition offers now come
-   from the owners (NovaLive, the Player figure, SearchNova); the
-   quips prop survives only as an opt out for event routing
-   on surfaces that pass quips false (the sidebar pop, the
-   lesson completion figure). */
+   its current line as a NovaBubble and feed its talking flag
+   to her mouth. A surface with no speech prop renders the
+   figure only: no bubble, talking false. State transition
+   offers come from the owners (NovaLive, the Player figure,
+   SearchNova), as they did before the asset retired. */
 
-/* ── The canvas surface ───────────────────────────────────────
-   The only surface (2026-10-15, the old model purge): the
-   traced SVG rig that used to render here as a fallback until
-   the asset landed retired with the raster poses the same
-   day, and the asset has been live since. Every contract
-   input is bound through useStateMachineInput and fed from
-   props: brain sleep stages fire the sleep and wake triggers,
-   poke and celebrate arrive as counters from callers (a rising
-   count fires the trigger once), and Rive events route into
-   the caller's speech controller when one is attached. */
+/* ── The figure surface ───────────────────────────────────────
+   The only surface. From 2026-10-15 to 2026-10-29 this was
+   the Rive canvas and the editor asset it ran; the owner's
+   mascot verdict retired both (see the header). What renders
+   here now is the primitive rig in NovaFigure.jsx, and every
+   feed a caller passes lands on it under its contract name:
+   the behavior state and the scanning flag, quizState and
+   appState, the brain's sleep stage, the pointer, reduced
+   motion, and the poke and celebrate counters (a rising
+   count flashes the matching expression in the rig, the way
+   a fired trigger used to). The framing boxes below are the
+   ones the canvas used, unchanged, so every caller's layout
+   survives the swap. */
 function NovaCanvas(props) {
-  // waveN is accepted here and left unused: the Rive contract has no wave trigger.
+  // waveN is accepted here and left unused: the contract has no wave feed.
   const {
     size = 48, framing = "bust", quizState = 0, appState = 0, pointer = null, waveN = 0,
     sleepStage = 0, pokeN = 0, celebrateN = 0, reducedMotion = false, anchorRef = null,
@@ -347,148 +335,56 @@ function NovaCanvas(props) {
      renders its speech somewhere else in flow (the feedback
      sheet, through the Player) passes bubbleVariant null:
      the figure here is then figure only, while the speech
-     prop still feeds isTalking and routes Rive events. */
+     prop still feeds her talking mouth. */
   const bubbleVariant = props.bubbleVariant === undefined ? "header" : props.bubbleVariant;
-  const speechRef = useRef(speech);
-  speechRef.current = speech;
-  const speechCtxRef = useRef({ quizState, appState, idleMs: props.idleMs || 0 });
-  speechCtxRef.current = { quizState, appState, idleMs: props.idleMs || 0 };
-  const speechEventsRef = useRef(props.quips !== false);
-  speechEventsRef.current = props.quips !== false;
   const talkingNow = speech ? !!speech.talking : false;
-  /* The options ride as useRive's second argument, pinned in
-     code rather than inherited: the canvas resizes to its
-     container, and its backing store is sized in device
-     pixels. The wrapper's resize hook does that multiplication
-     for the canvas attributes, but it never tells the runtime
-     instance, whose devicePixelRatioUsed stays at 1 (it is
-     only synced for the Layout fit) while alignRenderer folds
-     that value into the render transform. The sync effect
-     below closes that gap with the runtime's own consumer
-     method, resizeDrawingSurfaceToCanvas, which rederives the
-     backing store from the canvas's CSS box at the real ratio
-     and records the ratio the transform expects. */
-  const riveState = useRive({
-    src: NOVA_RIVE_ASSET,
-    stateMachines: NOVA_RIVE_STATE_MACHINE,
-    autoplay: true,
-    layout: new Layout({ fit: Fit.Contain, alignment: Alignment.Center }),
-  }, { useDevicePixelRatio: true, shouldResizeCanvasToContainer: true });
-  const rive = riveState.rive;
-  const RiveComponent = riveState.RiveComponent;
-  const canvasEl = riveState.canvas;
-  const boxRef = useRef(null);
 
-  useEffect(() => {
-    if (!rive || !canvasEl) return undefined;
-    const syncSurface = () => {
-      try {
-        const rect = canvasEl.getBoundingClientRect();
-        if (!rect.width || !rect.height) return;
-        const dpr = Math.min(Math.max(1, window.devicePixelRatio || 1), 3);
-        if (rive.devicePixelRatioUsed === dpr) return;
-        rive.resizeDrawingSurfaceToCanvas(dpr);
-      } catch { /* the wrapper's own resize still applies; the sync only sharpens */ }
-    };
-    syncSurface();
-    let observer = null;
-    if (typeof ResizeObserver !== "undefined" && boxRef.current) {
-      observer = new ResizeObserver(syncSurface);
-      observer.observe(boxRef.current);
-    }
-    window.addEventListener("resize", syncSurface);
-    return () => {
-      if (observer) observer.disconnect();
-      window.removeEventListener("resize", syncSurface);
-    };
-  }, [rive, canvasEl]);
-  const quizIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "quizState", 0);
-  const appIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "appState", 0);
-  const mouseXIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "mouseX", 0);
-  const mouseYIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "mouseY", 0);
-  const talkingIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "isTalking", false);
-  const reducedIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "reducedMotion", false);
-  const pokeIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "poke");
-  const celebrateIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "celebrate");
-  const sleepIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "sleep");
-  const wakeIn = useStateMachineInput(rive, NOVA_RIVE_STATE_MACHINE, "wake");
-
-  useEffect(() => { if (quizIn) quizIn.value = quizState; }, [quizIn, quizState]);
-  useEffect(() => { if (appIn) appIn.value = appState; }, [appIn, appState]);
-  useEffect(() => { if (mouseXIn) mouseXIn.value = pointer ? pointer.x : 0; }, [mouseXIn, pointer]);
-  useEffect(() => { if (mouseYIn) mouseYIn.value = pointer ? pointer.y : 0; }, [mouseYIn, pointer]);
-  useEffect(() => { if (talkingIn) talkingIn.value = talkingNow; }, [talkingIn, talkingNow]);
-  useEffect(() => { if (reducedIn) reducedIn.value = !!reducedMotion; }, [reducedIn, reducedMotion]);
-
-  const prevPokeRef = useRef(pokeN);
-  useEffect(() => {
-    if (pokeN > prevPokeRef.current && pokeIn) {
-      try { pokeIn.fire(); } catch { /* a trigger with no listener in the asset is a no op */ }
-    }
-    prevPokeRef.current = pokeN;
-  }, [pokeN, pokeIn]);
-
-  const prevCelebrateRef = useRef(celebrateN);
-  useEffect(() => {
-    if (celebrateN > prevCelebrateRef.current && celebrateIn) {
-      try { celebrateIn.fire(); } catch { /* a trigger with no listener in the asset is a no op */ }
-    }
-    prevCelebrateRef.current = celebrateN;
-  }, [celebrateN, celebrateIn]);
-
-  const prevStageRef = useRef(sleepStage);
-  useEffect(() => {
-    const prev = prevStageRef.current;
-    prevStageRef.current = sleepStage;
-    if (sleepStage > prev && sleepStage >= 2 && sleepIn) {
-      try { sleepIn.fire(); } catch { /* a trigger with no listener in the asset is a no op */ }
-    } else if (sleepStage < prev && wakeIn) {
-      try { wakeIn.fire(); } catch { /* a trigger with no listener in the asset is a no op */ }
-    }
-  }, [sleepStage, sleepIn, wakeIn]);
-
-  useEffect(() => {
-    if (!rive) return undefined;
-    const handler = (e) => {
-      const n = e && e.data && e.data.name;
-      if (!n || !speechEventsRef.current) return;
-      const s = speechRef.current;
-      if (s) s.handleRiveEvent(n, speechCtxRef.current);
-    };
-    rive.on(EventType.RiveEvent, handler);
-    return () => {
-      try { rive.off(EventType.RiveEvent, handler); } catch { /* the runtime is already gone */ }
-    };
-  }, [rive]);
-
-  /* Framing. "full" and "panel" give the square asset a box in
-     its own proportions: the figure fills about 0.80 of the
-     artboard width and 0.78 of its height, so a box of size
-     times 1.02 by size holds her whole figure with almost no
-     letterbox, and size reads as the height she stands at.
-     maxWidth keeps the stage box inside a narrow panel; the
-     runtime resizes to whatever box results.
+  /* Framing. "full" and "panel" give the figure a box in its
+     own proportions: the rig's canvas is 480 by 640 and she
+     fills it edge to edge, standing on its bottom line, so a
+     box of size times 1.02 by size holds her whole figure
+     with air at the sides, and size reads as the height she
+     stands at. maxWidth keeps the stage box inside a narrow
+     panel; the figure meets whatever box results.
      Bust framing (2026-10-18, design audit H24): the small
-     spots now crop to head and shoulders. The figure mount
-     keeps its old size times 1.85 square, and a smaller outer
-     box clips it, centred on her head, so her face, glasses
-     and badge read at resident sizes like the 66px header.
-     Every bust caller inherits this from here: the header,
-     the Player and the lesson sheet figures alike. */
+     spots crop to head and shoulders. The figure mount keeps
+     its old size times 1.85 square, and a smaller outer box
+     clips it, centred on her head, so her face, glasses and
+     badge read at resident sizes like the 66px header. The
+     rig anchors its head at the top of the mount for this
+     crop (the bust flag below), where the full framing
+     anchors her feet at the bottom. Every bust caller
+     inherits this from here: the header, the Player and the
+     lesson sheet figures alike. */
   const fullBody = framing === "full" || framing === "panel";
   const w = fullBody ? Math.round(size * 1.02) : Math.round(size * 1.3);
   const h = fullBody ? Math.round(size) : Math.round(size);
   const bustInner = Math.round(size * 1.85);
+  const figure = (
+    <NovaFigure
+      state={props.state || null}
+      quizState={quizState}
+      appState={appState}
+      sleepStage={sleepStage}
+      scanning={!!props.scanning}
+      talking={talkingNow}
+      pointer={pointer}
+      reducedMotion={reducedMotion}
+      pokeN={pokeN}
+      celebrateN={celebrateN}
+      bust={!fullBody}
+    />
+  );
   return (
     <span ref={anchorRef} className="cb-nova-sprite" style={{ position: "relative", display: "inline-flex" }}>
       {fullBody ? (
-        <span ref={boxRef} style={{ width: w, height: h, maxWidth: "100%", display: "block" }}>
-          <RiveComponent />
+        <span style={{ width: w, height: h, maxWidth: "100%", display: "block" }}>
+          {figure}
         </span>
       ) : (
         <span style={{ width: w, height: h, display: "block", overflow: "hidden", position: "relative", flexShrink: 0 }}>
-          <span ref={boxRef} style={{ width: bustInner, height: bustInner, display: "block", position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)" }}>
-            <RiveComponent />
+          <span style={{ width: bustInner, height: bustInner, display: "block", position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)" }}>
+            {figure}
           </span>
         </span>
       )}
@@ -498,14 +394,14 @@ function NovaCanvas(props) {
 }
 
 /* ── NovaRive ─────────────────────────────────────────────────
-   One component, one surface: the canvas, fed by the asset
-   constant above. Callers (NovaLive in the header, the Player figure
+   One component, one surface: the figure, fed by the feeds
+   above. Callers (NovaLive in the header, the Player figure
    in the lesson Player, SearchNova over in the app) pass the
-   same character state they always have, plus the Rive
-   contract feeds this file maps onward: quizState, appState,
-   pointer, sleepStage, and the poke and celebrate counters.
-   Speech arrives as the speech prop: the controller object
-   from useNovaSpeech in NovaSpeech.jsx, owned by the caller,
+   same character state they always have, plus the contract
+   feeds this file maps onward: quizState, appState, pointer,
+   sleepStage, and the poke and celebrate counters. Speech
+   arrives as the speech prop: the controller object from
+   useNovaSpeech in NovaSpeech.jsx, owned by the caller,
    never created here. */
 export function NovaRive(props) {
   return <NovaCanvas {...props} />;

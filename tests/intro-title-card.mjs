@@ -779,57 +779,66 @@ await test("the stage keeps one centred column inside the standard shell", () =>
   assert.ok(!appSrc.includes("marginLeft: isMobile || homeStage ? 0"), "stage still zeroes the sidebar offset");
 });
 
-await test("the stage carries the plain order and no corpus number", () => {
+await test("the stage is Nova's room: her figure, her greeting, her shelf, the old stack absent", () => {
   /* Corrected contract (2026-10-13 evening, Dusty's photo verdict):
      the plate order this test used to pin (the eyebrow, the serif
      manifesto headline, the marketing paragraph under the composer,
      the letterspaced labels, the numbered examples) read as AI
-     generated to him and is gone. The stage now opens with a plain
-     Cerebrum masthead, one plain line, and the composer; the labels
-     are "Continue" and "Try asking" in normal case. The column is 1160,
-     not the narrower measure the plate pass set. */
+     generated to him and is gone.
+     Pin rewritten 2026-10-29 (the owner's pick, Nova runs the
+     home, after his phone photo verdict "This just looks so so
+     bad" on the stack that survived the declutter and the
+     character pass): the stage is her room now. She stands at
+     full presence in the title card door's light pool, her
+     greeting and the composer sit with her as one unit, and her
+     shelf of past questions stands below. The masthead with its
+     wordmark, the serif headline sentence, the proof line, and
+     the Continue row that earlier versions of this pin required
+     are gone on purpose, and the pin now guards their absence
+     in the stage block. The column still holds the thread
+     width, LAYOUT.answer, from stage into thread. */
   const stage = appSrc.slice(
     appSrc.indexOf("The home stage: the empty search home"),
     appSrc.indexOf("<div style={{ ...S.workspace,")
   );
   assert.ok(stage.length > 1000, "stage block not found");
-  /* Pin updated 2026-10-19 (S7 shell lane, audit M13): the column now
-     holds the thread width, LAYOUT.answer, from stage into thread. */
   assert.ok(stage.includes("maxWidth: LAYOUT.answer"), "stage column is not the thread measure");
-  assert.ok(stage.includes("cb-stage-wordmark"), "masthead wordmark missing from the stage");
-  assert.ok(stage.includes(">Cerebrum<"), "masthead does not carry the name");
-  /* 2026-10-28 (declutter verdict): the stage lockup renders on
-     mobile only. On desktop the sidebar brand beside the stage
-     already carries the name, and the owner's photo showed the
-     wordmark twice on one screen. The gate sits between the
-     masthead opening and the resident Nova. */
-  const mastheadSeg = stage.slice(stage.indexOf("cb-stage-masthead"), stage.indexOf("NovaLive"));
-  assert.ok(mastheadSeg.includes("isMobile &&"), "stage wordmark is not gated to mobile");
-  /* 2026-10-28 (declutter verdict): the stage sentence is rewritten
-     in plain words. The owner flagged "from the research papers"
-     directly; the promise (ask, answer, sources attached) stays,
-     the flagged phrase is gone from the stage. The door keeps its
-     own sentence, pinned at its own site above. */
-  assert.ok(stage.includes("Ask a question and get an answer with the sources attached."), "the plain stage sentence is missing");
+  /* Her presence: the stage unit, the figure at full size, the
+     greeting from her bank, the shelf that reopens threads. */
+  assert.ok(stage.includes("cb-nova-stage"), "Nova's stage unit missing from the stage");
+  assert.ok(stage.includes('<NovaLive size={isMobile ? 216 : 288} framing="full" />'), "Nova does not stand at full presence on the stage");
+  assert.ok(stage.includes("stageGreeting"), "her greeting is not composed on the stage");
+  assert.ok(appSrc.includes("NOVA_HOME_GREETINGS"), "her home greeting bank is missing");
+  assert.ok(stage.includes("cb-stage-shelf"), "her shelf is missing from the stage");
+  assert.ok(stage.includes("shelfItems"), "the shelf does not read the shelf items");
+  assert.ok(stage.includes("openHistoryItem(h)"), "a shelf tap does not reopen the thread through the ledger's opener");
+  assert.ok(stage.includes(">The shelf<"), "the shelf lost its set label");
+  /* The old stack, absent: the masthead and its wordmark, the
+     headline sentence, the proof line and its dialog opener,
+     the Continue row and its re ask action. */
+  assert.ok(!stage.includes("cb-stage-masthead"), "the stage masthead came back");
+  assert.ok(!stage.includes("cb-stage-wordmark"), "the stage wordmark came back");
+  assert.ok(!stage.includes("Ask a question and get an answer with the sources attached."), "the serif headline sentence is back on the stage");
   assert.ok(!stage.includes("from the research papers, with the sources attached"), "the flagged headline wording survives on the stage");
+  assert.ok(!stage.includes("setProvenanceOpen(true)"), "the proof line's opener is back on the stage");
+  assert.ok(!stage.includes("scholarly databases, every claim linked"), "the proof line's wording is back on the stage");
+  assert.ok(!stage.includes(">Continue<"), "the Continue row is back on the stage");
+  assert.ok(!stage.includes(">Ask again<"), "the Continue row's re ask action is back on the stage");
+  assert.ok(!stage.includes(">Keep going<"), "the stray Keep going label survives on the stage");
+  assert.ok(!appSrc.includes(">Keep going</DeckBtn>"), "the stray Keep going label survives on the deck card");
   assert.ok(stage.includes('variant="stage"'), "composer not in its stage variant");
   assert.ok(!stage.includes("Plate II · Inquiry"), "the plate eyebrow survives on the stage");
   assert.ok(!stage.includes("Every answer is written from the papers"), "the manifesto headline survives on the stage");
   assert.ok(!stage.includes("Each answer opens with"), "the marketing paragraph survives under the composer");
-  /* 2026-10-28 (declutter verdict): the Continue row's re ask
-     action is named for what it does. It read "Keep going", which
-     names no function; it is "Ask again" now, here and on the deck
-     card that carries the same action off stage. */
-  assert.ok(stage.includes(">Ask again<"), "continue row re ask action is not named in plain words");
-  assert.ok(!stage.includes(">Keep going<"), "the stray Keep going label survives on the stage");
-  assert.ok(!appSrc.includes(">Keep going</DeckBtn>"), "the stray Keep going label survives on the deck card");
   /* 2026-10-28 (declutter verdict): the evidence filter's default
      blurb was a slogan ("Everything, from lab work to large
      trials. Start here.") duplicating the proof line's pitch. It
-     is gone from the app; the blurb now describes the tier. */
+     is gone from the app; the blurb now describes the tier, and
+     on the stage (2026-10-29) it no longer renders as prose
+     under the composer at all: the stage's filter is quiet. */
   assert.ok(!appSrc.includes("Everything, from lab work to large trials. Start here."), "the slogan blurb survives in the evidence filter");
   assert.ok(appSrc.includes("Every kind of study counts, from work in cells and animals to trials in people. Nothing is filtered out."), "the plain all tier blurb is missing");
-  assert.ok(stage.includes(">Continue<"), "continue row missing its plain label");
+  assert.ok(appSrc.includes("hideBlurb"), "the stage filter's quiet mode is not wired");
   assert.ok(!stage.includes("Continue investigation"), "the plate continue label survives");
   assert.ok(stage.includes(">Try asking<"), "example questions missing their plain label");
   assert.ok(!stage.includes("Specimen inquiries"), "the specimen label survives");
@@ -841,14 +850,9 @@ await test("the stage carries the plain order and no corpus number", () => {
      intro door. The pin now guards the absence. */
   assert.ok(!stage.includes("stageSpecimen"), "the stage footer specimen came back");
   assert.ok(!stage.includes("Traced claim"), "the plate footer label survives");
-  /* 2026-10-18 (design audit H10): the scholarly proof line is mounted
-     on the stage on purpose now, wired to the sources dialog. This
-     reverses the two no corpus number assertions that stood here. */
-  assert.ok(stage.includes("scholarly databases"), "the H10 proof line is missing from the stage");
-  assert.ok(stage.includes("SCHOLARLY_SOURCES.length"), "the proof line does not read the source count");
 });
 
-await test("the stage column carries a solid backing in every palette and the proof line sets at the label role", () => {
+await test("the stage column carries a solid backing in every palette", () => {
   /* 2026-10-20, readability residue wave: in the Light palette the
      stage text tones are dark and sat directly over the graded calm
      film, computing to 0.98 to 3.50 to 1 against the film patches,
@@ -864,7 +868,13 @@ await test("the stage column carries a solid backing in every palette and the pr
      ground, the atmo accent glow, and the calm film. The backing
      now spreads in dark palettes as well (the ground only, no
      border or padding), so the gate this pin asserted is gone on
-     purpose; the pin now asserts the backing in both branches. */
+     purpose; the pin now asserts the backing in both branches.
+     Pin updated 2026-10-29 (Nova runs the home): the proof line
+     half of this test retired with the proof line itself, which
+     the owner's pick removed from the stage. The backing half
+     stands unchanged: her stage still sits on the solid ground,
+     and the title card's light pool paints over it, never under
+     text. */
   const stage = appSrc.slice(
     appSrc.indexOf("The home stage: the empty search home"),
     appSrc.indexOf("<div style={{ ...S.workspace,")
@@ -873,9 +883,6 @@ await test("the stage column carries a solid backing in every palette and the pr
   assert.ok(stage.includes("...(P.dark ? {"), "stage backing lost its dark palette branch");
   assert.ok(!stage.includes("...(P.dark ? {} : {"), "stage backing is gated away from dark palettes again");
   assert.ok(stage.includes("background: P.bg"), "stage column carries no solid P.bg backing");
-  const proof = stage.slice(stage.indexOf("setProvenanceOpen(true)"), stage.indexOf("scholarly databases"));
-  assert.ok(proof.includes("fontSize: FONT_SIZES.label"), "stage proof line does not set at the label role");
-  assert.ok(!proof.includes("fontSize: FONT_SIZES.caption"), "stage proof line still sets at the caption role");
 });
 
 await test("the stage composer rotates real specimen questions", () => {
@@ -968,7 +975,13 @@ await test("the stage renders exactly one Continue affordance", () => {
      deck's own "Where you left off" card, same question, same Keep
      going and History actions. Corrected contract: HomeDeck takes a
      suppressContinue prop (default off, deck unchanged elsewhere)
-     that stands the card down, and the stage passes it. */
+     that stands the card down, and the stage passes it.
+     Pin updated 2026-10-29 (the owner's pick, Nova runs the
+     home): the stage's own Continue row is retired entirely and
+     her shelf of past questions stands in its place, so the
+     stage now renders zero Continue affordances of its own and
+     the deck's card stays suppressed beside it. The deck prop
+     contract below is unchanged. */
   assert.ok(appSrc.includes("suppressContinue = false"), "deck prop missing or no longer defaults off");
   assert.ok(appSrc.includes("lastQ && !suppressContinue"), "the left off card is not gated on the prop");
   const stage = appSrc.slice(
