@@ -6178,7 +6178,10 @@ function InfoPage({ page }) {
         .cb-info-block li { font-size: ${FONT_SIZES.body}px; line-height: 1.55; color: ${P.ink2}; padding: 10px 0 10px 24px; position: relative; border-bottom: 1px solid ${P.line}; }
         .cb-info-block li:last-child { border-bottom: none; }
         .cb-info-block li:before { content: ""; position: absolute; left: 6px; top: 18px; width: 5px; height: 5px; border-radius: 50%; background: ${accent}; }
-        .cb-info-navlink { position: relative; transition: color .15s ease; }
+        .cb-info-navlink { position: relative; transition: color .2s cubic-bezier(0.16, 1, 0.3, 1); }
+        .cb-anchor { transition: opacity 280ms cubic-bezier(0.16, 1, 0.3, 1); }
+        @media (prefers-reduced-motion: reduce) { .cb-fadein { animation: none; } .cb-info-navlink, .cb-info-navlink::after, .cb-anchor { transition: none; } }
+        body.cb-motion-off .cb-fadein { animation: none; }
         .cb-info-navlink::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 1px; height: 2px; background: ${accent}; border-radius: 2px; transform: scaleX(0); transform-origin: left; transition: transform .25s cubic-bezier(0.16, 1, 0.3, 1); }
         .cb-info-navlink:hover { color: ${accentInk(P, accent)} !important; }
         .cb-info-navlink:hover::after, .cb-info-navlink[aria-current="page"]::after { transform: scaleX(1); }
@@ -6195,13 +6198,13 @@ function InfoPage({ page }) {
             reasoning), but the layer is now just an opaque background
             with the hairline border. */}
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: Z.behind, pointerEvents: "none", background: P.bg, borderBottom: `1px solid ${P.line}` }} />
-        <div style={{ maxWidth: 1080, margin: "0 auto", padding: isMobile ? "14px 20px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px 16px", flexWrap: "wrap" }}>
-          <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 500, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, padding: 0 }}>
+        <div style={{ maxWidth: 1080, margin: "0 auto", padding: isMobile ? "calc(14px + env(safe-area-inset-top, 0px)) 20px 14px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px 16px", flexWrap: "wrap" }}>
+          <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 500, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, padding: "0 4px", minHeight: 48 }}>
             <Mark size={18} accent={accent} /> Cerebrum
           </button>
           <nav aria-label="Public pages" style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: isMobile ? "flex-start" : "flex-end" }}>
             {NAV.map(([slug, label]) => (
-              <a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: FONT_SIZES.body, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "6px 8px", fontWeight: page === slug ? 500 : 500, letterSpacing: TYPE.heading.letterSpacing, whiteSpace: "nowrap" }}>{label}</a>
+              <a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: FONT_SIZES.body, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "6px 8px", fontWeight: page === slug ? 500 : 500, letterSpacing: TYPE.heading.letterSpacing, whiteSpace: "nowrap", minHeight: 48, display: "inline-flex", alignItems: "center" }}>{label}</a>
             ))}
           </nav>
         </div>
@@ -6231,7 +6234,7 @@ function InfoPage({ page }) {
               <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "2px 22px" }}>
                 {toc.map((t) => (
                   <li key={t.id}>
-                    <a href={`#${t.id}`} className="cb-toc-link" style={{ display: "block", padding: "5px 0", fontSize: FONT_SIZES.label, color: P.ink2, textDecoration: "none", lineHeight: 1.4 }}>{t.h}</a>
+                    <a href={`#${t.id}`} className="cb-toc-link" style={{ display: "flex", alignItems: "center", minHeight: 48, padding: "6px 0", fontSize: FONT_SIZES.label, color: P.ink2, textDecoration: "none", lineHeight: 1.4 }}>{t.h}</a>
                   </li>
                 ))}
               </ol>
@@ -6265,7 +6268,7 @@ function InfoPage({ page }) {
                     <div style={{ fontSize: FONT_SIZES.section, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)" }}>{tier.name}</div>
                     <div style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", marginTop: 2 }}>{tier.price}</div>
                     <p style={{ fontSize: FONT_SIZES.caption, lineHeight: 1.6, color: P.ink2, margin: "10px 0 0" }}>{tier.line}</p>
-                    <a href="/" style={{ display: "inline-block", marginTop: 14, fontSize: FONT_SIZES.caption, fontWeight: 500, color: tier.recommended ? accentInk(P, accent) : P.ink, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
+                    <a href="/" style={{ display: "inline-flex", alignItems: "center", minHeight: 48, padding: "0 2px", marginTop: 8, fontSize: FONT_SIZES.caption, fontWeight: 500, color: tier.recommended ? accentInk(P, accent) : P.ink, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
                       {tier.cta}
                     </a>
                   </div>
@@ -6273,14 +6276,14 @@ function InfoPage({ page }) {
               </div>
             )}
             {(page === "pricing" ? data.blocks.slice(2) : data.blocks).map((block, i) => (
-              <div key={i} id={isLegal ? slug(block.h) : undefined} className="cb-info-block cb-fadein" style={{ animationDelay: `${(i + 1) * 80}ms`, scrollMarginTop: 90 }}>
+              <div key={i} id={isLegal ? slug(block.h) : undefined} className="cb-info-block cb-fadein" style={{ animationDelay: `${Math.min(i + 1, 8) * 60}ms`, scrollMarginTop: 90 }}>
                 <h2>
                   {block.h}
                   {isLegal && (
                     /* A deep link per clause. "See section 15" is useless
                        in an email; a URL that lands on section 15 is not. */
                     <a href={`#${slug(block.h)}`} className="cb-anchor" aria-label={`Link to “${block.h}”`} title="Link to this section"
-                      style={{ marginLeft: 8, color: accent, textDecoration: "none", fontSize: "0.72em", opacity: 0, transition: "opacity 280ms ease" }}>#</a>
+                      style={{ marginLeft: 8, color: accent, textDecoration: "none", fontSize: "0.72em", opacity: 0 }}>#</a>
                   )}
                 </h2>
                 {block.p && <p>{block.p}</p>}
@@ -6290,7 +6293,7 @@ function InfoPage({ page }) {
                 {block.widget === "nova-figure" && (
                   <NovaFigure P={P} isMobile={isMobile} />
                 )}
-                {block.email && <a href={`mailto:${block.email}`} style={{ fontSize: FONT_SIZES.body, color: accentInk(P, accent), textDecoration: "none", fontFamily: "var(--cb-font)", display: "inline-block", marginBottom: 8 }}>{block.email}</a>}
+                {block.email && <a href={`mailto:${block.email}`} style={{ fontSize: FONT_SIZES.body, color: accentInk(P, accent), textDecoration: "none", fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", minHeight: 48, marginBottom: 8 }}>{block.email}</a>}
                 {block.list && <ul>{block.list.map((li, j) => <li key={j}>{li}</li>)}</ul>}
               </div>
             ))}
@@ -6315,11 +6318,11 @@ function InfoPage({ page }) {
           )}
         </div>
       </main>
-      <footer style={{ borderTop: `1px solid ${P.line}`, padding: "28px 24px", textAlign: "center", position: "relative", zIndex: Z.content }}>
+      <footer style={{ borderTop: `1px solid ${P.line}`, padding: "28px 24px calc(28px + env(safe-area-inset-bottom, 0px))", textAlign: "center", position: "relative", zIndex: Z.content }}>
         <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 500, color: P.ink, fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)" }}><Mark size={16} accent={accent} /> Cerebrum</div>
           <nav aria-label="Public pages" style={{ alignItems: "center", display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
-            {NAV.map(([slug, label]) => (<a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: FONT_SIZES.label, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "5px 12px", fontWeight: page === slug ? 500 : 500 }}>{label}</a>))}
+            {NAV.map(([slug, label]) => (<a key={slug} href={`/${slug}`} className="cb-info-navlink" aria-current={page === slug ? "page" : undefined} style={{ fontSize: FONT_SIZES.label, color: page === slug ? P.ink : P.ink2, textDecoration: "none", padding: "5px 12px", fontWeight: page === slug ? 500 : 500, minHeight: 48, display: "inline-flex", alignItems: "center" }}>{label}</a>))}
           </nav>
           <div style={{ fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)" }}>© 2026 Cerebrum</div>
         </div>
@@ -29399,6 +29402,24 @@ body.cb-motion-off .cb-doc-outline-btn:hover { transform: none; }
   .cb-answer-wrap .cb-ledger-row { padding-left: 0; padding-right: 0; }
   .cb-doc-outline { max-width: 100%; }
 }
+
+/* Follow on polish (2026-10-28): the fitted pass for the surfaces the
+   phase 2 wave was cut from, public pages, profiles, people search,
+   and Nova's motion set. One curve (var(--cb-ease)), transform and
+   opacity only, 48px targets, reduced motion and the motion off
+   setting both respected. */
+/* Public pages: the marketing widgets (quota calculator, live demo)
+   rise in on mount, and the demo answer rises again when the sample
+   question changes, instead of swapping cold. */
+@keyframes cbMwIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.cb-mw-in { animation: cbMwIn 300ms var(--cb-ease) both; }
+@media (prefers-reduced-motion: reduce) {
+  .cb-mw-in { animation: none; }
+}
+body.cb-motion-off .cb-mw-in { animation: none !important; }
 
 `;
 

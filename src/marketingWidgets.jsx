@@ -40,7 +40,7 @@ export function QuotaCalculator({ P, accent, isMobile }) {
         type="range" min={1} max={100} step={1} value={perWeek}
         onChange={(e) => setPerWeek(Number(e.target.value))}
         aria-label="Questions in a typical week"
-        style={{ width: "100%", minHeight: 44, accentColor: accent, cursor: "pointer" }}
+        style={{ width: "100%", minHeight: 48, accentColor: accent, cursor: "pointer" }}
       />
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 2 }}>
         <span>1</span><span>100</span>
@@ -68,7 +68,7 @@ export function QuotaCalculator({ P, accent, isMobile }) {
           </>
         )}
       </div>
-      <a href="/" style={{ display: "inline-block", marginTop: 14, fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
+      <a href="/" style={{ display: "inline-flex", alignItems: "center", minHeight: 48, padding: "0 2px", marginTop: 8, fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
         Start free
       </a>
     </div>
@@ -130,7 +130,7 @@ export function LiveDemo({ P, accent, isMobile, page }) {
     textDecoration: "none", verticalAlign: "super", lineHeight: 1,
   };
   return (
-    <div style={{
+    <div className="cb-mw-in" style={{
       marginTop: 40, padding: isMobile ? "22px 18px" : "28px 30px",
       borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface,
       boxShadow: SHADOW.sm(P),
@@ -145,18 +145,19 @@ export function LiveDemo({ P, accent, isMobile, page }) {
             onClick={() => setActive(i)}
             aria-pressed={active === i}
             style={{
-              minHeight: 44, padding: "10px 16px", borderRadius: RADIUS.md, cursor: "pointer",
+              minHeight: 48, padding: "10px 16px", borderRadius: RADIUS.md, cursor: "pointer",
               border: `1px solid ${active === i ? accent : P.line2}`,
               background: active === i ? accent : "transparent",
               color: active === i ? "#0b0b0e" : P.ink,
               fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
+              transition: "background-color 200ms var(--cb-ease), border-color 200ms var(--cb-ease), color 200ms var(--cb-ease)",
             }}
           >
             {d.q}
           </button>
         ))}
       </div>
-      <div aria-live="polite">
+      <div aria-live="polite" key={active} className="cb-mw-in">
         {/* Composition wave, 2026-10-26: the sample reads as the
             record it is. The asked question stands as the headline
             over the answer, the way it does over a real answer in
@@ -195,7 +196,7 @@ export function LiveDemo({ P, accent, isMobile, page }) {
       <p style={{ fontSize: FONT_SIZES.caption, color: P.faint, margin: "16px 0 0", fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
         A cached sample, not a live search. Every citation above is a real paper you can open.
       </p>
-      <a href="/" style={{ display: "inline-block", marginTop: 10, fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
+      <a href="/" style={{ display: "inline-flex", alignItems: "center", minHeight: 48, padding: "0 2px", marginTop: 4, fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, textDecoration: "none", fontFamily: "var(--cb-font)" }}>
         Ask your own question, free
       </a>
     </div>
