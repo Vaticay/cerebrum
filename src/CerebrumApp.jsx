@@ -15866,7 +15866,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
               <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink }}>Find people</div>
               <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>Search by name, by @username, or by research topic</div>
             </div>
-            <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 13, display: "inline-flex" }}><Icon name="close" size={18} /></button>
+            <button onClick={close} aria-label="Close" style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 0, width: 48, height: 48, display: "inline-flex", alignItems: "center", justifyContent: "center" }}><Icon name="close" size={18} /></button>
           </div>
         )}
 
@@ -15879,7 +15879,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search a name or @username"
               aria-label="Search researchers"
-              style={{ width: "100%", padding: "12px 13px 12px 34px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)" }}
+              style={{ width: "100%", padding: "13px 13px 13px 34px", fontSize: 16, borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)" }}
             />
           </div>
         </div>
@@ -15891,20 +15891,20 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
               apologizing for what it isn't, and it points to your own
               visibility setting. */}
           {trimmed.length < 2 && (
-            <div style={{ padding: "16px 16px 8px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.65 }}>
+            <div className="cb-people-in" style={{ padding: "16px 16px 8px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.65 }}>
               <div style={{ fontWeight: 500, color: P.ink, marginBottom: 6, fontSize: FONT_SIZES.label }}>Find someone you already know</div>
               Type at least two letters of their name, their @username, or a topic they work on. Searching with the @ sign works, so @asmith and asmith find the same person. There is no list of everyone to scroll through. People show up only when you search for them, and only if they have chosen to be findable in their settings.
             </div>
           )}
           {trimmed.length >= 2 && loading && results.length === 0 && (
-            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>
+            <div className="cb-people-in" style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>
           )}
           {trimmed.length >= 2 && !loading && results.length === 0 && (
-            <div style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
+            <div className="cb-people-in" style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
               Nobody matches that. Check the spelling and try again. Try their full name, their @username, or a topic they work on. They may not be on Cerebrum yet, or they may have chosen not to be findable.
             </div>
           )}
-          {results.map((r) => {
+          {results.map((r, idx) => {
             const isMessageBusy = messageBusy.has(r.id);
             const canMessage = !!r.canMessage;
             // Degree reads before affiliation: "Ph.D. · University of
@@ -15935,11 +15935,12 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                 key={r.id}
                 role="button"
                 tabIndex={0}
+                className="cb-people-row"
                 onClick={() => onOpenProfile(r.id)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenProfile(r.id); } }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = P.raised; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = P.surface; }}
-                style={{ display: "flex", alignItems: "flex-start", gap: narrowPeople ? 10 : 12, padding: narrowPeople ? "12px 12px" : "14px 14px", borderRadius: RADIUS.lg, cursor: "pointer", transition: "background 150ms ease", background: P.surface, border: `1px solid ${P.line}` }}
+                style={{ "--cb-people-i": Math.min(idx, 8), display: "flex", alignItems: "flex-start", gap: narrowPeople ? 10 : 12, padding: narrowPeople ? "12px 12px" : "14px 14px", borderRadius: RADIUS.lg, cursor: "pointer", transition: "background-color 200ms var(--cb-ease)", background: P.surface, border: `1px solid ${P.line}` }}
               >
                 {/* Commit 100 — this was `api.dicebear.com/...?seed=<username>`.
                     Every search sent the username of every person it matched
@@ -15982,7 +15983,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
                   disabled={isMessageBusy || !canMessage}
                   aria-label={canMessage ? `Message ${r.name}` : `You cannot message ${r.name} yet`}
                   title={canMessage ? `Message ${r.name}` : "You cannot message this person yet. They only accept messages from people they follow, and they do not follow you yet."}
-                  style={{ width: 44, height: 44, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: canMessage ? P.ink2 : P.faint, cursor: canMessage ? (isMessageBusy ? "default" : "pointer") : "not-allowed", opacity: isMessageBusy ? 0.6 : (canMessage ? 1 : 0.55) }}
+                  style={{ width: 48, height: 48, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: "none", border: `1px solid ${P.line}`, color: canMessage ? P.ink2 : P.faint, cursor: canMessage ? (isMessageBusy ? "default" : "pointer") : "not-allowed", opacity: isMessageBusy ? 0.6 : (canMessage ? 1 : 0.55) }}
                 ><Icon name="mail" size={15} /></button>
                 {!canMessage && (
                   <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.4, textAlign: "center" }}>They do not follow you yet</span>
@@ -15998,7 +15999,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
   if (page) {
     return (
       <div style={{ width: "100%" }}>
-        <div style={{
+        <div className="cb-people-in" style={{
           background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg,
           width: "100%", maxHeight: "none", display: "flex", flexDirection: "column",
           overflow: "hidden", outline: "none",
@@ -29453,6 +29454,23 @@ body.cb-motion-off .cb-mw-in { animation: none !important; }
 body.cb-motion-off .cb-prof-in,
 body.cb-motion-off .cb-prof-item,
 body.cb-motion-off .cb-prof-pop { animation: none !important; }
+/* People search: result rows rise in staggered, the page panel and
+   the search states arrive with the same rise instead of a cold
+   swap, and the row hover settles on the one curve. */
+@keyframes cbPeopleIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.cb-people-in { animation: cbPeopleIn 340ms var(--cb-ease) both; }
+.cb-people-row {
+  animation: cbPeopleIn 340ms var(--cb-ease) both;
+  animation-delay: calc(var(--cb-people-i, 0) * 45ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-people-in, .cb-people-row { animation: none; }
+}
+body.cb-motion-off .cb-people-in,
+body.cb-motion-off .cb-people-row { animation: none !important; }
 
 `;
 
