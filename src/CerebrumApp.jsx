@@ -14810,7 +14810,7 @@ function SuggestInput({ value, onChange, placeholder, ariaLabel, matches, P, acc
         style={{ ...inputStyle, fontFamily: "var(--cb-font)", fontSize: 16 }}
       />
       {show && (
-        <div id={listId.current} role="listbox" aria-label={ariaLabel + " suggestions"} style={{
+        <div id={listId.current} role="listbox" aria-label={ariaLabel + " suggestions"} className="cb-prof-pop" style={{
           position: "absolute", left: 0, width: "100%", top: "calc(100% + 4px)", zIndex: Z.float, textAlign: "left",
           background: P.dark ? "#141620" : "#fff", border: `1px solid ${P.line}`, borderRadius: RADIUS.md,
           overflow: "hidden", boxShadow: "none",
@@ -14823,7 +14823,7 @@ function SuggestInput({ value, onChange, placeholder, ariaLabel, matches, P, acc
               aria-selected={i === active}
               onMouseDown={(e) => { e.preventDefault(); pick(m); }}
               onMouseEnter={() => setActive(i)}
-              style={{ padding: "9px 13px", fontSize: FONT_SIZES.label, color: P.ink, cursor: "pointer", background: i === active ? withAlpha(accent, 0.08) : "transparent" }}
+              style={{ padding: "9px 13px", minHeight: 48, display: "flex", alignItems: "center", fontSize: FONT_SIZES.label, color: P.ink, cursor: "pointer", background: i === active ? withAlpha(accent, 0.08) : "transparent", transition: "background-color 150ms var(--cb-ease)" }}
             >{m}</div>
           ))}
         </div>
@@ -15333,7 +15333,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
 
   // 16px floor on every typed field: anything smaller makes iOS Safari
   // zoom the page on focus, which breaks the edit layout.
-  const inputStyle = { width: "100%", padding: "12px 2px", fontSize: 16, border: "none", borderBottom: `1px solid ${P.line2}`, borderRadius: 0, background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", outline: "none" };
+  const inputStyle = { width: "100%", padding: "13px 2px", fontSize: 16, border: "none", borderBottom: `1px solid ${P.line2}`, borderRadius: 0, background: "transparent", color: P.ink, fontFamily: "var(--cb-font)", outline: "none" };
 
   /* The pinned shelf: up to 4 landmark papers, pinned in the user's chosen
      order. IDs resolve against the saved list — a stale ID (paper unsaved
@@ -15431,7 +15431,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
       {/* Mobile: the hamburger is fixed at top:14 and 38px tall, owning the
           first ~52px. Mirror the thread's 68px clearance (36px here + 32px
           from the workspace) so the name never slides under the button. */}
-      <div style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "68px 18px 56px" : "18px 28px 72px" }}>
+      <div className="cb-prof-in" style={{ maxWidth: 860, width: "100%", margin: "0 auto", padding: isMobile ? "68px 18px calc(56px + env(safe-area-inset-bottom, 0px))" : "18px 28px 72px" }}>
 
         {/* Avatar. In edit mode the photo itself is the upload control:
             the hidden file input, the compression handler, the saving
@@ -15448,7 +15448,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           {editing && (
             <div>
               <button type="button" onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={avatarSaving}
-                style={{ minHeight: 44, background: "none", border: `1px solid ${P.line2}`, borderRadius: RADIUS.viewport, padding: "10px 16px", cursor: avatarSaving ? "default" : "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.ink, opacity: avatarSaving ? 0.6 : 1 }}>
+                style={{ minHeight: 48, background: "none", border: `1px solid ${P.line2}`, borderRadius: RADIUS.viewport, padding: "10px 16px", cursor: avatarSaving ? "default" : "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.ink, opacity: avatarSaving ? 0.6 : 1, transition: "border-color 200ms var(--cb-ease), opacity 200ms var(--cb-ease)" }}>
                 {avatarSaving ? "Saving photo…" : "Change photo"}
               </button>
               {avatarError && (
@@ -15491,7 +15491,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             )}
             {!editing && profileLink && (
               <button type="button" onClick={copyProfileLink}
-                style={{ marginTop: 8, minHeight: 44, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint }}>
+                style={{ marginTop: 8, minHeight: 48, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint, transition: "color 200ms var(--cb-ease)" }}>
                 {linkCopied ? "Link copied" : "Copy profile link"}
               </button>
             )}
@@ -15502,8 +15502,8 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             onClick={() => setEditing((v) => !v)}
             style={{
               flexShrink: 0, background: "none", border: "none", cursor: "pointer",
-              minHeight: 44, padding: "12px 4px", fontSize: FONT_SIZES.label, fontWeight: 500,
-              fontFamily: "var(--cb-font)", color: P.faint,
+              minHeight: 48, padding: "12px 4px", fontSize: FONT_SIZES.label, fontWeight: 500,
+              fontFamily: "var(--cb-font)", color: P.faint, transition: "color 200ms var(--cb-ease)",
             }}
           >{editing ? "Done" : "Edit"}</button>
         </div>
@@ -15626,7 +15626,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
             ) : (
               <button
                 type="button" onClick={() => setEditing(true)}
-                style={{ minHeight: 44, background: "none", border: "none", padding: "12px 0", cursor: "pointer", fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}
+                style={{ minHeight: 48, background: "none", border: "none", padding: "12px 0", cursor: "pointer", fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}
               >
                 <Icon name="edit" size={12} /> Add what you work on: one or two sentences
               </button>
@@ -15642,7 +15642,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           {!editing && !contextLine && profile.bio && (
             <button
               type="button" onClick={() => setEditing(true)}
-              style={{ minHeight: 44, marginTop: 6, background: "none", border: "none", padding: "12px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}
+              style={{ minHeight: 48, marginTop: 6, background: "none", border: "none", padding: "12px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 6 }}
             >
               <Icon name="edit" size={12} /> Add your degree and where you work or study
             </button>
@@ -15659,7 +15659,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                       display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none",
                       color: P.ink, fontSize: FONT_SIZES.label, fontWeight: 500,
                       borderBottom: `1px solid ${P.line2}`, paddingBottom: 2,
-                      minHeight: 44, padding: "10px 2px",
+                      minHeight: 48, padding: "10px 2px",
                     }}><Icon name={icon} size={13} /> {label}</a>
                   </span>
                 ))}
@@ -15687,7 +15687,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
               {pinnedPapers.map((sv, i) => {
                 const key = paperKey(sv);
                 return (
-                  <div key={key || i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 16px", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg }}>
+                  <div key={key || i} className="cb-prof-item" style={{ "--cb-prof-i": Math.min(i, 8), display: "flex", alignItems: "flex-start", gap: 12, padding: "14px 16px", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
                       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
@@ -15698,7 +15698,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                       ) : null}
                     </div>
                     <button type="button" onClick={() => togglePin(key)} disabled={pinSaving}
-                      style={{ flexShrink: 0, minHeight: 44, background: "none", border: "none", padding: "10px 4px", cursor: pinSaving ? "default" : "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint, opacity: pinSaving ? 0.6 : 1 }}>
+                      style={{ flexShrink: 0, minHeight: 48, background: "none", border: "none", padding: "10px 4px", cursor: pinSaving ? "default" : "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint, opacity: pinSaving ? 0.6 : 1, transition: "color 200ms var(--cb-ease), opacity 200ms var(--cb-ease)" }}>
                       Unpin
                     </button>
                   </div>
@@ -15720,7 +15720,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 const key = paperKey(sv);
                 const isPinned = pinnedIds.includes(key);
                 return (
-                  <div key={key || i} style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
+                  <div key={key || i} className="cb-prof-item" style={{ "--cb-prof-i": Math.min(i, 8), display: "flex", alignItems: "baseline", gap: 12, padding: "12px 0", borderTop: i > 0 ? `1px solid ${P.line}` : "none" }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, lineHeight: 1.45 }}>{renderCleanTitle(sv.title)}</div>
                       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
@@ -15728,7 +15728,7 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                       </div>
                     </div>
                     <button type="button" onClick={() => togglePin(key)} disabled={pinSaving || (!isPinned && pinnedIds.length >= 4)}
-                      style={{ flexShrink: 0, minHeight: 44, background: "none", border: "none", padding: "10px 4px", cursor: pinSaving ? "default" : "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: isPinned ? P.faint : accentInk(P, accent), opacity: pinSaving || (!isPinned && pinnedIds.length >= 4) ? 0.5 : 1 }}>
+                      style={{ flexShrink: 0, minHeight: 48, background: "none", border: "none", padding: "10px 4px", cursor: pinSaving ? "default" : "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: isPinned ? P.faint : accentInk(P, accent), opacity: pinSaving || (!isPinned && pinnedIds.length >= 4) ? 0.5 : 1, transition: "color 200ms var(--cb-ease), opacity 200ms var(--cb-ease)" }}>
                       {isPinned ? "Pinned" : "Pin"}
                     </button>
                   </div>
@@ -15744,9 +15744,10 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
           <button
             onClick={onManageAccount}
             style={{
-              background: "none", border: "none", padding: 0, cursor: "pointer",
+              background: "none", border: "none", padding: "0 4px", cursor: "pointer",
+              minHeight: 48, display: "inline-flex", alignItems: "center",
               fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)",
-              color: P.faint,
+              color: P.faint, transition: "color 200ms var(--cb-ease)",
             }}
           >Account &amp; security</button>
         </div>
@@ -16266,7 +16267,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
             <span aria-hidden="true" style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: 12, width: 40, height: 4, borderRadius: 2, background: P.line2 }} />
           )}
           <button type="button" onClick={onClose} aria-label="Close profile"
-            style={{ width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", borderRadius: "50%", color: P.faint, cursor: "pointer", flexShrink: 0 }}>
+            style={{ width: 48, height: 48, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", borderRadius: "50%", color: P.faint, cursor: "pointer", flexShrink: 0 }}>
             <Icon name="close" size={18} />
           </button>
         </div>
@@ -16295,7 +16296,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                flat tint, not imagery, so it claims nothing false. */
             <>
             <div aria-hidden="true" style={{ height: isMobile ? 60 : 84, background: withAlpha(accent, 0.16), borderBottom: `1px solid ${P.line}` }} />
-            <div style={{ padding: isMobile ? "0 20px 30px" : "0 30px 34px" }}>
+            <div className="cb-prof-in" style={{ padding: isMobile ? "0 20px calc(30px + env(safe-area-inset-bottom, 0px))" : "0 30px 34px" }}>
                 <div style={{ display: "flex", gap: 16, alignItems: "center", marginTop: isMobile ? -30 : -44, position: "relative" }}>
                   <div style={{ width: 88, height: 88, flexShrink: 0 }}>
                     {u.avatar_base64 ? (
@@ -16375,7 +16376,7 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                           target="_blank"
                           rel="noopener noreferrer nofollow ugc"
                           style={{
-                            display: "inline-flex", alignItems: "center", gap: 6,
+                            display: "inline-flex", alignItems: "center", gap: 6, minHeight: 48, padding: "10px 2px",
                             fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink,
                             textDecoration: "none", borderBottom: `1px solid ${P.line2}`, paddingBottom: 2,
                           }}
@@ -16472,11 +16473,11 @@ function PublicProfile({ P, accent, at, isMobile, userId, username = null, onClo
                 {signedIn && (
                   <div style={{ display: "flex", gap: 18, marginTop: 14 }}>
                     <button type="button" onClick={toggleBlock} disabled={blockBusy}
-                      style={{ minHeight: 44, background: "none", border: "none", padding: "10px 0", cursor: blockBusy ? "default" : "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint, opacity: blockBusy ? 0.6 : 1 }}>
+                      style={{ minHeight: 48, background: "none", border: "none", padding: "10px 0", cursor: blockBusy ? "default" : "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint, opacity: blockBusy ? 0.6 : 1 }}>
                       Block this person
                     </button>
                     <button type="button" onClick={() => setReportOpen(true)}
-                      style={{ minHeight: 44, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint }}>
+                      style={{ minHeight: 48, background: "none", border: "none", padding: "10px 0", cursor: "pointer", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.faint }}>
                       Report this person
                     </button>
                   </div>
@@ -29432,6 +29433,26 @@ body.cb-motion-off .cb-doc-outline-btn:hover { transform: none; }
   .cb-mw-in { animation: none; }
 }
 body.cb-motion-off .cb-mw-in { animation: none !important; }
+/* Profiles: your own profile rises in once, its pinned and saved rows
+   stagger in behind it, the public dossier fades up when its data
+   lands instead of swapping cold, and the editor suggestion list
+   opens with the same rise. */
+@keyframes cbProfIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.cb-prof-in { animation: cbProfIn 380ms var(--cb-ease) both; }
+.cb-prof-item {
+  animation: cbProfIn 380ms var(--cb-ease) both;
+  animation-delay: calc(var(--cb-prof-i, 0) * 45ms);
+}
+.cb-prof-pop { animation: cbProfIn 200ms var(--cb-ease) both; transform-origin: top center; }
+@media (prefers-reduced-motion: reduce) {
+  .cb-prof-in, .cb-prof-item, .cb-prof-pop { animation: none; }
+}
+body.cb-motion-off .cb-prof-in,
+body.cb-motion-off .cb-prof-item,
+body.cb-motion-off .cb-prof-pop { animation: none !important; }
 
 `;
 

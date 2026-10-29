@@ -192,11 +192,11 @@ await test("people rows protect the institution line and drop the follower count
   assert.ok(seg.includes("const subtitle = [r.degree, r.affiliation].filter(Boolean).join"), "the subtitle still carries the follower count");
   assert.ok(seg.includes('overflowWrap: "anywhere"'), "the subtitle cannot wrap to a second line");
 });
-await test("own profile external links carry a 44 tall hit area", () => {
+await test("own profile external links carry a 48 tall hit area", () => {
   const start = appSrc.indexOf("function ProfileView(");
   const end = appSrc.indexOf("function NetworkSearchModal", start);
   const seg = appSrc.slice(start, end);
-  assert.ok(seg.includes('minHeight: 44, padding: "10px 2px"'), "the external links have no height floor");
+  assert.ok(seg.includes('minHeight: 48, padding: "10px 2px"'), "the external links have no height floor");
   assert.ok(!seg.includes('role="tablist"'), "a duplicated workspace tab row survived on the profile");
 });
 
