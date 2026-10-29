@@ -752,6 +752,14 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
    can act on them. Nova lives inside the app too; her figure and
    her line leave the door with the staging they belonged to.
 
+   Amended 2026-10-29 (the owner's order: the copyright and
+   privacy tabs and what not, added back onto the intro): one
+   quiet legal row stands at the foot of the card, the app
+   footer's page links and its copyright notice, placed and
+   behaved as its own comment below describes. Nothing else in
+   this contract moved: no header or masthead returns with the
+   row, and it is foot furniture, not a nav.
+
    Standing behaviour, unchanged: the card is dark for everyone;
    the session flag collapses the ceremony for returning visitors;
    reduced motion gets one composed still of the same material;
@@ -899,8 +907,10 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
 
       {/* ── The title card itself: the word set like a film title
           at the centre of the frame, one small line under it, and
-          one quiet text affordance under the line. Nothing else
-          stands on this door. The beats of the staged entrance
+          one quiet text affordance under the line. Below the
+          centred card, at the foot of the frame, stands the legal
+          row (2026-10-29, the owner's order; its own comment
+          below carries the terms). The beats of the staged entrance
           follow the old order's timing (atmosphere, title, line,
           affordance) on the shared stage classes. */}
       <main className="cb-intro-chrome" style={{
@@ -945,6 +955,61 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
             }}>Tap to begin</button>
         </div>
       </main>
+
+      {/* The door's legal row (2026-10-29, the owner's order: the
+          copyright and privacy tabs and what not, added back onto
+          the intro). The title card retired the door's header links
+          the night it shipped; this order returns the site's
+          standing footer set at the foot of the card instead. The
+          set mirrored is the app footer's own row (the cb-appfoot
+          links in CerebrumApp.jsx): About, Privacy, Terms,
+          Disclosures, Contact, and its copyright notice. There is
+          no separate copyright page on the site; the notice is its
+          copyright element, and it stands here the way it stands
+          in the footer, as quiet text after the links. No product
+          links join them: the footers group those separately, and
+          the door takes only the set that travels together.
+          Register: the card's own faint ink at caption size, no
+          fill, no band, no rule, and the last beat of the staged
+          entrance (stage 5, kept in the CSS since the title card
+          and taken by nothing until now). Placement: a footer
+          block under the centred card in the wrap's column, so
+          the title, the line, and the way in keep the middle of
+          the frame and the row takes its own line at the bottom;
+          on a short phone screen the centred stack shrinks into
+          the space above it and nothing overlaps or is pushed
+          off. Behaviour: each link stops its press from reaching
+          the card, so a tap on a link goes to its page and never
+          fires the way in; the rest of the card begins on tap
+          exactly as before. The row is part of this door wherever
+          the door renders, cinema frame included: the frame holds
+          this same live door, and the cinema spec excludes no
+          part of it. */}
+      <footer className="cb-intro-chrome cb-door-stage-5 cb-door-legal" style={{
+        position: "relative", zIndex: 20,
+        display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center",
+        gap: isMobile ? "2px 16px" : "4px 20px",
+        padding: isMobile ? "6px 16px 16px" : "8px 24px 20px",
+        fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: faint,
+        textAlign: "center",
+      }}>
+        {[
+          ["/about", "About"],
+          ["/privacy", "Privacy"],
+          ["/terms", "Terms"],
+          ["/disclosures", "Disclosures"],
+          ["/contact", "Contact"],
+        ].map(([href, label]) => (
+          <a key={href} href={href}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              color: faint, textDecoration: "none", fontFamily: "var(--cb-font)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              minHeight: 44, padding: "0 2px", whiteSpace: "nowrap",
+            }}>{label}</a>
+        ))}
+        <span style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™</span>
+      </footer>
 
       {/* The door opening (2026-10-28): mounted only on the animated
           way in, purely visual, pointer events off. Entry fires on

@@ -265,14 +265,25 @@ for (const slug of slugs) {
  * own values from src/intro.jsx: neutral ground #060606, ink
  * #f3f3f1, the line at 0.72 alpha, the way in at 0.55, the title in
  * the reading serif at 500. React still replaces this on mount, so
- * the rendered door is unchanged. */
+ * the rendered door is unchanged.
+ * 2026-10-29 (the owner's order: the legal links added back onto
+ * the intro): the app door carries a legal row at its foot now
+ * (the app footer's page links and its copyright notice, in the
+ * card's faint ink), so this layer carries the same row in the
+ * same values, at the foot of its frame. Element for element
+ * parity is this layer's whole contract; a row that existed only
+ * after mount would be a second, lesser door for exactly the
+ * stalled visitor this document serves. */
 const doorMain = `
-    <main class="cb-prerender" style="min-height:100dvh;background:#060606;color:#f3f3f1;font:16px/1.7 'Inter Tight','Inter',system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;text-align:center">
-      <div style="padding:3rem 1.25rem">
+    <main class="cb-prerender" style="min-height:100dvh;background:#060606;color:#f3f3f1;font:16px/1.7 'Inter Tight','Inter',system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
+      <div style="padding:3rem 1.25rem;margin:auto">
       <h1 style="font-family:'Source Serif 4',Charter,Georgia,'Times New Roman',serif;font-weight:500;font-size:3.25rem;line-height:1.04;letter-spacing:0.008em;margin:0">Cerebrum</h1>
       <p style="font-size:1.05rem;color:rgba(243,243,241,0.72);margin:1.35rem 0 0">Answers from published research.</p>
       <p style="margin:2.1rem 0 0"><a href="/" style="color:rgba(243,243,241,0.55);font-size:.85rem;font-weight:500;letter-spacing:0.01em;text-decoration:none">Tap to begin</a></p>
       </div>
+      <footer style="padding:0 1.25rem 1.15rem;font-size:.75rem;color:rgba(243,243,241,0.55)">
+        <a href="/about" style="color:inherit;text-decoration:none;margin:0 .55rem">About</a><a href="/privacy" style="color:inherit;text-decoration:none;margin:0 .55rem">Privacy</a><a href="/terms" style="color:inherit;text-decoration:none;margin:0 .55rem">Terms</a><a href="/disclosures" style="color:inherit;text-decoration:none;margin:0 .55rem">Disclosures</a><a href="/contact" style="color:inherit;text-decoration:none;margin:0 .55rem">Contact</a> <span style="opacity:.75;white-space:nowrap">© ${new Date().getFullYear()} Cerebrum™</span>
+      </footer>
     </main>`;
 
 let doorHtml = shell;

@@ -26659,6 +26659,16 @@ summary::-webkit-details-marker { display: none; }
    ring in the card's neutral white, so the keyboard way in is as
    visible as the pointer one. */
 .cb-door-begin:focus-visible { outline: 2px solid rgba(243,243,241,0.65); outline-offset: 3px; }
+/* The door's legal row (2026-10-29, the owner's order): the links
+   stand in the card's faint ink and take the same quiet colour
+   shift the way in takes on hover, to the card's full ink, with
+   the same focus ring, so the row reads as the door's furniture
+   and never as a pasted on footer. Its still and leaving fades
+   ride the chrome rules above through the cb-intro-chrome class
+   it shares with the centred card. */
+.cb-door-legal a { transition: color 200ms ease-out; }
+.cb-door-legal a:hover { color: #f3f3f1; }
+.cb-door-legal a:focus-visible { outline: 2px solid rgba(243,243,241,0.65); outline-offset: 3px; }
 /* ── Inbox polish, 2026-10-28 ───────────────────────────────
    Phase 2 fitted polish, inbox lane. The thread list, the open
    conversation, its bubbles, and its menus take the intro curve

@@ -247,6 +247,65 @@ await test("the single way in is one quiet text affordance reading \"Tap to begi
 });
 
 // ══════════════════════════════════════════════════════════════════════════
+group("The legal row at the foot of the card (owner's order 2026-10-29)");
+
+await test("the door carries the site's standing footer set at its foot", () => {
+  /* New pins 2026-10-29 (the owner's order: the copyright and
+     privacy tabs and what not, added back onto the intro). The set
+     mirrored is the app footer's own row (the cb-appfoot links in
+     CerebrumApp.jsx): About, Privacy, Terms, Disclosures, Contact,
+     in the footer's order, with its copyright notice standing
+     after them. There is no separate copyright page on the site;
+     the notice is its copyright element. The product links
+     (Features, Pricing, and the rest) are grouped separately in
+     every footer the site carries, so they do not join the row. */
+  const legal = introFn.slice(introFn.indexOf("cb-door-legal"), introFn.indexOf("</footer>"));
+  assert.ok(legal.length > 100, "the legal row is missing from the door");
+  for (const [href, label] of [["/about", "About"], ["/privacy", "Privacy"], ["/terms", "Terms"], ["/disclosures", "Disclosures"], ["/contact", "Contact"]]) {
+    assert.ok(legal.includes(`["${href}", "${label}"]`), `the legal row is missing ${label}`);
+  }
+  assert.ok(legal.includes("©"), "the copyright notice is missing from the legal row");
+  assert.ok(legal.includes("Cerebrum™"), "the copyright notice does not name Cerebrum");
+  assert.ok(!legal.includes("/features") && !legal.includes("/pricing"), "product links joined the legal row");
+});
+
+await test("the legal row stands at the foot, below the centred card, on the last entrance beat", () => {
+  /* The row is a footer block under the card in the wrap's column,
+     never inside the centred stack, so a short phone screen gives
+     it its own line at the bottom and the way in keeps the middle.
+     Its entrance is stage 5, the beat the title card's CSS has
+     carried unused since it shipped. */
+  assert.ok(introFn.indexOf("cb-door-legal") > introFn.indexOf("</main>"), "the legal row is not below the centred card");
+  assert.ok(introFn.includes("cb-door-stage-5"), "the legal row does not take the entrance's last beat");
+  assert.ok(cssSrc.includes(".cb-door-legal a:hover"), "the legal links take no hover treatment");
+  assert.ok(cssSrc.includes(".cb-door-legal a:focus-visible"), "the legal links take no focus ring");
+});
+
+await test("the static door document carries the same row", async () => {
+  /* The prerendered door document is the door a stalled visitor
+     stares at before the app mounts; its stated contract is
+     element for element parity with the app door, so the legal
+     row stands there too, in the same faint values. */
+  const pre = await readFile(join(root, "scripts/prerender.mjs"), "utf8");
+  const doorDoc = pre.slice(pre.indexOf("const doorMain"), pre.indexOf("let doorHtml"));
+  assert.ok(doorDoc.length > 100, "the static door document is missing");
+  for (const href of ["/about", "/privacy", "/terms", "/disclosures", "/contact"]) {
+    assert.ok(doorDoc.includes(`href="${href}"`), `the static door is missing ${href}`);
+  }
+  assert.ok(doorDoc.includes("Cerebrum™"), "the static door is missing the copyright notice");
+});
+
+await test("a press on a legal link goes to its page and never fires the way in", () => {
+  /* The card begins entry on any press (pinned in the group
+     above); each link stops its own press at the anchor, so the
+     card's handler never sees it and the browser follows the
+     href to the page instead of entering the app. */
+  const legal = introFn.slice(introFn.indexOf("cb-door-legal"), introFn.indexOf("</footer>"));
+  assert.ok(legal.includes("href={href}"), "the legal links are not plain page links");
+  assert.ok(legal.includes("onClick={(e) => e.stopPropagation()}"), "the legal links do not stop their press from reaching the card");
+});
+
+// ══════════════════════════════════════════════════════════════════════════
 group("No rotation — the card holds still (title card 2026-10-28)");
 
 await test("nothing on the door rotates or advances", () => {
@@ -572,7 +631,15 @@ await test("the door has no header: the title is the only wordmark", () => {
      links (About, Privacy, Terms, Contact, added 2026-10-18 so the
      header, mobile menu, and footer listed the same set). The
      title card has no header at all; the word appears once, as the
-     title. The links live inside the app. */
+     title. The links live inside the app.
+     Amended 2026-10-29 (the owner's order: the copyright and
+     privacy tabs and what not, added back onto the intro): the
+     links return, but at the foot of the card as the legal row,
+     pinned in their own group above. The header stays banned and
+     every assertion here stands as written: no header element, no
+     masthead glyph, and the header's old link list (the row below
+     is a footer block of href and label pairs in the app footer's
+     order, not that list). */
   assert.ok(!introFn.includes("<header"), "a header is back on the door");
   assert.ok(!introFn.includes('["About", "Privacy", "Terms", "Contact"]'), "the header link list is back on the door");
   assert.ok(!introFn.includes("<Mark size={22}"), "the masthead glyph is back on the door");
