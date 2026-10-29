@@ -27925,9 +27925,26 @@ async function gatherPapersBody(rawQuery, opts) {
   // gather (the minimum results guarantee) gets its own yield,
   // so a shelf that stays empty keeps its one real attempt per
   // gather instead of dying on the first gather's spend.
+  // Widened on the starved signal (2026-10-29, waste oil
+  // diagnosis): the concept expanded fallback may also arm the
+  // yield when the pool is non empty but the citation gate's
+  // own on topic count is exactly zero. A collision pool reads
+  // full to the raw count while carrying nothing the gate can
+  // use, and on the recorded waste oil draws every escalation
+  // round was trimmed by the ledger, so the one round carrying
+  // the literature's vocabulary never ran and the target
+  // papers were never retrieved. The signal is zero, not
+  // merely under the floor: a pool holding even a few usable
+  // papers can still fund an answer, and the yield's overspend
+  // would starve the answer stages on exactly those draws.
+  // Only the concept call site passes starved, and never on
+  // a foundational lane shape (mechanism, method, famous
+  // health, paired omics comparison, restriction exposure),
+  // where the lane's own claim on the yield stands first;
+  // every other round keeps the empty shelf arming exactly.
   let cascadeYieldSpent = false;
-  const beginCascadeYield = (shelfCount, margin) => {
-    if (!ledger || cascadeYieldSpent || shelfCount > 0) return false;
+  const beginCascadeYield = (shelfCount, margin, starved = false) => {
+    if (!ledger || cascadeYieldSpent || (shelfCount > 0 && !starved)) return false;
     if (!ledger.retrievalCapHit(margin)) return false;
     cascadeYieldSpent = true;
     ledger.setRetrievalYield(true);
@@ -28226,7 +28243,16 @@ async function gatherPapersBody(rawQuery, opts) {
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
   const onTopicAfterRaw = onTopicOf(results);
-  const yieldConcept = beginCascadeYield(totalAfterRaw, SUBREQUEST_RUNG_COST);
+  // The foundational lane below holds its own claim on the
+  // one yield for the shapes it serves (mechanism, method,
+  // famous health, paired omics comparison, restriction
+  // exposure), arming it even on a full shelf; on those
+  // shapes the concept round must not take the yield first.
+  // None of the recorded waste oil draws is a lane shape.
+  const laneShapeAhead = isMechanismShapeQuery(rawQuery) || detectMeasurementIntent(rawQuery)
+    || isFamousHealthShapeQuery(rawQuery) || !!pairedOmicsComparison(rawQuery)
+    || isRestrictionExposureShape(rawQuery, dynLookup);
+  const yieldConcept = beginCascadeYield(totalAfterRaw, SUBREQUEST_RUNG_COST, onTopicAfterRaw === 0 && !laneShapeAhead);
   if (onTopicAfterRaw < RETRIEVAL_CITABLE_FLOOR && _budgetLeft() && (yieldConcept || roomOrTrim("concept-expanded-fallback", SUBREQUEST_RUNG_COST))) {
     if (yieldConcept) diag.cascadeYield = "concept-expanded-fallback";
     // Build synonym-expanded queries from concept groups

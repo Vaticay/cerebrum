@@ -2843,5 +2843,183 @@ await test("empty shelf: the cascade yield fires the first net past the ceiling"
     `the yielded net's papers did not ship (${presentedCount(data)} presented sources) — the cap starved the cascade`);
 });
 
+// STARVED SHELF (2026-10-29, waste oil diagnosis): the pool is
+// NOT empty — the keyword engines answer the ladder with
+// collision papers that engage none of the question's concept
+// groups — yet the cascade still never fires, because the
+// cascade yield arms on the raw pool count alone. The live
+// draws behind this pin (the waste oil acceptance phrasings on
+// production 4ba2b9e): shelves of 5 to 14 pure collision papers,
+// the citation gate's own on topic count at zero, and every
+// escalation round trimmed by the ledger, so the vocabulary
+// carrying rounds (the concept expanded fallback above all)
+// never ran and the target literature was never retrieved.
+// The fix arms the same one round yield for the concept
+// fallback when the gate's on topic count is exactly zero,
+// the signal every fallback gate already reads. Here Europe
+// PMC answers only the concept net's vocabulary (a concept
+// alternate in a plain, non boolean query) with the
+// scenario's only on topic papers; everything else the
+// ladder can reach is collision junk.
+async function runStarvedShelfScenario() {
+  const counts = makeCounts();
+  let crossrefCalls = 0;
+  let esearchCalls = 0;
+  let arxivCalls = 0;
+  const retriedHosts = new Set();
+  const realFetch = globalThis.fetch;
+  const realCaches = globalThis.caches;
+  const realRandom = Math.random;
+  globalThis.caches = {
+    default: {
+      match: async () => { counts.cache++; return undefined; },
+      put: async () => { counts.cache++; },
+      delete: async () => { counts.cache++; return false; },
+    },
+  };
+  Math.random = () => 0.99;
+  const junkCrossref = (n, title, abstract) => ({
+    title: [title],
+    author: [{ given: "Ann", family: "Ledger" }],
+    "container-title": ["Journal of Applied Studies"],
+    published: { "date-parts": [[2023]] },
+    DOI: "10.2000/junk" + n,
+    abstract,
+    "is-referenced-by-count": 12,
+    type: "journal-article",
+  });
+  const junkOpenAlex = (title, text) => {
+    const inv = {};
+    text.split(/\s+/).forEach((w, i) => {
+      const k = w.replace(/[^A-Za-z]/g, "");
+      if (k) (inv[k] = inv[k] || []).push(i);
+    });
+    return {
+      title,
+      doi: "10.2000/junkrail",
+      publication_year: 2022,
+      cited_by_count: 9,
+      abstract_inverted_index: inv,
+      primary_location: { source: { display_name: "Transport Reviews Quarterly" } },
+      authorships: [{ author: { display_name: "Bob Timetable" } }],
+      ids: {},
+      type: "article",
+    };
+  };
+  globalThis.fetch = async (url, opts = {}) => {
+    attempt(counts, "fetch");
+    const u = String(url);
+    const body = typeof opts.body === "string" ? opts.body : "";
+    if (u.includes("api.groq.com") || u.includes("generativelanguage.googleapis.com") ||
+        u.includes("api.mistral.ai") || u.includes("integrate.api.nvidia.com")) {
+      if (body.includes("literature search specialist")) {
+        return chatRes(JSON.stringify([{ term: "microbial", alternates: ["microbiota", "microbiome", "gut microbes"] }]));
+      }
+      if (body.includes("relevance validator")) {
+        return chatRes(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+      }
+      return chatRes(HEAVY_SYNTH_ANSWER);
+    }
+    const retryHosts = ["api.semanticscholar.org", "api.openalex.org", "doaj.org",
+      "api.plos.org", "api.core.ac.uk", "api.base-search.net", "api.openaire.eu"];
+    const host = retryHosts.find((h) => u.includes(h));
+    if (host && !retriedHosts.has(host)) {
+      retriedHosts.add(host);
+      return new Response("busy", { status: 503 });
+    }
+    if (u.includes("ebi.ac.uk/europepmc")) {
+      const qs = new URL(u).searchParams.get("query") || "";
+      // Only the concept expanded fallback asks this way: a
+      // plain bag pairing the organism's name with a concept
+      // alternate (here "ecology", from the question's
+      // "community" group) and the remaining top terms. The
+      // ladder asks in booleans, the raw net prefixes the
+      // binomial to the question's own words in order, and the
+      // natural language net asks the verbatim question — none
+      // of them carries "ecology" outside a boolean.
+      if (qs.includes("ecology") && !qs.includes(" AND ")) {
+        const mk = (n) => ({
+          title: "Diet and gut microbial community assembly in black soldier fly larvae study " + n,
+          doi: "10.1000/starved" + n,
+          pubYear: "2024",
+          citedByCount: 7,
+          authorString: "Doe J, Roe K",
+          journalTitle: "Journal of Insect Studies",
+          abstractText: heavyAbstract(n),
+        });
+        return jsonRes({ resultList: { result: [mk(1), mk(2)] } });
+      }
+      return jsonRes({ resultList: { result: [] } });
+    }
+    if (u.includes("eutils.ncbi.nlm.nih.gov")) {
+      if (u.includes("esearch")) {
+        esearchCalls++;
+        return jsonRes({ esearchresult: { idlist: esearchCalls >= 3 ? ["101", "102", "103"] : [] } });
+      }
+      if (u.includes("esummary")) return jsonRes({ result: {} });
+      return new Response("", { status: 200 });
+    }
+    if (u.includes("api.crossref.org")) {
+      crossrefCalls++;
+      return jsonRes({ message: { items: [
+        junkCrossref(1, "Quarterly liquidity patterns in municipal bond markets",
+          "We examine coupon schedules, maturity structures, and trading volumes across forty municipal issuers. Secondary market quotes are sampled weekly over six years. Bid ask spreads widen around refunding announcements and narrow as maturity approaches."),
+        junkCrossref(2, "Refunding calendars and secondary trading in tax exempt securities",
+          "This paper studies how refunding calendars shape secondary trading in tax exempt securities. Quote records from regional dealers are matched to issuance calendars over a decade. Volumes cluster in the weeks after new issuance settles."),
+      ] } });
+    }
+    if (u.includes("api.openalex.org")) {
+      return jsonRes({ results: [
+        junkOpenAlex("Timetable integration for regional passenger rail networks",
+          "This study models timetable synchronization across regional passenger rail networks. Transfer windows, platform occupancy, and rolling stock rotations are optimized jointly. Simulation results cover nine corridors over a full timetable year."),
+      ] });
+    }
+    if (u.includes("export.arxiv.org")) {
+      arxivCalls++;
+      if (arxivCalls === 1) return new Response("busy", { status: 503 });
+      return new Response("", { status: 200 });
+    }
+    return jsonRes({});
+  };
+  try {
+    const ledger = createSubrequestLedger();
+    const env = {
+      DB: countingDb(counts),
+      AI: countingAi(counts),
+      GROQ_KEY: "ledger-test-groq-key-123456",
+      GEMINI_KEY: "ledger-test-gemini-key-123456",
+      MISTRAL_KEY: "ledger-test-mistral-key-123456",
+      NVIDIA_KEY: "ledger-test-nvidia-key-123456",
+    };
+    const request = new Request("https://askcerebrum.org/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: HEAVY_Q }),
+    });
+    const res = await onRequest({ request, env, waitUntil: () => {}, data: { ledger } });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    await new Promise((r) => setTimeout(r, 150));
+    return { data, counts, ledger };
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.caches = realCaches;
+    Math.random = realRandom;
+  }
+}
+
+await test("starved shelf: the cascade yield arms the concept fallback on the gate's own count", async () => {
+  const { data, counts, ledger } = await runStarvedShelfScenario();
+  assertLedgerEqualsPlatform(counts, ledger);
+  assert.ok(ledger.retrievalRefusals() >= 1,
+    "the draw never hit the ceiling, so the concept net needed no yield to fire");
+  const executed = (data._record && data._record.executedQueries) || [];
+  assert.ok(executed.some((q) => q.kind === "concept"),
+    "the concept expanded fallback never ran on a starved shelf — the yield still keys on the raw pool count");
+  const presented = [...(data.sources || []), ...(data.furtherReading || [])];
+  assert.ok(presented.some((p) => /black soldier fly larvae study 1/.test(p.title || "")),
+    "the concept net's on topic papers did not ship");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
