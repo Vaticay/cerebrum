@@ -3111,7 +3111,17 @@ export function isNonLiterature(p) {
 // individual with PubMed in the branch; and late additions
 // route through one admission unit, so gathered pools, shelves
 // and cited sets change for cached questions.
-const CACHE_SCHEMA_VERSION = "v55";
+// v56 (2026-10-29, sleep diagnosis lane): the foundational
+// lane gains a fifth shape — a question stating a sustained
+// regimen of restriction (a parsed dose or span, or a plain
+// reduction word, on a topic whose concept group carries a
+// restriction phrase) now fires the lane with that phrase
+// group as a boolean on Europe PMC in citation order and on
+// PubMed, so the gathered pool for regimen questions gains
+// the restriction literature the ladder's forms never
+// returned; gathered pools and cited sets change for cached
+// questions of that shape.
+const CACHE_SCHEMA_VERSION = "v56";
 
 // The canonical scholarly source list's display names, comma
 // joined, derived from functions/lib/product.js (2026-10-14,
@@ -9112,6 +9122,132 @@ export function isFamousHealthShapeQuery(query) {
   if (!/^(does|do|did|is|are|can|will|should)\b/.test(lc)) return false;
   return /\b(help|helps|helpful|good for|bad for|hurt|hurts|harm|harms|harmful|benefit|benefits|beneficial|healthy|healthier|live longer|longevity|life expectancy|cause|causes)\b/.test(lc)
     && /\b(eat|eating|drink|drinking|take|taking|use|using|consume|consuming|food|diet|gut|kidney|kidneys|liver|heart|brain|body|health|sleep|weight|longer|life)\b/.test(lc);
+}
+
+/* ── Restriction exposure shape (2026-10-29, sleep diagnosis
+ * lane): a findings question that states a sustained regimen of
+ * restriction — a dose or a span from the question's parsed
+ * constraint slots, or a plain reduction word on its topic —
+ * is answered by a literature that names itself with a
+ * restriction phrase ("sleep restriction", "caloric
+ * restriction") and that is old and heavily cited. The October
+ * 24 citation wave's sleep record (probe 9) shows the failure
+ * this shape answers: gathered 23, shelf 16, cited 8, and not
+ * one chronic sleep restriction study anywhere in the gathered
+ * set, so the papers died at gathering, before any later stage
+ * could judge them. The one executed rung carried the dose and
+ * duration phrases plus topic words, and the structured boolean
+ * seated "brain" with the bare words weeks, hours, night while
+ * the topic word sleep held no anchor at all — so the phrase
+ * the field files itself under never entered any query the
+ * engines saw. Live source checks on the day of this lane
+ * (direct API calls, 2026-10-29): Europe PMC's first page for
+ * the shipped boolean is 2026 brain papers and the 2003
+ * restriction study (Van Dongen, "The cumulative cost of
+ * additional wakefulness", 1,893 citations) sits outside its
+ * first hundred hits; PubMed's shipped natural form returns
+ * four papers, the 1974 housed pony study first. The same two
+ * engines given the restriction phrase group as a boolean
+ * return that study first (PubMed, its own relevance order)
+ * and second (Europe PMC, citation order). So this shape joins
+ * the foundational lane, and its legs carry the phrase group
+ * as a boolean, in citation order where the engine's relevance
+ * order is era blind — see the lane block in gatherPapersBody.
+ *
+ * The phrases are never invented here: they are the multi word
+ * members containing "restrict" of a concept group the question
+ * itself resolves (the sleep group has carried "sleep
+ * restriction", "sleep restricted" and "chronic sleep
+ * restriction" since the group was authored), read through
+ * conceptSetFor so validated model groups count too. A phrase
+ * qualifies only when its head — the word the restriction
+ * belongs to — is one of the question's candidate terms.
+ * Candidates are the question's own words and the model
+ * groups' words; one reading is added: a dose stated in hours
+ * per night, or a span stated beside a nightly cadence ("every
+ * night"), names sleep, because hours per night is how plain
+ * language states a sleep dose and no other everyday quantity
+ * is dosed that way. That reading only ADDS "sleep" as a
+ * candidate; the phrase itself still has to come from the
+ * tables, and a question whose tables carry no restriction
+ * phrase for its topic fires nothing.
+ *
+ * The regimen signal: a duration slot (dose or span) from
+ * parseQuestionConstraints, or a reduction word (less,
+ * shorten, reduce, restrict, limit, curtail) in the question.
+ * No signal, no shape: a bare topic mention with neither (a
+ * definition ask like "what is sleep restriction") keeps
+ * today's path exactly. */
+const RESTRICTION_REGIMEN_RE = /\b(less|shorten|shortens|shortened|shortening|reduce|reduces|reduced|reducing|restricts|restricted|restricting|limit|limits|limited|limiting|curtail|curtails|curtailed|cut back|cutting back)\b/;
+export function restrictionExposurePhrases(query, dynLookup) {
+  const lc = String(query || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!lc) return null;
+  const candidates = new Set();
+  for (const w of lc.split(/[^a-z0-9]+/)) if (w.length > 2) candidates.add(w);
+  if (dynLookup) {
+    try {
+      for (const [key, set] of dynLookup.entries()) {
+        for (const w of String(key).toLowerCase().split(/[^a-z0-9]+/)) if (w.length > 2) candidates.add(w);
+        if (set) for (const member of set) {
+          for (const w of String(member).toLowerCase().split(/[^a-z0-9]+/)) if (w.length > 2) candidates.add(w);
+        }
+      }
+    } catch { /* a malformed lookup adds no candidates */ }
+  }
+  // The per night reading (see the block comment): a duration
+  // slot dosed in hours per night, or any duration slot beside
+  // a nightly cadence phrase, names sleep as a candidate topic.
+  try {
+    const slots = parseQuestionConstraints(query);
+    const perNightDose = (slots.duration || []).some((p) => /hours?\s+(a|per)\s+night/.test(p));
+    const nightlySpan = (slots.duration || []).length > 0
+      && /\b(every night|each night|a night|per night|nightly)\b/.test(lc);
+    if (perNightDose || nightlySpan) candidates.add("sleep");
+  } catch { /* slots are a bonus reading, never a requirement */ }
+  const sets = [];
+  const seenSets = new Set();
+  const pushSet = (set) => {
+    if (set && !seenSets.has(set)) { seenSets.add(set); sets.push(set); }
+  };
+  for (const w of candidates) {
+    try { pushSet(conceptSetFor(w, dynLookup)); } catch { /* one bad word skips */ }
+  }
+  if (dynLookup) {
+    try { for (const set of dynLookup.values()) pushSet(set); } catch { /* as above */ }
+  }
+  const headMatches = (head) => {
+    for (const c of candidates) {
+      if (c === head || c.startsWith(head) || head.startsWith(c)) return true;
+    }
+    return false;
+  };
+  const phrases = [];
+  const seenPhrases = new Set();
+  for (const set of sets) {
+    for (const member of set) {
+      const m = String(member || "").toLowerCase().trim();
+      if (!m.includes(" ") || !/restrict/.test(m)) continue;
+      const words = m.split(/\s+/);
+      const ri = words.findIndex((w) => w.includes("restrict"));
+      if (ri < 1) continue;
+      if (!headMatches(words[ri - 1])) continue;
+      if (!seenPhrases.has(m)) { seenPhrases.add(m); phrases.push(m); }
+    }
+  }
+  return phrases.length ? phrases.slice(0, 4) : null;
+}
+export function isRestrictionExposureShape(query, dynLookup) {
+  const lc = String(query || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!lc) return false;
+  let hasDuration = false;
+  try { hasDuration = (parseQuestionConstraints(query).duration || []).length > 0; } catch { /* no slots */ }
+  if (!hasDuration && !RESTRICTION_REGIMEN_RE.test(lc)) return false;
+  return !!restrictionExposurePhrases(query, dynLookup);
+}
+export function restrictionExposureBoolean(query, dynLookup) {
+  const phrases = restrictionExposurePhrases(query, dynLookup);
+  if (!phrases) return null;
+  return "(" + phrases.map((p) => '"' + p + '"').join(" OR ") + ")";
 }
 
 const HEALTH_COMMENTARY_RE = /\b(health letter|health watch|newsletter|commentary|editorial|perspective|viewpoint|in my opinion)\b/i;
@@ -28367,7 +28503,12 @@ async function gatherPapersBody(rawQuery, opts) {
   // shape or a method only shape, one extra search built from
   // the question's core system terms plus the shape's own
   // vocabulary, aimed at the papers that FIRST described the
-  // mechanism or the method. The measured failure it answers:
+  // mechanism or the method. Later waves added the famous
+  // health shape, the paired comparison shape, and (2026-10-29,
+  // sleep diagnosis lane) the restriction exposure shape, whose
+  // legs carry its restriction phrase group as a boolean
+  // instead of the plain string — see the shape's own block at
+  // isRestrictionExposureShape for the record behind it. The measured failure it answers:
   // the ordinary ladder retrieves the system abundantly and
   // the foundational primaries not at all (Jinek 2012 absent
   // from every live run of the crispr cutting question), so a
@@ -28423,7 +28564,20 @@ async function gatherPapersBody(rawQuery, opts) {
   // method case's slots on generic words.
   const comparisonPair = pairedOmicsComparison(rawQuery);
   const comparisonShape = !!comparisonPair;
-  if (mechanismShape || methodShape || healthShape || comparisonShape) {
+  // Restriction exposure shape (2026-10-29, sleep diagnosis
+  // lane): a stated regimen of restriction gets the lane too —
+  // see the shape's own block at isRestrictionExposureShape.
+  // Its legs differ from the other shapes' (below): the lane's
+  // plain string query demonstrably drowns on common word
+  // topics, where Europe PMC's loose match plus citation order
+  // returns the most cited papers that mention the words
+  // anywhere (probed live 2026-10-29: the plain lane string for
+  // the sleep case returned heart association statistics
+  // updates), so this shape's query is the restriction phrase
+  // group as a boolean, carried by the two boolean engines.
+  const exposureShape = isRestrictionExposureShape(rawQuery, dynLookup);
+  const exposureBoolean = exposureShape ? restrictionExposureBoolean(rawQuery, dynLookup) : null;
+  if (mechanismShape || methodShape || healthShape || comparisonShape || exposureShape) {
     const laneCoreTerms = [];
     const laneSeen = new Set();
     const lanePush = (term) => {
@@ -28447,7 +28601,9 @@ async function gatherPapersBody(rawQuery, opts) {
         ? ["systematic review", "meta-analysis", "cohort"]
         : comparisonShape
           ? ["ratio"]
-          : ["assay", "determination", "measurement", "method"];
+          : exposureShape
+            ? (restrictionExposurePhrases(rawQuery, dynLookup) || [])
+            : ["assay", "determination", "measurement", "method"];
     const laneQuery = [...laneCoreTerms, ...laneVocabulary].join(" ").trim();
     if (laneQuery) {
       const totalBeforeLane = results.reduce(
@@ -28490,7 +28646,23 @@ async function gatherPapersBody(rawQuery, opts) {
         // founding legs bring the typical composition to the
         // five single calls the price has always carried.
         const foundingForm = foundationalFormQuery(rawQuery, dynLookup);
-        const laneCalls = [
+        // Restriction exposure legs (2026-10-29, sleep diagnosis
+        // lane): the phrase group boolean on the two engines
+        // that parse one. Europe PMC reads it in citation order
+        // (the study this lane exists for ranked second there
+        // under the group, and outside the first hundred under
+        // every relevance ordered form probed); PubMed reads it
+        // in its own relevance order, which ranked the same
+        // study first. OpenAlex keeps the lane's plain string
+        // form (the recorded lane query: core terms plus the
+        // phrases) in citation order, like every other shape.
+        // The composition stays inside the lane's priced three
+        // to five calls.
+        const laneCalls = exposureShape && exposureBoolean ? [
+          europePMC(exposureBoolean, 12, ledger, { sort: "CITED desc" }),
+          pubmed(exposureBoolean, 12, ncbiKey, ledger, { structuredQuery: exposureBoolean }),
+          openAlex(laneQuery, 12, openAlexKey, ledger, { sort: "cited_by_count:desc" }),
+        ] : [
           europePMC(laneQuery, 12, ledger, { sort: "CITED desc" }),
           openAlex(laneQuery, 12, openAlexKey, ledger, { sort: "cited_by_count:desc" }),
           semanticScholar(laneQuery, 10, s2Key, ledger, { sort: "citationCount:desc" }),
@@ -28549,7 +28721,7 @@ async function gatherPapersBody(rawQuery, opts) {
         diag.foundationalLane = {
           query: laneQuery,
           foundingQuery: foundingForm || null,
-          shape: mechanismShape ? "mechanism" : healthShape ? "health" : comparisonShape ? "comparison" : "method",
+          shape: mechanismShape ? "mechanism" : healthShape ? "health" : comparisonShape ? "comparison" : exposureShape ? "exposure" : "method",
           count: laneResults.reduce(
             (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0),
         };

@@ -683,7 +683,7 @@ await test("CACHE_SCHEMA_VERSION is v43 with a dated wave nine chain entry", () 
   // side honesty wave. The v50 entry stays as history above.
   // PIN UPDATED (2026-10-15, wave seventeen): v52, the
   // citation depth wave. The v51 entry stays as history above.
-  assert.ok(src.includes("const CACHE_SCHEMA_VERSION = \"v55\""),
+  assert.ok(src.includes("const CACHE_SCHEMA_VERSION = \"v56\""),
     "CACHE_SCHEMA_VERSION is not pinned to v55");
   const start = src.search(/\/\/ v43 \(/);
   assert.ok(start >= 0, "no dated v43 chain entry above the version constant");

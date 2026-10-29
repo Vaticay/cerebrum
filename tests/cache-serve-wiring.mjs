@@ -74,7 +74,7 @@
  * The logic audit repair wave 3, stage 2 (constraint slot
  * rungs, matchable source forms, floor unmet legs, identifier
  * graph dedupe, one admission unit, v55) moved it again, to
- * "v55-medium".
+ * "v56-medium".
  *
  * Run with: node tests/cache-serve-wiring.mjs
  */
@@ -464,7 +464,7 @@ const B_VERDICT = { status: "settled", conflictCount: 0, summary: "No conflictin
 await test("the provenance cap caps the level and the baked line is bound on a real cache serve", async () => {
   const rows = new Map();
   const query = "what happens to a baby's gut germs in the first year";
-  const key = await cacheKey(query, {}, "v55-medium");
+  const key = await cacheKey(query, {}, "v56-medium");
   rows.set(key, {
     query_key: key,
     answer_id: "seed-b",
@@ -516,7 +516,7 @@ group("C — a pre envelope row degrades to the old behavior, exactly");
 await test("a legacy row serves with null check, null verdict, and the extractive mode resolution", async () => {
   const rows = new Map();
   const query = "can wood frogs survive being frozen solid";
-  const key = await cacheKey(query, {}, "v55-medium");
+  const key = await cacheKey(query, {}, "v56-medium");
   const legacySources = [
     { title: "Freeze tolerance in the wood frog", authors: "Storey KB, Storey JM", journal: "Journal of Experimental Biology", year: 2021, relevance: 92, abstract: "Wood frogs tolerate the freezing of up to two thirds of their body water, with ice confined to extracellular spaces.", url: "https://doi.org/10.1000/cwc1" },
     { title: "Glucose as a cryoprotectant in a freeze tolerant frog", authors: "Costanzo JP", journal: "Cryobiology", year: 2019, relevance: 88, abstract: "Glucose accumulates in the tissues of frozen frogs and acts as a colligative cryoprotectant during thaw recovery.", url: "https://doi.org/10.1000/cwc2" },
@@ -550,7 +550,7 @@ group("D — non default request settings never serve the default row (2026-10-1
 
 await test("a different mode, evidence filter, or stress filter misses the default key", async () => {
   const query = "can wood frogs survive being frozen solid";
-  const key = await cacheKey(query, {}, "v55-medium");
+  const key = await cacheKey(query, {}, "v56-medium");
   const seedSources = [
     { title: "Freeze tolerance in the wood frog", authors: "Storey KB, Storey JM", journal: "Journal of Experimental Biology", year: 2021, relevance: 92, abstract: "Wood frogs tolerate the freezing of up to two thirds of their body water, with ice confined to extracellular spaces.", url: "https://doi.org/10.1000/cwd1" },
     { title: "Glucose as a cryoprotectant in a freeze tolerant frog", authors: "Costanzo JP", journal: "Cryobiology", year: 2019, relevance: 88, abstract: "Glucose accumulates in the tissues of frozen frogs and acts as a colligative cryoprotectant during thaw recovery.", url: "https://doi.org/10.1000/cwd2" },
