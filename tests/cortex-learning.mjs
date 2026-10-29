@@ -107,7 +107,8 @@ const WANTED = [
   "visitGapDays", "shelfGlyphFor", "shelfObjects", "SHELF_GLYPH_BY_PATH", "SHELF_GLYPH_BY_CATEGORY",
   "novaMoodFor", "tipEligible", "TIP_GAP_MS",
   "NOVA_ACTIVITY_EVENT", "NOVA_WAKE_STEP_MS", "novaIdleStageFor", "novaAdaptiveStateFor", "emitNovaActivity",
-  "createNovaBrain", "novaBrainObserve", "novaBrainDecide",
+  "NOVA_PATIENCE_GATE", "createNovaBrain", "novaBrainObserve", "novaBrainDecide",
+  "SPEECH_NEGATORS", "passageNegations",
   /* Removed 2026-10-15 (the old model purge): CHARACTER_POSES and
      the rig data tables (NOVA_RIG_STATES, NOVA_RIG_MOUTHS,
      NOVA_RIG_D, NOVA_RIG_FILAMENTS) retired with the two old
@@ -206,7 +207,8 @@ const {
   visitGapDays, shelfGlyphFor, shelfObjects,
   novaMoodFor, tipEligible, TIP_GAP_MS,
   NOVA_ACTIVITY_EVENT, NOVA_WAKE_STEP_MS, novaIdleStageFor, novaAdaptiveStateFor, emitNovaActivity,
-  createNovaBrain, novaBrainObserve, novaBrainDecide,
+  NOVA_PATIENCE_GATE, createNovaBrain, novaBrainObserve, novaBrainDecide,
+  SPEECH_NEGATORS, passageNegations,
   QUIRKS_KEY, QUIRK_GAG_COOLDOWN_MS, QUIRK_SHELF_COOLDOWN_MS,
   QUIRK_FAST_MS, QUIRK_FAST_COOLDOWN_MS, QUIRK_HARD_COOLDOWN_MS,
   QUIRK_BROW_COOLDOWN_MS, QUIRK_PERFECT_COOLDOWN_MS, QUIRK_POKE_GAP_MS,
@@ -3887,7 +3889,11 @@ await test("Nova's brain: drives in, behavior out, and she never repeats herself
   // that ended poked out starts the next one patience thin.
   const poked = novaBrainObserve(createNovaBrain(null), { type: "poke" });
   assert.ok(poked.patience <= 0.5, "a poke spends her patience");
-  assert.ok(poked.pokeTrend > 0, "the poke leaves a trend behind");
+  /* Pin replaced 2026-10-29 (the dead state cleanup): this
+     asserted the poke leaves a trend behind. The trend was
+     persisted and read by nothing, so it is deleted, and the
+     pin now holds its absence. */
+  assert.ok(!("pokeTrend" in poked), "the dead poke trend is carried again");
   assert.ok(createNovaBrain({ lastEnd: "poked-out", patience: 0.9 }).patience <= 0.35,
     "a poked out ending carries thin patience into the next visit");
   assert.equal(createNovaBrain({ lastEnd: "pleased" }).lastEnd, "pleased", "how a visit ended is remembered");
@@ -3909,6 +3915,69 @@ await test("Nova's brain: drives in, behavior out, and she never repeats herself
   // canvas figure paints no ground layer at all, so there is
   // nothing between the tap and the wrapper that takes it.
   assert.ok(!learnSrc.includes(".nv-rig-halo"), "the retired rig's halo is back");
+});
+
+await test("Nova's brain after the outside audit: lines reachable, bias recentered, dead state read or gone", () => {
+  // The logic lane of 2026-10-29, one pin per stamped
+  // finding from the outside round's verification pass.
+  const ctx = (over = {}) => ({
+    now: 1000000, hour: 14, idleMs: 0, stage: 0, base: "greeting",
+    busy: false, lineReady: false, calm: false, rand: 0.5, ...over,
+  });
+  // The line behavior can fire (finding: it never could; the
+  // old score topped out at 0.28 against watch's 0.45 under
+  // an argmax picker). A maximally curious, rested brain,
+  // left alone past the glance window, with a grounded line
+  // ready, chooses to speak.
+  const eager = { ...createNovaBrain(null), curiosity: 1, energy: 1 };
+  assert.equal(novaBrainDecide(eager, ctx({ lineReady: true, idleMs: 25000 })).behavior, "line",
+    "a curious Nova with a line ready never speaks");
+  // Energy gates the line (finding: it changed nothing). The
+  // same brain drained keeps its thoughts to itself.
+  assert.equal(novaBrainDecide({ ...eager, energy: 0.1 }, ctx({ lineReady: true, idleMs: 25000 })).behavior, "watch",
+    "a tired Nova starts conversations as readily as a rested one");
+  // Patience is read by the picker (finding: nothing read
+  // it). A poked out brain does not perform, no line, no
+  // glance, until calm restores it.
+  assert.equal(novaBrainDecide({ ...eager, patience: 0.2 }, ctx({ lineReady: true, idleMs: 25000 })).behavior, "watch",
+    "a brain out of patience still performs");
+  assert.notEqual(novaBrainDecide({ ...createNovaBrain(null), attention: 1, patience: 0.2 }, ctx({ idleMs: 1000 })).behavior, "glance",
+    "a brain out of patience still glances");
+  // Idle curiosity arithmetic (finding: it netted minus
+  // 0.003 a tick, so boredom could never raise it).
+  assert.ok(novaBrainDecide(createNovaBrain(null), ctx({ idleMs: 60000 })).brain.curiosity > 0.25,
+    "idle curiosity does not grow");
+  assert.ok(novaBrainDecide(createNovaBrain(null), ctx({ idleMs: 1000 })).brain.curiosity < 0.25,
+    "attended curiosity does not decay");
+  // The mood bias recentering (finding: calm saturated it
+  // positive, the positive side did nothing, and stern sat
+  // behind about five straight misses).
+  let calmBrain = createNovaBrain(null);
+  for (let i = 0; i < 40; i++) calmBrain = novaBrainDecide(calmBrain, ctx({ calm: true })).brain;
+  assert.equal(calmBrain.moodBias, 0, "calm alone still inflates her mood bias");
+  assert.ok(novaBrainDecide({ ...createNovaBrain(null), moodBias: 1 }, ctx()).brain.moodBias < 1,
+    "a saturated positive bias never comes down");
+  assert.equal(novaBrainDecide({ ...createNovaBrain(null), moodBias: 0.6 }, ctx()).mood, "pleased",
+    "a strong positive bias still does nothing");
+  assert.equal(novaBrainObserve(createNovaBrain(null), { type: "success" }).moodBias, 0.08,
+    "a success still shoves the bias by the old increment");
+  let warm = { ...createNovaBrain(null), moodBias: 0.5 };
+  warm = novaBrainObserve(warm, { type: "miss" });
+  warm = novaBrainObserve(warm, { type: "miss" });
+  warm = novaBrainObserve(warm, { type: "miss" });
+  assert.equal(novaBrainDecide(warm, ctx()).mood, "deadpan",
+    "three straight misses from a warm bias do not reach her stern face");
+  // The dead fields (findings: pokeTrend and the visit hours
+  // persisted and never read; the pleased and ignored
+  // endings likewise). The first two are gone from the
+  // shape; the ending is read now.
+  assert.ok(!("pokeTrend" in createNovaBrain(null)), "the poke trend is persisted again");
+  assert.ok(!("hours" in createNovaBrain(null)), "the visit hours are persisted again");
+  assert.ok(Math.abs(createNovaBrain({ lastEnd: "pleased", moodBias: 0 }).moodBias - 0.15) < 1e-9,
+    "a pleased ending does not warm the next visit");
+  assert.equal(createNovaBrain({ lastEnd: "ignored", moodBias: 0 }).moodBias, 0,
+    "an ignored ending moves her bias");
+  assert.equal(NOVA_PATIENCE_GATE, 0.35, "the patience gate is the poked out cap value");
 });
 
 await test("Nova's brain: a full tick simulation of an untouched page drifts on schedule", () => {
@@ -4251,6 +4320,20 @@ await test("pokeStep escalates pleased, deadpan, turned away, then ignores her f
   assert.equal(decayed.face, "pleased");
 });
 
+await test("pokeStep reads her remembered patience: a spent brain starts the ladder at the deadpan step", () => {
+  // The dead state wiring of 2026-10-29: the brain half of
+  // the quirks store carries the patience pokes have spent,
+  // and the ladder reads it. No brain in the store (asserted
+  // all through the test above) leaves the ladder untouched.
+  const t = 2000000;
+  const spent = pokeStep({ brain: { patience: NOVA_PATIENCE_GATE } }, t);
+  assert.equal(spent.face, "deadpan", "a brain out of patience still finds the first poke amusing");
+  assert.ok(NOVA_POKE_STEP_THREE.includes(spent.line), "the shortened ladder did not serve a step three line");
+  assert.equal(spent.quirks.pokes.count, 3, "the ladder did not start at the deadpan step");
+  assert.equal(pokeStep({ brain: { patience: 0.9 } }, t).face, "pleased",
+    "a rested brain shortened the ladder anyway");
+});
+
 await test("the gag rests thirty days and the shelf comments once per object on a fourteen day class rest", () => {
   const t = 9000000000;
   assert.equal(gagDue({}, t), true, "a learner who never heard the gag is due");
@@ -4389,6 +4472,36 @@ await test("her feedback teaching: the why is spoken on both outcomes, and a mis
   assert.equal(feedbackTeachLine(match, { good: false }), "Pairs stick when the process makes sense.");
   /* A card with nothing to teach earns silence, not invention. */
   assert.equal(feedbackTeachLine({ kind: "quiz", why: "" }, { good: false, correctText: null }), null);
+});
+
+await test("the verdict face is rationed and her lines are bound to their card (2026-10-29)", () => {
+  // The pleased finding: every correct verdict used to show
+  // the pleased face. The rationing lives in
+  // PlayerNovaFigure's verdict face: pleased only for a
+  // redeemed card or the first streak of exactly three, a
+  // plain correct answer deadpan, worried only from the
+  // second straight miss.
+  assert.ok(!learnSrc.includes('good ? "pleased" : streak >= 2 ? "worried" : "deadpan"'),
+    "every correct verdict earns the pleased face again");
+  assert.ok(learnSrc.includes('redeemed || correctStreak === 3 ? "pleased" : "deadpan"'),
+    "the verdict face is not rationed to redeemed cards and the exact three streak");
+  assert.ok(learnSrc.includes("const sheetRedeemed = !!(checked && isRight && card && misses.some((m) => m.card === card))"),
+    "the Player does not work out whether this card was missed before");
+  assert.ok(learnSrc.includes("redeemed={sheetRedeemed}"), "the figure is not told the card was redeemed");
+  assert.ok(learnSrc.includes('state="pleased" size={104}'), "lesson completion lost its own pleased figure");
+  // The rig reads the success quiz states as pleased, so an
+  // unearned verdict must not hand the figure one.
+  assert.ok(learnSrc.includes("figureQuizState"), "the figure still receives the raw success quizState at an unearned verdict");
+  assert.ok(learnSrc.includes("quizState={figureQuizState}"), "the figure does not receive the guarded quizState");
+  // The staleness wiring: her sheet lines carry the card's
+  // key as their speech context, and the stage context
+  // follows the sheet.
+  assert.ok(learnSrc.includes("const sheetCardKey = (lesson ? lesson.id : \"lesson\") + \":\" + cardIdx"),
+    "the Player gives the card no speech identity");
+  assert.ok(learnSrc.includes("cardKey={sheetCardKey}"), "the figure is not handed the card's key");
+  assert.ok(learnSrc.includes("setContext(inSheet ? cardKey : null)"),
+    "the figure does not move the speech context with the sheet");
+  assert.ok(learnSrc.includes("contextKey: cardKey"), "her sheet lines are not tagged with their card");
 });
 
 // Retitled 2026-10-19 (structural wave): SheetNova is the sheet
@@ -5425,8 +5538,8 @@ function popDeclFor(name) {
 }
 const POP_WANTED = [
   "POP_FIRST_LINE", "POP_LINES", "POP_MIN_SESSION_MS", "POP_GAP_MS", "POP_LONG_GAP_MS",
-  "POP_DISMISSAL_STRETCH", "POP_CHECK_MS", "POP_TIMELINE",
-  "popGapMs", "popBlocked", "popEligible", "popLineFor", "recordPop", "recordPopDismissal",
+  "POP_DISMISSAL_STRETCH", "POP_IGNORE_STOP", "POP_CHECK_MS", "POP_TIMELINE",
+  "popGapMs", "popBlocked", "popEligible", "popLineFor", "recordPop", "recordPopDismissal", "recordPopIgnore",
 ];
 const popChunks = [];
 for (const name of POP_WANTED) {
@@ -5439,8 +5552,8 @@ const popContext = vm.createContext({});
 vm.runInContext(popJs, popContext);
 const {
   POP_FIRST_LINE, POP_LINES, POP_MIN_SESSION_MS, POP_GAP_MS, POP_LONG_GAP_MS,
-  POP_DISMISSAL_STRETCH, POP_CHECK_MS, POP_TIMELINE,
-  popGapMs, popBlocked, popEligible, popLineFor, recordPop, recordPopDismissal,
+  POP_DISMISSAL_STRETCH, POP_IGNORE_STOP, POP_CHECK_MS, POP_TIMELINE,
+  popGapMs, popBlocked, popEligible, popLineFor, recordPop, recordPopDismissal, recordPopIgnore,
 } = popContext.__pop;
 
 // ══════════════════════════════════════════════════════════════════
@@ -5476,6 +5589,32 @@ await test("popGapMs stretches to a week at two dismissals, and recordPopDismiss
   const twice = recordPopDismissal(recordPopDismissal({}));
   assert.equal(twice.popDismissals, 2);
   assert.equal(popGapMs(twice), POP_LONG_GAP_MS);
+});
+
+await test("ignores count (2026-10-29): they stretch the gap like dismissals, and four stop the pop for good", () => {
+  // The outside audit's pop finding: a dismissal was the
+  // only recorded answer, so a person who simply ignored her
+  // was popped every 24 hours forever. Now a full visit
+  // watched and ignored is recorded, and it counts.
+  assert.equal(POP_IGNORE_STOP, 4);
+  const before = { popIgnores: 1, other: "kept" };
+  const after = recordPopIgnore(before);
+  assert.equal(before.popIgnores, 1, "recordPopIgnore mutated its input");
+  assert.equal(after.popIgnores, 2);
+  assert.equal(after.other, "kept", "unrelated quirks survive the record");
+  assert.equal(popGapMs({ popIgnores: 1 }), POP_GAP_MS, "one ignore does not stretch the gap");
+  assert.equal(popGapMs({ popIgnores: 2 }), POP_LONG_GAP_MS, "two ignores do not stretch the gap");
+  assert.equal(popGapMs({ popDismissals: 1, popIgnores: 1 }), POP_LONG_GAP_MS,
+    "a dismissal plus an ignore is the same answer twice and does not stretch the gap");
+  const now = 30 * 24 * 3600 * 1000;
+  const sess = { startedAt: now - 60000, popped: false };
+  assert.equal(popEligible({ popIgnores: 3, lastPopAt: now - POP_LONG_GAP_MS }, {}, sess, now), true,
+    "three ignores, a week rested: she may still try once more");
+  assert.equal(popEligible({ popIgnores: 4, lastPopAt: now - 30 * POP_LONG_GAP_MS }, {}, sess, now), false,
+    "four ignores retire the pop even after a long rest");
+  // The wiring: the timeline's end step is where an
+  // unanswered visit lands, and it records the ignore there.
+  assert.ok(popSrc.includes("recordPopIgnore(loadNovaQuirks())"), "a completed unanswered pop records no ignore");
 });
 
 await test("popEligible enforces the visited flag, the session rules, the gap, and every blocked context", () => {
@@ -6446,6 +6585,27 @@ await test("she does not speak a restatement and then the claim it restates", ()
   const why = "During deep sleep, the brain replays new memories and moves them into long term storage.";
   const said = feedbackTeachLine({ kind: "quiz", why }, { good: false, correctText: "The brain replays new memories and moves them into long term storage, during deep sleep." });
   assert.equal(said, why, `she spoke the passage twice in two orders: ${said}`);
+});
+
+await test("a correction that differs from the why only by its negation is still spoken", () => {
+  // The outside audit's guard finding (2026-10-29): both
+  // stand down screens in feedbackTeachLine read the
+  // similarity tokens, which drop "not" as a stopword, so
+  // this pair tokenized identically and the correction was
+  // cancelled; she spoke the why alone and lost the one word
+  // that was the correction. The pair below differs only by
+  // the negation, and she must speak both passages.
+  const why = "The valve does open when pressure builds, and the steam escapes safely.";
+  const correctText = "The valve does not open when pressure builds, and the steam escapes safely.";
+  const said = feedbackTeachLine({ kind: "quiz", why }, { good: false, correctText });
+  assert.ok(said && said.startsWith("The answer was: The valve does not open"),
+    `the negation correction stood down: ${said}`);
+  assert.ok(said.endsWith(why), "the why did not follow the correction");
+  // The negation profile itself: plain, contracted, and
+  // absent.
+  assert.ok(passageNegations("The valve does not open.").has("not"));
+  assert.ok(passageNegations("It doesn't hold.").has("not"), "a contracted negation is invisible");
+  assert.equal(passageNegations("The valve opens.").size, 0);
 });
 
 await test("the first generated lesson opens on the course's question, one paragraph per idea", () => {

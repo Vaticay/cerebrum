@@ -227,6 +227,46 @@ export function speechDurationFor(text) {
   return Math.max(SPEECH_DISPLAY_MIN_MS, Math.min(SPEECH_DISPLAY_MAX_MS, raw));
 }
 
+/* How long a queued perishable line may wait for the stage
+   before it is dropped instead of spoken late, out of
+   context (2026-10-29, the outside audit's staleness fix).
+   Poke reactions are the perishable kind: a poke line that
+   had to wait behind a lesson line is a comment on a moment
+   that has passed by the time the stage frees up. Lesson
+   lines carry no TTL; they are bound to their card by the
+   context key instead (see speechSetContext below). */
+export const SPEECH_QUEUED_TTL_MS = 2000;
+
+/* The one dash sanitizer (2026-10-29, the outside audit's
+   unverified item, verified real). The owner's law is no
+   dash characters in anything she says, and the authored
+   banks obey it, but not every line she speaks is authored:
+   her lesson feedback is assembled from card text, and
+   generated course cards are built from claims extracted
+   verbatim out of model answer prose, where hyphenated
+   compounds, numeric ranges, and negative numbers are
+   routine scientific writing. No stage of that path removed
+   a dash. So every line passes through here at the
+   controller, whatever its source: a hyphen between letters
+   becomes a space, a dash inside a numeric range becomes
+   the word to, a minus sign on a number becomes the word
+   minus, and any dash character left over becomes a space.
+   The spoken words survive; the punctuation the owner
+   banned does not. */
+export function speechSanitizeText(text) {
+  if (typeof text !== "string") return "";
+  let t = text;
+  /* The dash family, by code point so this file carries no
+     literal dash of its own: U+002D hyphen minus, U+2010
+     through U+2015 (hyphen, dashes, horizontal bar), and
+     U+2212 minus sign. */
+  t = t.replace(/(\d)\s*[-\u2010-\u2015]\s*(?=\d)/g, "$1 to ");
+  t = t.replace(/(^|[\s(])[-\u2212](?=\d)/g, "$1minus ");
+  t = t.replace(/([A-Za-z])[-\u2010](?=[A-Za-z])/g, "$1 ");
+  t = t.replace(/[-\u2010-\u2015\u2212]/g, " ");
+  return t.replace(/\s+/g, " ").replace(/\s+([,.!?;:])/g, "$1").trim();
+}
+
 /* ── The speech rhythm ────────────────────────────────────────
    Her mouth plan for one line, derived from the text itself.
    The text splits into clauses at its punctuation: a comma,
@@ -364,11 +404,16 @@ export function pickSpeechLine(lines, seed = 0, avoid = null) {
      categoryAt: {},         category, when it last showed
      lastByCategory: {},     category, the text it last showed
      seq: 0,                 line id counter
+     contextKey: null,       the context lines on this stage
+                             belong to (a lesson card, today),
+                             set by the owner through
+                             speechSetContext
    }
    line = { id, text, source, category, owner, shownAt,
-            durationMs, plan }
+            durationMs, plan, contextKey, queuedAt, ttlMs }
 
-   offer = { text?, category?, source?, owner?, seed? }
+   offer = { text?, category?, source?, owner?, seed?,
+             contextKey? }
    A categorized offer with no text picks from the bank in
    env.tables; a direct offer carries its text and no category,
    and categorized temperament (cooldown, chance) never applies
@@ -380,7 +425,7 @@ export function pickSpeechLine(lines, seed = 0, avoid = null) {
               cooldowns: { category: ms },
               chances: { category: 0..1 } } */
 export function createSpeechState() {
-  return { current: null, queue: [], lastAnyAt: 0, categoryAt: {}, lastByCategory: {}, seq: 0 };
+  return { current: null, queue: [], lastAnyAt: 0, categoryAt: {}, lastByCategory: {}, seq: 0, contextKey: null };
 }
 
 function speechIsCaused(source) {
@@ -389,15 +434,27 @@ function speechIsCaused(source) {
 
 function speechShow(state, offer, source, text, now) {
   const id = state.seq + 1;
+  const plan = speechPlanFor(text);
   const line = {
     id,
     text,
     source,
     category: offer.category || null,
     owner: offer.owner || null,
+    contextKey: offer.contextKey || null,
     shownAt: now,
-    durationMs: speechDurationFor(text),
-    plan: speechPlanFor(text),
+    /* The display time is the reading time, unless the
+       line's own mouth plan runs longer (2026-10-29, the
+       outside audit's clamp finding): past roughly 260 to
+       295 characters the plan outran the 9 second clamp and
+       her mouth was cut mid line, on exactly the long miss
+       feedback lines that matter most. The clamp now scales
+       to the plan: a line stays up until its last phrase is
+       spoken, less the tail allowance speechTalkingAt
+       already grants. Short lines are untouched; their
+       plans end long before the reading time does. */
+    durationMs: Math.max(speechDurationFor(text), plan.speechEndMs - SPEECH_TAIL_MS),
+    plan,
   };
   const next = {
     ...state,
@@ -441,6 +498,12 @@ export function speechOffer(state, offer, env) {
       text = pickSpeechLine(bank, typeof o.seed === "number" ? o.seed : now, s.lastByCategory[o.category] || null) || "";
     }
   }
+  /* Every line she speaks passes the one dash sanitizer,
+     whatever bank or assembly produced it (see
+     speechSanitizeText). Authored lines are already clean
+     and pass through unchanged; assembled lines from card
+     text are where a dash could otherwise reach her bubble. */
+  text = speechSanitizeText(text);
   if (!text) return deny("empty");
 
   /* Typing: she does not talk over the learner's hands. The
@@ -459,13 +522,36 @@ export function speechOffer(state, offer, env) {
       return { state: { ...shown.state, queue: s.queue }, result: "shown", line: shown.line, preempted: s.current };
     }
     if (caused) {
-      if (s.queue.length >= SPEECH_QUEUE_MAX) return deny("queue-full");
       if (s.queue.some((q) => q.text === text)) return deny("duplicate");
+      /* Overflow drops the oldest perishable line instead of
+         refusing the new one (2026-10-29): reactions are
+         perishable, and the line that has waited longest is
+         the stalest thing in the queue. Only a queued line
+         the new one outranks or matches may be dropped; a
+         queue full of lines that all outrank the newcomer
+         still refuses it. */
+      let baseQueue = s.queue;
+      let dropped = null;
+      if (s.queue.length >= SPEECH_QUEUE_MAX) {
+        const newPri = SPEECH_PRIORITY[source] || 0;
+        let dropAt = -1;
+        for (let i = 0; i < s.queue.length; i++) {
+          if ((SPEECH_PRIORITY[s.queue[i].source] || 0) <= newPri) { dropAt = i; break; }
+        }
+        if (dropAt === -1) return deny("queue-full");
+        dropped = s.queue[dropAt];
+        baseQueue = s.queue.filter((_, i) => i !== dropAt);
+      }
+      const plan = speechPlanFor(text);
       const queued = {
         id: 0, text, source, category: o.category || null, owner: o.owner || null,
-        shownAt: 0, durationMs: speechDurationFor(text), plan: speechPlanFor(text),
+        contextKey: o.contextKey || null, queuedAt: now,
+        ttlMs: source === "poke" ? SPEECH_QUEUED_TTL_MS : null,
+        shownAt: 0, durationMs: Math.max(speechDurationFor(text), plan.speechEndMs - SPEECH_TAIL_MS), plan,
       };
-      return { state: { ...s, queue: [...s.queue, queued] }, result: "queued", line: queued };
+      const res = { state: { ...s, queue: [...baseQueue, queued] }, result: "queued", line: queued };
+      if (dropped) res.dropped = dropped;
+      return res;
     }
     /* An ambient line never interrupts anything. */
     return deny("busy");
@@ -497,6 +583,12 @@ export function speechAdvance(state, env) {
   while (rest.queue.length) {
     const head = rest.queue[0];
     rest = { ...rest, queue: rest.queue.slice(1) };
+    /* Stale lines never take the stage (2026-10-29): a
+       queued line whose start TTL has run out is dropped,
+       and so is a line tagged with a context the stage has
+       moved past, a lesson card already left behind. */
+    if (head.ttlMs != null && typeof head.queuedAt === "number" && now - head.queuedAt > head.ttlMs) continue;
+    if (s.contextKey && head.contextKey && head.contextKey !== s.contextKey) continue;
     if (e.typing && head.source !== "lesson") continue;
     const shown = speechShow(rest, head, head.source, head.text, now);
     return { state: { ...shown.state, queue: rest.queue }, ended, promoted: shown.line };
@@ -512,6 +604,24 @@ export function speechDismiss(state) {
   const s = state && typeof state === "object" ? state : createSpeechState();
   if (!s.current && !s.queue.length) return s;
   return { ...s, current: null, queue: [] };
+}
+
+/* The stage's context changes (2026-10-29, the outside
+   audit's stale lines finding): the owner names the context
+   its lines belong to, a lesson card while its feedback
+   sheet is up, null when no card is. Every queued line
+   tagged with a different context is dropped, and a current
+   line tagged with a different context ends on the spot, so
+   nothing she was saying about the last card is still being
+   said over the next one. Untagged lines (her ambient and
+   reaction lines) belong to no card and are untouched. */
+export function speechSetContext(state, contextKey) {
+  const s = state && typeof state === "object" ? state : createSpeechState();
+  const key = typeof contextKey === "string" && contextKey ? contextKey : null;
+  const queue = s.queue.filter((q) => !q.contextKey || q.contextKey === key);
+  const current = s.current && s.current.contextKey && s.current.contextKey !== key ? null : s.current;
+  if (key === (s.contextKey || null) && queue.length === s.queue.length && current === s.current) return s;
+  return { ...s, contextKey: key, queue, current };
 }
 
 /* ── The shared store ─────────────────────────────────────────
@@ -580,7 +690,11 @@ function userIsTypingSpeech() {
    - handleRiveEvent(name, ctx): an EmitIdleQuip,
      EmitQuizQuip, or EmitSearchQuip event from the asset,
      routed to its category exactly as the quip engine did.
-   - dismiss(): end the current line and clear the queue. */
+   - dismiss(): end the current line and clear the queue.
+   - setContext(key): name the context the stage's lines
+     belong to (a lesson card, or null); lines tagged with
+     another context are dropped, so a card's teaching can
+     never be spoken over the next card. */
 export function useNovaSpeech({ enabled = true } = {}) {
   const ownerRef = useRef(null);
   if (ownerRef.current === null) {
@@ -639,11 +753,13 @@ export function useNovaSpeech({ enabled = true } = {}) {
 
   const dismiss = () => { speechCommit(speechDismiss(speechStore)); };
 
+  const setContext = (contextKey) => { speechCommit(speechSetContext(speechStore, contextKey)); };
+
   const current = snapshot.current && snapshot.current.owner === ownerRef.current ? snapshot.current : null;
   const talking = current
     ? speechTalkingAt(current.plan, Date.now() - current.shownAt, current.durationMs)
     : false;
-  return { current, talking, busy: !!snapshot.current, say, offerCategory, handleRiveEvent, dismiss };
+  return { current, talking, busy: !!snapshot.current, say, offerCategory, handleRiveEvent, dismiss, setContext };
 }
 
 /* ── The one bubble ───────────────────────────────────────────

@@ -699,6 +699,31 @@ export function similarityTokenList(text) {
     .split(/\s+/)
     .filter((w) => w && !SIMILARITY_STOPWORDS.has(w));
 }
+/* The negations a passage carries, as a set (2026-10-29).
+   The similarity token screen above drops "not" as a
+   stopword, which makes it blind to the one word that flips
+   a passage's truth: a correction that differs from the why
+   only by its negation tokenizes identically to the why.
+   Her spoken feedback guards (feedbackTeachLine) read this
+   profile before any stand down screen, because a negation
+   difference is never a repeat; it is the change itself,
+   and naming the change is the feedback's whole job.
+   Contractions count: doesn't and can't carry their
+   negation in the n't. */
+const SPEECH_NEGATORS = new Set(["not", "no", "never", "cannot", "without", "none"]);
+export function passageNegations(text) {
+  const out = new Set();
+  const tokens = String(text || "").toLowerCase()
+    .replace(/[*_#`>]/g, " ")
+    .replace(/[^a-z0-9\s'’]/g, " ")
+    .split(/\s+/);
+  for (const w of tokens) {
+    if (!w) continue;
+    if (SPEECH_NEGATORS.has(w)) out.add(w);
+    else if (/n['’]t$/.test(w)) out.add("not");
+  }
+  return out;
+}
 function similarityBigramSet(tokens) {
   const out = new Set();
   for (let i = 0; i + 1 < tokens.length; i++) out.add(tokens[i] + " " + tokens[i + 1]);
@@ -2530,26 +2555,39 @@ export function emitNovaActivity(kind, outcome) {
    NovaLive feeds it the clock, the hour, the idle span, and
    what just happened, and applies what it returns. The state
    is a handful of numbers and flags persisted inside the
-   quirks store: how the last visit ended, her poke tolerance
-   trend, the hours she tends to be visited. Continuity, not
-   a transcript. */
+   quirks store, every one of them read somewhere: the drives,
+   the mood bias, the last behavior and its cooldowns, her
+   patience (the poke ladder and the picker both read it),
+   and how the last visit ended. Continuity, not a
+   transcript. (2026-10-29, the outside audit's dead state
+   finding: the poke trend and the visit hour list were
+   persisted and read by nothing, so both are gone; a brain
+   saved by an older build simply leaves them behind on
+   load, because this function rebuilds the shape.) */
+export const NOVA_PATIENCE_GATE = 0.35;
 export function createNovaBrain(saved) {
   const s = saved && typeof saved === "object" ? saved : {};
   const num = (v, d) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : d);
   const lastEnd = s.lastEnd === "pleased" || s.lastEnd === "poked-out" || s.lastEnd === "ignored" ? s.lastEnd : "ignored";
+  const savedBias = typeof s.moodBias === "number" && Number.isFinite(s.moodBias) ? Math.max(-1, Math.min(1, s.moodBias)) : 0;
   return {
     energy: num(s.energy, 0.75),
     curiosity: num(s.curiosity, 0.25),
     attention: num(s.attention, 0.4),
     /* A visit that ended with her asleep from pokes starts
        the next visit with her patience already thin. */
-    patience: lastEnd === "poked-out" ? Math.min(num(s.patience, 0.8), 0.35) : num(s.patience, 0.8),
-    moodBias: typeof s.moodBias === "number" && Number.isFinite(s.moodBias) ? Math.max(-1, Math.min(1, s.moodBias)) : 0,
+    patience: lastEnd === "poked-out" ? Math.min(num(s.patience, 0.8), NOVA_PATIENCE_GATE) : num(s.patience, 0.8),
+    /* A visit that ended pleased is remembered warm: the
+       next visit starts a touch warmer than the saved
+       numbers left her (2026-10-29; before this, the pleased
+       and ignored endings were recorded and read by
+       nothing). Ignored is the neutral ending and moves
+       nothing. The recentering in novaBrainDecide pulls the
+       warmth back to zero within minutes either way. */
+    moodBias: lastEnd === "pleased" ? Math.max(-1, Math.min(1, savedBias + 0.15)) : savedBias,
     lastBehavior: typeof s.lastBehavior === "string" ? s.lastBehavior : "watch",
     cooldowns: s.cooldowns && typeof s.cooldowns === "object" ? { ...s.cooldowns } : {},
     lastEnd,
-    pokeTrend: num(s.pokeTrend, 0),
-    hours: Array.isArray(s.hours) ? s.hours.filter((h) => typeof h === "number" && Number.isFinite(h)).slice(-8) : [],
   };
 }
 
@@ -2561,7 +2599,6 @@ export function novaBrainObserve(brain, event) {
     case "poke":
       b.patience = clamp(b.patience - 0.3);
       b.attention = clamp(b.attention + 0.1);
-      b.pokeTrend = clamp(b.pokeTrend + 0.25);
       break;
     case "activity":
       b.attention = clamp(b.attention + 0.12);
@@ -2571,7 +2608,11 @@ export function novaBrainObserve(brain, event) {
       break;
     case "success":
       b.curiosity = clamp(b.curiosity + 0.15);
-      b.moodBias = bias(b.moodBias + 0.18);
+      /* +0.08, not +0.18 (2026-10-29): with the tick's drift
+         also recentering (below), a success is a nudge, not
+         a shove, and her warmth has to be earned repeatedly
+         the way her sternness is. */
+      b.moodBias = bias(b.moodBias + 0.08);
       break;
     case "lesson":
       b.curiosity = clamp(b.curiosity + 0.3);
@@ -2602,19 +2643,49 @@ export function novaBrainDecide(brain, ctx) {
   const late = hour >= 23 || hour < 5;
   b.energy = clamp(b.energy + (stage >= 2 ? 0.06 : late ? -0.014 : -0.008));
   if (idleMs < 5000) b.attention = clamp(b.attention + 0.08);
-  else if (idleMs > 30000) { b.attention = clamp(b.attention - 0.04); b.curiosity = clamp(b.curiosity + 0.012); }
+  /* The idle curiosity boost is +0.03, not +0.012
+     (2026-10-29, the outside audit's arithmetic finding):
+     the every tick decay below is 0.015, so the old boost
+     netted minus 0.003 a tick and boredom could never raise
+     her curiosity at all. Now an idle tick nets +0.015, an
+     attended tick still decays by the full 0.015: curiosity
+     grows slowly while nothing happens, as designed, and is
+     spent while she inspects. */
+  else if (idleMs > 30000) { b.attention = clamp(b.attention - 0.04); b.curiosity = clamp(b.curiosity + 0.03); }
   if (idleMs > 45000) b.patience = clamp(b.patience + 0.03);
   b.curiosity = clamp(b.curiosity - 0.015);
-  b.pokeTrend = clamp(b.pokeTrend - 0.01);
-  b.moodBias = c.calm ? bias(b.moodBias + 0.04) : bias(b.moodBias * 0.99);
+  /* The mood bias recentering (2026-10-29, the outside
+     audit's saturation finding). The old calm term only ever
+     pushed up, +0.04 a tick, so about a minute of calm
+     pinned the bias at its +1 ceiling and nothing ever
+     brought it down except misses; and since the mood
+     mapping read only the negative side, her stern faces
+     sat behind roughly five straight misses. Now every tick
+     pulls the bias 0.02 toward zero from whichever side it
+     sits on, and a calm tick adds a further 0.02 of warmth
+     recovery to a negative bias only, the old warm back
+     behavior kept. Calm alone can no longer raise the bias
+     above zero at all; warmth comes from events (success,
+     lesson), in the smaller increments novaBrainObserve now
+     deals. */
+  const recenter = b.moodBias > 0 ? -0.02 : b.moodBias < 0 ? 0.02 : 0;
+  const warmBack = c.calm && b.moodBias < 0 ? 0.02 : 0;
+  b.moodBias = bias(b.moodBias + recenter + warmBack);
   /* The mood the drives add up to: an accumulation layered on
      the handed base, never a flip. Repeated misses darken a
      greeting baseline toward deadpan and then worried before
-     any line appears; calm productive stretches warm it back. */
+     any line appears; calm productive stretches warm it back.
+     The positive side reads now too (2026-10-29): a bias at
+     +0.55 or beyond, which takes a run of successes against
+     the recentering to reach, earns a pleased baseline.
+     Before this the positive half of the scale did nothing
+     at all, so the bias accumulated into a direction with
+     no expression on it. */
   let mood = base;
   if (base === "greeting" || base === "explaining") {
     if (b.moodBias <= -0.55) mood = "worried";
     else if (b.moodBias <= -0.22) mood = "deadpan";
+    else if (b.moodBias >= 0.55) mood = "pleased";
   }
   if (c.busy) {
     b.lastBehavior = "watch";
@@ -2633,10 +2704,40 @@ export function novaBrainDecide(brain, ctx) {
   const scores = {
     watch: 0.45,
     glance: idleMs < 20000 ? 0.1 + b.attention * 0.5 : -1,
-    line: c.lineReady ? 0.1 + b.curiosity * 0.18 : -1,
+    /* The line score reaches past watch now (2026-10-29, the
+       outside audit's dead behavior finding): the old
+       0.10 + curiosity x 0.18 topped out at 0.28 against
+       watch's flat 0.45 under an argmax picker, so the brain
+       line behavior could never fire and every line she said
+       was a caused one. The new weight keeps silence the
+       default at ordinary curiosity (0.25 scores about 0.18,
+       well under watch) and lets a genuinely curious brain
+       speak: curiosity at 1.0 scores 0.55 before the energy
+       factor. Energy is wired in as that factor (the audit's
+       decoration finding): the same curiosity scaled by
+       (0.45 + 0.55 x energy), so a tired Nova does not start
+       conversations and a rested one can. Together with
+       drift's existing (1 - energy) weight, energy now moves
+       both ends of her day: low energy favors drift and
+       rest, high energy favors watching and the occasional
+       line. */
+    line: c.lineReady ? (0.1 + b.curiosity * 0.45) * (0.45 + 0.55 * b.energy) : -1,
     drift: target > stage ? 0.78 + (1 - b.energy) * 0.2 : -1,
     wake: target < stage ? 0.85 : -1,
   };
+  /* Patience is read here at last (2026-10-29, the dead
+     state finding): pokes spend it in novaBrainObserve and
+     calm idle restores it, and while it sits at or under the
+     gate she will not perform at all, no glance, no line,
+     only watching, drifting, or waking, until she has been
+     left alone long enough to recover it. The gate is the
+     same value a poked out visit caps her next patience at,
+     so that cap is observable now: she starts such a visit
+     withdrawn, and earns her performances back with quiet. */
+  if (b.patience <= NOVA_PATIENCE_GATE) {
+    scores.glance = -1;
+    scores.line = -1;
+  }
   const performative = ["glance", "line"];
   for (const name of performative) {
     if (cooled(name)) scores[name] = -1;
@@ -2667,9 +2768,11 @@ export function novaBrainDecide(brain, ctx) {
    and the sheet slot the Player renders; only her inputs, state,
    size and anchor pose change across a check and Continue cycle.
    The sheet pose is the old SheetNova, behavior for behavior:
-   thinking while the answer lands, then the verdict (pleased
-   for a right answer, deadpan for a miss, worried instead from
-   the second miss in a row), then explaining, on the same 650
+   thinking while the answer lands, then the verdict (deadpan
+   for a plain right answer and for a miss, worried instead
+   from the second miss in a row, pleased only when the
+   verdict earns it, see the rationing note in the body), then
+   explaining, on the same 650
    and 2350 millisecond beats, started when the sheet pose begins
    the way a fresh mount started them, with the same speech
    offers, the same teaching beats, and the same opinion line,
@@ -2678,7 +2781,7 @@ export function novaBrainDecide(brain, ctx) {
    body through the Player's own sheet bubble, never from this
    figure: in the sheet pose she renders figure only, exactly as
    the 2026-10-18 bubble repair settled it. */
-function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStreak = 0, quizFeed = null, opinionLine = null, teach = null, speech = null, anchorRef = null, headerSlot = null, sheetSlot = null }) {
+function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStreak = 0, quizFeed = null, opinionLine = null, teach = null, speech = null, anchorRef = null, headerSlot = null, sheetSlot = null, cardKey = null, redeemed = false }) {
   const [phase, setPhase] = useState(0);
   const speechRef = useRef(speech);
   speechRef.current = speech;
@@ -2690,8 +2793,25 @@ function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStrea
   teachRef.current = teach;
   const opinionRef = useRef(null);
   opinionRef.current = opinionLine;
+  /* The verdict face (2026-10-29, the outside audit's pleased
+     finding): a plain correct answer used to earn the pleased
+     face every time, about twenty pleased faces a course,
+     which is not hard to impress by any reading. Pleased is
+     rationed now, to the moments that earn it: a card the
+     learner missed before and has now got right (redeemed,
+     the Player tracks the misses), the first streak of
+     exactly three (the streak counter resets on a miss, so
+     it can only be hit once per run, re armed by the miss
+     itself), and a quirks opinion whose own face is pleased.
+     A plain correct answer gets the deadpan, a single miss
+     the deadpan, and worried only from the second straight
+     miss, as before. Lesson completion keeps its own pleased
+     figure on its own screen (LessonDoneNova), untouched. */
+  const verdictFace = face || (good
+    ? (redeemed || correctStreak === 3 ? "pleased" : "deadpan")
+    : streak >= 2 ? "worried" : "deadpan");
   const shown = phase === 0 ? "thinking"
-    : phase === 1 ? (face || (good ? "pleased" : streak >= 2 ? "worried" : "deadpan"))
+    : phase === 1 ? verdictFace
     : "explaining";
   /* The Rive contract rides along (2026-10-15): the poses map to
      quizState through quizStateForSheet (thinking beat 1, or 2
@@ -2704,10 +2824,28 @@ function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStrea
   const quizState = quizStateForSheet({ phase: inSheet ? phase : 0, good: inSheet ? good : false, correctStreak, hover: !!(quizFeed && quizFeed.hover) });
   const quizStateRef = useRef(quizState);
   quizStateRef.current = quizState;
+  /* The quizState the figure itself is handed (2026-10-29):
+     the rig reads the success states (3, and 5 on a streak)
+     as the pleased expression, the same as a pleased state
+     name, so handing it one at a verdict the face rationing
+     above did not award would put the pleased face straight
+     back on her. At an unearned verdict beat the figure gets
+     the idle state instead and the verdict face rides on the
+     state feed alone. The component's own quizState above is
+     unchanged: it still drives the category offers below,
+     which are speech temperament, not expression. */
+  const figureQuizState = inSheet && phase === 1 && verdictFace !== "pleased" && (quizState === 3 || quizState === 5) ? 0 : quizState;
   /* The sheet beats start when the sheet pose begins, the way a
      fresh SheetNova mount started them, and leaving the sheet
-     resets the clock and the speech bookkeeping, so the next
-     card's sheet starts clean and never queues across cards. */
+     resets the clock and the speech bookkeeping. What keeps
+     her lines from crossing cards is the controller's context
+     (the effect below): every line this figure offers carries
+     the card's key, and the stage drops another card's lines
+     the moment the context moves on. (An earlier version of
+     this comment claimed the resets here did that job. They
+     never did; the queue lived in the controller and survived
+     them, which is the stale line defect the outside audit
+     measured.) */
   const prevQuizRef = useRef(quizState);
   const opinionSaidRef = useRef(null);
   const teachFiredRef = useRef(null);
@@ -2724,6 +2862,17 @@ function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStrea
     const t2 = setTimeout(() => setPhase(2), 2350);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [inSheet]);
+  /* The speech context follows the sheet: while a card's
+     sheet is up, the stage belongs to that card, and its key
+     is the context every line below is tagged with; when the
+     sheet closes, the context clears and any of the card's
+     lines still queued or playing end with it, instead of
+     being spoken over the next card. */
+  useEffect(() => {
+    if (speechRef.current && typeof speechRef.current.setContext === "function") {
+      speechRef.current.setContext(inSheet ? cardKey : null);
+    }
+  }, [inSheet, cardKey]);
   /* Quiz state transitions offer their category to the
      controller, the offer the retired quip engine used to make
      from inside NovaRive: thinking as the sheet opens its
@@ -2751,9 +2900,9 @@ function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStrea
     if (!inSheet) return;
     if (opinionLine && opinionSaidRef.current !== opinionLine) {
       opinionSaidRef.current = opinionLine;
-      speechRef.current.say({ source: "lesson", text: opinionLine });
+      speechRef.current.say({ source: "lesson", text: opinionLine, contextKey: cardKey });
     }
-  }, [opinionLine, inSheet]);
+  }, [opinionLine, inSheet, cardKey]);
   /* The teaching itself (2026-10-15, the owner: Nova is the
      one who teaches on right and wrong answers). As the
      verdict beat lands, she speaks in two beats through this
@@ -2776,13 +2925,13 @@ function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStrea
     teachFiredRef.current = t.line;
     if (!opinionRef.current) {
       const opener = pickNovaLine(t.good ? NOVA_FEEDBACK_RIGHT_LINES : NOVA_FEEDBACK_WRONG_LINES, t.seed || 0);
-      if (opener) speechRef.current.say({ source: "lesson", text: opener });
+      if (opener) speechRef.current.say({ source: "lesson", text: opener, contextKey: cardKey });
     }
-    speechRef.current.say({ source: "lesson", text: t.line });
-  }, [phase, inSheet]);
+    speechRef.current.say({ source: "lesson", text: t.line, contextKey: cardKey });
+  }, [phase, inSheet, cardKey]);
   const figure = (
     <NovaRive state={inSheet ? shown : "thinking"} size={inSheet ? 48 : 40} scanning={inSheet ? phase === 0 : true}
-      quizState={quizState}
+      quizState={figureQuizState}
       pointer={quizFeed ? { x: quizFeed.x, y: quizFeed.y } : null} anchorRef={anchorRef} speech={inSheet ? speech : null} bubbleVariant={inSheet ? null : undefined} />
   );
   const target = inSheet ? (sheetSlot || headerSlot) : headerSlot;
@@ -3040,16 +3189,16 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   }, []);
 
   /* The brain loads from the quirks store on mount (a visit
-     that ended poked out starts this one patience thin), notes
-     the hour of the visit, and learns whether this user stills
-     her movement with reduced motion: under it the brain may
-     still change her expression, but she does not perform. */
+     that ended poked out starts this one patience thin), and
+     learns whether this user stills her movement with reduced
+     motion: under it the brain may still change her
+     expression, but she does not perform. (The visit hour
+     list this effect used to append to retired 2026-10-29
+     with the brain field it fed: persisted, never read.) */
   useEffect(() => {
     let saved = null;
     try { saved = loadNovaQuirks().brain; } catch { saved = null; }
     const b = createNovaBrain(saved);
-    const hr = new Date().getHours();
-    if (b.hours[b.hours.length - 1] !== hr) b.hours = [...b.hours, hr].slice(-8);
     brainRef.current = b;
     try { reducedRef.current = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch { reducedRef.current = false; }
   }, []);
@@ -3683,7 +3832,21 @@ export function feedbackTeachLine(card, ctx = {}) {
        carries the correction briefly, then the reason. */
     const correctText = ctx && ctx.correctText ? plainSpeechText(ctx.correctText) : "";
     const correctionBody = correction.replace(/^(It should say:|The answer was:|The right order:)\s+/, "");
-    if ((correctText && passagesRepeat(correctText, why)) || passagesRepeat(correctionBody, why)) return why;
+    /* A negation difference defeats both stand down screens
+       (2026-10-29, the outside audit's guard finding): the
+       passage screen and the word set screen below both read
+       the similarity tokens, which drop "not" as a stopword,
+       so a correction that differed from the why only by its
+       negation scored as the same passage and was never
+       spoken; she said the why alone and the one word that
+       was the correction was lost. When the two passages
+       carry different negations they say different things,
+       full stop, and she speaks the correction and then the
+       why like any genuinely different pair. */
+    const corrNeg = passageNegations(correctionBody);
+    const whyNeg = passageNegations(why);
+    const negationDiffers = corrNeg.size !== whyNeg.size || [...corrNeg].some((n) => !whyNeg.has(n));
+    if (!negationDiffers && ((correctText && passagesRepeat(correctText, why)) || passagesRepeat(correctionBody, why))) return why;
     /* Word set stand down (2026-10-28, Nova content rethink):
        the passage screen compares word sequences, so a
        restatement, the same words in a different clause order,
@@ -3700,7 +3863,7 @@ export function feedbackTeachLine(card, ctx = {}) {
        value) never triggers this; it carries too few words to be
        a restatement of anything. */
     const corrTokens = [...new Set(similarityTokenList(correctionBody))];
-    if (corrTokens.length >= 3) {
+    if (!negationDiffers && corrTokens.length >= 3) {
       const whyTokens = new Set(similarityTokenList(why));
       let inside = 0;
       for (const t of corrTokens) if (whyTokens.has(t)) inside++;
@@ -3851,6 +4014,21 @@ export function pokeStep(quirks, now) {
   const gap = now - (pokes.lastAt || 0);
   let count = gap > QUIRK_POKE_GAP_MS ? 0 : (pokes.count || 0);
   count += 1;
+  /* Her remembered patience shortens the ladder's fuse
+     (2026-10-29, the dead state finding): the brain half of
+     this same store carries the patience pokes have spent
+     across visits, and until now nothing read it, so a visit
+     that ended poked out capped the next visit's patience at
+     the gate and changed nothing anyone could see. Now a
+     brain at or under the gate has no amusement left to
+     spend: the ladder starts at the deadpan step, the first
+     tap of a visit she begins out of patience draws the
+     flat face and its line, and the turn away is two taps
+     closer. A store with no brain in it (every ladder test,
+     every first run) reads as full patience and the ladder
+     is exactly what it was. */
+  const brainPatience = q.brain && typeof q.brain.patience === "number" ? q.brain.patience : null;
+  if (brainPatience !== null && brainPatience <= NOVA_PATIENCE_GATE && count < 3) count = 3;
   pokes.count = count;
   pokes.lastAt = now;
   const turns = pokes.turns && typeof pokes.turns === "object" ? { ...pokes.turns } : {};
@@ -13153,6 +13331,15 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
     }),
     seed: hashStr(card.question || card.statement || card.prompt || "") + attempt * 131 + cardIdx,
   } : null;
+  /* The card's identity for her speech (2026-10-29): the
+     figure tags every line it offers for this sheet with
+     this key and sets it as the speech stage's context, so
+     the card's teaching can never be spoken over the next
+     card. And whether this card was missed before: a card
+     the learner once got wrong and has now got right is one
+     of the few verdicts that earns her pleased face. */
+  const sheetCardKey = (lesson ? lesson.id : "lesson") + ":" + cardIdx;
+  const sheetRedeemed = !!(checked && isRight && card && misses.some((m) => m.card === card));
   const sheet = checked ? (
     <div className="lv-sheet" style={{
       position: "sticky", bottom: 0, marginTop: 28,
@@ -13289,7 +13476,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
           The intro, lesson done, and course complete screens
           above keep their own one off figures; this mount is
           the card session's only one, in both its states. */}
-      <PlayerNovaFigure inSheet={checked} good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} teach={sheetTeach} speech={sheetSpeech} anchorRef={novaAnchorRef} headerSlot={novaHeaderSlot} sheetSlot={novaSheetSlot} />
+      <PlayerNovaFigure inSheet={checked} good={sheetGood} streak={missStreak} face={sheetOpinion ? sheetOpinion.face : null} correctStreak={rightStreak} quizFeed={quizFeed} opinionLine={sheetOpinion ? sheetOpinion.line : null} teach={sheetTeach} speech={sheetSpeech} anchorRef={novaAnchorRef} headerSlot={novaHeaderSlot} sheetSlot={novaSheetSlot} cardKey={sheetCardKey} redeemed={sheetRedeemed} />
       {/* top bar: close, segmented course progress, session XP */}
       <div style={{ maxWidth: LAYOUT.lesson, width: "100%", margin: "0 auto", padding: "20px 24px 0", boxSizing: "border-box" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>

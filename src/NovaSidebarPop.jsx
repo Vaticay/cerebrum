@@ -11,9 +11,15 @@
    The budget: no pop in the first twenty seconds of a session,
    at most one pop per session, at least a day between pops,
    and once she has been dismissed twice the gap stretches to
-   a week. The moment the learner opens the Nova tab even once,
-   the pops stop for good, because the store carries a visited
-   flag the learning view sets and this file only reads. Her
+   a week. Ignoring her counts too (2026-10-29, the outside
+   audit's pop finding): a pop that plays its whole visit
+   unclicked is recorded as an ignore, ignores stretch the
+   gap on the same count as dismissals, and four ignores stop
+   the pops for good, since a person who has watched her come
+   and go four times without once engaging has answered. The
+   moment the learner opens the Nova tab even once, the pops
+   stop for good, because the store carries a visited flag
+   the learning view sets and this file only reads. Her
    state lives in the existing quirks store from LearnView, so
    there is no new storage key anywhere; the session facts (the
    start stamp and whether she has already popped) live in an
@@ -42,6 +48,9 @@ export const POP_MIN_SESSION_MS = 20000;
 export const POP_GAP_MS = 24 * 3600 * 1000;
 export const POP_LONG_GAP_MS = 7 * 24 * 3600 * 1000;
 export const POP_DISMISSAL_STRETCH = 2;
+/* Four pops watched and ignored, start to finish, retire
+   the pop entirely (2026-10-29). */
+export const POP_IGNORE_STOP = 4;
 export const POP_CHECK_MS = 15000;
 
 /* The visit itself, milliseconds from its start: she enters
@@ -56,10 +65,14 @@ export const POP_TIMELINE = [
 ];
 
 /* The gap a store full of history earns: two dismissals stretch
-   it from a day to a week. */
+   it from a day to a week, and ignores count toward the same
+   stretch (2026-10-29): a dismissal and an ignore are the
+   same answer at two volumes, and before this an ignoring
+   user earned no stretch at all and was popped daily,
+   indefinitely. */
 export function popGapMs(q) {
   const s = q && typeof q === "object" ? q : {};
-  return (s.popDismissals || 0) >= POP_DISMISSAL_STRETCH ? POP_LONG_GAP_MS : POP_GAP_MS;
+  return (s.popDismissals || 0) + (s.popIgnores || 0) >= POP_DISMISSAL_STRETCH ? POP_LONG_GAP_MS : POP_GAP_MS;
 }
 
 /* The contexts she never enters, as one decision so the checks
@@ -78,6 +91,9 @@ export function popEligible(q, ctx, session, now) {
   if (popBlocked(ctx)) return false;
   const s = q && typeof q === "object" ? q : {};
   if (s.hasVisitedNova) return false;
+  /* Four full visits ignored retires her for good
+     (2026-10-29), the ignore side of the budget above. */
+  if ((s.popIgnores || 0) >= POP_IGNORE_STOP) return false;
   const sess = session && typeof session === "object" ? session : {};
   if (sess.popped) return false;
   if (typeof sess.startedAt === "number" && now - sess.startedAt < POP_MIN_SESSION_MS) return false;
@@ -100,6 +116,14 @@ export function recordPop(q, now) {
 export function recordPopDismissal(q) {
   const s = q && typeof q === "object" ? q : {};
   return { ...s, popDismissals: (s.popDismissals || 0) + 1 };
+}
+
+/* A pop that played its whole visit and was never clicked,
+   dismissed, or answered: the softest no there is, recorded
+   so it counts (2026-10-29). */
+export function recordPopIgnore(q) {
+  const s = q && typeof q === "object" ? q : {};
+  return { ...s, popIgnores: (s.popIgnores || 0) + 1 };
 }
 
 /* What the page is doing right now, read off the DOM the shell
@@ -247,7 +271,13 @@ export default function NovaSidebarPop({ searchRunning = false, inCall = false, 
       if (step.at === 0) continue;
       const t = setTimeout(() => {
         if (!popRef.current || popRef.current.id !== p.id) return;
-        if (step.end) { endPop(); return; }
+        /* Reaching the timeline's end means the whole visit
+           played with no click, no dismissal, and no answer:
+           an ignore, and it is recorded like one (2026-10-29).
+           Every other way out of a pop (the figure click, the
+           close button, Escape, a hidden tab) leaves through
+           its own path and records its own outcome, or none. */
+        if (step.end) { saveNovaQuirks(recordPopIgnore(loadNovaQuirks())); endPop(); return; }
         const next = { ...popRef.current };
         if (step.phase) next.phase = step.phase;
         if (step.wave) next.waveN = (popRef.current.waveN || 1) + 1;

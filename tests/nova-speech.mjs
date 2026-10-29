@@ -63,6 +63,7 @@ const WANTED = [
   "SPEECH_EXCITED_MIN_CHARS", "SPEECH_EXCITED_FACTOR", "speechCadenceFor",
   "speechSourceForCategory", "speechDurationFor", "speechPlanFor", "speechTalkingAt", "pickSpeechLine",
   "createSpeechState", "speechIsCaused", "speechShow", "speechOffer", "speechAdvance", "speechDismiss",
+  "SPEECH_QUEUED_TTL_MS", "speechSanitizeText", "speechSetContext",
   "SPEECH_BUBBLE_VIEWPORT_MARGIN", "speechBubbleShiftFor", "speechBubbleStyleFor",
 ];
 function declFor(ast, name) {
@@ -97,6 +98,7 @@ const {
   SPEECH_EXCITED_MIN_CHARS, speechCadenceFor,
   speechSourceForCategory, speechDurationFor, speechPlanFor, speechTalkingAt, pickSpeechLine,
   createSpeechState, speechOffer, speechAdvance, speechDismiss,
+  SPEECH_QUEUED_TTL_MS, speechSanitizeText, speechSetContext,
   SPEECH_BUBBLE_VIEWPORT_MARGIN, speechBubbleShiftFor, speechBubbleStyleFor,
 } = context.__x;
 
@@ -293,9 +295,26 @@ await test("the queue is capped and refuses duplicates", () => {
   st = speechOffer(st, { source: "poke", text: "Queued two." }, env(T0 + 3)).state;
   st = speechOffer(st, { source: "search", text: "Queued three." }, env(T0 + 4)).state;
   assert.equal(st.queue.length, SPEECH_QUEUE_MAX);
+  /* Overflow (2026-10-29): the cap used to refuse the new
+     line outright. Reactions are perishable, so the new line
+     now drops the oldest queued line it outranks or matches
+     (here the search line at the head; the poke line outranks
+     the newcomer and stays) and takes the tail. */
   const full = speechOffer(st, { source: "search", text: "One too many." }, env(T0 + 5));
-  assert.equal(full.result, "denied");
-  assert.equal(full.reason, "queue-full");
+  assert.equal(full.result, "queued");
+  assert.equal(full.dropped.text, "Queued one.");
+  assert.equal(full.state.queue.length, SPEECH_QUEUE_MAX);
+  assert.deepEqual([...full.state.queue.map((q) => q.text)], ["Queued two.", "Queued three.", "One too many."]);
+  /* A queue full of lines that all outrank the newcomer
+     still refuses it: nothing in it is the newcomer's to
+     drop. */
+  let top = speechOffer(createSpeechState(), { source: "lesson", text: "Showing." }, env(T0)).state;
+  top = speechOffer(top, { source: "lesson", text: "Lesson one." }, env(T0 + 1)).state;
+  top = speechOffer(top, { source: "lesson", text: "Lesson two." }, env(T0 + 2)).state;
+  top = speechOffer(top, { source: "lesson", text: "Lesson three." }, env(T0 + 3)).state;
+  const refused = speechOffer(top, { source: "search", text: "Too weak." }, env(T0 + 4));
+  assert.equal(refused.result, "denied");
+  assert.equal(refused.reason, "queue-full");
 });
 
 await test("dismiss ends the line and clears the queue, and keeps the stamps", () => {
@@ -383,6 +402,117 @@ await test("pickSpeechLine picks by seed, avoids a repeat, and refuses an empty 
   assert.equal(pickSpeechLine(["a", "b"], 0, "a"), "b");
   assert.equal(pickSpeechLine([], 0), null);
   assert.equal(pickSpeechLine(null, 0), null);
+});
+
+// ══════════════════════════════════════════════════════════════
+group("Card context: a card's lines die with the card (2026-10-29)");
+
+await test("queued lesson lines carry their card's key", () => {
+  let st = speechOffer(createSpeechState(), { source: "lesson", text: "Opener.", contextKey: "L1:0" }, env(T0)).state;
+  const r = speechOffer(st, { source: "lesson", text: "Teach.", contextKey: "L1:0" }, env(T0 + 10));
+  assert.equal(r.result, "queued");
+  assert.equal(r.line.contextKey, "L1:0");
+  assert.equal(r.state.current.contextKey, "L1:0");
+});
+
+await test("setting a new context drops the old card's queue and ends its current line", () => {
+  let st = speechOffer(createSpeechState(), { source: "lesson", text: "Opener.", contextKey: "L1:0" }, env(T0)).state;
+  st = speechOffer(st, { source: "lesson", text: "Teach.", contextKey: "L1:0" }, env(T0 + 10)).state;
+  st = speechOffer(st, { source: "poke", text: "A poke." }, env(T0 + 20)).state;
+  const moved = speechSetContext(st, "L1:1");
+  assert.equal(moved.contextKey, "L1:1");
+  assert.equal(moved.current, null, "the old card's line still on stage survived the card change");
+  assert.deepEqual([...moved.queue.map((q) => q.text)], ["A poke."], "the untagged poke line belongs to no card and stays");
+  const cleared = speechSetContext(st, null);
+  assert.equal(cleared.current, null, "clearing the context ends the card's current line");
+  assert.equal(cleared.queue.length, 1, "clearing the context drops only the card's own lines");
+});
+
+await test("advance never promotes a line from a context the stage has left", () => {
+  let st = speechOffer(createSpeechState(), { source: "lesson", text: "Showing.", contextKey: "L1:1" }, env(T0)).state;
+  st = speechOffer(st, { source: "lesson", text: "Old card teach.", contextKey: "L1:0" }, env(T0 + 10)).state;
+  st = speechSetContext(st, "L1:1");
+  assert.equal(st.queue.length, 0, "the stale line should already be gone at the context change");
+  const adv = speechAdvance(st, env(T0 + 10000));
+  assert.equal(adv.promoted, null);
+});
+
+await test("a queued poke line past its start TTL is dropped, inside it is promoted", () => {
+  assert.equal(SPEECH_QUEUED_TTL_MS, 2000);
+  /* Real path: a poke queues behind a lesson line, whose
+     minimum display (2.4s) already outlasts the TTL, so by
+     the time the stage frees up the reaction is stale and
+     is dropped rather than spoken late. */
+  let st = speechOffer(createSpeechState(), { source: "lesson", text: "Feedback." }, env(T0)).state;
+  st = speechOffer(st, { source: "poke", text: "Third poke." }, env(T0 + 100)).state;
+  assert.equal(st.queue[0].ttlMs, SPEECH_QUEUED_TTL_MS);
+  const late = speechAdvance(st, env(T0 + 2500));
+  assert.equal(late.ended.text, "Feedback.");
+  assert.equal(late.promoted, null, "a poke line that waited past its TTL still got spoken");
+  assert.equal(late.state.queue.length, 0);
+  /* Inside the TTL the same line promotes normally. The
+     current line's short duration is hand set here because
+     no real line displays for less than the 2.4s floor; the
+     arbitration reads only the fields it is handed. */
+  const hand = {
+    ...createSpeechState(),
+    current: { id: 1, text: "Brief.", source: "lesson", category: null, owner: null, contextKey: null, shownAt: T0, durationMs: 1000, plan: speechPlanFor("Brief.") },
+    queue: [{ id: 0, text: "Third poke.", source: "poke", category: null, owner: null, contextKey: null, queuedAt: T0 + 100, ttlMs: SPEECH_QUEUED_TTL_MS, shownAt: 0, durationMs: 2400, plan: speechPlanFor("Third poke.") }],
+    seq: 1,
+  };
+  const inTime = speechAdvance(hand, env(T0 + 1500));
+  assert.equal(inTime.promoted.text, "Third poke.");
+});
+
+// ══════════════════════════════════════════════════════════════
+group("Long lines are never cut mid line (2026-10-29)");
+
+await test("a long miss feedback line's display covers its whole mouth plan", () => {
+  /* Her longest lines are miss feedback: the correction,
+     then the full why. This one is 292 characters, inside
+     the audited band where the plan outran the 9 second
+     clamp and her mouth stopped mid line. */
+  const long = "The answer was: The gill rakers strain the water as it passes. "
+    + "Each raker is a small comb of bone, and together they sieve food from the flow before it leaves through the gill slits, "
+    + "so the animal feeds and breathes in one motion, never pausing to swallow the way a jawed hunter must between bites at all.";
+  assert.ok(long.length > 260 && long.length < 320, `the fixture should sit in the audited band, got ${long.length}`);
+  const r = speechOffer(createSpeechState(), { source: "lesson", text: long }, env(T0));
+  assert.equal(r.result, "shown");
+  assert.ok(r.line.plan.speechEndMs > SPEECH_DISPLAY_MAX_MS,
+    `the fixture's plan should outrun the old clamp, got ${r.line.plan.speechEndMs}ms`);
+  assert.ok(r.line.durationMs + SPEECH_TAIL_MS >= r.line.plan.speechEndMs,
+    `display ${r.line.durationMs}ms plus tail still cuts the plan at ${r.line.plan.speechEndMs}ms`);
+  const justBefore = speechAdvance(r.state, env(T0 + r.line.plan.speechEndMs - SPEECH_TAIL_MS - 1));
+  assert.equal(justBefore.ended, null, "her line ended before her mouth finished it");
+  const after = speechAdvance(r.state, env(T0 + r.line.durationMs + 1));
+  assert.equal(after.ended.text, long);
+});
+
+await test("short lines keep their reading time exactly (the plan only ever extends)", () => {
+  const r = speechOffer(createSpeechState(), { source: "lesson", text: "Feedback." }, env(T0));
+  assert.equal(r.line.durationMs, speechDurationFor("Feedback."));
+});
+
+// ══════════════════════════════════════════════════════════════
+group("The dash sanitizer at the controller (2026-10-29)");
+
+await test("speechSanitizeText speaks the words and drops every dash", () => {
+  const DASHES = /[-‐-―−]/;
+  assert.equal(speechSanitizeText("A well-known result."), "A well known result.");
+  assert.equal(speechSanitizeText("Seen in 10-20 trials."), "Seen in 10 to 20 trials.");
+  assert.equal(speechSanitizeText("It fell by -3 degrees."), "It fell by minus 3 degrees.");
+  assert.equal(speechSanitizeText("A state—of—the—art sieve."), "A state of the art sieve.");
+  assert.equal(speechSanitizeText("Line one."), "Line one.", "a clean line passes through untouched");
+  for (const s of ["X-ray thin", "pages 4–9", "pre-registered, well-known", "Δ of −2"]) {
+    assert.ok(!DASHES.test(speechSanitizeText(s)), `a dash survived in: ${s}`);
+  }
+});
+
+await test("an assembled line carrying dashes is sanitized before it is shown or queued", () => {
+  const dirty = "The answer was: A well-known sieve, proven in 10-20 trials.";
+  const r = speechOffer(createSpeechState(), { source: "lesson", text: dirty }, env(T0));
+  assert.equal(r.result, "shown");
+  assert.equal(r.line.text, "The answer was: A well known sieve, proven in 10 to 20 trials.");
 });
 
 // ══════════════════════════════════════════════════════════════
