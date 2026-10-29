@@ -170,9 +170,17 @@ await test("slogan is byte-identical", () => {
   // The promise now lives in the specimen verdict and the paper links.
   // Pin updated 2026-10-22 (simplify audit I3): the verdict wording
   // is the proof line's, the placard's duplicate inner row is gone.
+  // Pin rewritten 2026-10-28 (the title card, the owner's concept
+  // pick): the door carries no verdict either. The promise lives
+  // inside the app now, on the home stage's proof line wired to
+  // the sources dialog; intro.jsx states nothing about evidence.
   assert.ok(
-    introSrc.includes("Traced to a real paper"),
-    "specimen verdict missing"
+    !introSrc.includes("Traced to a real paper"),
+    "the door carries a specimen verdict again"
+  );
+  assert.ok(
+    appSrc.includes("scholarly databases"),
+    "the stage proof line that carries the promise is missing"
   );
 });
 
@@ -699,7 +707,14 @@ await test("the intro's text panels follow the palette and its film credits stay
   const modal = introSrc.slice(modalAt, introSrc.indexOf("function SourcesDialog", modalAt));
   assert.match(modal, /background: P \? P\.surface : "var\(--cb-surface, #767676\)"/, "IntroModal does not take the palette surface");
   assert.ok(!modal.includes('background: "#0f1115"'), "IntroModal still hard codes the near black panel");
-  assert.match(introSrc, /<SourcesDialog P=\{P\} accent=\{introAccent\}/, "the intro's Sources dialog does not receive the palette");
+  /* Pin rewritten 2026-10-28 (the title card, the owner's concept
+     pick): the door mounts no Sources dialog anymore. Proof lives
+     inside the app, and the app shell's own Sources dialog mount
+     receiving the palette is pinned directly below. SourcesDialog
+     itself stays defined in intro.jsx for the shell. */
+  const doorFn = introSrc.slice(introSrc.indexOf("function Intro({"), introSrc.indexOf("function CerebrumFieldCanvas"));
+  assert.ok(!doorFn.includes("<SourcesDialog"), "the title card door mounts a Sources dialog again");
+  assert.ok(introSrc.includes("function SourcesDialog("), "SourcesDialog is no longer defined in intro.jsx");
   assert.ok(!introSrc.includes("HowItWorksDialog"), "the deleted How it works dialog came back to the door");
   assert.match(appSrc, /<SourcesDialog P=\{P\} accent=\{accent\}/, "the app's Sources dialog does not receive the palette");
 });

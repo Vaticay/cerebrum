@@ -126,6 +126,25 @@
  * word, Nova once with her line, one way in, the specimens and
  * their papers, the proof line, no dashes) stands unmodified.
  *
+ * 2026-10-28 (later that night, the owner's concept pick): after
+ * three doors in one day converged on the same stack (wordmark,
+ * headline, button, Nova row, specimen), the owner picked the
+ * concept himself: "Title card, Cerebrum as the film title." The
+ * door is now a film title card: the word Cerebrum set as a title
+ * over the living neutral atmosphere, one small line under it
+ * ("Answers from published research."), and one quiet text way
+ * in ("Tap to begin"). Everything else left the door: the
+ * headline sentence, the specimen block and its rotation, the
+ * proof line, the header and its links, the sage button, and
+ * Nova. Proof and specimens live inside the app now. The pins
+ * that guarded those elements are rewritten at their sites
+ * below, each marked with this date and pick, to guard the title
+ * card contract instead: the title present, exactly the allowed
+ * elements, the retired elements absent, entry working. The
+ * material pins, the film guard, the no composer and no consent
+ * pins, the returning and reduced pins, and every app shell pin
+ * at the end of this file stand unmodified.
+ *
  * Run with: node tests/intro-title-card.mjs
  */
 
@@ -155,7 +174,7 @@ function group(name) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-group("The specimens — real claims, real papers");
+group("The title card — the title, the one line, the way in (owner's pick 2026-10-28)");
 
 const src = await readFile(join(root, "src/intro.jsx"), "utf8");
 // Intro CSS keyframes live in the app's global CSS block (CerebrumApp.jsx).
@@ -163,21 +182,17 @@ const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
 const cssSrc = src + "\n" + appSrc;
 const introFn = src.slice(src.indexOf("function Intro({"), src.indexOf("function CerebrumFieldCanvas"));
 
-await test("SPECIMENS holds at least three specimens", () => {
-  const m = src.match(/const SPECIMENS = \[([\s\S]*?)\n\];/);
-  assert.ok(m, "SPECIMENS not defined");
-  const claims = (m[1].match(/claim:/g) || []).length;
-  assert.ok(claims >= 3, `only ${claims} specimens`);
-});
-
-await test("every specimen has a claim, a paper, and a DOI", () => {
-  const m = src.match(/const SPECIMENS = \[([\s\S]*?)\n\];/);
-  const block = m[1];
-  for (const field of ["claim:", "paper:", "doi:"]) {
-    const n = (block.match(new RegExp(field, "g")) || []).length;
-    assert.ok(n >= 3, `field ${field} appears only ${n} times`);
-  }
-  assert.ok(block.includes("https://doi.org/"), "no DOI links in specimens");
+await test("the door carries no specimen data and renders no claim", () => {
+  /* Pins rewritten 2026-10-28 (the title card, the owner's concept
+     pick: "Title card, Cerebrum as the film title"). The two pins
+     here used to require the SPECIMENS array and its claims,
+     papers, and DOIs on the door. The pick retires the specimen
+     block from the door entirely; the specimens live inside the
+     app now. These pins guard the absence with the same strength:
+     no data, no pick, no specimen state anywhere in the door. */
+  assert.ok(!src.includes("const SPECIMENS"), "the SPECIMENS array is back in intro.jsx");
+  assert.ok(!introFn.includes("specimen"), "specimen machinery is back on the door");
+  assert.ok(!introFn.includes("SPECIMENS["), "the door picks a specimen again");
 });
 
 await test("old headline and slogan are gone", () => {
@@ -191,70 +206,72 @@ await test("old headline and slogan are gone", () => {
   );
 });
 
-await test("verdict line marks each claim as traced", () => {
-  /* Pin updated 2026-10-22 (simplify audit I3): the placard's inner
-     traced row is deleted on purpose; proof was said twice on one
-     screen. The proof line under the placard is now the sole traced
-     statement, and the pin guards both halves of that. */
-  assert.ok(src.includes("Traced to a real paper"), "proof line missing");
+await test("the proof line is not on the door; proof lives inside the app", () => {
+  /* Pin rewritten 2026-10-28 (the title card, the owner's concept
+     pick). This pin used to require the proof line ("Traced to a
+     real paper") as the door's sole traced statement. The pick
+     moves all proof inside the app: the door states nothing about
+     evidence at all. The duplicate inner traced row ban stands. */
+  assert.ok(!introFn.includes("Traced to a real paper"), "the proof line is back on the door");
   assert.ok(!src.includes("Traced to a direct finding"), "the duplicate inner traced row came back");
 });
 
-await test("the single way in reads \"Start researching\"", () => {
-  assert.ok(/>Start researching<\/button>/.test(src), "Start researching CTA missing");
+await test("the title is the word Cerebrum, set as the film title", () => {
+  /* New pin 2026-10-28 (the title card, the owner's concept pick).
+     The one element the door is built around: the word itself in
+     an h1, taking the staged entrance's title beat. */
+  assert.ok(introFn.includes("Cerebrum</h1>"), "the title word is missing from the door");
+  assert.ok(introFn.includes('className="cb-door-stage-2"'), "the title does not take its staged entrance beat");
+});
+
+await test("the one small line under the title says what Cerebrum is, plainly", () => {
+  /* New pin 2026-10-28 (the title card, the owner's concept pick).
+     One line, no slogan cadence, no source count: the honesty
+     numbers belong inside the app. */
+  assert.ok(introFn.includes("Answers from published research."), "the line under the title changed");
+  assert.ok(!introFn.includes("scholarly indexes"), "the source count crept back onto the door");
+});
+
+await test("the single way in is one quiet text affordance reading \"Tap to begin\"", () => {
+  /* Pin rewritten 2026-10-28 (the title card, the owner's concept
+     pick). This pin used to require the filled sage button reading
+     "Start researching" as the door's one primary CTA. The pick
+     replaces it with one quiet text affordance, and the whole card
+     stays tappable around it. The plate's Enter key ban stands. */
+  assert.ok(introFn.includes(">Tap to begin</button>"), "the quiet way in is missing");
   assert.ok(!/>Enter<\/button>/.test(src), "the plate's Enter key still present");
-  const n = (src.match(/cb-intro-go/g) || []).length;
-  assert.ok(n >= 1, "CTA class missing");
-  const inIntro = (introFn.match(/className="cb-intro-go"/g) || []).length;
-  assert.equal(inIntro, 1, `the door has ${inIntro} primary CTAs, expected exactly one`);
+  assert.ok(!introFn.includes("cb-intro-go"), "the filled button's class is back on the door");
+  const inIntro = (introFn.match(/className="cb-door-begin"/g) || []).length;
+  assert.equal(inIntro, 1, `the door has ${inIntro} way in affordances, expected exactly one`);
+  assert.ok(introFn.includes('onClick={() => go("", false)}'), "the card itself no longer begins entry on tap");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("Rotation — one placard at a time, on a timer (restored door 2026-10-20)");
+group("No rotation — the card holds still (title card 2026-10-28)");
 
-await test("timed rotation advances by one specimen", () => {
-  /* Pin updated 2026-10-20 (Dusty's verdict on the ledger door:
-     "way too AI and busy"; the cinematic restored on the core list
-     only). The sets of three belonged to the busier doors; the
-     restored door shows one claim at a time and advances by one.
-     The cadence is unchanged from every door since the film era. */
-  assert.ok(introFn.includes("setInterval"), "no rotation timer on the door");
-  assert.ok(introFn.includes("(i + 1) % specimenCount"), "rotation does not advance by one");
-  assert.ok(!introFn.includes("setSize"), "the set machinery is back on the door");
-  assert.ok(introFn.includes("isMobile ? 12000 : 9000"), "rotation cadence changed (9s desktop, 12s mobile)");
-});
-
-await test("one placard renders at a time", () => {
-  /* Pin updated 2026-10-20 (same verdict): one specimen, rendered
-     singly, in place of the set of three. */
-  assert.ok(introFn.includes("SPECIMENS[specimenIdx % specimenCount]"), "the single specimen is not picked");
-  assert.ok(introFn.includes("const spec = SPECIMENS[specimenIdx % specimenCount];"), "the single specimen is not bound");
-  assert.ok(!introFn.includes("specimenSet"), "the set of three renders again");
-});
-
-await test("rotation pauses for a hold, a dialog, or reduced motion", () => {
-  /* Pin updated 2026-10-22 (simplify audit I2): the How it works
-     dialog is deleted from the door, so its pause term left the
-     guard with it. Hold and the sources dialog still pause. */
-  assert.ok(introFn.includes("if (specimenHeld || sourcesOpen) return undefined;"), "hold and dialog pauses missing");
-  assert.ok(introFn.includes("if (reduced || animationMode === \"off\") return undefined;"), "reduced motion does not stop the rotation");
-  assert.ok(introFn.includes("onMouseEnter={() => setSpecimenHeld(true)}"), "hover hold missing");
-});
-
-await test("no steppers: the rotation is the only way the claim changes", () => {
-  /* Pin updated 2026-10-20 (same verdict): the steppers were door
-     furniture for the sets of three. The restored door carries the
-     core list and nothing more, so the claim changes by the timer
-     alone and no stepper chrome stands on the door. */
+await test("nothing on the door rotates or advances", () => {
+  /* Pins rewritten 2026-10-28 (the title card, the owner's concept
+     pick). This group used to pin the specimen rotation: a timer
+     advancing by one, one placard at a time, pauses for hold and
+     dialog, no steppers. The title card has nothing to rotate;
+     the title simply holds. The pins now guard that stillness
+     with the same strength, and the stepper bans stand. */
+  assert.ok(!introFn.includes("setInterval"), "a timer is back on the door");
+  assert.ok(!introFn.includes("specimenIdx"), "the rotation index is back on the door");
+  assert.ok(!introFn.includes("specimenHeld"), "the hold state is back on the door");
   assert.ok(!src.includes('aria-label="Previous three claims"'), "the set stepper is back");
   assert.ok(!src.includes('aria-label="Next three claims"'), "the set stepper is back");
   assert.ok(!src.includes('aria-label="Previous claim"'), "a single stepper is back");
   assert.ok(!src.includes('aria-label="Next claim"'), "a single stepper is back");
 });
 
-await test("specimen change has its own entrance animation", () => {
-  assert.ok(cssSrc.includes("@keyframes cbSpecimenIn"), "specimen keyframes missing");
-  assert.ok(cssSrc.includes("cb-specimen-in"), "specimen entrance class missing");
+await test("the title takes the staged entrance", () => {
+  /* Pin rewritten 2026-10-28 (the title card, the owner's concept
+     pick). This pin used to guard the specimen change animation.
+     There is no specimen change anymore; what animates is the
+     card's own staged entrance, and the title's beat is the rise. */
+  assert.ok(introFn.includes('className="cb-door-stage-2"'), "the title lost its entrance beat");
+  assert.ok(cssSrc.includes("@keyframes cbDoorRise"), "the entrance rise keyframes are missing");
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -318,7 +335,10 @@ await test("the door mounts the new atmosphere; the reel and its grade are gone"
   assert.ok(!introFn.includes('reel="intro"'), "the door plays the retired intro reel");
   assert.ok(!introFn.includes("brightness(0.22)"), "the old door grade is back on the door");
   assert.ok(!introFn.includes("intensity={0.3}"), "the old film dim is back on the door");
-  assert.ok(introFn.includes('background: "#05070a"'), "the door ground is not the door's near black");
+  /* Ground value updated 2026-10-28 (the title card): the card's
+     neutral ground is #060606, the same value the split leaves
+     and the static pre boot layer carry. */
+  assert.ok(introFn.includes('background: "#060606"'), "the door ground is not the title card's neutral black");
   assert.ok(!introFn.includes("<DotField"), "the dot field is back on the door, fighting the atmosphere");
   assert.ok(!introFn.includes("cb-intro-haze"), "the haze fields are back on the door");
   assert.ok(!introFn.includes("cb-intro-atmosphere"), "the door's old atmosphere fields are back");
@@ -380,7 +400,7 @@ await test("appUtils carries the height hook in the same style as the width hook
     "useWindowHeight is not exported from appUtils");
 });
 
-await test("the specimen sits on the door's solid caption strip; no gradients, no shadows on the door", () => {
+await test("no caption strip and no colour block on the card; no gradients, no shadows on the door", () => {
   // 2026-10-16: this pin replaced the calm air pin. The specimen
   // cards carried the UICard expressions from designSystem.jsx (the
   // palette surface with the dark palette override, a 1px border,
@@ -405,8 +425,15 @@ await test("the specimen sits on the door's solid caption strip; no gradients, n
   // the text stays fully opaque (the strip is #05070a itself, the
   // door ground), and the gradient and shadow bans stand exactly
   // as before. The plate's sheen is retired with the plate.
-  assert.ok(introFn.includes('className="cb-door-strip cb-door-stage-5"'), "the caption strip is missing");
-  assert.ok(introFn.includes('background: "#05070a"'), "the strip is not on the solid door ground");
+  // 2026-10-28 (later that night, the title card, the owner's
+  // concept pick): rewritten again at the same authority. The
+  // caption strip is retired with the specimen block; the owner's
+  // desktop photo showed its band clashing purple against the old
+  // material, and the card carries no band, block, or card of any
+  // colour now, only the title over the neutral ground #060606.
+  // The gradient and shadow bans stand exactly as before.
+  assert.ok(!introFn.includes("cb-door-strip"), "the caption strip band is back on the door");
+  assert.ok(introFn.includes('background: "#060606"'), "the card is not on its neutral ground");
   assert.ok(!introFn.includes("background: plateBg"), "the placard ground is back");
   assert.ok(!introFn.includes("cb-door-sheen"), "the plate sheen is back");
   assert.ok(!introFn.includes("radial-gradient") && !introFn.includes("linear-gradient"), "a gradient is painted on the door");
@@ -518,13 +545,19 @@ await test("focus-pull keyframes exist and resolve blur to sharp", () => {
   assert.ok(!kf.includes("translate"), "focus-pull must not move the type");
 });
 
-await test("hero text uses a premium entrance (focus-pull or specimen-in)", () => {
+await test("hero text uses a premium entrance (the title's staged rise)", () => {
   /* Pin updated 2026-10-28 (door motion wave): the door plate's
      entrance is now cb-door-spec-in, the door's own rise and fade,
      which also runs on touch devices where cb-specimen-in is
      killed. The intent is unchanged: the hero text takes a named
-     premium entrance class. */
-  assert.ok(src.includes('"cb-focus-in"') || src.includes('"cb-specimen-in"') || src.includes('"cb-door-spec-in"'), "no premium entrance applied to hero text");
+     premium entrance class.
+     Pin rewritten 2026-10-28 (the title card, the owner's concept
+     pick): the hero text is the title itself now, and its entrance
+     is the staged rise, stage 2 of the door's ceremony, resolved
+     by the shell CSS to cbDoorRise on the same curve as every
+     other beat. */
+  assert.ok(introFn.includes('className="cb-door-stage-2"'), "the title takes no staged entrance class");
+  assert.ok(cssSrc.includes(".cb-door-stage-2 { animation: cbDoorRise"), "the title's stage does not resolve to the rise");
 });
 
 await test("old fade-and-rise entrance is fully gone", () => {
@@ -532,24 +565,33 @@ await test("old fade-and-rise entrance is fully gone", () => {
   assert.ok(!src.includes("cbTitleIn"), "cbTitleIn keyframes still referenced");
 });
 
-await test("the door header is the wordmark and quiet links", () => {
-  // 2026-10-16: the lockup is the search stage masthead's pairing
-  // (Mark at 22 in the accent, "Cerebrum" in Inter 500, title case),
-  // replacing the film door's small glyph and tracked caps wordmark,
-  // which read as a different product from the app behind the door.
-  assert.ok(introFn.includes("<Mark size={22}"), "wordmark glyph missing from the header");
-  assert.ok(introFn.includes(">Cerebrum</span>"), "stage wordmark missing from the header");
-  /* 2026-10-18 (design audit tail 7): the door header, mobile menu and footer
-     list the same four destinations, Terms included. */
-  assert.ok(introFn.includes('["About", "Privacy", "Terms", "Contact"]'), "quiet header links missing");
+await test("the door has no header: the title is the only wordmark", () => {
+  /* Pin rewritten 2026-10-28 (the title card, the owner's concept
+     pick). This pin used to require the door header: the masthead
+     lockup (Mark at 22, "Cerebrum" in Inter 500) and the four quiet
+     links (About, Privacy, Terms, Contact, added 2026-10-18 so the
+     header, mobile menu, and footer listed the same set). The
+     title card has no header at all; the word appears once, as the
+     title. The links live inside the app. */
+  assert.ok(!introFn.includes("<header"), "a header is back on the door");
+  assert.ok(!introFn.includes('["About", "Privacy", "Terms", "Contact"]'), "the header link list is back on the door");
+  assert.ok(!introFn.includes("<Mark size={22}"), "the masthead glyph is back on the door");
+  assert.ok(introFn.includes("Cerebrum</h1>"), "the title word is missing");
 });
 
-await test("the CTA is set in normal case, not tracked caps", () => {
-  const ctaAt = introFn.indexOf('className="cb-intro-go"');
-  assert.ok(ctaAt > 0, "CTA button missing");
+await test("the way in is plain text: no fill, no accent colour, no caps", () => {
+  /* Pin rewritten 2026-10-28 (the title card, the owner's concept
+     pick). This pin used to guard the filled CTA's type treatment
+     (normal case, no tracked caps, no light sweep, no sage glow
+     shadow). The way in is now a quiet line of text: no fill at
+     all, set in the card's own neutral ink rather than any accent,
+     and the old sweep and shadow bans stand. */
+  const ctaAt = introFn.indexOf('className="cb-door-begin"');
+  assert.ok(ctaAt > 0, "the way in affordance is missing");
   const cta = introFn.slice(ctaAt, ctaAt + 700);
-  assert.ok(cta.includes('textTransform: "none"'), "CTA not set in normal case");
-  assert.ok(!cta.includes('textTransform: "uppercase"'), "CTA still set as tracked caps");
+  assert.ok(cta.includes('background: "none"'), "the way in carries a fill again");
+  assert.ok(!cta.includes('textTransform: "uppercase"'), "the way in is set as tracked caps");
+  assert.ok(!introFn.includes("introAccent"), "an accent colour is back on the door");
   assert.ok(!src.includes("cb-intro-go::after"), "CTA light sweep still present");
   assert.ok(
     !src.includes("0 14px 34px rgba(163,184,153,0.30)"),
@@ -562,11 +604,22 @@ await test("reduced motion kills the focus-pull", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("The proof line — honest numbers under every claim");
+group("Proof lives inside the app — the door states nothing about evidence (title card 2026-10-28)");
 
-await test("each placard carries the quiet proof line with the real count", () => {
-  assert.ok(introFn.includes("Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes"), "proof line missing or not built from the real source list");
-  assert.ok(!/Searched across \d+ scholarly indexes/.test(introFn), "the index count is hardcoded, not the real list");
+await test("no proof line, no count, no paper link on the door", () => {
+  /* Pins rewritten 2026-10-28 (the title card, the owner's concept
+     pick). This group used to require the quiet proof line under
+     every claim, built from the real source list with no hardcoded
+     count, and the specimen's paper reachable by its DOI link.
+     The pick moves all of it inside the app: the door's one line
+     says what Cerebrum is and nothing about evidence, so the
+     honesty machinery has no surface left to drift on here. The
+     pins guard the absence at the same strength. */
+  assert.ok(!introFn.includes("Traced to a real paper"), "the proof line is back on the door");
+  assert.ok(!introFn.includes("Searched across"), "the searched across line is back on the door");
+  assert.ok(!introFn.includes("SCHOLARLY_SOURCES"), "the door reads the source list again");
+  assert.ok(!introFn.includes("Open the paper"), "the paper link is back on the door");
+  assert.ok(!introFn.includes("spec.doi"), "the door reaches for a specimen DOI again");
 });
 
 await test("the plate's record strip is retired", () => {
@@ -575,16 +628,17 @@ await test("the plate's record strip is retired", () => {
   assert.ok(!introFn.includes("recordCell"), "record strip builder survives");
 });
 
-await test("the paper is reachable the way the old door linked it", () => {
-  assert.ok(introFn.includes("Open the paper"), "open the paper link missing");
-  assert.ok(introFn.includes("href={spec.doi}"), "the link does not use the specimen's DOI");
-});
-
 // ════════════════════════════════════════════════════════════════
-group("The restoration (2026-10-20) — the film door, the core list, and quiet Nova");
+group("The title card contract (2026-10-28) — no headline, no ledger, no Nova on the door");
 
-await test("the sentence survives word for word as the door's headline", () => {
-  assert.ok(introFn.includes("Ask a question and get an answer from the research papers, with the sources attached."), "the stage sentence changed");
+await test("the headline sentence is not on the door", () => {
+  /* Pin rewritten 2026-10-28 (the title card, the owner's concept
+     pick). This pin used to require the sentence word for word as
+     the door's headline ("Ask a question and get an answer from
+     the research papers, with the sources attached."). The title
+     card has no headline sentence; the title and the one small
+     line are the whole text above the way in. */
+  assert.ok(!introFn.includes("Ask a question and get an answer from the research papers, with the sources attached."), "the headline sentence is back on the door");
 });
 
 await test("the ledger is gone: no records, no numbers, no ruled header", () => {
@@ -618,21 +672,21 @@ await test("the calm is the authored atmosphere, not a field of dots", () => {
   assert.ok(!introFn.includes("<DotField"), "the dot field is back on the door");
 });
 
-await test("Nova is one figure and one line on the door, with no section around her", () => {
-  /* Pin updated 2026-10-20 (same verdict): the ledger door's Nova
-     section, with its card, wordmark, tagline, and second
-     paragraph, is retired. She stays on the door the quiet way:
-     her figure once, and one short line in her dry voice, mounted
-     directly by the door. Her tagline pin retires with the
-     section; the tagline itself lives on in LearnView as
-     CORTEX_TAGLINE, pinned there. */
+await test("Nova is not on the door at all", () => {
+  /* Pin rewritten 2026-10-28 (the title card, the owner's concept
+     pick). This pin used to require Nova on the door the quiet
+     way: her figure once and one short line, no section (the
+     section form was retired 2026-10-20). The title card carries
+     no Nova row at all; she lives inside the app, where her own
+     pins guard her. The figure count over the whole intro file
+     is zero now, and her door line is gone with the row. */
   assert.ok(!src.includes("function NovaDoorSection"), "the Nova section component is back");
   const mounts = (introFn.match(/<NovaDoorSection/g) || []).length;
   assert.equal(mounts, 0, `NovaDoorSection mounts ${mounts} times on the door`);
   const figures = (src.match(/<NovaRive/g) || []).length;
-  assert.equal(figures, 1, `the door draws ${figures} Nova figures`);
-  assert.ok(introFn.includes("<NovaRive"), "her figure is not mounted by the door");
-  assert.ok(src.includes("Good specimens, these."), "her line is missing");
+  assert.equal(figures, 0, `the door file draws ${figures} Nova figures`);
+  assert.ok(!src.includes("NovaRive"), "the Nova figure import or mount is back in intro.jsx");
+  assert.ok(!introFn.includes("Good specimens, these."), "her door line is back");
   assert.ok(!src.includes("Nova teaches science inside Cerebrum"), "the section's second paragraph is back");
 });
 // ══════════════════════════════════════════════════════════════════════════

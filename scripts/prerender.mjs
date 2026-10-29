@@ -241,63 +241,37 @@ for (const slug of slugs) {
  * bare app shell, about 14 KB with none of the door copy in the
  * document, so anything reading the served page without running the app
  * found an empty room. The door's real content now ships in the
- * document, copied verbatim from src/intro.jsx: the door headline, the
- * Start researching entry, and its SPECIMENS with the papers they
- * trace to. React replaces the root's contents on mount, so the
- * rendered door, its arrangement, and its film are unchanged. The
+ * document, copied verbatim from src/intro.jsx. React replaces the
+ * root's contents on mount, so the rendered door is unchanged. The
  * shell's <noscript> fallback is stripped here too, for the same
  * reason as on the slug pages: the door document now stands on its own
  * and the boilerplate would only duplicate it.
- * 2026-10-28: the contents were cut to the app door's own set and the
- * layer repainted dark; see the doorMain note below. */
-/* 2026-10-28 (round 4 cut): the static layer carries ONE specimen
- * card, the claim the app door opens on (SPECIMENS[0] in
- * src/intro.jsx), with its citation shortened to author, journal,
- * year. The claim wording matches the app verbatim, including the
- * 2026-10-28 wording fix there: the paper's conclusion is deficits
- * equivalent to UP TO two nights of total sleep deprivation, and
- * "can impair" carries that qualifier in plain words. */
-const DOOR_SPECIMEN = {
-  claim: "Two weeks of six-hour nights can impair your thinking as much as two nights with no sleep at all.",
-  cite: "H. P. A. Van Dongen et al., Sleep, 2003.",
-  doi: "https://doi.org/10.1093/sleep/26.2.117",
-};
-/* 2026-10-28 (door fallback fix, with the round 4 cut): this static
- * layer is also what a visitor stares at when the app stalls or
- * fails before mount, and on the owner's phone it read as a broken
- * white page: light ground, the headline, a long paragraph naming
- * all 14 databases, six specimen claims, a free terms paragraph,
- * and Start researching as a plain link. Its contents now match the
- * app door itself: wordmark, headline, one short line (the honest
- * count, no database roll call; the full source list lives on About
- * and Features), the way in, Nova's line word for word, and one
- * specimen with the proof line under it. The visible
- * text fell from 337 words to 101. The layer is painted as
- * the door's face, with the shipped door's own values from
- * src/intro.jsx: ground #05070a, ink #eef1ee, secondary text at
- * 0.72 alpha, faintest at 0.58, hairlines at 0.10 white, and
- * Start researching as the door's button (sage #8ba888 fill,
- * #0f172a ink, radius 10, padding 14px 44px, min height 48).
- * 2026-10-28 (the reimagined door): the static specimen drops
- * its card to match the new face; it stands as three lines over
- * a hairline, the static echo of the app's caption strip.
- * React still replaces this on mount, so the rendered door is
- * unchanged. */
+ * 2026-10-28: the contents were cut twice more the same day, first to
+ * the reimagined door's set (wordmark, headline, the way in, Nova's
+ * line, one specimen with its proof), then, on the owner's concept
+ * pick that night, to the title card's set; see the doorMain note
+ * below. The specimen this layer carried through the middle version
+ * (the Van Dongen claim, its citation shortened to author, journal,
+ * year) leaves with the specimen block itself. */
+/* 2026-10-28 (the title card, the owner's concept pick: "Title card,
+ * Cerebrum as the film title"): this static layer is also what a
+ * visitor stares at when the app stalls or fails before mount, so it
+ * matches the app door element for element, and the door is now
+ * three elements: the title, the one small line under it, and the
+ * quiet way in as a plain text link (a stalled visitor's press
+ * reloads the page, which is the recovery this layer has always
+ * offered). Nothing else: no headline sentence, no specimen, no
+ * proof line, no Nova line, no nav. Painted with the shipped card's
+ * own values from src/intro.jsx: neutral ground #060606, ink
+ * #f3f3f1, the line at 0.72 alpha, the way in at 0.55, the title in
+ * the reading serif at 500. React still replaces this on mount, so
+ * the rendered door is unchanged. */
 const doorMain = `
-    <main class="cb-prerender" style="min-height:100dvh;background:#05070a;color:#eef1ee;font:16px/1.7 'Inter Tight','Inter',system-ui,-apple-system,'Segoe UI',sans-serif">
-      <div style="max-width:44rem;margin:0 auto;padding:3rem 1.25rem">
-      <nav style="margin-bottom:2.5rem;font:600 14px/1.5 system-ui,sans-serif">
-        <a href="/" style="color:#eef1ee;text-decoration:none">Cerebrum</a>
-      </nav>
-      <h1 style="font-family:'Source Serif 4',Charter,Georgia,'Times New Roman',serif;font-weight:400;font-size:2rem;line-height:1.2;margin:0 0 1rem">Ask a question and get an answer from the research papers, with the sources attached.</h1>
-      <p style="font-size:1.05rem;color:rgba(238,241,238,0.72)">Cerebrum searches 14 open scholarly databases and answers from the papers it finds. Every claim links to a paper you can open, and when nothing is found, it says so plainly.</p>
-      <p><a href="/" style="display:inline-block;box-sizing:border-box;background:#8ba888;color:#0f172a;border:1px solid transparent;border-radius:10px;padding:14px 44px;min-height:48px;font:500 16px/1.25 'Inter Tight','Inter',system-ui,sans-serif;text-decoration:none">Start researching</a></p>
-      <p style="font-family:'Source Serif 4',Charter,Georgia,'Times New Roman',serif;font-size:1rem;color:rgba(238,241,238,0.72);margin:2.5rem 0 1rem">Good specimens, these. The lab is open when you are ready.</p>
-      <div style="border-top:1px solid rgba(255,255,255,0.10);padding-top:1.25rem">
-        <p style="font-family:'Source Serif 4',Charter,Georgia,'Times New Roman',serif;font-size:1.1rem;line-height:1.55;margin:0">&ldquo;${DOOR_SPECIMEN.claim}&rdquo;</p>
-        <p style="font-size:.9rem;color:rgba(238,241,238,0.72);margin:.6rem 0 0">${DOOR_SPECIMEN.cite} <a href="${DOOR_SPECIMEN.doi}" style="color:#8ba888">Open the paper</a></p>
-        <p style="font-size:.8rem;color:rgba(238,241,238,0.58);margin:.9rem 0 0"><span style="display:inline-block;width:7px;height:7px;background:#8ba888;margin-right:8px"></span>Traced to a real paper &middot; Searched across 14 scholarly indexes</p>
-      </div>
+    <main class="cb-prerender" style="min-height:100dvh;background:#060606;color:#f3f3f1;font:16px/1.7 'Inter Tight','Inter',system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;text-align:center">
+      <div style="padding:3rem 1.25rem">
+      <h1 style="font-family:'Source Serif 4',Charter,Georgia,'Times New Roman',serif;font-weight:500;font-size:3.25rem;line-height:1.04;letter-spacing:0.008em;margin:0">Cerebrum</h1>
+      <p style="font-size:1.05rem;color:rgba(243,243,241,0.72);margin:1.35rem 0 0">Answers from published research.</p>
+      <p style="margin:2.1rem 0 0"><a href="/" style="color:rgba(243,243,241,0.55);font-size:.85rem;font-weight:500;letter-spacing:0.01em;text-decoration:none">Tap to begin</a></p>
       </div>
     </main>`;
 
@@ -318,7 +292,7 @@ doorHtml = doorHtml.replace(/<noscript>[\s\S]*?<\/noscript>/, "");
  * are light. */
 doorHtml = doorHtml.replace(
   'content="#fafaf9" media="(prefers-color-scheme: light)"',
-  'content="#05070a" media="(prefers-color-scheme: light)"'
+  'content="#060606" media="(prefers-color-scheme: light)"'
 );
 await writeFile(join(dist, "index.html"), doorHtml, "utf8");
 

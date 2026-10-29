@@ -26510,7 +26510,13 @@ summary::-webkit-details-marker { display: none; }
    is live from the first frame. The block sits inside
    no-preference, so reduced motion never stages at all; returning
    visitors skip the ceremony class entirely and take the still
-   fade above. */
+   fade above.
+   Restaged the same night onto the title card (the owner's
+   concept pick): the beats now land on the title (stage 2, the
+   rise), the one line under it (stage 3), and the quiet way in
+   (stage 4). Stages 1 and 5 keep their rules; nothing on the card
+   takes them. The split leaves below take the card's own neutral
+   ground, #060606, from the same night. */
 @keyframes cbDoorFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes cbDoorRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes cbDoorScale { from { opacity: 0; transform: translateY(8px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
@@ -26548,12 +26554,18 @@ summary::-webkit-details-marker { display: none; }
    atmosphere's own, swelling through its swell prop while the
    leaves part. */
 .cb-door-split { position: fixed; inset: 0; z-index: 90; pointer-events: none; overflow: hidden; }
-.cb-split-half { position: absolute; top: 0; bottom: 0; width: 50.5%; background: #05070a; }
+.cb-split-half { position: absolute; top: 0; bottom: 0; width: 50.5%; background: #060606; }
 .cb-split-l { left: 0; animation: cbSplitL 0.72s var(--cb-ease) both; }
 .cb-split-r { right: 0; animation: cbSplitR 0.72s var(--cb-ease) both; }
 @keyframes cbSplitL { 0%, 18% { transform: translateX(0); } 100% { transform: translateX(-103%); } }
 @keyframes cbSplitR { 0%, 18% { transform: translateX(0); } 100% { transform: translateX(103%); } }
 @media (prefers-reduced-motion: reduce) { .cb-door-split { display: none; } }
+/* The title card's way in (2026-10-28, the owner's concept pick):
+   a quiet line of text, not a filled button. Its colour shift is
+   inline (the door's own hover state); here it only takes a focus
+   ring in the card's neutral white, so the keyboard way in is as
+   visible as the pointer one. */
+.cb-door-begin:focus-visible { outline: 2px solid rgba(243,243,241,0.65); outline-offset: 3px; }
 /* ── Inbox polish, 2026-10-28 ───────────────────────────────
    Phase 2 fitted polish, inbox lane. The thread list, the open
    conversation, its bubbles, and its menus take the intro curve

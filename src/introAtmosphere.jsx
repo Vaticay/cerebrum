@@ -33,6 +33,31 @@
  * cinematic, calm, very dark, atmospheric, nothing literal. Only
  * the material is new.
  *
+ * Rework, later the same night (the title card): the door is now a
+ * film title card (see intro.jsx), and the owner's desktop photos
+ * of this material read as a gray green smoke smudge sitting low
+ * in the frame, and flat black on his phone. Two causes, both in
+ * the shader below as first shipped: the glow sat low with a tight
+ * falloff, so it drew a visible blob with an edge, and the palette
+ * mixed a green light over blue mist, which is the murk in his
+ * photos. The material is rewritten around the title card:
+ *
+ *   - The light now hangs at the centre of the frame, behind where
+ *     the title sits, with a falloff so broad it has no edge at
+ *     any aspect: a luminous depth, not a shape. It reads at phone
+ *     size and desktop size alike, because its size is set in
+ *     aspect corrected space rather than in raw screen fractions.
+ *   - The mist no longer carries colour or mass of its own. It
+ *     only shapes the light, thickening and clearing inside it,
+ *     which is what gives the frame depth; outside the light it
+ *     is nearly nothing, so no smoke cloud can form anywhere.
+ *   - The palette is neutral throughout: near black ground with
+ *     no hue worth naming, and a cool white light with the green
+ *     taken out. Nothing on the title card may wear a tint.
+ *
+ * The contracts below are unchanged: still, fixedClock, swell,
+ * visible time only, and the calm clamp.
+ *
  * Performance, measured rather than assumed (see the addendum at
  * ~/workspace/cerebrum-intro-new-material-oct28-addendum.md): the
  * shader renders at a capped internal resolution (0.55 of CSS size,
@@ -66,11 +91,14 @@
 import React, { useEffect, useRef, useState } from "react";
 
 /* The composed still time: mid breath, mist settled, the frame the
-   reduced motion door opens on. */
-export const ATMOSPHERE_STILL_T = 19.0;
-/* The cinema take's first frame time: the same world, caught a
-   little later in its breath, identical on every take. */
-export const ATMOSPHERE_TAKE_T0 = 26.0;
+   reduced motion door opens on. Tuned to the title card material's
+   breath (period about 42 seconds, phase set in the shader): at
+   this time the breath sits at its midpoint, rising. */
+export const ATMOSPHERE_STILL_T = 27.6;
+/* The cinema take's first frame time: the same world, caught near
+   the bottom of its breath, so the take's light rises through the
+   entrance and settles. Identical on every take. */
+export const ATMOSPHERE_TAKE_T0 = 4.0;
 
 const VERT_SRC = [
   "attribute vec2 aPos;",
@@ -124,87 +152,94 @@ const FRAG_SRC = [
   "}",
   "void main(){",
 "  vec2 uv = gl_FragCoord.xy / uRes;",
-"  vec2 p = uv;",
-"  p.x *= uRes.x / uRes.y;",
+"  float aspect = uRes.x / uRes.y;",
+"  /* Aspect corrected space, centred: distances here mean the",
+"     same on a tall phone and a wide monitor, which is what the",
+"     first material got wrong. */",
+"  vec2 p = (uv - 0.5) * vec2(aspect, 1.0);",
 "  float t = uTime;",
 "",
 "  /* The breathing light: a full swell and recession in about",
-"     48 seconds, eased so it lingers at the bottom of the breath. */",
-"  float breath = 0.5 + 0.5 * sin(t * 0.1309 - 1.2);",
-"  breath = pow(breath, 1.6);",
-"  /* Elliptical distance to a glow centred low and slightly",
-"     right, wide rather than round, like light under cloud. */",
-"  vec2 q = (uv - vec2(0.56, 0.15)) * vec2(1.0, 1.60);",
-"  float glow = exp(-dot(q, q) * 2.2);",
-"  float lightAmt = glow * (0.34 + 0.50 * breath + 0.60 * uSwell);",
+"     42 seconds, eased so it lingers at the bottom of the breath. */",
+"  float breath = 0.5 + 0.5 * sin(t * 0.1496 - 1.0);",
+"  breath = pow(breath, 1.4);",
+"  /* The light hangs at the centre of the frame, a little above",
+"     middle, behind where the title sits. Its falloff is set in",
+"     corrected space and is deliberately too broad to have an",
+"     edge: at the frame's corners it is down to a whisper, and",
+"     nowhere does it stop being a gradient and start being a",
+"     shape. The vertical squash keeps it wide rather than round,",
+"     the way light sits in a cinema frame. */",
+"  vec2 q = p - vec2(0.0, 0.13);",
+"  q.y *= 1.18;",
+"  float glow = exp(-dot(q, q) * 2.05);",
+"  float lightAmt = glow * (0.235 + 0.105 * breath + 0.55 * uSwell);",
 "",
-"  /* Mist in three strata, each with its own contrast curve so",
-"     the field has ridges and clearings instead of a flat wash.",
-"     The far layer is large, slow, and domain warped by a second",
-"     field so its edges roll instead of sliding; the near layers",
-"     are finer and quicker. Nothing here is fast: the far layer",
-"     crosses the frame in minutes. */",
-"  float warp = fbm(p * 1.15 - vec2(t * 0.004, 0.0));",
-"  float m1 = fbm(p * 1.55 + vec2(t * 0.010, t * 0.002) + warp * 0.85);",
-"  float m2 = fbm(p * 3.05 + vec2(-t * 0.016, t * 0.003) + 7.3);",
-"  float m3 = fbm(p * 5.30 + vec2(t * 0.025, -t * 0.005) + 13.1);",
-"  float d1 = pow(smoothstep(0.28, 1.05, m1 * 0.72 + m2 * 0.38), 1.30);",
-"  float d2 = pow(smoothstep(0.38, 1.02, m2), 1.50);",
-"  float d3 = pow(smoothstep(0.44, 1.02, m3), 1.60);",
-"  /* Fine detail inside the lit mist, so lit areas have texture",
-"     instead of a smooth gradient. */",
-"  float det = 0.55 + 0.90 * fbm(p * 6.5 + vec2(t * 0.010, 0.0));",
-"  /* The upper frame stays the emptiest: the masthead and the",
-"     open sky of the frame live there. */",
-"  float sky = 0.60 + 0.55 * (1.0 - uv.y);",
+"  /* Mist, two fields, and it only shapes the light. The far",
+"     field is large and domain warped so its edges roll; the near",
+"     field is finer. Multiplied into the light as a shaping",
+"     factor, the mist thickens and clears inside the glow, which",
+"     reads as depth in the air. It has no colour and no mass of",
+"     its own: outside the light's reach there is almost nothing",
+"     for it to show on, so no cloud can form low in the frame or",
+"     anywhere else. The shaping swing was narrowed the same night",
+"     after the first rendered captures: at the original swing the",
+"     wide frame drew the field as diagonal light leak streaks, so",
+"     the warp, the swing, the detail, and the skirt term were all",
+"     pulled in until the captures read as a smooth lit pool. */",
+"  float warp = fbm(p * 1.05 - vec2(t * 0.0035, 0.0));",
+"  float m1 = fbm(p * 1.35 + vec2(t * 0.008, t * 0.0016) + warp * 0.50);",
+"  float m2 = fbm(p * 2.90 + vec2(-t * 0.013, t * 0.0026) + 7.3);",
+"  float shape = 0.80 + 0.30 * (m1 * 0.65 + m2 * 0.35);",
+"  /* Fine detail inside the lit air, so the light has texture",
+"     rather than a smooth gradient's flatness. */",
+"  float det = 0.86 + 0.26 * fbm(p * 5.5 + vec2(t * 0.008, 0.0));",
 "",
-"  vec3 ground = vec3(0.012, 0.016, 0.024);",
-"  vec3 farCol = vec3(0.150, 0.185, 0.225);",
-"  vec3 midCol = vec3(0.120, 0.155, 0.175);",
-"  vec3 lightCol = vec3(0.55, 0.61, 0.53);",
+"  /* The palette is neutral, by the owner's photo verdict on the",
+"     first material: a ground with no hue worth naming, and a",
+"     light the colour of pale daylight through cloud, with the",
+"     green taken out. */",
+"  vec3 ground = vec3(0.010, 0.010, 0.011);",
+"  vec3 lightCol = vec3(0.80, 0.82, 0.84);",
 "  vec3 col = ground;",
-"  /* Far mist, lit through by the glow. */",
-"  col += farCol * d1 * (0.06 + 1.00 * lightAmt) * 0.85 * det * sky;",
-"  /* The light itself, hanging in the air low in the frame. */",
-"  col += lightCol * lightAmt * 0.55 * (0.42 + 0.85 * d1);",
-"  /* Mid mist, less lit, drifting across. */",
-"  col += midCol * d2 * (0.05 + 0.80 * lightAmt) * 0.50 * det;",
-"  /* Near mist as silhouette: it absorbs the light behind it,",
-"     which is what gives the frame real depth, and only its",
-"     edges catch the glow. */",
-"  col *= 1.0 - d3 * 0.50 * (1.0 - 0.45 * lightAmt);",
-"  col += midCol * d3 * lightAmt * 0.12;",
+"  /* The light, shaped by the mist and the fine detail. */",
+"  col += lightCol * lightAmt * shape * det;",
+"  /* A whisper of the mist showing on its own inside the light's",
+"     skirts, so the air does not end where the glow does. */",
+"  col += vec3(0.42, 0.43, 0.45) * m2 * lightAmt * 0.15;",
+"  /* The frame's far edges settle a touch deeper, depth rather",
+"     than a border. */",
+"  float vig = smoothstep(1.30, 0.40, length(p));",
+"  col *= mix(0.60, 1.0, vig);",
 "",
 "  /* Motes: two sparse layers drifting through, visible mostly",
-"     where the light is. */",
+"     where the light is. Neutral, like everything else here. */",
 "  float mo = motes(p, t, 26.0, vec2(0.010, 0.004), 3.1)",
 "           + motes(p, t, 41.0, vec2(-0.014, 0.006), 9.7) * 0.7;",
-"  col += vec3(0.80, 0.82, 0.76) * mo * (0.03 + lightAmt * 0.22);",
-"",
-"  /* Vignette: the frame's edges fall back to the door ground. */",
-"  float vig = smoothstep(1.28, 0.42, distance(uv, vec2(0.5, 0.42)));",
-"  col *= mix(0.52, 1.0, vig);",
+"  col += vec3(0.85, 0.86, 0.86) * mo * (0.02 + lightAmt * 0.30);",
 "",
 "  /* Fine animated grain, the texture of film. */",
 "  float g = hash(gl_FragCoord.xy + fract(t) * 371.0);",
-"  col += (g - 0.5) * 0.028;",
+"  col += (g - 0.5) * 0.022;",
 "",
 "  /* The clamp is the calm law in numbers: whatever the breath",
 "     and the swell do, no pixel of this material gets bright. */",
-"  col = min(col, vec3(0.40));",
+"  col = min(col, vec3(0.44));",
 "  gl_FragColor = vec4(col, 1.0);",
 "}",
 ].join("\n");
 
 /* The no WebGL still: the same world as flat light. Layered radial
-   gradients in the shader's palette over the door ground; no image,
-   no old poster, no clip. */
+   gradients in the shader's neutral palette over the door ground;
+   no image, no old poster, no clip. The light sits at the centre,
+   as the shader's does; the first version of this fallback put its
+   glow low in the frame in a green tint, the same fault the
+   owner's photos caught in the shader itself. */
 const ATMO_FALLBACK = {
   background: [
-    "radial-gradient(ellipse 90% 55% at 50% 88%, rgba(96,110,92,0.20), rgba(96,110,92,0) 62%)",
-    "radial-gradient(ellipse 120% 80% at 22% 66%, rgba(38,52,66,0.35), rgba(38,52,66,0) 65%)",
-    "radial-gradient(ellipse 110% 75% at 82% 30%, rgba(30,40,52,0.28), rgba(30,40,52,0) 60%)",
-    "#05070a",
+    "radial-gradient(ellipse 80% 58% at 50% 40%, rgba(198,204,212,0.13), rgba(198,204,212,0) 66%)",
+    "radial-gradient(ellipse 120% 90% at 50% 112%, rgba(64,68,74,0.16), rgba(64,68,74,0) 62%)",
+    "#060606",
   ].join(", "),
 };
 

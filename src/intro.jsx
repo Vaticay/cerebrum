@@ -19,7 +19,6 @@ import {
 import { safeHref } from "./textUtils.js";
 import { staticFieldCss } from "./cerebrumField.js";
 import { SCHOLARLY_SOURCES } from "../functions/lib/product.js";
-import { NovaRive } from "./NovaRive.jsx";
 import { IntroAtmosphere } from "./introAtmosphere.jsx";
 import { cbMotionOff, Dialog } from "./flowcharts.jsx";
 
@@ -528,144 +527,17 @@ function SourcesDialog({ onClose, accent, P = null }) {
 }
 
 
-const SPECIMENS = [
-  {
-    /* 2026-10-28 (round 4 verify): the paper's conclusion is deficits
-       equivalent to UP TO two nights of total sleep deprivation;
-       "can impair" carries that qualifier in plain words. The flat
-       "impairs" stated the maximum as the general value. */
-    claim: "Two weeks of six-hour nights can impair your thinking as much as two nights with no sleep at all.",
-    paper: "H. P. A. Van Dongen et al., \u201cThe cumulative cost of additional wakefulness,\u201d Sleep 26(2), 2003.",
-    doi: "https://doi.org/10.1093/sleep/26.2.117",
-  },
-  {
-    claim: "Distant exploding stars are dimmer than they should be, so the expansion of the universe is speeding up.",
-    paper: "A. G. Riess et al., \u201cObservational evidence from supernovae for an accelerating universe,\u201d Astron. J. 116(3), 1998.",
-    doi: "https://doi.org/10.1086/300499",
-  },
-  {
-    claim: "Running grows new neurons in the adult brain, at least in mice.",
-    paper: "H. van Praag et al., \u201cRunning increases cell proliferation and neurogenesis in the adult mouse dentate gyrus,\u201d Nat. Neurosci. 2(3), 1999.",
-    doi: "https://doi.org/10.1038/6368",
-  },
-  {
-    claim: "Four-year-olds who could wait for two marshmallows scored markedly higher on their SATs as teenagers.",
-    paper: "Y. Shoda, W. Mischel & P. K. Peake, \u201cPredicting adolescent cognitive and self-regulatory competencies from preschool delay of gratification,\u201d J. Pers. Soc. Psychol. 57(6), 1990.",
-    doi: "https://doi.org/10.1037/0022-3514.57.6.978",
-  },
-  {
-    claim: "Cigarette smokers die of lung cancer at roughly ten times the rate of non-smokers.",
-    paper: "R. Doll & A. B. Hill, \u201cSmoking and carcinoma of the lung,\u201d Br. Med. J. 2(4682), 1950.",
-    doi: "https://doi.org/10.1136/bmj.2.4682.739",
-  },
-  {
-    claim: "DNA is a double helix, with the two strands held together by paired bases.",
-    paper: "J. D. Watson & F. H. C. Crick, \u201cMolecular structure of nucleic acids,\u201d Nature 171(4356), 1953.",
-    doi: "https://doi.org/10.1038/171737a0",
-  },
-  {
-    claim: "People fear a $100 loss about twice as much as they value a $100 gain.",
-    paper: "D. Kahneman & A. Tversky, \u201cProspect theory: An analysis of decision under risk,\u201d Econometrica 47(2), 1979.",
-    doi: "https://doi.org/10.2307/1914185",
-  },
-  {
-    claim: "A bacterial immune system can be reprogrammed to cut any chosen DNA sequence.",
-    paper: "M. Jinek et al., \u201cA programmable dual-RNA-guided DNA endonuclease in adaptive bacterial immunity,\u201d Science 337(6096), 2012.",
-    doi: "https://doi.org/10.1126/science.1225829",
-  },
-  {
-    claim: "Ripples in spacetime from two colliding black holes reached Earth after traveling over a billion years.",
-    paper: "B. P. Abbott et al., \u201cObservation of gravitational waves from a binary black hole merger,\u201d Phys. Rev. Lett. 116(6), 2016.",
-    doi: "https://doi.org/10.1103/PhysRevLett.116.061102",
-  },
-  {
-    claim: "The shadow of a black hole 55 million light-years away was photographed for the first time.",
-    paper: "Event Horizon Telescope Collaboration, \u201cFirst M87 event horizon telescope results,\u201d Astrophys. J. Lett. 875(1), 2019.",
-    doi: "https://doi.org/10.3847/2041-8213/ab0ec7",
-  },
-  {
-    claim: "Swapping one RNA building block lets synthetic messenger RNA slip past the immune system.",
-    paper: "K. Karik\u00f3 et al., \u201cSuppression of RNA recognition by Toll-like receptors,\u201d Immunity 23(2), 2005.",
-    doi: "https://doi.org/10.1016/j.immuni.2005.06.008",
-  },
-  {
-    claim: "Stomach ulcers are caused by bacteria, not stress, and can be cured with antibiotics.",
-    paper: "B. J. Marshall & J. R. Warren, \u201cUnidentified curved bacilli in the stomach of patients with gastritis and peptic ulceration,\u201d Lancet 323(8390), 1984.",
-    doi: "https://doi.org/10.1016/S0140-6736(84)91816-6",
-  },
-  {
-    claim: "Ordinary people will deliver what they believe are dangerous electric shocks when an authority figure tells them to.",
-    paper: "S. Milgram, \u201cBehavioral study of obedience,\u201d J. Abnorm. Soc. Psychol. 67(4), 1963.",
-    doi: "https://doi.org/10.1037/h0040525",
-  },
-  {
-    claim: "Naming the ink color of a word is hard when the word itself spells a different color.",
-    paper: "J. R. Stroop, \u201cStudies of interference in serial verbal reactions,\u201d J. Exp. Psychol. 18(6), 1935.",
-    doi: "https://doi.org/10.1037/h0054651",
-  },
-  {
-    claim: "The least competent people are the most confident about their abilities.",
-    paper: "J. Kruger & D. Dunning, \u201cUnskilled and unaware of it,\u201d J. Pers. Soc. Psychol. 77(6), 1999.",
-    doi: "https://doi.org/10.1037/0022-3514.77.6.1121",
-  },
-  {
-    claim: "The more bystanders who witness an emergency, the less likely any one of them is to help.",
-    paper: "J. M. Darley & B. Latan\u00e9, \u201cBystander intervention in emergencies: Diffusion of responsibility,\u201d J. Pers. Soc. Psychol. 8(4), 1968.",
-    doi: "https://doi.org/10.1037/h0025589",
-  },
-  {
-    claim: "People paid $1 to lie about a boring task later claimed they actually enjoyed it.",
-    paper: "L. Festinger & J. M. Carlsmith, \u201cCognitive consequences of forced compliance,\u201d J. Abnorm. Soc. Psychol. 58(2), 1959.",
-    doi: "https://doi.org/10.1037/h0046929",
-  },
-  {
-    claim: "Antarctic ozone had dropped by a third, revealing a continent-sized hole in the ozone layer.",
-    paper: "J. C. Farman, B. G. Gardiner & J. D. Shanklin, \u201cLarge losses of total ozone in Antarctica reveal seasonal ClOx/NOx interaction,\u201d Nature 315(6016), 1985.",
-    doi: "https://doi.org/10.1038/315207a0",
-  },
-  {
-    claim: "A Mediterranean diet with olive oil or nuts cut heart attacks and strokes by about 30 percent.",
-    paper: "R. Estruch et al., \u201cPrimary prevention of cardiovascular disease with a Mediterranean diet,\u201d N. Engl. J. Med. 368, 2013.",
-    doi: "https://doi.org/10.1056/NEJMoa1200303",
-  },
-  {
-    claim: "Exercise works as an antidepressant, with larger benefits from more vigorous activity.",
-    paper: "F. B. Schuch et al., \u201cExercise as a treatment for depression: A meta-analysis,\u201d Am. J. Psychiatry 175(7), 2018.",
-    doi: "https://doi.org/10.1176/appi.ajp.2018.17111186",
-  },
-  {
-    claim: "Deep sleep replays the day\u2019s experiences and moves them into long-term memory.",
-    paper: "S. Diekelmann & J. Born, \u201cThe memory function of sleep,\u201d Nat. Rev. Neurosci. 11(2), 2010.",
-    doi: "https://doi.org/10.1038/nrn2762",
-  },
-  {
-    claim: "The human body carries roughly as many bacterial cells as human cells.",
-    paper: "Human Microbiome Project Consortium, \u201cStructure, function and diversity of the healthy human microbiome,\u201d Nature 486(7402), 2012.",
-    doi: "https://doi.org/10.1038/nature11234",
-  },
-  {
-    claim: "Mold juice kills staphylococcus bacteria, the first observed antibiotic effect.",
-    paper: "A. Fleming, \u201cOn the antibacterial action of cultures of a penicillium,\u201d Br. J. Exp. Pathol. 10(3), 1929.",
-    doi: "https://doi.org/10.1111/j.1472-765X.1929.tb00571.x",
-  },
-  {
-    claim: "About a third of patients improve on a sugar pill with no active ingredient.",
-    paper: "H. K. Beecher, \u201cThe powerful placebo,\u201d J. Am. Med. Assoc. 159(17), 1955.",
-    doi: "https://doi.org/10.1001/jama.1955.02960340022006",
-  },
-];
-
-/* The intro's history, kept short: the door was a calibration chamber
-   over film (2026-10-08), then a specimen placard over the returning
-   cinema (2026-10-09 to 2026-10-12). The 2026-10-13 plate redesign
-   replaced the door with a specimen plate for a day; Dusty's directive
-   the same day ("Bring back the old intro page just make it better")
-   restored the film door below, improved, and superseded the plate
-   door. What carried through every version: SPECIMENS (real verified
-   claims, the product demonstrating itself), "Traced to a direct
-   finding", and the door rule: no composer here, one way in,
-   ceremonial. The calm air rule also stands: atmospheric, very slow,
-   very dark, never literal footage on the door. */
+/* The specimen claims that stood on every door from 2026-10-08 to
+   this night are retired from this file (2026-10-28, the owner's
+   concept pick: "Title card, Cerebrum as the film title"). The
+   door they demonstrated is gone; the title card carries no claim,
+   no citation, and no proof line, because the proof now lives
+   inside the app, on the search stage and the answer, where a
+   visitor can act on it. The claims themselves are not lost: the
+   stage's placeholder questions and the document fallback in
+   index.html carry findings from the same literature, each traced
+   to its paper. Deleting the list with the door it served keeps
+   this file honest about what the door is now. */
 /* ════════════════════════════════════════════════════════════════════
    PlateFrame: the shared plate language (2026-10-13 plate redesign).
 
@@ -840,90 +712,65 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
    is untouched.
    ════════════════════════════════════════════════════════════ */
 /* ════════════════════════════════════════════════════════════════════
-   Intro — the cinematic door, restored (2026-10-20).
+   Intro — the title card (2026-10-28, the owner's concept pick).
 
    History, short form: the door was a calibration chamber over film
-   (2026-10-08), a specimen plate for a day (2026-10-13), then the
-   film door restored the same day on Dusty's directive ("Bring back
-   the old intro page just make it better"). On 2026-10-16 his
-   verdict on that door was that it looked AI generated and did not
-   match the app, and the door was rebuilt flat in the app's design
-   language (423ac66). On 2026-10-19, on his order to reimagine it
-   again, the door became a two column room: a threshold column and
-   a numbered evidence ledger with a Nova section (6004ede). He saw
-   it live on 2026-10-20 and rejected it on sight: way too AI and
-   busy. His order: bring back the cinematic.
+   (2026-10-08), a specimen plate for a day (2026-10-13), the film
+   door restored and rebuilt several times since, a two column
+   ledger room rejected on sight (2026-10-20), a film frame with a
+   title block and a caption strip (2026-10-28 noon), and the same
+   staging over an authored shader atmosphere (2026-10-28 evening).
+   Every one of those doors carried the same visible list: a
+   masthead, a headline sentence, a filled way in, a Nova row, and
+   a specimen with its proof. The owner's verdict that evening,
+   with phone and desktop photos: "its bad and you didn't listen",
+   and then "This all looks so bad still". Three builds in one day
+   had changed the arrangement, then the staging, then the
+   material, and never changed what the screen is, because the
+   element list itself was being protected as identity.
 
-   This is that restoration, and it is deliberately NOT the old film
-   door's furniture returning with the film. What returns is the
-   foundation only: the ambient science reel under a calm grade
-   (brightness 0.30, saturate 0.60, blur 12px at restoration; the
-   door grade was darkened later the same day, 2026-10-20, on the
-   owner's photo: see the wrapper comment in Intro below for the
-   shipped door values and the measurements behind them. The
-   2026-10-08 ruling stands: atmospheric not literal, very dark,
-   heavily blurred, nothing recognizable competing with the
-   content). The DotField
-   and the blurred haze fields leave the door: where the field and
-   the film would fight, the film wins. The fanned glass cards, the
-   gradients, the glow shadows, the sheen, and the tracked caps
-   wordmark stay retired with the doors that carried them.
+   So the concept was put to him as a choice between genuinely
+   different doors, and he picked this one in his own words:
+   "Title card, Cerebrum as the film title."
 
-   What the door carries is the core list and nothing more:
-   - The masthead lockup: the brain Mark at 22 in the accent and
-     "Cerebrum" in Inter 500, the pairing the search stage carries,
-     with the quiet links.
-   - The one plain sentence, the stage's own, word for word.
-   - ONE specimen at a time in the caption strip at the foot of
-     the frame (2026-10-28 reimagination; the placard is retired),
-     rotating on
-     the same timer with the same pauses (hold, dialog, off
-     screen, reduced motion). Not a set, not a ledger: one claim,
-     its paper one tap away.
-   - The honest proof line as the strip's last line, opening the sources
-     dialog, its count from the real SCHOLARLY_SOURCES list.
-   - The single way in, "Start researching". No composer on the
-     door, ever.
-   - Nova, quiet: her figure once and one short line in her dry
-     voice. No section, no box, no wordmark; the ledger door's
-     NovaDoorSection is gone with the ledger.
-   - The footer: the year on one quiet line.
+   The door is now a film title card, and that is the whole screen:
+   - The word Cerebrum, set like the title of a film in the reading
+     serif, at the centre of a living dark background (the authored
+     atmosphere in introAtmosphere.jsx, reworked the same night
+     around this card: neutral palette, its light at the centre
+     behind the title, its mist shaping the light instead of
+     forming clouds of its own).
+   - One small line under the title, saying what Cerebrum is in
+     plain words.
+   - A press anywhere begins. Under the line, one quiet text
+     affordance names the press; it is not a filled button, and
+     nothing else on the card is a control.
 
-   Standing behavior, unchanged: the door is dark because the film
-   door is the brand door, the same for everyone (the intro accent
-   keeps its sage fallback); cerebrum-entered collapses the
-   ceremony for returning visitors; reduced motion gets the graded
-   poster still (filmBlocked's contract inside the reel) and one
-   composed fade; leaving takes the 420ms descent; consent appears
-   on the way in, in the shell, never on this door.
+   There is no headline sentence, no specimen block, no proof line,
+   no Nova row, no masthead, and no nav links on this door. The
+   proof and the specimens live inside the app now, where a visitor
+   can act on them. Nova lives inside the app too; her figure and
+   her line leave the door with the staging they belonged to.
 
-   Evening addendum, 2026-10-28 (the owner's material order): the
-   paragraph above and the restoration history it closes describe
-   the door as it stood that morning. His verdict on the
-   reimagined door shipped at noon was that it looked the same
-   but with animations, because the cinematic material underneath
-   never changed, and his order was all new cinematic elements
-   and backgrounds with none of the old ones reused. The reel,
-   its grade, its poster, and its grain tile are therefore gone
-   from this door as of this evening; the foundation is now the
-   authored atmosphere in introAtmosphere.jsx (mist strata, a
-   breathing light, motes, grain), and reduced motion gets one
-   composed still frame of that same material. The staging, the
-   sentence, Nova, the specimens, and the way in are untouched
-   by the order and stand as described.
+   Standing behaviour, unchanged: the card is dark for everyone;
+   the session flag collapses the ceremony for returning visitors;
+   reduced motion gets one composed still of the same material;
+   leaving runs the door opening, two black leaves parting over
+   the swelling light, and the no motion paths enter instantly;
+   consent appears on the way in, in the shell, never on this door.
+   Entry is never gated by any of the visuals.
    ════════════════════════════════════════════════════════════════════ */
 function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   /* Cinema mode, 2026-10-28 (the owner's call, for commercial
      takes): ?cinema locks the door into a fixed recordable frame,
-     9 by 16 by default, 16 by 9 with ?cinema=wide. Inside it the
-     staged entrance runs once on its fixed clock whatever the
-     session flag says, one specimen (the Van Dongen card the door
-     opens on) is held for the whole take, and everything that is
-     not part of the pitch (nav links, the footer line, the scroll
-     cue) stays out of frame. The atmosphere, the arrangement,
-     Nova's line, the fonts, and the palette are exactly the live
-     door's; the atmosphere's clock starts from its fixed take
-     time, so the take's light is the same on every recording. */
+     9 by 16 by default, 16 by 9 with ?cinema=wide. Restaged the
+     same night onto the title card: inside the frame the staged
+     entrance runs once on its fixed clock whatever the session
+     flag says, and the card then holds for the whole take. The
+     title, the line, the fonts, and the palette are exactly the
+     live door's; the atmosphere's clock starts from its fixed
+     take time, so the take's light is the same on every
+     recording. */
   const [cinema] = useState(() => {
     try {
       const v = new URLSearchParams(window.location.search).get("cinema");
@@ -943,87 +790,31 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, [cinema]);
-  const [sourcesOpen, setSourcesOpen] = useState(false);
   /* Stepping through: the door opens (2026-10-28, the owner's call:
      two black leaves part over the light, 720ms, and the app
-     is entered at 700ms; this replaced the 420ms chamber descent).
-     The no-motion path is untouched: animation off or reduced motion
-     goes straight through, instantly, and never mounts the split.
-     A second press while leaving is ignored. */
+     is entered at 700ms). The no-motion path is untouched:
+     animation off or reduced motion goes straight through,
+     instantly, and never mounts the split. A second press while
+     leaving is ignored. */
   const [leaving, setLeaving] = useState(false);
   const leaveTimer = useRef(null);
   useEffect(() => () => clearTimeout(leaveTimer.current), []);
 
-  /* A repeat visit in the same session skips the ceremony: the flag is
-     set on the way in, and a returning door renders composed at once,
-     with the way in already focused. Carried over from the plate door
-     (2026-10-13) into every door since. */
+  /* A repeat visit in the same session skips the ceremony: the flag
+     is set on the way in, and a returning door renders composed at
+     once, with the way in already focused. Carried over from the
+     plate door (2026-10-13) into every door since. */
   const [enteredBefore] = useState(() => {
     try { return sessionStorage.getItem("cerebrum-entered") === "1"; } catch { return false; }
   });
 
-  /* The intro uses Cerebrum's sage, not the visitor's chosen accent.
-     The front door is the brand, and it is the same for everyone. */
-  const introAccent = (accent && relLuminance(accent) >= 0.15 && relLuminance(accent) <= 0.82)
-    ? accent
-    : "#8ba888";
-  /* The accent at low alpha, for the paper link's underline. */
-  const accentA = (a) => {
-    const h = String(introAccent).replace("#", "");
-    const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
-    return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
-  };
-
-  /* Specimen rotation: ONE claim at a time (2026-10-20 restoration;
-     the sets of three belonged to the busier doors), advancing every
-     9s (desktop) or 12s (mobile), paused while a dialog is open,
-     while the visitor holds the placard, while the placard is off
-     screen, or under reduced motion. */
-  const [specimenIdx, setSpecimenIdx] = useState(0);
-  const [specimenHeld, setSpecimenHeld] = useState(false);
-  const [doorHover, setDoorHover] = useState(false);
-  const specimenCount = SPECIMENS.length;
-  /* The rotation only runs while the placard is on screen (M10): an
-     IntersectionObserver watches it; when it leaves the viewport the
-     timer stands down, so phones no longer rotate a claim nobody can
-     see. Reduced motion still stops the rotation entirely. */
-  const specimenWrapRef = useRef(null);
-  const [specimenVisible, setSpecimenVisible] = useState(true);
-  /* The scroll cue and its proof line observer retired 2026-10-28
-     with the reimagined door: the specimen stands in the caption
-     strip at the foot of the flex frame, inside the first
-     screenful on the phone range the cue served, so there is no
-     below the fold evidence left to hint at. */
-  useEffect(() => {
-    const el = specimenWrapRef.current;
-    if (!el || typeof IntersectionObserver === "undefined") return undefined;
-    const io = new IntersectionObserver((entries) => {
-      setSpecimenVisible(entries.some((e) => e.isIntersecting));
-    }, { threshold: 0.15 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-  useEffect(() => {
-    if (cinema) return undefined;
-    if (reduced || animationMode === "off") return undefined;
-    if (specimenHeld || sourcesOpen) return undefined;
-    if (!specimenVisible) return undefined;
-    const t = setInterval(
-      () => { if (typeof document !== "undefined" && document.hidden) return; setSpecimenIdx((i) => (i + 1) % specimenCount); },
-      isMobile ? 12000 : 9000
-    );
-    return () => clearInterval(t);
-  }, [reduced, animationMode, specimenHeld, sourcesOpen, specimenVisible, specimenCount, isMobile]);
-  /* Cinema holds this binding at index 0, the Van Dongen card: the
-     rotation effect above never runs in cinema, so the index never
-     advances for the whole take. */
-  const spec = SPECIMENS[specimenIdx % specimenCount];
-
   /* ── The door rule ──
-     This screen is a threshold, not a search screen: there is no composer
-     here, deliberately. The way through is "Start researching" — the
-     workspace opens with its cursor in the real composer. */
-
+     This screen is a threshold, not a search screen: there is no
+     composer here, deliberately. The whole card is the way in: a
+     press anywhere on it begins, and the one quiet text affordance
+     under the line is the same press, named. Entry fires on the
+     leave timer whatever the opening visuals do, so nothing on
+     this card can gate or delay the way in. */
   const go = (q, submit) => {
     const payload = typeof q === "string" ? q : "";
     if (leaving) return;
@@ -1034,9 +825,8 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
     leaveTimer.current = setTimeout(() => onEnter(payload, !!submit, null), 700);
   };
 
-  /* Loops on the door (the plate sheen, the scroll cue) pause while
-     the tab is hidden: the wrap takes cb-door-hidden and the CSS
-     stands their animations down. */
+  /* Animations on the card pause while the tab is hidden: the wrap
+     takes cb-door-hidden and the CSS stands them down. */
   const [docHidden, setDocHidden] = useState(false);
   useEffect(() => {
     const onVis = () => setDocHidden(typeof document !== "undefined" && !!document.hidden);
@@ -1046,71 +836,56 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
   }, []);
 
   const animate = animationMode !== "off" && !reduced;
-  /* The ceremony is the staged entrance on a first visit (2026-10-28:
-     atmosphere, wordmark, sentence, the way in, Nova, the specimen
-     card, staged on one curve in the cb-door-stage rules; it
-     replaced the single quiet fade of the whole room). Returning
-     visitors skip it: chrome renders composed, the wrap takes the
-     still class, and only the atmosphere and the rotation run, as
-     they do for everyone. */
+  /* The ceremony is the staged entrance on a first visit (the
+     atmosphere, then the title rising, the line, the affordance,
+     on one curve in the cb-door-stage rules). Returning visitors
+     skip it: the card renders composed, the wrap takes the still
+     class, and only the atmosphere runs, as it does for everyone. */
   const ceremony = animate && !enteredBefore;
-  /* Cinema takes run the staged entrance once per load whatever the
-     session flag says, so the wrap takes the ceremony class there
-     too. */
+  /* Cinema takes run the staged entrance once per load whatever
+     the session flag says, so the wrap takes the ceremony class
+     there too. */
   const doorIn = ceremony || (!!cinema && animate);
-  /* The door's own darks, as the film doors always carried them: the
-     atmosphere is authored near black, and the chrome sits on these
-     values in every palette. The smallest text (the proof line, the
-     footer) takes the 0.58 alpha, which clears 4.5 to 1 against the
-     atmosphere's clamped ground; secondary text takes 0.72. */
-  const ink = "#eef1ee";
-  const ink2 = "rgba(238,241,238,0.72)";
-  const faint = "rgba(238,241,238,0.58)";
-  const hairline = "rgba(255,255,255,0.10)";
-  /* The specimen's ground (2026-10-28, the reimagined door): the
-     caption strip at the foot of the frame is the door's own solid
-     ground, #05070a, fully opaque, so the claim and its proof sit
-     on solid black exactly as the standing rule for text carrying
-     surfaces requires, with no card between them and the frame. */
+  /* The title card's own values: a clean, deep, neutral darkness,
+     and text in a neutral white with no hue worth naming. The
+     doors before this one wore a murky tinted wash in the owner's
+     photos (a blue green ground, a green tinted light, a sage
+     button); nothing on this card takes an accent at all, so
+     there is no tint left to wash the words. The line takes the
+     0.72 alpha and the affordance the 0.55, both of which clear
+     their contrast floors against the atmosphere's clamped
+     centre, measured on rendered captures (see the addendum). */
+  const ink = "#f3f3f1";
+  const ink2 = "rgba(243,243,241,0.72)";
+  const faint = "rgba(243,243,241,0.55)";
 
-  const navLink = {
-    fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, letterSpacing: "normal",
-    color: ink2, textDecoration: "none",
-    fontWeight: 500, padding: "10px 6px", whiteSpace: "nowrap",
-    display: "inline-flex", alignItems: "center", minHeight: 48,
-  };
+  const [beginHover, setBeginHover] = useState(false);
 
   const wrapCls = [leaving ? "cb-intro-leaving" : "", (reduced || enteredBefore) && !leaving ? "cb-intro-still" : "", doorIn ? "cb-door-in" : "", docHidden ? "cb-door-hidden" : ""]
     .filter(Boolean).join(" ") || undefined;
 
   const doorRoot = (
-    <div id="cb-intro-wrap" className={wrapCls} style={{
+    <div id="cb-intro-wrap" className={wrapCls} onClick={() => go("", false)} style={{
       minHeight: cinema ? "100%" : "100dvh", height: cinema ? "100%" : undefined, position: "relative", overflowX: "clip",
-      display: "flex", flexDirection: "column",
-      fontFamily: "var(--cb-font)", background: "#05070a", color: ink,
+      display: "flex", flexDirection: "column", cursor: "pointer",
+      WebkitTapHighlightColor: "transparent",
+      fontFamily: "var(--cb-font)", background: "#060606", color: ink,
     }}>
-      {/* The atmosphere (2026-10-28, the owner's material order):
-          the door's foundation is no longer the film. The reel that
-          stood here from the 2026-10-20 restoration (two stock
-          clips under the door grade, brightness 0.22, saturate
-          0.60, blur 12px, intensity 0.30) is retired with its
-          grade, its poster, and the static grain tile that lay
-          over it, on the owner's verdict that the reimagined door
-          still looked the same because the material never changed.
-          What stands here now is IntroAtmosphere: mist in three
-          drifting strata, a light breathing low in the frame,
-          motes and animated grain, authored for this door and
-          rendered live (see introAtmosphere.jsx for the world and
-          its contracts). There is no filter on this wrapper and no
-          file behind it: the darkness is the material's own
-          palette, clamped in the shader. Reduced motion, animation
-          off, and Save-Data draw one composed still of the same
-          world, so the door never opens onto black and never moves
-          for a visitor who asked it not to. While the door is
-          leaving, the light swells, so the parting leaves below
-          open over this material brightening, not over a painted
-          light layer. No dot field, no haze fields: where they
-          would fight the atmosphere, the atmosphere wins. */}
+      {/* The atmosphere (2026-10-28, the owner's material order;
+          reworked the same night for the title card): the card's
+          background is IntroAtmosphere, authored for this door and
+          rendered live: a breathing neutral light at the centre of
+          the frame, mist shaping it, motes, and fine grain (see
+          introAtmosphere.jsx for the world and its contracts).
+          There is no footage, no file, and no filter behind the
+          title: the darkness is the material's own palette,
+          clamped in the shader. Reduced motion, animation off, and
+          Save-Data draw one composed still of the same world, so
+          the card never opens onto black and never moves for a
+          visitor who asked it not to. While the card is leaving,
+          the light swells, so the parting leaves below open over
+          this material brightening, not over a painted light
+          layer. */}
       <div aria-hidden="true" className="cb-door-atmo" style={{
         position: cinema ? "absolute" : "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
       }}>
@@ -1122,230 +897,61 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         />
       </div>
 
-      {/* ── Header: the masthead lockup and quiet links. The lockup
-          is the search stage's pairing (Mark at 22 in the accent,
-          the name in Inter 500, title case), so the door opens with
-          the same nameplate the app carries inside. */}
-      <header className="cb-intro-chrome cb-door-stage-1" style={{
-        position: "relative", zIndex: 30,
-      }}>
-        <div style={{
-          maxWidth: LAYOUT.stage, margin: "0 auto", padding: "max(14px, env(safe-area-inset-top)) 24px 14px",
-          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-            <Mark size={22} accent={introAccent} />
-            <span style={{
-              fontFamily: "var(--cb-font)", fontWeight: 500,
-              fontSize: FONT_SIZES.section, color: ink, lineHeight: 1,
-            }}>Cerebrum</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 22 }}>
-            {!cinema && !isMobile && ["About", "Privacy", "Terms", "Contact"].map((item) => (
-              <a key={item} href={"/" + item.toLowerCase()} className="cb-intro-navlink" style={navLink}>{item}</a>
-            ))}
-          </div>
-        </div>
-      </header>
-
-      {/* ── The room, reimagined 2026-10-28 (the owner's redirect:
-          "completely re imagined and cinematic, please stop just
-          moving stuff around"). The October 23 arrangement (two
-          quiet groups, film between, specimen plate at the foot)
-          and the polish pass built on it the same morning are
-          superseded. The door is now staged as a film frame. The
-          graded reel fills the whole frame and the upper frame is
-          left to it, empty. One title block stands low in the
-          frame, the way a title sits in a title sequence: the
-          sentence at title scale, the way in under it, and Nova's
-          line under that, her voice the last thing before the
-          evidence. The evidence itself is the frame's caption
-          strip, a full width band of the door's solid ground at
-          the foot (rendered after this main, below): the specimen
-          set as captions are set, claim, citation, proof, no card,
-          no plate, no border box. Nothing about the identity
-          moved at noon: the sentence word for word, one way in,
-          Nova once with her line word for word, real specimens
-          with their papers one tap away. (The material inside
-          the frame did move that evening, on the owner's order:
-          the graded reel named in this paragraph is retired and
-          the authored atmosphere fills the frame instead; see
-          the mount's own comment above.) Phones:
-          the whole frame fits the first screenful at 360 by 667
-          (masthead near 57, the title block near 300, the strip
-          near 230), so nothing on the door waits below a fold. */}
+      {/* ── The title card itself: the word set like a film title
+          at the centre of the frame, one small line under it, and
+          one quiet text affordance under the line. Nothing else
+          stands on this door. The beats of the staged entrance
+          follow the old order's timing (atmosphere, title, line,
+          affordance) on the shared stage classes. */}
       <main className="cb-intro-chrome" style={{
         position: "relative", zIndex: 20, flex: 1,
-        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end",
-        padding: isMobile ? "16px 20px 26px" : "24px 24px 36px",
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        textAlign: "center",
+        padding: isMobile ? "24px 20px" : "32px 24px",
       }}>
-      <div style={{ width: "100%", maxWidth: LAYOUT.stage }}>
-        {/* The one plain sentence, the search home stage's own, word
-            for word. */}
-        <p className="cb-door-stage-2" style={{
-          // Look modernization, 2026-10-26: the door sentence steps
-          // up to a grand scale (42 desktop, 28 phones) with tighter
-          // leading, answering the panel fault that the one surface
-          // that should feel grand spoke at settings heading size.
-          // Same words, same serif, same place in the arrangement;
-          // phones keep the way in inside the first screenful.
-          margin: 0, maxWidth: 780, textAlign: "left",
-          fontFamily: "var(--cb-serif)",
-          fontSize: isMobile ? 28 : 42, fontWeight: 400, lineHeight: 1.22,
+        <h1 className="cb-door-stage-2" style={{
+          margin: 0,
+          fontFamily: "var(--cb-serif)", fontWeight: 500,
+          fontSize: isMobile ? 57 : 104, lineHeight: 1.04, letterSpacing: "0.008em",
           color: ink,
+        }}>Cerebrum</h1>
+
+        <p className="cb-door-stage-3" style={{
+          margin: isMobile ? "18px 0 0" : "22px 0 0",
+          fontFamily: "var(--cb-font)", fontSize: isMobile ? 15 : 17, fontWeight: 400,
+          lineHeight: 1.5, color: ink2,
         }}>
-          Ask a question and get an answer from the research papers, with the sources attached.
+          Answers from published research.
         </p>
 
-        {/* The single way in: the app's primary button, the flat
-            accent fill with its contrast ink. Nothing else on the
-            door competes with it. */}
-        <div className="cb-door-stage-3">
-          <button type="button" onClick={() => go("", false)} className="cb-intro-go"
+        {/* The one visible way in: a quiet line of text, not a
+            filled button. It is the same press the whole card
+            takes; its stopPropagation keeps the card's own press
+            from firing twice on the instant paths. Returning
+            visitors land with it focused, so the keyboard way in
+            is the same one press. */}
+        <div className="cb-door-stage-4" style={{ marginTop: isMobile ? 28 : 36 }}>
+          <button type="button" className="cb-door-begin"
+            onClick={(e) => { e.stopPropagation(); go("", false); }}
             autoFocus={enteredBefore || undefined}
-            onMouseEnter={() => setDoorHover(true)}
-            onMouseLeave={() => setDoorHover(false)}
+            onMouseEnter={() => setBeginHover(true)}
+            onMouseLeave={() => setBeginHover(false)}
             style={{
-            marginTop: isMobile ? 28 : 32, cursor: "pointer",
-            textTransform: "none", whiteSpace: "nowrap", letterSpacing: "normal",
-            background: doorHover
-              ? "color-mix(in srgb, " + introAccent + " 86%, #ffffff)"
-              : introAccent,
-            color: accentText(introAccent),
-            border: "1px solid transparent", borderRadius: RADIUS.md,
-            boxShadow: "none",
-            padding: isMobile ? "14px 34px" : "14px 44px", minHeight: 48,
-            width: isMobile ? "100%" : undefined,
-            fontSize: FONT_SIZES.body, fontWeight: 500, fontFamily: "var(--cb-font)",
-            transition: "background-color 150ms ease-out, transform 200ms var(--cb-ease)",
-          }}>Start researching</button>
+              background: "none", border: "none", cursor: "pointer",
+              padding: "14px 18px", minHeight: 48,
+              fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500,
+              letterSpacing: "0.01em", color: beginHover ? ink : faint,
+              transition: "color 200ms ease-out",
+            }}>Tap to begin</button>
         </div>
-        {/* Nova, quiet: her figure once and one short line in her dry
-            voice. No section, no box, no wordmark. In the reimagined
-            frame she closes the title block, her line the last voice
-            before the evidence strip at the foot, and lifting her
-            out touches nothing else on the door. */}
-        <div className="cb-door-stage-4" style={{
-          marginTop: isMobile ? 24 : 28, display: "flex", alignItems: "center",
-          gap: isMobile ? 12 : 14, maxWidth: 520,
-        }}>
-          <span aria-hidden="true" style={{ display: "block", flex: "0 0 auto" }}>
-            <NovaRive size={isMobile ? 64 : 76} framing="full" bubbleVariant={null} quips={false}
-              reducedMotion={reduced || animationMode === "off"} />
-          </span>
-          <p style={{
-            margin: 0, textAlign: "left",
-            fontFamily: "var(--cb-serif)", fontSize: isMobile ? 15 : 16, fontWeight: 400,
-            lineHeight: 1.5, color: ink2,
-          }}>
-            Good specimens, these. The lab is open when you are ready.
-          </p>
-        </div>
-
-      </div>
       </main>
-
-      {/* ── The caption strip (2026-10-28, the reimagined door): the
-          specimen stands at the foot of the frame the way captions
-          stand in a film, on a full width band of the door's own
-          solid ground, a hard cut from the atmosphere above it. No card,
-          no plate, no border box, no radius: the claim in the
-          reading serif, the citation with the paper one tap away,
-          and the honest proof line, three quiet lines of type on
-          solid black. The ground is fully opaque, so the standing
-          rule for text carrying surfaces holds without furniture.
-          The change is a soft rise with a fade (cb-door-spec-in),
-          a page turning, never a scene change; hover and focus
-          hold the rotation. The claim zone holds a reserved height
-          sized to the longest specimen, so the strip never changes
-          height when the rotation turns and the frame above it
-          never moves. */}
-      <div
-        ref={specimenWrapRef}
-        className="cb-door-strip cb-door-stage-5"
-        onMouseEnter={() => setSpecimenHeld(true)}
-        onMouseLeave={() => setSpecimenHeld(false)}
-        onFocus={() => setSpecimenHeld(true)}
-        onBlur={() => setSpecimenHeld(false)}
-        style={{
-          position: "relative", zIndex: 20,
-          background: "#05070a",
-          borderTop: "1px solid " + hairline,
-        }}
-      >
-        <div
-          key={specimenIdx}
-          className={animate ? "cb-door-spec-in" : undefined}
-          style={{
-            maxWidth: LAYOUT.stage, margin: "0 auto",
-            padding: isMobile ? "20px 20px 6px" : "22px 24px 8px",
-            textAlign: "left",
-          }}
-        >
-          <p style={{
-            fontFamily: "var(--cb-serif)",
-            fontSize: FONT_SIZES.section,
-            fontWeight: 400, lineHeight: 1.55,
-            color: ink, margin: 0, textAlign: "left",
-            minHeight: isMobile ? 124 : 62,
-          }}>
-            &ldquo;{spec.claim}&rdquo;
-          </p>
-          <p style={{
-            margin: "14px 0 0",
-            fontSize: FONT_SIZES.label, lineHeight: 1.6,
-            color: ink2, textAlign: "left",
-          }}>
-            {spec.paper}{" "}
-            <a href={spec.doi} target="_blank" rel="noopener noreferrer"
-              style={{
-                color: introAccent, fontWeight: 500,
-                textDecoration: "none", whiteSpace: "nowrap",
-                borderBottom: "1px solid " + accentA(0.4),
-                display: "inline-block", padding: "14px 4px", margin: "-14px -4px",
-              }}>
-              Open the paper &#8599;
-            </a>
-          </p>
-          {/* The honest proof, once, as the strip's last line: the
-              claim traces to the real paper linked on it, and the
-              index count is the product's real source list, the
-              same SCHOLARLY_SOURCES the workspace searches. The
-              line opens the Research sources dialog, so the count
-              can be checked against the list. */}
-          <div style={{ textAlign: "left", marginTop: 6 }}>
-            <button type="button" onClick={() => setSourcesOpen(true)} aria-label="Research sources"
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 8,
-                background: "none", border: "none", cursor: "pointer",
-                padding: "12px 8px", minHeight: 48,
-                fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, fontWeight: 400,
-                lineHeight: 1.5, color: faint,
-              }}>
-              <span aria-hidden="true" style={{
-                width: 7, height: 7, flex: "0 0 auto",
-                background: introAccent,
-              }} />
-              <span>Traced to a real paper · Searched across {SCHOLARLY_SOURCES.length} scholarly indexes</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* The scroll cue and the footer line retired 2026-10-28
-          with the reimagined door: the caption strip is the foot
-          of the frame and sits inside the first screenful on the
-          phone range the cue served, and the frame carries no
-          footer row under its captions. */}
 
       {/* The door opening (2026-10-28): mounted only on the animated
           way in, purely visual, pointer events off. Entry fires on
           the leave timer in go() whatever this overlay does, and
-          the no motion paths never mount it. Reworked the same
-          evening for the new material: the painted light layer that
-          sat under the leaves is gone, and the light is the
-          atmosphere's own, swelling through the swell prop on the
-          mount above as the leaves part. */}
+          the no motion paths never mount it. On the title card the
+          leaves part over the card's own light swelling, through
+          the swell prop on the atmosphere mount above. */}
       {leaving && animate && (
         <div aria-hidden="true" className="cb-door-split" style={cinema ? { position: "absolute" } : undefined}>
           <div className="cb-split-half cb-split-l" />
@@ -1353,20 +959,17 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         </div>
       )}
 
-      {sourcesOpen && <SourcesDialog P={P} accent={introAccent} onClose={() => setSourcesOpen(false)} />}
-
     </div>
   );
 
   if (!cinema) return doorRoot;
   /* The cinema frame: a fixed recordable box on a black stage. The
-     door inside it is the live door, laid out in the frame (the
-     portrait frame takes the phone arrangement), its atmosphere
-     bound to the frame instead of the viewport. What the frame
-     holds after the entrance is the held end frame: the atmosphere
-     still breathing on its fixed clock, the Van Dongen card held,
-     nothing rotating, ready to loop or to cut into the app on the
-     way in. */
+     title card inside it is the live door, laid out in the frame
+     (the portrait frame takes the phone arrangement), its
+     atmosphere bound to the frame instead of the viewport. What
+     the frame holds after the entrance is the held end frame: the
+     title over the atmosphere still breathing on its fixed clock,
+     ready to loop or to cut into the app on the way in. */
   return (
     <div style={{
       position: "fixed", inset: 0, background: "#000",
@@ -1374,7 +977,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       overflow: "hidden",
     }}>
       <div style={{
-        position: "relative", overflow: "hidden", background: "#05070a", flex: "0 0 auto",
+        position: "relative", overflow: "hidden", background: "#060606", flex: "0 0 auto",
         width: cinema === "wide" ? "min(100vw, calc(100dvh * 16 / 9))" : "min(100vw, calc(100dvh * 9 / 16))",
         height: cinema === "wide" ? "min(100dvh, calc(100vw * 9 / 16))" : "min(100dvh, calc(100vw * 16 / 9))",
       }}>
@@ -2196,7 +1799,6 @@ export {
   filmBestFile,
   IntroModal,
   SourcesDialog,
-  SPECIMENS,
   Intro,
   CerebrumFieldCanvas,
 };
