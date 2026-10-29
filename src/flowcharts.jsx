@@ -201,9 +201,19 @@ export function Dialog({
           // The class brings the shared panel treatment; the keyframe
           // entrance is neutralized in favor of this state-driven one.
           animation: "none",
-          opacity: animate ? (entered ? 1 : 0) : 1,
+          /* The panel never fades through translucency (2026-10-28,
+             the owner's account menu photo). The entrance used to
+             run the panel's opacity 0 to 1 over 280ms, so for its
+             first moments every text sheet on the site sat
+             see-through with the page showing through it — the
+             exact state his standing law bans (a sheet that carries
+             text sits on a solid opaque background, no translucency
+             over content). The panel is opaque from the first frame
+             now; the entrance keeps its rise, and the scrim (which
+             carries no text) keeps its fade. */
+          opacity: 1,
           transform: animate ? (entered ? "translateY(0) scale(1)" : "translateY(10px) scale(0.985)") : "none",
-          transition: animate ? "opacity 280ms var(--cb-ease), transform 280ms var(--cb-ease)" : "none",
+          transition: animate ? "transform 280ms var(--cb-ease)" : "none",
           ...panelStyle,
         }}
       >

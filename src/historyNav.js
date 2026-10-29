@@ -19,7 +19,10 @@
  *     popstate that follows cannot call its onClose a second time,
  *     and if the layer is the current top entry the browser steps
  *     back once to drop its entry. That is the loop guard: a close
- *     never pushes, and a pop never recloses.
+ *     never pushes, and a pop never recloses. A push that lands in
+ *     the same task as the close (the queued traversal has not run
+ *     yet) reaps the dead top layer first — see pushLayer — so the
+ *     close's step back cannot consume the new layer's entry.
  *
  *   releaseLayer(kind, key)
  *     Marks a layer dead without moving the browser, for unmounts
@@ -86,6 +89,35 @@ export function createHistoryNav(win) {
   function pushLayer(kind, key, onClose, onRestore) {
     if (!w || !kind) return false;
     const k = key == null ? "" : String(key);
+    /* A dead top layer is reaped before the push (2026-10-28, the
+       account menu profile bug). history.back() does not run in
+       the task that calls it: the traversal is queued, and a
+       pushState issued in the same task lands first. So when a
+       dialog closes programmatically and its owner navigates in
+       the same click — the account menu's rows close the menu,
+       then set the view — the close's queued step back lands on
+       the entry under the NEW layer's entry, and the popstate
+       that follows reports the killed layer's depth. Counted
+       against a stack that still holds the corpse, that pop
+       trims the new layer and restores the old view: the
+       navigation silently reverted itself (reproduced against
+       this module with a deferred traversal: close, push, flush,
+       and the view was back where it started with its layer
+       gone). Dropping the corpse here lets the new layer take
+       the top slot, so the same pop reports a depth equal to
+       the stack and trims nothing; the new layer's own entry
+       sits one history step above, and a later back press still
+       closes it in the usual way. Only trailing corpses whose
+       close queued a step (killLayer marks them steppedBack)
+       are reaped: a layer released with no step behind it, like
+       a swapped out thread, is padding the depths above it
+       still count on, and a dead layer buried under live ones
+       keeps its slot for the same reason. */
+    while (layers.length > 0) {
+      const topLayer = layers[layers.length - 1];
+      if (topLayer.alive || !topLayer.steppedBack) break;
+      layers.pop();
+    }
     const top = layers[layers.length - 1];
     if (top && top.alive && top.kind === kind && top.key === k) {
       if (onClose) top.onClose = onClose;
@@ -93,7 +125,7 @@ export function createHistoryNav(win) {
       return false;
     }
     stampBase();
-    layers.push({ kind, key: k, onClose: onClose || null, onRestore: onRestore || null, alive: true });
+    layers.push({ kind, key: k, onClose: onClose || null, onRestore: onRestore || null, alive: true, steppedBack: false });
     redo = [];
     const depth = layers.length;
     try {
@@ -122,6 +154,11 @@ export function createHistoryNav(win) {
     layer.onRestore = null;
     const depth = layers.indexOf(layer) + 1;
     if (moveBrowser && w && depth === layers.length && currentDepth === depth) {
+      /* The close has a browser step queued behind it. A push that
+         lands before that step runs may reap this corpse (see
+         pushLayer); a layer released without a step (releaseLayer)
+         was never marked, and keeps its slot as padding instead. */
+      layer.steppedBack = true;
       try { w.history.back(); } catch { /* nothing to step back to */ }
     }
     return true;

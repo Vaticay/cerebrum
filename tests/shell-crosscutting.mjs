@@ -78,6 +78,36 @@ function fakeWindow() {
   return win;
 }
 
+/* A fake browser history whose traversals are DEFERRED, the way a
+   real browser behaves: history.back() queues a session history
+   traversal that runs as a later task, so a pushState issued in the
+   same task lands first and the traversal then steps by delta from
+   wherever the index ended up. The synchronous fake above cannot
+   express that ordering — which is exactly why the account menu bug
+   below shipped behind a green suite (2026-10-28). */
+function fakeWindowDeferred() {
+  const listeners = {};
+  const entries = [{ state: null }];
+  let idx = 0;
+  const pending = [];
+  const fire = (name) => { for (const fn of [...(listeners[name] || [])]) fn({ type: name }); };
+  const win = {
+    addEventListener: (n, fn) => { (listeners[n] = listeners[n] || []).push(fn); },
+    removeEventListener: (n, fn) => { listeners[n] = (listeners[n] || []).filter((f) => f !== fn); },
+    history: {
+      get state() { return entries[idx].state; },
+      pushState(state) { entries.splice(idx + 1); entries.push({ state }); idx++; },
+      replaceState(state) { entries[idx].state = state; },
+      back() { pending.push(() => { if (idx > 0) { idx--; fire("popstate"); } }); },
+      forward() { pending.push(() => { if (idx < entries.length - 1) { idx++; fire("popstate"); } }); },
+    },
+    _flush: () => { while (pending.length) pending.shift()(); },
+    _entries: entries,
+    _idx: () => idx,
+  };
+  return win;
+}
+
 const { createHistoryNav } = await import("../src/historyNav.js");
 
 group("keyboard inset computation");
@@ -209,6 +239,69 @@ await test("restore marks are consumed once and only for their key", () => {
   nav.dispose();
 });
 
+group("closes beside same task pushes, deferred traversals");
+
+await test("the account menu profile navigation survives its own menu close", () => {
+  /* 2026-10-28 (the owner's photo report: tapping Your profile in
+     the account menu did nothing). The menu row runs onClose() then
+     onNavigate("profile"): setView fires at once, the Dialog unmount
+     cleanup calls closeLayer (which queues a history step back), and
+     the view effect pushes the profile layer — all in one task. In a
+     real browser the queued traversal runs after the push and steps
+     from the NEW entry, so its popstate reports the dialog's depth;
+     counted against a stack still holding the dead dialog layer,
+     that pop trimmed the profile layer and restored the old view.
+     The push now reaps a dead top layer first. This replays the exact
+     sequence with a deferred traversal; on the pre fix module the
+     view ends back at search with its layer gone. */
+  const win = fakeWindowDeferred();
+  const nav = createHistoryNav(win);
+  let view = "search";
+  let viewClosed = 0;
+  nav.pushLayer("dialog", "acct", () => {});
+  view = "profile";                       // onNavigate runs setView now
+  nav.closeLayer("dialog", "acct");       // the Dialog cleanup
+  nav.pushLayer("view", "profile", () => { viewClosed++; nav.markRestore("view", "search"); view = "search"; },
+    () => { view = "profile"; });         // the view effect
+  win._flush();                           // the queued traversal runs
+  assert.equal(view, "profile", "the profile navigation reverted itself");
+  assert.equal(viewClosed, 0, "the profile layer was closed by the menu's own step back");
+  assert.equal(nav.depth(), 1, "the profile layer did not survive");
+  win.history.back();
+  win._flush();
+  assert.equal(view, "search", "a later back press no longer leaves the profile view");
+  assert.equal(viewClosed, 1, "the back press did not close the profile layer exactly once");
+  nav.dispose();
+});
+
+await test("a dialog pushed in the same task as another dialog's close survives", () => {
+  /* The sibling case: the account menu's Membership row closes the
+     menu and opens the Pro dialog. The new dialog must not be eaten
+     by the old one's queued step back either. */
+  const win = fakeWindowDeferred();
+  const nav = createHistoryNav(win);
+  let proClosed = 0;
+  nav.pushLayer("dialog", "acct", () => {});
+  nav.closeLayer("dialog", "acct");
+  nav.pushLayer("dialog", "pro", () => { proClosed++; });
+  win._flush();
+  assert.equal(nav.depth(), 1, "the dialog pushed beside the close did not survive");
+  assert.equal(proClosed, 0, "the new dialog was closed by the old dialog's step back");
+  nav.dispose();
+});
+
+await test("a plain programmatic close still steps back once and fires no onClose", () => {
+  const win = fakeWindowDeferred();
+  const nav = createHistoryNav(win);
+  let closed = 0;
+  nav.pushLayer("dialog", "d1", () => { closed++; });
+  nav.closeLayer("dialog", "d1");
+  win._flush();
+  assert.equal(nav.depth(), 0, "the closed dialog layer is still in the stack");
+  assert.equal(closed, 0, "a programmatic close called onClose");
+  nav.dispose();
+});
+
 group("shared wiring in the sources");
 
 await test("exactly the three named consumers use the keyboard inset hook", () => {
@@ -230,6 +323,33 @@ await test("view, thread, and dialog all register history layers", () => {
   assert.match(flowSrc, /historyNav\.pushLayer\("dialog", id/, "Dialog pushes no layer");
   assert.match(flowSrc, /historyNav\.closeLayer\("dialog", id\)/, "Dialog does not close its layer on unmount");
   assert.match(flowSrc, /if \(dismissable\) \{\s*historyNav\.pushLayer/, "a nondismissable dialog can push a layer and trap back");
+});
+
+await test("the Dialog panel never fades through translucency", () => {
+  /* 2026-10-28 (the owner's account menu photo): the shared Dialog
+     entrance ran the panel's opacity 0 to 1 over 280ms, so every
+     text sheet on the site opened see-through with the page showing
+     through — against the standing law that a sheet carrying text
+     sits on a solid opaque background. The panel is opaque from the
+     first frame now; only its rise and the scrim's fade remain. */
+  const panelAt = flowSrc.indexOf('animation: "none"');
+  const panel = flowSrc.slice(panelAt, panelAt + 1500);
+  assert.doesNotMatch(panel, /opacity: animate \?/, "the Dialog panel opacity is state driven again (the scrim may fade; the panel may not)");
+  assert.match(panel, /opacity: 1,\s*\n\s*transform: animate \? \(entered/, "the Dialog panel is not pinned opaque");
+  assert.match(panel, /transition: animate \? "transform 280ms var\(--cb-ease\)" : "none"/, "the Dialog panel entrance lost its rise or regained a fade");
+});
+
+await test("the search ground is the solid palette ground, no gradient field", () => {
+  /* 2026-10-28 (the owner's desktop photos): the search atmosphere
+     stacked a white lifted radial and a fall to black gradient plus
+     a vignette scrim over the whole app, reading as a dull purple
+     gray wash. The base is the solid palette ground now, the scrim
+     element and its vars are gone, and the grain (pinned in
+     core-identity) stays. */
+  assert.match(appSrc, /\.cb-atmo-base \{\s*\n\s*position: absolute; inset: 0;\s*\n\s*background: var\(--cb-atmo-top\);/, "the atmosphere base is not the solid palette ground");
+  assert.doesNotMatch(appSrc, /cb-atmo-scrim/, "the atmosphere vignette scrim is back");
+  assert.doesNotMatch(appSrc, /--cb-atmo-lift|--cb-atmo-deep|--cb-atmo-edge/, "the gradient atmosphere vars are back");
+  assert.doesNotMatch(appSrc, /\.cb-atmo-base \{[^}]*gradient/, "the atmosphere base paints a gradient again");
 });
 
 await test("the Trending and NovaEgg popstate listeners still exist", () => {

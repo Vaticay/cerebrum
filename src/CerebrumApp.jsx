@@ -23988,32 +23988,24 @@ function App({ profileHandle = null } = {}) {
            Deep gradient + two slow blurred glows + grain + focus scrim.
            No footage, nothing bright; the drift is barely perceptible and
            the scrim keeps the composer the focal point. Reduced motion (or
-           animation off) gets the same frame frozen. */}
-        {/* Design character pass, 2026-10-28 (owner verdict: soulless,
-            not sleek; his desktop photos showed this gradient field as
-            a dull wash over the whole app): on the home stage the
-            atmosphere resolves to the flat palette ground. Lift and
-            deep collapse to P.bg, both glows go to zero, and the scrim
-            carries no edge, so the stage is one clean neutral darkness
-            with only the grain left as texture. The moment a search
-            starts the full atmosphere returns exactly as before: the
-            calm cinematic thread is his standing order and is not
-            touched. Collision note: the shell fix lane owns flattening
-            this field app wide; this change is scoped to the stage
-            only, so that lane rebases onto it cleanly. */}
+           animation off) gets the same frame frozen.
+           2026-10-28 (design character pass, then shell fix): the
+           design pass first flattened this field on the home stage
+           only (lift and deep collapsed to P.bg, glows zeroed, scrim
+           edgeless) and explicitly left the app wide call to the
+           shell fix lane. The shell fix completes it: the gradient
+           field and the scrim are gone in every state, because the
+           owner's desktop photos showed the stack as a dull wash
+           over the whole app in use, not only on the stage. What
+           mounts now is the solid palette ground plus the grain;
+           see the .cb-atmo rules below. */}
         <div className="cb-atmo" aria-hidden="true"
           style={{
             zIndex: Z.base,
             "--cb-atmo-top": P.bg,
-            "--cb-atmo-lift": homeStage ? P.bg : "color-mix(in srgb, " + P.bg + " 86%, white)",
-            "--cb-atmo-deep": homeStage ? P.bg : "color-mix(in srgb, " + P.bg + " 70%, black)",
-            "--cb-atmo-glow-a": homeStage ? "rgba(0,0,0,0)" : withAlpha(accent, P.dark ? 0.20 : 0.12),
-            "--cb-atmo-glow-b": homeStage ? "rgba(0,0,0,0)" : (P.dark ? "rgba(96,122,142,0.18)" : "rgba(120,140,160,0.12)"),
-            "--cb-atmo-edge": homeStage ? "rgba(0,0,0,0)" : (P.dark ? "rgba(0,0,0,0.38)" : "rgba(255,255,255,0.30)"),
           }}>
           <div className="cb-atmo-base" />
           <div className="cb-atmo-grain" />
-          <div className="cb-atmo-scrim" />
         </div>
         </>
       ) : filmBlocked(animationMode, false) ? (
@@ -27229,25 +27221,31 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
    calm. Deep gradient + two slow blurred glows + grain + a focus scrim.
    Felt, never seen: no footage, nothing bright, motion barely
    perceptible (130-175s drift cycles, a few vmax of travel). Reduced
-   motion freezes the frame via the media query below and the JSX gate. */
+   motion freezes the frame via the media query below and the JSX gate.
+   2026-10-28 (shell fix, the owner's desktop photos): the gradient
+   field is gone. The base stacked a radial lift (the palette ground
+   mixed 86 percent toward white) over a linear fall to black, and a
+   vignette scrim darkened the edges; across a desktop viewport that
+   stack read as one dull purple gray wash over the whole app, and
+   the declutter's own contrast math had it computing as low as 1.47
+   to 1 under stage text at its worst patch. The ground behind and
+   around the stage is now the solid palette ground in every palette
+   (the palettes themselves are untouched), the scrim element is
+   removed with its rule, and only the grain stays: a 0.09 static
+   texture, not a light field. Nothing depended on the gradient for
+   separation — the sidebar is a solid surface with a hairline, the
+   stage column carries its own solid backing (2026-10-28 declutter),
+   and cards sit on the raised tone. */
 .cb-atmo { position: fixed; inset: 0; pointer-events: none; }
 .cb-atmo-base {
   position: absolute; inset: 0;
-  background:
-    radial-gradient(130% 95% at 50% -10%, var(--cb-atmo-lift), transparent 55%),
-    linear-gradient(180deg, var(--cb-atmo-top), var(--cb-atmo-deep) 60%, #000 130%);
+  background: var(--cb-atmo-top);
 }
 /* Film grain: static SVG noise, the cinematic texture without motion. */
 .cb-atmo-grain {
   position: absolute; inset: 0; opacity: 0.09;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>");
   background-size: 160px 160px;
-}
-/* Focus scrim: darkens the edges so the composer stays the undisputed
-   focal point — the old bokeh's failure was competing with the input. */
-.cb-atmo-scrim {
-  position: absolute; inset: 0;
-  background: radial-gradient(88% 68% at 50% 26%, transparent 42%, var(--cb-atmo-edge) 100%);
 }
 @media (prefers-reduced-motion: reduce) {
   .cb-atmo-blob { animation: none !important; }
