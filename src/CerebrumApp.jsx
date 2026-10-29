@@ -19047,7 +19047,11 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       transition: "transform 280ms var(--cb-ease)",
     },
     sidebarMobileOpen: { transform: "translateX(0)", boxShadow: P.shadow },
-    sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "24px 22px 24px", cursor: "pointer", flexShrink: 0 },
+    /* Design character pass, 2026-10-28: left padding 22 to 24, so the
+       brand Mark sits on the same 24px column as the nav icons below it
+       (12px rail padding plus 12px row padding). The two pixel offset
+       was small and visible on every screen. */
+    sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "24px 24px 24px", cursor: "pointer", flexShrink: 0 },
     sidebarNav: { flex: 1, overflowY: "auto", padding: "6px 12px", display: "flex", flexDirection: "column", gap: 2 },
     sidebarSectionLabel: { fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", padding: "16px 12px 6px" },
     sidebarItem: {
@@ -19068,8 +19072,16 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        accent token (not hardcoded Sage, which broke personalization) and
        adds a soft background fill so the active item is visible at a
        glance, including in the 68px collapsed rail. */
+    /* Design character pass, 2026-10-28 (owner verdict: soulless, not
+       sleek): the active row was a 10 percent accent wash and hover was
+       the same wash at 8 percent, so the two states blurred into one
+       tint. The active row now sits on the palette raised step, a real
+       surface edge, and the accent speaks only through the 3px rule the
+       cb-shell-navitem ::before already draws. Hover moves to a neutral
+       white step (see hoverIn in the Sidebar), so tint means current
+       page and nothing else. */
     sidebarItemActive: {
-      background: withAlpha(accent, 0.10), color: P.ink, fontWeight: 500,
+      background: P.raised, color: P.ink, fontWeight: 500,
       boxShadow: `none`,
     },
     sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: RADIUS.viewport, fontFamily: "var(--cb-font)" },
@@ -19936,7 +19948,11 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
     ...(user ? [["people", "Find people", "network"]] : []),
   ];
 
-  const hoverIn = (e) => { e.currentTarget.style.background = withAlpha(accent, 0.08); };
+  /* Design character pass, 2026-10-28: hover was an 8 percent accent
+     wash, two points under the active row's 10 percent wash, so hover
+     and current read as the same state. Hover is a neutral light step
+     now; the accent is reserved for the current page rule. */
+  const hoverIn = (e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.045)"; };
   const hoverOut = (key) => (e) => { if (view !== key) e.currentTarget.style.background = "transparent"; };
   const itemStyle = (key) => ({ ...S.sidebarItem, ...(view === key ? S.sidebarItemActive : {}) });
 
@@ -19988,7 +20004,11 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
       )}
       <div className="cb-shell-brand" style={{ ...S.sidebarBrand, ...(expanded ? {} : { padding: "24px 0 24px", justifyContent: "center" }) }} onClick={onLogoClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLogoClick(); } }} aria-label="Back to landing page">
         <Mark size={22} accent={accent} glow={false} />
-        {expanded && <span style={{ fontWeight: 500, fontSize: FONT_SIZES.section, color: P.ink, fontFamily: "var(--cb-font)" }}>Cerebrum</span>}
+        {/* Design character pass, 2026-10-28: the wordmark sets in the
+            editorial serif now, the same face as the stage headline and
+            the door title. The sans wordmark read as UI text; the serif
+            is the one identity mark the shell carries. */}
+        {expanded && <span style={{ fontWeight: 500, fontSize: FONT_SIZES.section, color: P.ink, fontFamily: "var(--cb-serif)" }}>Cerebrum</span>}
       </div>
       {/* Workstream E (2026-10-08): the command palette gets a visible
           trigger. A palette nobody can find is a feature nobody has. */}
@@ -23969,15 +23989,27 @@ function App({ profileHandle = null } = {}) {
            No footage, nothing bright; the drift is barely perceptible and
            the scrim keeps the composer the focal point. Reduced motion (or
            animation off) gets the same frame frozen. */}
+        {/* Design character pass, 2026-10-28 (owner verdict: soulless,
+            not sleek; his desktop photos showed this gradient field as
+            a dull wash over the whole app): on the home stage the
+            atmosphere resolves to the flat palette ground. Lift and
+            deep collapse to P.bg, both glows go to zero, and the scrim
+            carries no edge, so the stage is one clean neutral darkness
+            with only the grain left as texture. The moment a search
+            starts the full atmosphere returns exactly as before: the
+            calm cinematic thread is his standing order and is not
+            touched. Collision note: the shell fix lane owns flattening
+            this field app wide; this change is scoped to the stage
+            only, so that lane rebases onto it cleanly. */}
         <div className="cb-atmo" aria-hidden="true"
           style={{
             zIndex: Z.base,
             "--cb-atmo-top": P.bg,
-            "--cb-atmo-lift": "color-mix(in srgb, " + P.bg + " 86%, white)",
-            "--cb-atmo-deep": "color-mix(in srgb, " + P.bg + " 70%, black)",
-            "--cb-atmo-glow-a": withAlpha(accent, P.dark ? 0.20 : 0.12),
-            "--cb-atmo-glow-b": P.dark ? "rgba(96,122,142,0.18)" : "rgba(120,140,160,0.12)",
-            "--cb-atmo-edge": P.dark ? "rgba(0,0,0,0.38)" : "rgba(255,255,255,0.30)",
+            "--cb-atmo-lift": homeStage ? P.bg : "color-mix(in srgb, " + P.bg + " 86%, white)",
+            "--cb-atmo-deep": homeStage ? P.bg : "color-mix(in srgb, " + P.bg + " 70%, black)",
+            "--cb-atmo-glow-a": homeStage ? "rgba(0,0,0,0)" : withAlpha(accent, P.dark ? 0.20 : 0.12),
+            "--cb-atmo-glow-b": homeStage ? "rgba(0,0,0,0)" : (P.dark ? "rgba(96,122,142,0.18)" : "rgba(120,140,160,0.12)"),
+            "--cb-atmo-edge": homeStage ? "rgba(0,0,0,0)" : (P.dark ? "rgba(0,0,0,0.38)" : "rgba(255,255,255,0.30)"),
           }}>
           <div className="cb-atmo-base" />
           <div className="cb-atmo-grain" />
@@ -24362,15 +24394,24 @@ function App({ profileHandle = null } = {}) {
                     resident Nova, and the NovaEgg summon watches
                     this masthead as one of its two wordmark sites
                     (the sidebar brand is the other). */}
+                {/* Design character pass, 2026-10-28: the masthead now
+                    ends on a hairline rule with one spacing step of air
+                    under it. The resident Nova stands on that rule
+                    instead of floating at the top of an unbounded
+                    column, and the headline below reads as the start of
+                    a composed page. Opaque law holds: the rule is a
+                    border on a transparent header over the stage's own
+                    solid ground, no panel, no translucency. */}
                 <header className="cb-stage-masthead" style={{
                   display: "flex", alignItems: "center", gap: 11,
                   background: "transparent", border: "none",
+                  borderBottom: `1px solid ${P.line}`, paddingBottom: SP.md,
                 }}>
                   {isMobile && (
                     <>
                       <Mark size={22} accent={accent} glow={false} />
                       <span className="cb-stage-wordmark" style={{
-                        fontFamily: "var(--cb-font)", fontWeight: 500,
+                        fontFamily: "var(--cb-serif)", fontWeight: 500,
                         /* One lockup everywhere (2026-10-19, S7 shell lane, audit H8):
                            Mark 22 plus the name at section 22 weight 500, the same
                            pairing as the door and the sidebar. */
@@ -24411,8 +24452,13 @@ function App({ profileHandle = null } = {}) {
                     screen slop; the promise is unchanged (ask, get an
                     answer, sources attached) with the flagged phrase
                     gone. */}
+                {/* Design character pass, 2026-10-28: the headline
+                    takes a full spacing step under the new masthead
+                    rule and sets tighter (1.45 to 1.34), so the serif
+                    reads as a composed title block instead of loose
+                    lines under a floating figure. */}
                 <p style={{
-                  margin: "20px 0 0", fontSize: FONT_SIZES.section, lineHeight: 1.45,
+                  margin: `${SP.xl}px 0 0`, fontSize: FONT_SIZES.section, lineHeight: 1.34,
                   color: P.ink, maxWidth: "62ch", fontFamily: "var(--cb-serif)",
                 }}>
                   Ask a question and get an answer with the sources attached.
@@ -24480,7 +24526,7 @@ function App({ profileHandle = null } = {}) {
                       signed out and free tier viewers; Pro and Lite
                       carry different terms and do not see it. */}
                   {!(proStatus?.tier === "pro" || user?.isPro || proStatus?.tier === "lite" || proStatus?.isLite) && (
-                    <p style={{ margin: "14px 0 0", fontSize: 13, lineHeight: 1.55, color: P.faint, fontFamily: "var(--cb-font)" }}>
+                    <p style={{ margin: "14px 0 0", fontSize: FONT_SIZES.label, lineHeight: 1.55, color: P.faint, fontFamily: "var(--cb-font)" }}>
                       Free allowance: 50 AI answers every 5 days. Document reads and saved diagrams are metered separately, at 3 reads and 1 diagram every 5 days with a free account.
                     </p>
                   )}
@@ -24491,9 +24537,14 @@ function App({ profileHandle = null } = {}) {
                       manufactured by cutting words out of it. */}
                   {stageLastQ && (
                     <div style={{ marginTop: SP.xl, borderTop: `1px solid ${P.line}`, paddingTop: SP.md }}>
-                      <div style={{ fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, color: P.faint }}>Continue</div>
+                      {/* Design character pass, 2026-10-28: the label
+                          moves from faint to ink2 and the question from
+                          an off scale 15 to the body size, so the block
+                          reads at the same weight as the rest of the
+                          stage instead of whispering. */}
+                      <div style={{ fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, color: P.ink2 }}>Continue</div>
                       <div style={{
-                        fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: 15,
+                        fontFamily: "var(--cb-font)", fontWeight: 500, fontSize: FONT_SIZES.body,
                         lineHeight: 1.4, color: P.ink, marginTop: 8,
                         display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
                       }}>{stageLastQ}</div>
@@ -24512,7 +24563,7 @@ function App({ profileHandle = null } = {}) {
                       it runs. Hidden while typing. */}
                   {!input.trim() && stageInquiries.length > 0 && (
                     <div style={{ marginTop: SP.xl }}>
-                      <div style={{ fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, color: P.faint }}>Try asking</div>
+                      <div style={{ fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, color: P.ink2 }}>Try asking</div>
                       <div style={{ marginTop: SP.sm }}>
                         {stageInquiries.map((ex) => (
                           <button key={ex.q} type="button" className="cb-stage-inq"
@@ -27622,6 +27673,11 @@ body.cb-motion-off * { transition-duration: 0.01ms !important; animation-duratio
   transition: opacity 200ms var(--cb-ease), transform 280ms var(--cb-ease);
 }
 .cb-shell-navitem[aria-current="page"]::before { opacity: 1; transform: scaleY(1); }
+/* Design character pass, 2026-10-28: nav rows had no keyboard focus
+   ring of their own (the shared ring covers links and form controls).
+   Same ring as the rest of the product, so focus reads machined
+   everywhere, not just where a lane remembered it. */
+.cb-shell-navitem:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; }
 .cb-shell-tab { transition: color 200ms var(--cb-ease); }
 .cb-shell-tab-ind {
   position: absolute; top: 0; left: 50%;

@@ -67,7 +67,16 @@ const PALETTES = {
   // comment on Dark above. `ink`/`line` keep Sage's own warm-green
   // undertone rather than going fully neutral, so it stays visibly a
   // different palette from Dark, not a re-skinned duplicate.
-  Sage:  { dark: true, bg: "#0b100c", surface: "#141a15", raised: "#1e261f", ink: "#f2f5ee", ink2: "#c0cabb", faint: "#98a893", line: "rgba(139,168,136,0.13)", line2: "rgba(139,168,136,0.22)", shadow: "0 24px 54px rgba(0,0,0,0.36)", shadowSm: "0 6px 18px rgba(0,0,0,0.24)", grain: 0, skel: "linear-gradient(90deg, #141a15 25%, #1e261f 50%, #141a15 75%)" },
+  // Design character pass, 2026-10-28 (owner verdict: the app feels
+  // soulless and not sleek, and his photos kept showing a murky green
+  // haze over everything): the green cast lived in these values, green
+  // channel ahead of red and blue on every ground and text tone, so the
+  // whole default app wore the tint. The grounds and text tones are
+  // neutral now, warm gray at near equal channels; Sage's identity
+  // moves to where it means something, the sage accent on interactive
+  // elements. Contrast verified by script: ink, ink2 and faint each
+  // clear 7 to 1 or better on bg, surface and raised.
+  Sage:  { dark: true, bg: "#0a0b0a", surface: "#131413", raised: "#1b1d1b", ink: "#f4f5f1", ink2: "#c6cbc2", faint: "#a3ab9f", line: "rgba(166,172,160,0.14)", line2: "rgba(166,172,160,0.24)", shadow: "0 24px 54px rgba(0,0,0,0.36)", shadowSm: "0 6px 18px rgba(0,0,0,0.24)", grain: 0, skel: "linear-gradient(90deg, #131413 25%, #1b1d1b 50%, #131413 75%)" },
   // Pro — the members' palette (2026-09-15). Deep black-bronze with a
   // restrained gold register: premium without going "finance app". Gated:
   // the theme picker only offers it when user.isPro is true (see
