@@ -13,8 +13,9 @@
      object (createSpeechState, speechOffer, speechAdvance,
      speechDismiss), so the temperament rules are testable
      without a DOM: one line at a time page wide, a 60 second
-     global gap for ambient lines, per category cooldowns and
-     chance rolls for categorized offers, typing suppression
+     global gap for ambient lines, per category cooldowns for
+     categorized offers (chance rolls retired 2026-10-29),
+     typing suppression
      with a single exception (lesson feedback, which the
      learner caused), and a priority order in which caused
      lines (lesson, poke, search) outrank ambient ones (brain,
@@ -42,9 +43,10 @@
       useNovaQuips function (the block from the comment "The
       quip engine" through the end of useNovaQuips). The pure
       helpers and the bank stay: NovaSpeech imports
-      NOVA_QUIP_BANK, QUIP_CATEGORY_COOLDOWN_MS,
-      QUIP_CATEGORY_CHANCE, and quipCategoryForRiveEvent
-      from this file.
+      NOVA_QUIP_BANK, QUIP_CATEGORY_COOLDOWN_MS, and
+      quipCategoryForRiveEvent from this file. (The chance
+      table the original contract also named was deleted
+      2026-10-29: chance no longer decides speech.)
    2. In NovaCanvas, replace the internal
       call `const quips = useNovaQuips({...})` with a new prop:
       both surfaces receive `speech` (a controller created by
@@ -109,6 +111,10 @@
    It renders NovaRive with quips off and keeps its own bubble
    on its own five second timeline; routing its line through
    the controller is a later decision, not part of this wiring.
+   (Superseded 2026-10-29, the dialog spec Lane 1: the pop and
+   the egg now render the shared NovaBubble and price their
+   lines by the shared reading time law below; their visits,
+   budgets, and blocked contexts stay their own.)
 
    Also: add "nova-speech.mjs" to the suite list in tests/run.
 
@@ -121,13 +127,28 @@
    not take nova-speech.mjs in this pass because wave 16 has
    the file mid edit; the module tests run standalone until
    that lands.
+
+   Dialog spec Lane 1 (2026-10-29): every offer now carries a
+   cause record (trigger, surface, subject) and an offer with
+   no cause is denied by construction; the trigger list is
+   closed (SPEECH_TRIGGERS below); chance no longer decides
+   speech anywhere (the category chance table is deleted, and
+   a roll, where one survives at a call site, only chooses
+   among equally fitting wordings); search lines are judged
+   for staleness at promotion against their cause record, not
+   by a clock; dismissal is scoped to the dismissed line's
+   cause instead of clearing the whole queue; and a line that
+   names an action carries that action as a button in the
+   bubble. She is the resident intelligence of the product:
+   caused lines are briefings from an operator who knows the
+   place and the learner's work, so wording selection prefers
+   the variant that references the work the cause names.
    ──────────────────────────────────────────────────────────── */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   NOVA_QUIP_BANK,
   QUIP_CATEGORY_COOLDOWN_MS,
-  QUIP_CATEGORY_CHANCE,
   quipCategoryForRiveEvent,
 } from "./NovaRive.jsx";
 import {
@@ -189,6 +210,76 @@ export const SPEECH_PRIORITY = {
   quip: 10,
 };
 export const SPEECH_CAUSED_SOURCES = ["lesson", "poke", "search"];
+
+/* ── Cause records and the closed trigger list (2026-10-29,
+   dialog spec Lane 1) ────────────────────────────────────────
+   Silence is the default. She speaks when something has
+   happened that a line can be about, and every offer carries
+   the record of that something: the trigger name, the surface
+   it happened on, and the subject it is about (a card's
+   context key, a search's identity, a path or object id, a
+   tip id). An offer with no cause is denied by construction,
+   not by a roll. The trigger list is closed: a new trigger is
+   a spec change, not a build lane improvisation. Ambient
+   quips as a free floating trigger are deleted; the quip bank
+   stays as wording for the caused triggers whose categories
+   fit. She does not narrate a search starting, so there is
+   deliberately no search starting trigger. */
+export const SPEECH_TRIGGERS = [
+  "search-landed",
+  "search-failed",
+  "lesson-verdict",
+  "lesson-complete",
+  "poke",
+  "path-complete",
+  "shelf-object",
+  "reviews-due",
+  "tip-first-appearance",
+  "memory-screen-fact",
+  "hour-arrival",
+];
+
+/* Normalize an offer's cause record, or return null when the
+   record is missing or incomplete. The subject is stringified
+   so numeric ids (a search stamp, a count) compare cleanly. */
+export function speechCauseOf(offer) {
+  const c = offer && typeof offer === "object" ? offer.cause : null;
+  if (!c || typeof c !== "object") return null;
+  const trigger = typeof c.trigger === "string" ? c.trigger : "";
+  const surface = typeof c.surface === "string" ? c.surface : "";
+  const subject = c.subject == null ? "" : String(c.subject);
+  if (!trigger || !surface || !subject) return null;
+  if (SPEECH_TRIGGERS.indexOf(trigger) === -1) return null;
+  return { trigger, surface, subject };
+}
+
+/* Is a queued line's cause still live? Judged per kind, the
+   same rules speechAdvance applies at promotion: a lesson
+   line lives while its card is the stage's context, a search
+   line lives while its search is still the most recent
+   completed one and the learner is still on the search
+   surface, a poke line lives inside its start TTL. Used by
+   the scoped dismissal: a caused line whose cause is still
+   live survives a dismissal of something else. env carries
+   { now, latestSearch, onSearchSurface } from the hook. */
+export function speechCauseLive(line, state, env) {
+  if (!line || typeof line !== "object") return false;
+  const e = env && typeof env === "object" ? env : {};
+  const s = state && typeof state === "object" ? state : {};
+  if (line.source === "lesson") {
+    return !!(line.contextKey && s.contextKey && line.contextKey === s.contextKey);
+  }
+  if (line.source === "search") {
+    return !!(line.cause && e.latestSearch && line.cause.subject === e.latestSearch && e.onSearchSurface !== false);
+  }
+  if (line.source === "poke") {
+    if (line.ttlMs == null) return true;
+    const now = typeof e.now === "number" ? e.now : null;
+    if (now == null || typeof line.queuedAt !== "number") return false;
+    return now - line.queuedAt <= line.ttlMs;
+  }
+  return false;
+}
 
 /* The 60 second global gap, the same number the quip engine's
    QUIP_MIN_GAP_MS and the tip gate's TIP_GAP_MS each kept
@@ -382,11 +473,35 @@ export function speechTalkingAt(plan, elapsedMs, durationMs) {
    the same job for the quip bank by category; this one takes
    the bank itself, so brain and lesson banks pick the same
    way.) */
-export function pickSpeechLine(lines, seed = 0, avoid = null) {
+export function pickSpeechLine(lines, seed = 0, avoid = null, prefer = null) {
   if (!Array.isArray(lines) || !lines.length) return null;
-  let i = Math.abs(Math.floor(seed || 0)) % lines.length;
-  if (lines.length > 1 && lines[i] === avoid) i = (i + 1) % lines.length;
-  return lines[i];
+  /* Wording preference (2026-10-29, dialog spec Lane 1): the
+     cause is judged first and earns the wording; the pick then
+     prefers the variants that fit the cause. prefer is either
+     a predicate over a line, or the word "brief", which keeps
+     the shorter half of the bank (a search reaction should be
+     a short line; a teaching line may run long because the
+     sheet holds it). This is the only place a choice among
+     wordings happens: chance never decides whether she
+     speaks, it only ever chooses among equally fitting
+     wordings, and here even that choice is seeded, not rolled.
+     The Cortana framing rides the same rule: where a bank
+     offers both a garnish wording and a briefing wording for
+     the same caused trigger, callers pass a predicate that
+     keeps the briefing variants, the ones that reference the
+     work the cause names. */
+  let pool = lines;
+  if (typeof prefer === "function") {
+    const kept = lines.filter(prefer);
+    if (kept.length) pool = kept;
+  } else if (prefer === "brief" && lines.length > 1) {
+    const sorted = lines.slice().sort((a, b) => String(a).length - String(b).length);
+    const kept = sorted.slice(0, Math.max(1, Math.ceil(sorted.length / 2)));
+    if (kept.length && kept.length < lines.length) pool = kept;
+  }
+  let i = Math.abs(Math.floor(seed || 0)) % pool.length;
+  if (pool.length > 1 && pool[i] === avoid) i = (i + 1) % pool.length;
+  return pool[i];
 }
 
 /* ── The arbitration ──────────────────────────────────────────
@@ -408,24 +523,35 @@ export function pickSpeechLine(lines, seed = 0, avoid = null) {
                              belong to (a lesson card, today),
                              set by the owner through
                              speechSetContext
+     dismissals: 0,          lines dismissed this session
+     quietSession: false,    two dismissals asked for quiet:
+                             ambient and arrival lines stop for
+                             the session, caused lines still
+                             answer (2026-10-29)
    }
    line = { id, text, source, category, owner, shownAt,
-            durationMs, plan, contextKey, queuedAt, ttlMs }
+            durationMs, plan, contextKey, queuedAt, ttlMs,
+            cause, action }
 
    offer = { text?, category?, source?, owner?, seed?,
-             contextKey? }
-   A categorized offer with no text picks from the bank in
-   env.tables; a direct offer carries its text and no category,
-   and categorized temperament (cooldown, chance) never applies
-   to it: direct lines are content, categorized offers are
-   garnish, and garnish keeps its rolls.
+             contextKey?, cause, action?, prefer? }
+   Every offer carries a cause record (see speechCauseOf);
+   an offer with no cause is denied. A categorized offer with
+   no text picks from the bank in env.tables; a direct offer
+   carries its text and no category. Categorized temperament
+   is the per category cooldown only, restated as a wording
+   and family discipline: a true cause can recur faster than
+   good manners allow. Chance decides nothing (2026-10-29):
+   the chance table is deleted, and wording choice among
+   equally fitting variants is the seeded pick in
+   pickSpeechLine, steered by the offer's prefer rule.
 
-   env = { now, typing = false, roll = 0, tables = null }
+   env = { now, typing = false, tables = null,
+           latestSearch = undefined, onSearchSurface = true }
    tables = { lines: { category: [text, ...] },
-              cooldowns: { category: ms },
-              chances: { category: 0..1 } } */
+              cooldowns: { category: ms } } */
 export function createSpeechState() {
-  return { current: null, queue: [], lastAnyAt: 0, categoryAt: {}, lastByCategory: {}, seq: 0, contextKey: null };
+  return { current: null, queue: [], lastAnyAt: 0, categoryAt: {}, lastByCategory: {}, seq: 0, contextKey: null, dismissals: 0, quietSession: false };
 }
 
 function speechIsCaused(source) {
@@ -442,6 +568,15 @@ function speechShow(state, offer, source, text, now) {
     category: offer.category || null,
     owner: offer.owner || null,
     contextKey: offer.contextKey || null,
+    cause: speechCauseOf(offer),
+    /* A line that names an action carries that one action
+       (2026-10-29): the bubble renders it as a text button,
+       pressing it does the action and ends the line. The
+       action is { label, onAction }; a line naming no action
+       carries none and renders no button. */
+    action: offer.action && typeof offer.action.label === "string" && offer.action.label
+      ? { label: offer.action.label, onAction: typeof offer.action.onAction === "function" ? offer.action.onAction : null }
+      : null,
     shownAt: now,
     /* The display time is the reading time, unless the
        line's own mouth plan runs longer (2026-10-29, the
@@ -480,11 +615,37 @@ export function speechOffer(state, offer, env) {
 
   const source = o.source || speechSourceForCategory(o.category) || "quip";
 
+  /* The cause is judged first (2026-10-29, dialog spec Lane
+     1): every offer carries its cause record, and an offer
+     with no cause, or a trigger outside the closed list, is
+     denied by construction before any wording is considered.
+     Two categories are denied outright as triggers, whatever
+     cause they claim: "searching" would narrate a search
+     starting (the thinking face already says that), and the
+     "idle" and "fourthWall" categories were the free floating
+     ambient garnish trigger, which is deleted. Their bank
+     lines stay available as wording for caused triggers. */
+  const cause = speechCauseOf(o);
+  if (!cause) return deny("no-cause");
+  if (o.category === "searching" || o.category === "idle" || o.category === "fourthWall") return deny("trigger-not-allowed");
+
+  /* A session that has dismissed her twice has asked for
+     quiet in stronger terms (2026-10-29): ambient and arrival
+     lines stop for the rest of the session, while caused
+     lines still answer the learner's own actions. The
+     reviews due count is a caused fact, not garnish, so its
+     trigger is exempt; the hour arrival lines are not. */
+  if (s.quietSession && !speechIsCaused(source) && cause.trigger !== "reviews-due") return deny("quiet-session");
+
   /* Resolve the text. A categorized offer picks from the
-     bank and keeps the categorized temperament: the category
-     must exist, its cooldown must have run out, and its
-     chance roll must land. A direct offer is taken as
-     written. */
+     bank and keeps the one piece of categorized temperament
+     that survives: the per category cooldown, restated as a
+     wording and family discipline. Chance is gone as a gate:
+     whether she speaks was decided by the cause above, and
+     the pick below only chooses among the bank's wordings,
+     preferring the variants that fit the cause (the offer's
+     prefer rule; search reactions default to brief). A
+     direct offer is taken as written. */
   let text = typeof o.text === "string" ? o.text.trim() : "";
   if (o.category) {
     const tables = e.tables || {};
@@ -492,10 +653,9 @@ export function speechOffer(state, offer, env) {
     if (!Array.isArray(bank) || !bank.length) return deny("unknown-category");
     const cd = tables.cooldowns ? tables.cooldowns[o.category] || 0 : 0;
     if (now - (s.categoryAt[o.category] || 0) < cd) return deny("cooldown");
-    const chance = tables.chances ? tables.chances[o.category] : undefined;
-    if (typeof chance === "number" && (typeof e.roll === "number" ? e.roll : 0) >= chance) return deny("chance");
     if (!text) {
-      text = pickSpeechLine(bank, typeof o.seed === "number" ? o.seed : now, s.lastByCategory[o.category] || null) || "";
+      const prefer = o.prefer != null ? o.prefer : source === "search" ? "brief" : null;
+      text = pickSpeechLine(bank, typeof o.seed === "number" ? o.seed : now, s.lastByCategory[o.category] || null, prefer) || "";
     }
   }
   /* Every line she speaks passes the one dash sanitizer,
@@ -545,7 +705,11 @@ export function speechOffer(state, offer, env) {
       const plan = speechPlanFor(text);
       const queued = {
         id: 0, text, source, category: o.category || null, owner: o.owner || null,
-        contextKey: o.contextKey || null, queuedAt: now,
+        contextKey: o.contextKey || null, cause,
+        action: o.action && typeof o.action.label === "string" && o.action.label
+          ? { label: o.action.label, onAction: typeof o.action.onAction === "function" ? o.action.onAction : null }
+          : null,
+        queuedAt: now,
         ttlMs: source === "poke" ? SPEECH_QUEUED_TTL_MS : null,
         shownAt: 0, durationMs: Math.max(speechDurationFor(text), plan.speechEndMs - SPEECH_TAIL_MS), plan,
       };
@@ -589,6 +753,25 @@ export function speechAdvance(state, env) {
        moved past, a lesson card already left behind. */
     if (head.ttlMs != null && typeof head.queuedAt === "number" && now - head.queuedAt > head.ttlMs) continue;
     if (s.contextKey && head.contextKey && head.contextKey !== s.contextKey) continue;
+    /* Search staleness is judged here, at promotion, against
+       the line's cause record (2026-10-29, dialog spec Lane
+       1): the search the line answers must still be the most
+       recent completed search, and the learner must still be
+       on the search surface, or the line is dropped in
+       silence. Nothing is dropped by a clock while it waits,
+       so a search line queued behind a lesson line still
+       promotes after the lesson line's display, exactly as
+       the 36a06a9 lane pinned; a live lesson context on the
+       stage also means the learner is not on the search
+       surface. The hook supplies latestSearch and
+       onSearchSurface in env; a caller that supplies neither
+       asserts nothing about searches, and the context rule
+       still applies. */
+    if (head.source === "search") {
+      if (s.contextKey) continue;
+      if (typeof e.latestSearch === "string" && (!head.cause || head.cause.subject !== e.latestSearch)) continue;
+      if (e.onSearchSurface === false) continue;
+    }
     if (e.typing && head.source !== "lesson") continue;
     const shown = speechShow(rest, head, head.source, head.text, now);
     return { state: { ...shown.state, queue: rest.queue }, ended, promoted: shown.line };
@@ -596,14 +779,38 @@ export function speechAdvance(state, env) {
   return { state: rest, ended, promoted: null };
 }
 
-/* A click on the bubble: the line ends and the queue goes
-   with it. A dismissal is the learner asking for quiet, so
-   nothing she was about to say survives it. The stamps stay:
-   being dismissed does not reset her cooldowns. */
-export function speechDismiss(state) {
+/* A click on the bubble: the current line ends at once, and
+   the blast radius is scoped (2026-10-29, dialog spec Lane
+   1, replacing the clear everything behavior). Dismissal
+   drops queued lines of the same cause as the dismissed
+   line, and queued ambient garnish, but a caused line whose
+   cause is still live (the current card's teaching, the
+   landing line for the search on screen) survives to be
+   offered when the stage frees: dismissing her costs the
+   learner nothing they were owed. The stamps stay: being
+   dismissed does not reset her cooldowns. Two dismissals in
+   one session set quietSession, which speechOffer reads:
+   ambient and arrival lines stop for the session, caused
+   lesson lines still answer. env is the same promotion env
+   speechAdvance takes ({ now, latestSearch,
+   onSearchSurface }), used to judge which causes are live. */
+export function speechDismiss(state, env) {
   const s = state && typeof state === "object" ? state : createSpeechState();
   if (!s.current && !s.queue.length) return s;
-  return { ...s, current: null, queue: [] };
+  const dismissed = s.current || null;
+  const sameCause = (q) => !!(
+    dismissed && dismissed.cause && q.cause
+    && q.cause.trigger === dismissed.cause.trigger
+    && q.cause.surface === dismissed.cause.surface
+    && q.cause.subject === dismissed.cause.subject
+  );
+  const queue = s.queue.filter((q) => {
+    if (sameCause(q)) return false;
+    if (!speechIsCaused(q.source)) return false;
+    return speechCauseLive(q, s, env);
+  });
+  const dismissals = (s.dismissals || 0) + (dismissed ? 1 : 0);
+  return { ...s, current: null, queue, dismissals, quietSession: !!s.quietSession || dismissals >= 2 };
 }
 
 /* The stage's context changes (2026-10-29, the outside
@@ -653,10 +860,32 @@ function speechTables() {
     speechTablesCache = {
       lines: NOVA_QUIP_BANK,
       cooldowns: QUIP_CATEGORY_COOLDOWN_MS,
-      chances: QUIP_CATEGORY_CHANCE,
     };
   }
   return speechTablesCache;
+}
+
+/* The search tracker (2026-10-29, dialog spec Lane 1): the
+   module records the subject of the most recent completed
+   search cause offered through any instance, and which
+   instances have offered search causes (the search surface's
+   owners). Promotion and scoped dismissal read both through
+   speechPromotionEnv: a queued search line whose search is
+   no longer the latest, or whose surface's owners have all
+   unmounted, is stale. No clock is involved, so a search
+   line queued behind a lesson line is never timed out. */
+const speechSearchTracker = { latestSubject: null, surfaceOwners: new Set() };
+const speechMountedOwners = new Set();
+function speechPromotionEnv() {
+  let onSearchSurface = false;
+  for (const owner of speechSearchTracker.surfaceOwners) {
+    if (speechMountedOwners.has(owner)) { onSearchSurface = true; break; }
+  }
+  return {
+    now: Date.now(),
+    latestSearch: speechSearchTracker.latestSubject == null ? undefined : speechSearchTracker.latestSubject,
+    onSearchSurface,
+  };
 }
 
 /* The typing probe, the same read the quip engine made: an
@@ -681,16 +910,26 @@ function userIsTypingSpeech() {
      true only inside the current line's speech bursts.
    - busy: any line is on stage, whoever owns it.
    - say(offer): offer a line; returns "shown", "queued", or
-     "denied". Offers carry { text, source } directly, or
-     { category } to pick from the quip bank with its
-     temperament, or { source: "brain", bank, seed } to pick
-     from one of her other banks.
-   - offerCategory(category): the categorized offer, for
-     state transitions and Rive events.
+     "denied". Every offer carries a cause record
+     ({ cause: { trigger, surface, subject } }); an offer
+     without one is denied. Offers carry { text, source }
+     directly, or { category } to pick from the quip bank
+     with its cooldown discipline, or { source: "brain",
+     bank, seed } to pick from one of her other banks. An
+     offer may also carry an action ({ label, onAction }):
+     the line then renders that action as a button in the
+     bubble, and pressing it does the action and ends the
+     line.
+   - offerCategory(category, cause): the categorized offer,
+     for state transitions and Rive events.
    - handleRiveEvent(name, ctx): an EmitIdleQuip,
      EmitQuizQuip, or EmitSearchQuip event from the asset,
      routed to its category exactly as the quip engine did.
-   - dismiss(): end the current line and clear the queue.
+     The retired asset fires none of these any more, and a
+     routed offer carries no cause, so the gate denies it:
+     owners offer with causes now.
+   - dismiss(): end the current line, with the scoped
+     dismissal of speechDismiss.
    - setContext(key): name the context the stage's lines
      belong to (a lesson card, or null); lines tagged with
      another context are dropped, so a card's teaching can
@@ -709,14 +948,15 @@ export function useNovaSpeech({ enabled = true } = {}) {
   useEffect(() => {
     const fn = (s) => setSnapshot(s);
     speechListeners.add(fn);
-    return () => { speechListeners.delete(fn); };
+    speechMountedOwners.add(ownerRef.current);
+    return () => { speechListeners.delete(fn); speechMountedOwners.delete(ownerRef.current); };
   }, []);
 
   const anyCurrent = snapshot.current;
   useEffect(() => {
     if (!anyCurrent) return undefined;
     const iv = setInterval(() => {
-      const adv = speechAdvance(speechStore, { now: Date.now(), typing: userIsTypingSpeech() });
+      const adv = speechAdvance(speechStore, { typing: userIsTypingSpeech(), ...speechPromotionEnv() });
       if (adv.ended || adv.promoted) speechCommit(adv.state);
       setPulse((p) => p + 1);
     }, 60);
@@ -728,7 +968,7 @@ export function useNovaSpeech({ enabled = true } = {}) {
     const o = offer && typeof offer === "object" ? { ...offer } : {};
     if (!o.text && !o.category && o.bank) {
       const bank = NOVA_SPEECH_BANKS[o.bank] || (Array.isArray(o.bank) ? o.bank : null);
-      const picked = pickSpeechLine(bank, typeof o.seed === "number" ? o.seed : Date.now(), null);
+      const picked = pickSpeechLine(bank, typeof o.seed === "number" ? o.seed : Date.now(), null, o.prefer != null ? o.prefer : null);
       if (!picked) return "denied";
       o.text = picked;
     }
@@ -736,14 +976,25 @@ export function useNovaSpeech({ enabled = true } = {}) {
     const res = speechOffer(speechStore, { ...o, owner: ownerRef.current }, {
       now: Date.now(),
       typing: userIsTypingSpeech(),
-      roll: Math.random(),
       tables: speechTables(),
     });
-    if (res.result !== "denied") speechCommit(res.state);
+    if (res.result !== "denied") {
+      /* A landed or queued search cause is the record of the
+         most recent completed search, and this instance is
+         one of the search surface's owners, until it
+         unmounts. Queued search lines are judged against
+         this record at promotion, never by a clock. */
+      const cause = res.line && res.line.cause ? res.line.cause : null;
+      if (cause && (cause.trigger === "search-landed" || cause.trigger === "search-failed")) {
+        speechSearchTracker.latestSubject = cause.subject;
+        speechSearchTracker.surfaceOwners.add(ownerRef.current);
+      }
+      speechCommit(res.state);
+    }
     return res.result;
   };
 
-  const offerCategory = (category) => say({ category });
+  const offerCategory = (category, cause) => say({ category, cause });
 
   const handleRiveEvent = (name, ctx) => {
     const category = quipCategoryForRiveEvent(name, ctx || {});
@@ -751,7 +1002,7 @@ export function useNovaSpeech({ enabled = true } = {}) {
     return offerCategory(category);
   };
 
-  const dismiss = () => { speechCommit(speechDismiss(speechStore)); };
+  const dismiss = () => { speechCommit(speechDismiss(speechStore, speechPromotionEnv())); };
 
   const setContext = (contextKey) => { speechCommit(speechSetContext(speechStore, contextKey)); };
 
@@ -765,13 +1016,22 @@ export function useNovaSpeech({ enabled = true } = {}) {
 /* ── The one bubble ───────────────────────────────────────────
    The house bubble, the values every surface already shared:
    cream ground, ink text, the faint ink line. Three placement
-   variants by surface: "stage" floats above her on the home
-   stage with its tail down at her, "header" hangs below the
-   header figure as the quip bubble did, tail up, and "sheet"
-   sits in the lesson sheet's flow with a left tail and a real
-   dismiss button, the way the tip bubble read. Text only,
+   variants by surface: "header" hangs below the header figure
+   as the quip bubble did, tail up, "sheet" sits in flow
+   with a left tail and a real dismiss button, the way the tip
+   bubble read, and "flow" (2026-10-29, Home B) sits in flow
+   at its container's full width with no tail, inside the
+   reading column of the surface that owns it: on the search
+   home that is the greeting unit, under the serif greeting
+   line, where the box can never float over the wide middle
+   or reach the docked composer. (The floating "stage" variant was deleted
+   2026-10-29, dialog spec Lane 1: defined, used by no mount,
+   and superseded by the home's in flow box.) Text only,
    always: she is on the screen once, and the bubble never
-   carries a second figure of her. A click dismisses. */
+   carries a second figure of her. A click dismisses. When a
+   line names an action, the bubble also carries that one
+   action as a text button: pressing it does the action and
+   ends the line. A line naming no action carries no button. */
 const SPEECH_BUBBLE_CREAM = "#FDF3D7";
 const SPEECH_BUBBLE_INK = "#1A1A1A";
 const SPEECH_BUBBLE_LINE = "rgba(26, 26, 26, 0.16)";
@@ -817,22 +1077,27 @@ export function speechBubbleShiftFor(anchorCenterX, bubbleWidth, viewportWidth, 
    block), width 100% of the container it is rendered in,
    no transform and no left or top offset, so there is no
    mechanism left that can push its text outside its own
-   box or the sheet's. The "header" and "stage" geometries
-   are the shipped ones, byte for byte in value. */
+   box or the sheet's. The "header" geometry is the shipped
+   one, byte for byte in value. */
 export function speechBubbleStyleFor(variant, clampShift = 0) {
-  if (variant === "stage") {
-    return {
-      position: "absolute", bottom: "calc(100% + 10px)", left: "50%", transform: "translateX(-50%)",
-      borderRadius: 2, padding: "10px 14px", lineHeight: 1.45,
-      width: "max-content", maxWidth: 290, cursor: "pointer",
-      boxShadow: "none",
-    };
-  }
   if (variant === "sheet") {
     return {
       position: "relative", display: "block", width: "100%", boxSizing: "border-box",
       borderRadius: RADIUS.xl, padding: "12px 16px",
       lineHeight: 1.55, maxWidth: 470,
+    };
+  }
+  if (variant === "flow") {
+    /* The flow geometry (2026-10-29, Home B, dialog spec
+       2.4): the sheet's in flow shape with its width cap
+       lifted, because the container here is the reading
+       column itself and the box takes the column's width.
+       Relative, block, no transform and no offset, so no
+       mechanism can push it over the content below it. */
+    return {
+      position: "relative", display: "block", width: "100%", boxSizing: "border-box",
+      borderRadius: RADIUS.xl, padding: "12px 16px",
+      lineHeight: 1.55, maxWidth: "none",
     };
   }
   return {
@@ -843,9 +1108,9 @@ export function speechBubbleStyleFor(variant, clampShift = 0) {
   };
 }
 
-export function NovaBubble({ text, children, variant = "header", tail = null, onDismiss, style }) {
+export function NovaBubble({ text, children, variant = "header", tail = null, onDismiss, action = null, style }) {
   const content = children != null ? children : text;
-  const v = variant === "stage" || variant === "sheet" ? variant : "header";
+  const v = variant === "sheet" || variant === "flow" ? variant : "header";
   /* The header clamp measurement: read the anchor figure's
      on screen center (the bubble's offsetParent, the relative
      span NovaRive wraps the figure in) and the bubble's own
@@ -870,7 +1135,7 @@ export function NovaBubble({ text, children, variant = "header", tail = null, on
     return undefined;
   }, [v, content, winW]);
   if (content == null || content === "") return null;
-  const tailSide = tail || (v === "stage" ? "down" : v === "header" ? "up" : "left");
+  const tailSide = tail || (v === "header" ? "up" : v === "sheet" ? "left" : "none");
   const base = {
     background: SPEECH_BUBBLE_CREAM, color: SPEECH_BUBBLE_INK,
     border: "1px solid " + SPEECH_BUBBLE_LINE,
@@ -902,8 +1167,23 @@ export function NovaBubble({ text, children, variant = "header", tail = null, on
         }} />
       )}
       {content}
+      {action && typeof action.label === "string" && action.label && (
+        /* The one action a line may name (2026-10-29): her
+           wayfinding. The button does the action; the caller
+           ends the line. Its click never falls through to the
+           bubble's own dismiss or to a figure click behind
+           the bubble. */
+        <button type="button" onClick={(e) => { e.stopPropagation(); if (action.onAction) action.onAction(); }}
+          style={{
+            display: "block", marginTop: 8, background: "none", border: "1px solid " + SPEECH_BUBBLE_LINE,
+            borderRadius: RADIUS.pill, color: SPEECH_BUBBLE_INK, cursor: "pointer", fontFamily: "inherit",
+            fontSize: FONT_SIZES.label, fontWeight: 500, lineHeight: 1.2, padding: "8px 14px", minHeight: 36,
+          }}>
+          {action.label}
+        </button>
+      )}
       {v === "sheet" && onDismiss && (
-        <button type="button" aria-label="Dismiss" onClick={onDismiss}
+        <button type="button" aria-label="Dismiss" onClick={(e) => { e.stopPropagation(); if (onDismiss) onDismiss(); }}
           style={{
             /* 44px hit area (2026-10-16, layout audit finding
                20); the glyph size below is unchanged. */

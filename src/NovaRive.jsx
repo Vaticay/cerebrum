@@ -186,13 +186,17 @@ export const NOVA_QUIP_BANK = {
 
 /* Her temperament in numbers, read by the speech controller
    in NovaSpeech.jsx: a long ambient gap (its SPEECH_MIN_GAP_MS
-   mirrors QUIP_MIN_GAP_MS here), per category cooldowns, and
-   a chance roll per category so even an eligible moment
-   usually stays silent. Warnings land most often because
-   they are useful; praise lands least, because she is not a
-   cheerleader. How long a line stays up is the controller's
-   reading time now; the old fixed QUIP_SHOW_MS retired with
-   the engine that used it (2026-10-15). */
+   mirrors QUIP_MIN_GAP_MS here) and per category cooldowns.
+   The per category chance roll that used to sit beside the
+   cooldowns is deleted (2026-10-29, dialog spec Lane 1):
+   chance stops deciding whether she speaks. The cause
+   decides; the cooldowns survive with a restated job, as a
+   wording and family discipline, because a true cause can
+   recur faster than good manners allow. Where a choice among
+   wordings remains, it is the controller's seeded pick among
+   equally fitting variants. How long a line stays up is the
+   controller's reading time now; the old fixed QUIP_SHOW_MS
+   retired with the engine that used it (2026-10-15). */
 export const QUIP_MIN_GAP_MS = 60000;
 export const QUIP_LONG_IDLE_MS = 30000;
 export const QUIP_CATEGORY_COOLDOWN_MS = {
@@ -205,17 +209,6 @@ export const QUIP_CATEGORY_COOLDOWN_MS = {
   quizCorrect: 60000,
   quizStreak: 180000,
   quizWrong: 60000,
-};
-export const QUIP_CATEGORY_CHANCE = {
-  idle: 0.5,
-  fourthWall: 0.6,
-  searching: 0.45,
-  preprintWarning: 0.85,
-  highConfidence: 0.25,
-  quizThinking: 0.3,
-  quizCorrect: 0.55,
-  quizStreak: 0.85,
-  quizWrong: 0.55,
 };
 
 /* ── Pure mapping helpers (the contract as functions) ──────── */
@@ -243,14 +236,19 @@ export function quipCategoryForRiveEvent(name, ctx = {}) {
   return null;
 }
 
-export function quipGateAllows({ now = 0, lastGlobalAt = 0, lastCategoryAt = 0, category = null, typing = false, busy = false, roll = 0 } = {}) {
+/* The retired engine's gate, kept as a pure helper for the
+   surfaces that still ask it a temperament question. Its
+   chance term is deleted (2026-10-29): the roll input is
+   accepted and ignored, because chance no longer decides
+   speech anywhere in the product. What still binds here is
+   what binds in the controller: typing, a busy stage, the
+   global gap, and the category cooldown. */
+export function quipGateAllows({ now = 0, lastGlobalAt = 0, lastCategoryAt = 0, category = null, typing = false, busy = false } = {}) {
   if (typing || busy) return false;
   if (!category || !NOVA_QUIP_BANK[category]) return false;
   if (now - lastGlobalAt < QUIP_MIN_GAP_MS) return false;
   const cd = QUIP_CATEGORY_COOLDOWN_MS[category] || 0;
   if (now - lastCategoryAt < cd) return false;
-  const chance = QUIP_CATEGORY_CHANCE[category];
-  if (typeof chance === "number" && roll >= chance) return false;
   return true;
 }
 
@@ -337,6 +335,16 @@ function NovaCanvas(props) {
      the figure here is then figure only, while the speech
      prop still feeds her talking mouth. */
   const bubbleVariant = props.bubbleVariant === undefined ? "header" : props.bubbleVariant;
+  /* The flow mount (2026-10-29, Home B): the greeting unit on
+     the search home is a grid whose areas are the bust, the
+     greeting line, and the dialog box at the column's width.
+     A flow figure's anchor and figure spans therefore render
+     as contents and as the bust grid item respectively, so
+     the figure and its NovaBubble become items of that grid
+     and the bubble lands in flow under the greeting line
+     instead of hanging off a small bust anchor. Every other
+     variant keeps the shipped anchor geometry byte for byte. */
+  const flowMount = bubbleVariant === "flow";
   const talkingNow = speech ? !!speech.talking : false;
 
   /* Framing. "full" and "panel" give the figure a box in its
@@ -376,19 +384,33 @@ function NovaCanvas(props) {
     />
   );
   return (
-    <span ref={anchorRef} className="cb-nova-sprite" style={{ position: "relative", display: "inline-flex" }}>
+    <span ref={anchorRef} className="cb-nova-sprite" style={flowMount ? { display: "contents" } : { position: "relative", display: "inline-flex" }}>
       {fullBody ? (
-        <span style={{ width: w, height: h, maxWidth: "100%", display: "block" }}>
+        <span style={{ width: w, height: h, maxWidth: "100%", display: "block", ...(flowMount ? { gridArea: "bust", justifySelf: "start" } : null) }}>
           {figure}
         </span>
       ) : (
-        <span style={{ width: w, height: h, display: "block", overflow: "hidden", position: "relative", flexShrink: 0 }}>
+        <span style={{ width: w, height: h, display: "block", overflow: "hidden", position: "relative", flexShrink: 0, ...(flowMount ? { gridArea: "bust", justifySelf: "start" } : null) }}>
           <span style={{ width: bustInner, height: bustInner, display: "block", position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)" }}>
             {figure}
           </span>
         </span>
       )}
-      {speech && speech.current && bubbleVariant && <NovaBubble text={speech.current.text} variant={bubbleVariant} onDismiss={speech.dismiss} />}
+      {speech && speech.current && bubbleVariant && (
+        <NovaBubble text={speech.current.text} variant={bubbleVariant} onDismiss={speech.dismiss}
+          style={flowMount ? { gridArea: "bubble" } : undefined}
+          action={speech.current.action ? {
+            label: speech.current.action.label,
+            /* Pressing the action does it and ends the line
+               (2026-10-29): her wayfinding lives in the box
+               that named the next thing. */
+            onAction: () => {
+              const a = speech.current && speech.current.action;
+              if (a && a.onAction) a.onAction();
+              speech.dismiss();
+            },
+          } : null} />
+      )}
     </span>
   );
 }

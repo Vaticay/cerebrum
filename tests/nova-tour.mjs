@@ -255,7 +255,7 @@ await test("the figure mounts exactly once, so her runtime never restarts betwee
 await test("while the tour is open the host stands its resident Novas down", () => {
   assert.ok(learnSrc.includes('homeTab !== "today" && !tourOpen'), "the header resident still renders under the tour");
   // Pin updated 2026-10-16 (layout audit finding 12): the Today stage figure is phone aware now (264 at narrow widths, 288 above), so the resident render carries the stageNarrow expression instead of the fixed 288.
-  assert.ok(learnSrc.includes('{!tourOpen && <NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" />}'), "the Today stage resident still renders under the tour");
+  assert.ok(learnSrc.includes('{!tourOpen && <NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" surface="nova-home"'), "the Today stage resident still renders under the tour");
 });
 
 // ── The phone fit pass (2026-10-16, layout audit findings 14 and 20) ──

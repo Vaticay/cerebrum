@@ -1,12 +1,16 @@
 /* ── Nova, at the sidebar: the discovery pop (2026-10-15) ─────
    For someone who has never opened the Nova tab, every so
-   often Nova slides out from behind the left sidebar, waves,
-   says her one line in a speech bubble, waves again briefly,
-   and slides back. The whole visit runs about five seconds.
+   often Nova slides out from behind the left sidebar, says
+   her one line in the shared speech bubble, and slides back.
    She is an invitation, not a notification, and the discipline
    is the point, the same discipline the Easter egg in NovaEgg
    keeps: a strict budget, a shared store, and a hard list of
-   contexts she never enters.
+   contexts she never enters. Her visit is a presence and a
+   line (2026-10-29, dialog spec Lane 1): the wave mechanism
+   that used to feed a celebrate counter is gone, her line
+   renders through the one NovaBubble, and the visit's leave
+   step waits for the line's reading time instead of running
+   on a fixed five second speech clock.
 
    The budget: no pop in the first twenty seconds of a session,
    at most one pop per session, at least a day between pops,
@@ -36,7 +40,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { cbMotionOff } from "./flowcharts.jsx";
 import { loadNovaQuirks, saveNovaQuirks } from "./LearnView.jsx";
 import { NovaRive } from "./NovaRive.jsx";
-import { FONT_SIZES } from "./designSystem.jsx";
+import { NovaBubble, speechDurationFor, speechPlanFor, SPEECH_TAIL_MS } from "./NovaSpeech.jsx";
 
 export const POP_FIRST_LINE = "Hi, I'm Nova, come check me out.";
 export const POP_LINES = [
@@ -53,16 +57,21 @@ export const POP_DISMISSAL_STRETCH = 2;
 export const POP_IGNORE_STOP = 4;
 export const POP_CHECK_MS = 15000;
 
-/* The visit itself, milliseconds from its start: she enters
-   waving, holds and waves once more, leaves, and is gone at
-   five seconds. The phase steps move the slide; the wave steps
-   bump the wave counter the figure reads. */
+/* The visit's appearance steps, milliseconds from its start:
+   she enters, holds, and leaves. These steps move the slide
+   only. The visit's end is not a step here (2026-10-29): the
+   leave step waits for her line's reading time, priced by
+   the shared timing law in NovaSpeech (speechDurationFor,
+   floored by the speech plan's own end), and the visit ends
+   POP_EXIT_MS after she leaves. The wave steps the timeline
+   used to carry are deleted with the wave mechanism itself:
+   nothing here bumps a counter the figure reads. */
 export const POP_TIMELINE = [
-  { at: 0, phase: "enter", wave: true },
-  { at: 2600, phase: "hold", wave: true },
+  { at: 0, phase: "enter" },
+  { at: 2600, phase: "hold" },
   { at: 4400, phase: "exit" },
-  { at: 5000, end: true },
 ];
+export const POP_EXIT_MS = 600;
 
 /* The gap a store full of history earns: two dismissals stretch
    it from a day to a week, and ignores count toward the same
@@ -195,15 +204,18 @@ const POP_CSS = `
 @keyframes nspFadeIn { from { opacity: 0; } to { opacity: 1; } }
 .nsp-still.nsp-ph-exit { animation: nspFadeOut 0.45s var(--cb-ease) both; }
 @keyframes nspFadeOut { from { opacity: 1; } to { opacity: 0; } }
-.nsp-bubble { position: absolute; width: max-content; max-width: 290px; background: #FDF3D7; color: #1A1A1A; border: 1px solid rgba(26, 26, 26, 0.16); border-radius: 2px; padding: 11px 50px 11px 14px; font-size: ${FONT_SIZES.body}px; line-height: 1.5; pointer-events: auto; box-shadow: none; animation: nspBubbleIn 0.35s var(--cb-ease) both; }
+/* The bubble's placement only (2026-10-29): the bubble itself
+   is the shared NovaBubble from NovaSpeech, in its sheet
+   geometry fitted to the visit by the style the component
+   passes, so the private bubble styles, tail, and close
+   button that used to live here are gone. These two classes
+   only say where the bubble sits beside her: right of her on
+   desktop, above her on mobile. The wrapper keeps the old
+   entrance fade, on the site curve. */
+.nsp-bubblewrap { position: absolute; width: max-content; max-width: 290px; pointer-events: auto; animation: nspBubbleIn 0.35s var(--cb-ease) both; }
 @keyframes nspBubbleIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .nsp-bubble-d { left: calc(100% + 10px); top: 2px; }
 .nsp-bubble-m { bottom: calc(100% + 10px); left: 0; }
-.nsp-bubble-tail { position: absolute; width: 13px; height: 13px; background: #FDF3D7; transform: rotate(45deg); }
-.nsp-bubble-d .nsp-bubble-tail { left: -7px; top: 17px; border-left: 1px solid rgba(26, 26, 26, 0.16); border-bottom: 1px solid rgba(26, 26, 26, 0.16); }
-.nsp-bubble-m .nsp-bubble-tail { bottom: -7px; left: 38px; border-right: 1px solid rgba(26, 26, 26, 0.16); border-bottom: 1px solid rgba(26, 26, 26, 0.16); }
-/* 44px hit area (2026-10-16, layout audit finding 20); the glyph size is unchanged and its center stays 17px from each edge, where it sat in the old 28px box; the bubble padding above reserves the wider box. */
-.nsp-bubble-x { position: absolute; top: -5px; right: -5px; width: 44px; height: 44px; min-width: 44px; min-height: 44px; background: none; border: none; color: #6E675C; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 /* The shell spotlight (follow on polish, 2026-10-28): a soft pool
    of her own cream light behind the figure while she visits the
    shell, feathered to nothing at its edge. It is a backdrop light
@@ -216,7 +228,7 @@ const POP_CSS = `
 @keyframes nspSpotOut { from { opacity: 1; } to { opacity: 0; } }
 .nsp-still .nsp-spot { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  .nsp-fig, .nsp-bubble, .nsp-spot { animation: none !important; }
+  .nsp-fig, .nsp-bubblewrap, .nsp-spot { animation: none !important; }
 }
 `;
 
@@ -264,28 +276,43 @@ export default function NovaSidebarPop({ searchRunning = false, inCall = false, 
     let still = false;
     try { still = !!cbMotionOff(); } catch { /* the full visit is the fallback */ }
     const firstStep = POP_TIMELINE[0];
-    const p = { id: now, line, phase: firstStep.phase, waveN: 1, still };
+    const p = { id: now, line, phase: firstStep.phase, still };
     popRef.current = p;
     setPop(p);
-    for (const step of POP_TIMELINE) {
-      if (step.at === 0) continue;
+    /* Her line's reading time, by the shared law (2026-10-29):
+       the reading time from speechDurationFor, floored by the
+       speech plan's own end less the tail, exactly as the
+       controller's speechShow prices a line. The leave step
+       waits for the line to finish (or for a dismissal, which
+       clears these timers), so the exit step runs at the
+       later of its appearance time and the line's end, and
+       the visit ends POP_EXIT_MS after that. No fixed speech
+       clock remains. */
+    const lineMs = Math.max(speechDurationFor(line), speechPlanFor(line).speechEndMs - SPEECH_TAIL_MS);
+    const schedule = (fn, at) => {
       const t = setTimeout(() => {
         if (!popRef.current || popRef.current.id !== p.id) return;
-        /* Reaching the timeline's end means the whole visit
-           played with no click, no dismissal, and no answer:
-           an ignore, and it is recorded like one (2026-10-29).
-           Every other way out of a pop (the figure click, the
-           close button, Escape, a hidden tab) leaves through
-           its own path and records its own outcome, or none. */
-        if (step.end) { saveNovaQuirks(recordPopIgnore(loadNovaQuirks())); endPop(); return; }
-        const next = { ...popRef.current };
-        if (step.phase) next.phase = step.phase;
-        if (step.wave) next.waveN = (popRef.current.waveN || 1) + 1;
+        fn();
+      }, at);
+      timersRef.current.push(t);
+    };
+    for (const step of POP_TIMELINE) {
+      if (step.at === 0) continue;
+      const at = step.phase === "exit" ? Math.max(step.at, lineMs) : step.at;
+      schedule(() => {
+        const next = { ...popRef.current, phase: step.phase };
         popRef.current = next;
         setPop(next);
-      }, step.at);
-      timersRef.current.push(t);
+      }, at);
     }
+    /* Reaching the visit's end means the whole visit played
+       with no click, no dismissal, and no answer: an ignore,
+       and it is recorded like one (2026-10-29). Every other
+       way out of a pop (the figure click, the close button,
+       Escape, a hidden tab) leaves through its own path and
+       records its own outcome, or none. */
+    const exitAt = Math.max(POP_TIMELINE[POP_TIMELINE.length - 1].at, lineMs);
+    schedule(() => { saveNovaQuirks(recordPopIgnore(loadNovaQuirks())); endPop(); }, exitAt + POP_EXIT_MS);
   };
 
   /* A click on her or on her bubble: she has done her job, so
@@ -371,20 +398,19 @@ export default function NovaSidebarPop({ searchRunning = false, inCall = false, 
             2026-10-28). Pure backdrop, pointer events none, and
             aria hidden; the canvas below paints over it. */}
         <span className="nsp-spot" aria-hidden="true" />
-        {/* The canvas surface has no wave trigger, so the wave
-            counter also feeds the celebrate counter NovaRive
-            binds: the bump at the second wave beat fires the
-            celebrate trigger once, in the same rising counter
-            mechanism NovaLive uses. The fallback ignores the
-            extra prop and waves as it always has. */}
-        <NovaRive state="greeting" size={size} waveN={pop.waveN} celebrateN={pop.waveN} quips={false} />
+        {/* Her pop visit is a presence and a line (2026-10-29):
+            no wave counter, no celebrate feed. The pleased
+            state stays reserved for its rationed causes. */}
+        <NovaRive state="greeting" size={size} quips={false} />
         {showBubble && pop.line && (
-          <div className={"nsp-bubble" + (isMobile ? " nsp-bubble-m" : " nsp-bubble-d")} role="status">
-            <span className="nsp-bubble-tail" />
-            {pop.line}
-            <button type="button" className="nsp-bubble-x" aria-label="Dismiss Nova" onClick={(e) => { e.stopPropagation(); dismissPop(); }}>
-              ✕
-            </button>
+          /* The shared bubble, fitted to the visit: the sheet
+             geometry in a placed wrapper, its own dismiss
+             button counting as a dismissal, the rest of the
+             bubble still answering to the figure click that
+             opens the Nova tab. */
+          <div className={"nsp-bubblewrap" + (isMobile ? " nsp-bubble-m" : " nsp-bubble-d")}>
+            <NovaBubble variant="sheet" tail={isMobile ? "down" : "left"} text={pop.line} onDismiss={dismissPop}
+              style={{ width: "auto", maxWidth: 290 }} />
           </div>
         )}
       </div>

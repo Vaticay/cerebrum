@@ -846,7 +846,7 @@ await test("the stage keeps one centred column inside the standard shell", () =>
   assert.ok(!appSrc.includes("marginLeft: isMobile || homeStage ? 0"), "stage still zeroes the sidebar offset");
 });
 
-await test("the stage is Nova's room: her figure, her greeting, her shelf, the old stack absent", () => {
+await test("the stage is Home B: the quiet column, her bust and serif greeting, Last time, the docked composer", () => {
   /* Corrected contract (2026-10-13 evening, Dusty's photo verdict):
      the plate order this test used to pin (the eyebrow, the serif
      manifesto headline, the marketing paragraph under the composer,
@@ -870,16 +870,29 @@ await test("the stage is Nova's room: her figure, her greeting, her shelf, the o
   );
   assert.ok(stage.length > 1000, "stage block not found");
   assert.ok(stage.includes("maxWidth: LAYOUT.answer"), "stage column is not the thread measure");
-  /* Her presence: the stage unit, the figure at full size, the
-     greeting from her bank, the shelf that reopens threads. */
-  assert.ok(stage.includes("cb-nova-stage"), "Nova's stage unit missing from the stage");
-  assert.ok(stage.includes('<NovaLive size={isMobile ? 216 : 288} framing="full" />'), "Nova does not stand at full presence on the stage");
+  /* Her presence, Home B (2026-10-29, the owner's pick, The
+     Quiet Column, superseding Nova's room the same day): the
+     top line with the wordmark and the one word History, her
+     bust small beside the greeting set in the reading serif,
+     the Last time line that reopens the most recent question,
+     and the composer docked at the bottom of the column. */
+  assert.ok(stage.includes("cb-homeb-column"), "the Home B column is missing from the stage");
+  assert.ok(stage.includes('className="cb-stage-textbtn"'), "the top line's quiet History word is missing");
+  assert.ok(stage.includes('<NovaLive size={isMobile ? 66 : 84} surface="search-home" bubbleVariant="flow" />'), "her bust does not stand small beside the greeting in the flow mount");
   assert.ok(stage.includes("stageGreeting"), "her greeting is not composed on the stage");
   assert.ok(appSrc.includes("NOVA_HOME_GREETINGS"), "her home greeting bank is missing");
-  assert.ok(stage.includes("cb-stage-shelf"), "her shelf is missing from the stage");
-  assert.ok(stage.includes("shelfItems"), "the shelf does not read the shelf items");
-  assert.ok(stage.includes("openHistoryItem(h)"), "a shelf tap does not reopen the thread through the ledger's opener");
-  assert.ok(stage.includes(">The shelf<"), "the shelf lost its set label");
+  assert.ok(stage.includes(">Last time<"), "the Last time line is missing from the stage");
+  assert.ok(stage.includes("openHistoryItem(stageLastEntry)"), "the Last time tap does not reopen the thread through the ledger's opener");
+  assert.ok(stage.includes('marginTop: "auto"'), "the composer is not docked at the bottom of the column");
+  /* The Nova's room furniture, absent on purpose: the full
+     size stage figure, the shelf plaques and their section,
+     the permanent greeting bubble, and the deck panel. */
+  assert.ok(!stage.includes("cb-nova-stage"), "the old stage unit came back");
+  assert.ok(!stage.includes("cb-stage-shelf"), "her shelf section is back on the stage");
+  assert.ok(!stage.includes("shelfItems"), "the shelf items are read on the stage again");
+  assert.ok(!stage.includes(">The shelf<"), "the shelf label is back on the stage");
+  assert.ok(!stage.includes("cb-nova-greeting"), "the permanent greeting bubble is back on the stage");
+  assert.ok(!stage.includes("<HomeDeck"), "the deck panel is mounted on the stage again");
   /* The old stack, absent: the masthead and its wordmark, the
      headline sentence, the proof line and its dialog opener,
      the Continue row and its re ask action. */
@@ -907,7 +920,7 @@ await test("the stage is Nova's room: her figure, her greeting, her shelf, the o
   assert.ok(appSrc.includes("Every kind of study counts, from work in cells and animals to trials in people. Nothing is filtered out."), "the plain all tier blurb is missing");
   assert.ok(appSrc.includes("hideBlurb"), "the stage filter's quiet mode is not wired");
   assert.ok(!stage.includes("Continue investigation"), "the plate continue label survives");
-  assert.ok(stage.includes(">Try asking<"), "example questions missing their plain label");
+  assert.ok(!stage.includes(">Try asking<"), "the Try asking list is back on the stage; its questions rotate in the composer placeholder now");
   assert.ok(!stage.includes("Specimen inquiries"), "the specimen label survives");
   assert.ok(!stage.includes("0{i + 1}"), "the examples are still numbered");
   /* Pin updated 2026-10-22 (simplify audit SH7): the footer claim
@@ -1037,7 +1050,7 @@ await test("recents open only on the visitor's own engagement", () => {
   assert.ok(composer.includes("useState(false)"), "recents state no longer starts closed");
 });
 
-await test("the stage renders exactly one Continue affordance", () => {
+await test("the stage renders no Continue affordance and no deck", () => {
   /* Live finding: the stage showed its ruled Continue row AND the
      deck's own "Where you left off" card, same question, same Keep
      going and History actions. Corrected contract: HomeDeck takes a
@@ -1055,8 +1068,13 @@ await test("the stage renders exactly one Continue affordance", () => {
     appSrc.indexOf("The home stage: the empty search home"),
     appSrc.indexOf("<div style={{ ...S.workspace,")
   );
-  const deckUse = stage.slice(stage.indexOf("<HomeDeck"));
-  assert.ok(deckUse.startsWith("<HomeDeck\n                      suppressContinue"), "the stage does not pass suppressContinue to the deck");
+  /* Pin updated 2026-10-29 (Home B): the deck is not mounted
+     on the stage at all now, so there is no deck use to pass
+     suppressContinue through; the component and its prop
+     contract stand for its other life, and the stage renders
+     no Continue affordance of any kind. */
+  assert.ok(!stage.includes("<HomeDeck"), "the deck is mounted on the Home B stage again");
+  assert.ok(!stage.includes(">Continue<"), "a Continue affordance is back on the stage");
   assert.ok(appSrc.includes('label="Where you left off"'), "the deck card itself was removed instead of gated");
 });
 

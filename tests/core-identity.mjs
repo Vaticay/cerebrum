@@ -354,13 +354,17 @@ group("Home stage: sidebar restored, one column, one navigation");
        three properties without requiring them to be adjacent. */
     assert.ok(stage.includes('width: "100%"') && stage.includes("minWidth: 0") && stage.includes("maxWidth: LAYOUT.answer"), "stage column is not the single wide column");
     assert.ok(!stage.includes("paddingLeft"), "a second left padding crept into the stage column");
-    assert.ok(stage.includes("<HomeDeck"), "deck missing from the stage column");
-    /* Pin updated 2026-10-29 (the owner's pick, Nova runs the
-       home): the Continue row this line held is retired from
-       the stage; her shelf of past questions stands in the
-       column in its place. The width and left edge contract
-       above is unchanged. */
-    assert.ok(stage.includes("cb-stage-shelf"), "her shelf missing from the column");
+    /* Pin updated 2026-10-29 (Home B, The Quiet Column, the
+       owner's pick superseding Nova's room the same day): the
+       deck and the shelf both leave the stage column; the
+       column is the quiet column, carrying the top line, the
+       greeting unit, the Last time line, and the docked
+       composer. The width and left edge contract above is
+       unchanged. */
+    assert.ok(stage.includes("cb-homeb-column"), "the Home B column is missing from the stage");
+    assert.ok(!stage.includes("<HomeDeck"), "deck mounted in the stage column again");
+    assert.ok(!stage.includes("cb-stage-shelf"), "her shelf section is back in the column");
+    assert.ok(stage.includes(">Last time<"), "the Last time line is missing from the column");
     assert.ok(!stage.includes(">Continue<"), "the retired Continue row is back in the column");
   });
   await test("navigation exists exactly once: no stage top bar", () => {
@@ -380,15 +384,13 @@ group("Home stage: sidebar restored, one column, one navigation");
     assert.ok(searchItem === -1, "the duplicate standalone Search row came back");
     assert.ok(appSrc.includes('case "new": newSession();'), "the new case is not wired to the session reset");
   });
-  await test("the stage still renders exactly one Continue row", () => {
-    /* Pin noted 2026-10-29 (Nova runs the home): the one row
-       this test counts is the deck's gated card contract. The
-       stage's own Continue row retired the same day and her
-       shelf replaced it; the deck still renders its card only
-       when the stage does not suppress it, and the stage still
-       suppresses it. */
-    const deckUse = stage.slice(stage.indexOf("<HomeDeck"));
-    assert.ok(deckUse.startsWith("<HomeDeck\n                      suppressContinue"), "the stage deck lost suppressContinue");
+  await test("the stage renders no Continue row and mounts no deck", () => {
+    /* Pin updated 2026-10-29 (Home B): the stage's Continue
+       row and the deck both leave the home surface. The deck
+       component keeps its gated card contract for its other
+       life; on this surface there is simply no deck to gate. */
+    assert.ok(!stage.includes("<HomeDeck"), "the deck is mounted on the Home B stage again");
+    assert.ok(!stage.includes(">Continue<"), "a Continue row is back on the stage");
     assert.ok(appSrc.includes("lastQ && !suppressContinue"), "the deck card is no longer gated on the prop");
   });
 }

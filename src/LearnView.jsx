@@ -3036,11 +3036,15 @@ function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStrea
   }, [inSheet, cardKey]);
   /* Quiz state transitions offer their category to the
      controller, the offer the retired quip engine used to make
-     from inside NovaRive: thinking as the sheet opens its
-     verdict beat, correct, wrong, or streak as the verdict
-     lands. The controller's cooldowns and chance rolls decide
-     whether she actually speaks. While the Player hands in a
-     teach line, though, these canned offers stand down: her
+     from inside NovaRive: correct, wrong, or streak as the
+     verdict lands, each carrying its cause record (the lesson
+     verdict trigger, this card as the subject). The thinking
+     category is no longer offered: narrating that she is
+     thinking is noise about nothing, and the closed trigger
+     list has no entry for it (2026-10-29, dialog spec Lane 1).
+     The controller's cooldowns decide whether she actually
+     speaks; chance decides nothing. While the Player hands in
+     a teach line, though, these canned offers stand down: her
      teaching (the effect below) is the sheet's reaction now,
      and it lands on every answer instead of on a roll. */
   useEffect(() => {
@@ -3050,8 +3054,10 @@ function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStrea
     if (prev === quizState) return;
     if (teachRef.current) return;
     const cat = quizCategoryForState(quizState);
-    if (cat) speechRef.current.offerCategory(cat);
-  }, [quizState, inSheet]);
+    if (cat && cat !== "quizThinking") {
+      speechRef.current.offerCategory(cat, { trigger: "lesson-verdict", surface: "lesson", subject: cardKey || "lesson-card" });
+    }
+  }, [quizState, inSheet, cardKey]);
   /* The opinion line, when the Player's quirks engine produced
      one for this answer, is said as a lesson line: caused, so
      it outranks ambient speech and is never cut off by typing.
@@ -3061,7 +3067,7 @@ function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStrea
     if (!inSheet) return;
     if (opinionLine && opinionSaidRef.current !== opinionLine) {
       opinionSaidRef.current = opinionLine;
-      speechRef.current.say({ source: "lesson", text: opinionLine, contextKey: cardKey });
+      speechRef.current.say({ source: "lesson", text: opinionLine, contextKey: cardKey, cause: { trigger: "lesson-verdict", surface: "lesson", subject: cardKey || "lesson-card" } });
     }
   }, [opinionLine, inSheet, cardKey]);
   /* The teaching itself (2026-10-15, the owner: Nova is the
@@ -3086,9 +3092,9 @@ function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStrea
     teachFiredRef.current = t.line;
     if (!opinionRef.current) {
       const opener = pickNovaLine(t.good ? NOVA_FEEDBACK_RIGHT_LINES : NOVA_FEEDBACK_WRONG_LINES, t.seed || 0);
-      if (opener) speechRef.current.say({ source: "lesson", text: opener, contextKey: cardKey });
+      if (opener) speechRef.current.say({ source: "lesson", text: opener, contextKey: cardKey, cause: { trigger: "lesson-verdict", surface: "lesson", subject: cardKey || "lesson-card" } });
     }
-    speechRef.current.say({ source: "lesson", text: t.line, contextKey: cardKey });
+    speechRef.current.say({ source: "lesson", text: t.line, contextKey: cardKey, cause: { trigger: "lesson-verdict", surface: "lesson", subject: cardKey || "lesson-card" } });
   }, [phase, inSheet, cardKey]);
   const figure = (
     <NovaRive state={inSheet ? shown : "thinking"} size={inSheet ? 48 : 40} scanning={inSheet ? phase === 0 : true}
@@ -3129,7 +3135,7 @@ function LessonDoneNova({ line }) {
   useEffect(() => {
     if (line && saidRef.current !== line) {
       saidRef.current = line;
-      speechRef.current.say({ source: "lesson", text: line });
+      speechRef.current.say({ source: "lesson", text: line, cause: { trigger: "lesson-complete", surface: "lesson", subject: "lesson-completion" } });
     }
   }, [line]);
   return <NovaRive state="pleased" size={104} framing="panel" celebrateN={celebrateN} quips={false} speech={speech} />;
@@ -3182,7 +3188,14 @@ function NovaCelebrateFigure({ size = 128 }) {
    think, land pleased, or go deadpan. All of it is listeners
    and timers that clean up on unmount, and none of it blocks
    a click. */
-function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
+/* The reviews arrival line's once per visit guard lives at
+   module scope (2026-10-29): the Nova page mounts a fresh
+   NovaLive on every section switch, and a per instance guard
+   would let the count line fire again on each switch. The
+   visit id comes from the host, so the guard compares
+   visits, not mounts. */
+const novaArrivalMemory = { reviewsVisit: null };
+function NovaLive({ state = "greeting", size = 48, framing = "bust", surface = null, screenTopics = null, reviewDue = 0, onStartReview = null, visitId = null, bubbleVariant = undefined }) {
   const [gaze, setGaze] = useState(null);
   const [lift, setLift] = useState(false);
   const [lean, setLean] = useState({ x: 0, y: 0, r: 0 });
@@ -3194,6 +3207,14 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
      canvas reads as centered. */
   const [pointer, setPointer] = useState(null);
   const [beat, setBeat] = useState(null);
+  /* The poke recoil (2026-10-29, motion spec Part 1 and the
+     owner's ruling): phase 0 at rest, 1 recoiled, 2 on the
+     way back. The recoil is 1.5 degrees of rotation plus a
+     2px lateral shift, 90ms out and 380ms back, with no
+     scale at all; the whole figure scale to 1.07 a tap used
+     to add here is deleted. */
+  const [recoil, setRecoil] = useState(0);
+  const recoilTimers = useRef([]);
   const [activityState, setActivityState] = useState(null);
   const [sleepStage, setSleepStage] = useState(() => (state === "asleep" ? 2 : state === "fading" ? 1 : 0));
   const [pokeCount, setPokeCount] = useState(0);
@@ -3235,6 +3256,21 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const speech = useNovaSpeech();
   const speechRef = useRef(speech);
   speechRef.current = speech;
+  /* The dialog facts the host hands in (2026-10-29, dialog
+     spec Lane 1), read through a ref so timers see the latest
+     values: which surface this resident figure stands on
+     ("nova-home" only from the learning home; the shell's
+     header figures pass nothing), the topic keys of what is
+     on the screen now (the screen fact test for memory
+     lines), the reviews due count and its start action (the
+     arrival line), and the host's visit id (arrival lines
+     fire once per visit, not once per remount). One Nova
+     across surfaces: these props name facts, never a
+     different character. */
+  const dialogRef = useRef({ surface, screenTopics, reviewDue, onStartReview, visitId });
+  dialogRef.current = { surface, screenTopics, reviewDue, onStartReview, visitId };
+  const arrivalRef = useRef({ reviewsVisit: null, hourDay: null });
+  const searchEventRef = useRef(null);
 
   const persistBrain = () => {
     if (!brainRef.current) return;
@@ -3244,13 +3280,28 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
       saveNovaQuirks(q);
     } catch { /* Her brain is decoration; storage must never break the page. */ }
   };
+  /* The brain's line, under the screen fact test (2026-10-29,
+     dialog spec Lane 1): a memory line is spoken only when
+     the fact it is built from is about what is on the screen
+     now, named by the host's topic keys. Readiness used to be
+     the test (a stored fact exists, therefore she may speak);
+     that inverted cause and wording, so the line fired for no
+     reason the learner could see. The hour sets no longer
+     live here at all: they survive only as arrival lines on
+     the Nova page, offered by the arrival effect below. What
+     this returns is a briefing grounded in the learner's
+     actual work on screen, or nothing. */
   const brainLineText = () => {
     try {
-      const mem = memoryLineFor(loadNovaMemoryFacts());
-      if (mem) return mem;
-      const set = hourLineSet(new Date().getHours());
-      if (set === "late") return pickNovaLine(NOVA_LATE_LINES, Date.now());
-      if (set === "morning") return pickNovaLine(NOVA_MORNING_LINES, Date.now());
+      const topics = dialogRef.current.screenTopics;
+      if (!Array.isArray(topics) || !topics.length) return null;
+      const fact = memoryLineFactFor(loadNovaMemoryFacts());
+      if (fact && topics.indexOf(fact.key) !== -1) {
+        return {
+          text: fact.text,
+          cause: { trigger: "memory-screen-fact", surface: dialogRef.current.surface || "nova-home", subject: fact.key },
+        };
+      }
     } catch { /* A line she cannot ground is a line she does not say. */ }
     return null;
   };
@@ -3278,6 +3329,12 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   };
   const showActivity = (detail) => {
     if (!detail || typeof detail !== "object") return;
+    /* The search's identity, kept for the speech offer below:
+       a landed line's cause names the search it answers, by
+       the stamp the activity event itself carries. */
+    if (detail.kind === "search") {
+      searchEventRef.current = { outcome: detail.outcome, at: typeof detail.at === "number" ? detail.at : Date.now() };
+    }
     noteActivity();
     if (activityTimer.current) clearTimeout(activityTimer.current);
     if (detail.kind === "search" && detail.outcome === "start") {
@@ -3364,6 +3421,73 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     try { reducedRef.current = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch { reducedRef.current = false; }
   }, []);
 
+  /* Arrival lines (2026-10-29, dialog spec Lane 1): the only
+     lines she offers on arrival, and only on the Nova page,
+     where an arrival greeting in words is that surface's own
+     convention. Two kinds, each with its cause. The reviews
+     due line states the count and nothing more, once per
+     visit, and carries the review itself as its action: the
+     line briefs, the button moves. The hour lines (late,
+     morning) fire once per day each, their day recorded in
+     the quirks store. On every other surface she arrives
+     silent: the shell's header figures pass no surface, so
+     nothing here runs for them. A denied attempt (the stage
+     busy, the ambient gap) retries once, a few seconds on;
+     a second denial is the answer. */
+  useEffect(() => {
+    const d = dialogRef.current;
+    if (d.surface !== "nova-home") return undefined;
+    const timers = [];
+    const attempt = (kind, tries) => {
+      const dd = dialogRef.current;
+      if (kind === "reviews") {
+        const count = typeof dd.reviewDue === "number" ? dd.reviewDue : 0;
+        if (!count || novaArrivalMemory.reviewsVisit === dd.visitId) return;
+        const res = speechRef.current.say({
+          source: "brain",
+          text: count + (count === 1 ? " review" : " reviews") + " due.",
+          cause: { trigger: "reviews-due", surface: "nova-home", subject: "review-bench" },
+          action: dd.onStartReview ? { label: "Start the review", onAction: dd.onStartReview } : null,
+        });
+        if (res !== "denied") { novaArrivalMemory.reviewsVisit = dd.visitId; return; }
+      } else {
+        const set = hourLineSet(new Date().getHours());
+        if (!set) return;
+        const day = todayKey();
+        if (arrivalRef.current.hourDay === set + ":" + day) return;
+        let usedDay = null;
+        try {
+          const q = loadNovaQuirks();
+          usedDay = q.hourLineDays && typeof q.hourLineDays === "object" ? q.hourLineDays[set] : null;
+        } catch { usedDay = null; }
+        if (usedDay === day) { arrivalRef.current.hourDay = set + ":" + day; return; }
+        const text = pickNovaLine(set === "late" ? NOVA_LATE_LINES : NOVA_MORNING_LINES, Date.now());
+        if (!text) return;
+        const res = speechRef.current.say({
+          source: "brain",
+          text,
+          cause: { trigger: "hour-arrival", surface: "nova-home", subject: set + ":" + day },
+        });
+        if (res !== "denied") {
+          arrivalRef.current.hourDay = set + ":" + day;
+          try {
+            const q2 = loadNovaQuirks();
+            const days = q2.hourLineDays && typeof q2.hourLineDays === "object" ? { ...q2.hourLineDays } : {};
+            days[set] = day;
+            q2.hourLineDays = days;
+            saveNovaQuirks(q2);
+          } catch { /* the in memory guard above still holds this visit */ }
+          return;
+        }
+      }
+      if (tries < 1) timers.push(setTimeout(() => attempt(kind, tries + 1), 6000));
+    };
+    timers.push(setTimeout(() => attempt("reviews", 0), 900));
+    timers.push(setTimeout(() => attempt("hour", 0), 1600));
+    return () => { for (const t of timers) clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [surface, visitId, reviewDue]);
+
   /* Beat and thinking mirrors for the brain tick. */
   useEffect(() => { beatRef.current = beat; }, [beat]);
   useEffect(() => {
@@ -3373,10 +3497,12 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   /* Activity transitions offer their search category to the
      controller (2026-10-15): the offer the retired quip engine
      used to make from inside NovaRive when its appState input
-     changed. Thinking offers searching, a pleased landing
-     offers high confidence, a deadpan landing offers the
-     preprint warning; the controller's gates decide whether
-     she speaks. */
+     changed. A pleased landing offers high confidence, a
+     deadpan landing offers the preprint warning, each with
+     its cause record naming the search it answers. The
+     thinking transition offers nothing (2026-10-29, dialog
+     spec Lane 1): she does not narrate a search starting. The
+     controller's gates decide whether she speaks. */
   const appStateNow = appStateForActivity(activityState);
   const prevAppStateRef = useRef(appStateNow);
   useEffect(() => {
@@ -3384,7 +3510,13 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     prevAppStateRef.current = appStateNow;
     if (prev === appStateNow) return;
     const cat = searchCategoryForState(appStateNow);
-    if (cat) speechRef.current.offerCategory(cat);
+    if (!cat || cat === "searching") return;
+    const ev = searchEventRef.current;
+    speechRef.current.offerCategory(cat, {
+      trigger: ev && ev.outcome === "failed" ? "search-failed" : "search-landed",
+      surface: dialogRef.current.surface || "search",
+      subject: "search@" + (ev ? ev.at : 0),
+    });
   }, [appStateNow]);
 
   /* The brain tick: every few seconds she decides what to do
@@ -3409,8 +3541,8 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
           glanceTimer.current = setTimeout(() => setGlanceHold(null), 1200);
         }
       } else if (name === "line") {
-        const text = brainLineText();
-        if (text) speechRef.current.say({ source: "brain", text });
+        const line = brainLineText();
+        if (line) speechRef.current.say({ source: "brain", text: line.text, cause: line.cause });
       }
     };
     const tickBrain = () => {
@@ -3425,7 +3557,16 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
       const nowB = Date.now();
       if (nowB - lineFactsAt.current > 30000) {
         lineFactsAt.current = nowB;
-        try { lineReadyRef.current = memoryLineFor(loadNovaMemoryFacts()) != null || hourLineSet(new Date().getHours()) != null; }
+        /* Readiness is the screen fact test now (2026-10-29):
+           a line is ready only when a memory fact exists AND
+           that fact is about what is on the screen now. The
+           brain's scoring is untouched; only what its line
+           may be about changed. */
+        try {
+          const topics = dialogRef.current.screenTopics;
+          const fact = memoryLineFactFor(loadNovaMemoryFacts());
+          lineReadyRef.current = !!(fact && Array.isArray(topics) && topics.indexOf(fact.key) !== -1);
+        }
         catch { lineReadyRef.current = false; }
       }
       const busy = !!(beatRef.current || activityRef.current) || wakeTimers.current.length > 0;
@@ -3555,6 +3696,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
 
   useEffect(() => () => {
     if (beatTimer.current) clearTimeout(beatTimer.current);
+    recoilTimers.current.forEach((t) => clearTimeout(t));
     if (activityTimer.current) clearTimeout(activityTimer.current);
     if (glanceTimer.current) clearTimeout(glanceTimer.current);
     clearWakeTimers();
@@ -3583,10 +3725,21 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
     setPokeCount((n) => n + 1);
     /* The beat holds about a second and a quarter (2026-10-14:
        the owner's browser check clicked the header Nova and saw
-       nothing; between the beat's squash and the wrapper
-       pop below, a tap now lands as a beat you cannot miss). */
+       nothing, so a tap has to land as a beat you cannot miss).
+       The visible beat is the recoil below now: out in 90ms,
+       back over 380ms, rotation and shift only, never a scale.
+       Under reduced motion the face swap still lands and the
+       recoil does not run. */
+    if (!reducedRef.current) {
+      recoilTimers.current.forEach((t) => clearTimeout(t));
+      setRecoil(1);
+      recoilTimers.current = [
+        setTimeout(() => setRecoil(2), 90),
+        setTimeout(() => setRecoil(0), 90 + 380),
+      ];
+    }
     beatTimer.current = setTimeout(() => setBeat(null), 1300);
-    if (step.line) speechRef.current.say({ source: "poke", text: step.line });
+    if (step.line) speechRef.current.say({ source: "poke", text: step.line, cause: { trigger: "poke", surface: dialogRef.current.surface || "shell", subject: "poke-ladder" } });
   };
   const gazeShown = glanceHold || gaze;
   const vars = {
@@ -3604,13 +3757,23 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
   const shownState = beat || activityState || adaptiveState;
   const doingNow = beat ? "poke-beat" : activityState ? "activity-beat" : brainUi.doing;
   return (
-    <span ref={wrapRef} data-nova-mood={brainUi.mood} data-nova-stage={sleepStage} data-nova-doing={doingNow} style={{
-      display: "inline-flex", position: "relative", ...vars, cursor: "pointer",
-      transform: (lift ? "translateY(-2px)" : "translateY(0px)") + (beat ? " scale(1.07)" : "") + " translate(" + lean.x + "px, " + lean.y + "px) rotate(" + lean.r + "deg)",
+    <span ref={wrapRef} data-nova-mood={brainUi.mood} data-nova-stage={sleepStage} data-nova-doing={doingNow} data-nova-recoil={recoil ? "true" : "false"} style={{
+      /* The flow mount (2026-10-29, Home B): on the search home
+         this wrapper renders as contents so the figure and its
+         dialog box become items of the greeting unit's grid
+         (see NovaCanvas in NovaRive.jsx). The data attributes,
+         the poke handler, and the gaze vars stay on the wrapper
+         and keep working through it; the lift, lean, and recoil
+         transforms have no box to land on in this mount and
+         stand down there alone. Every other mount is unchanged. */
+      ...(bubbleVariant === "flow" ? { display: "contents" } : { display: "inline-flex", position: "relative" }), ...vars, cursor: "pointer",
+      transform: (lift ? "translateY(-2px)" : "translateY(0px)") + " translate(" + lean.x + "px, " + lean.y + "px) rotate(" + lean.r + "deg)" + (recoil ? " translateX(2px) rotate(1.5deg)" : ""),
       /* The site curve (phase 2 fitted polish, 2026-10-28): her
-         lift, lean, and poke beat settle on var(--cb-ease) like
-         everything else, transform only, 300ms as before. */
-      transition: "transform 300ms var(--cb-ease)",
+         lift and lean settle on var(--cb-ease) like everything
+         else, transform only, 300ms as before. The poke recoil
+         carries its own timings on the same curve: 90ms out,
+         380ms back (motion spec Part 1). */
+      transition: "transform " + (recoil === 1 ? "90ms" : recoil === 2 ? "380ms" : "300ms") + " var(--cb-ease)",
     }}
       onClick={onTap}>
       {/* NovaRive renders her now (2026-10-15): the brain above
@@ -3625,7 +3788,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust" }) {
           pulses her mouth from its talking flag. */}
       <NovaRive state={shownState} size={size} framing={framing} scanning={activityState === "thinking"}
         appState={appStateForActivity(activityState)} sleepStage={sleepStage} pokeN={pokeCount} pointer={pointer}
-        idleMs={Date.now() - lastActivity.current} speech={speech} reducedMotion={reducedRef.current} />
+        idleMs={Date.now() - lastActivity.current} speech={speech} reducedMotion={reducedRef.current} bubbleVariant={bubbleVariant} />
     </span>
   );
 }
@@ -3676,14 +3839,19 @@ function recordTipSeen(id) {
   saveJSON(SEEN_TIPS_KEY, seen);
 }
 
-export function useNovaTip(id, { armed = true, repeatAfterMs = 0, text = null } = {}) {
+export function useNovaTip(id, { armed = true, repeatAfterMs = 0, text = null, causeTrigger = "tip-first-appearance", causeSubject = null } = {}) {
   const speech = useNovaSpeech();
   const speechRef = useRef(speech);
   speechRef.current = speech;
   const claimedRef = useRef(false);
   /* The claim: when the tip arms, check its own eligibility
      (seen before, and its repeat window), then offer its text
-     to the controller as a tip line. The controller arbitrates
+     to the controller as a tip line, with its cause record
+     (2026-10-29, dialog spec Lane 1): the first appearance
+     trigger by default, the tip id as the subject, or the
+     caller's own trigger and subject where the tip is really
+     another trigger's line (the shelf comment is the shelf
+     object's, not a tip's). The controller arbitrates
      the stage page wide: busy, typing, or inside the ambient
      gap, the offer is denied and the tip sits this mount out,
      exactly as the old gate's losers did. Only a shown line
@@ -3694,8 +3862,8 @@ export function useNovaTip(id, { armed = true, repeatAfterMs = 0, text = null } 
     if (typeof text !== "string" || !text) return;
     const seen = loadSeenTips();
     if (!tipEligible(seen, id, Date.now(), 0, repeatAfterMs)) return;
-    if (speechRef.current.say({ source: "tip", text }) === "shown") claimedRef.current = true;
-  }, [id, armed, repeatAfterMs, text]);
+    if (speechRef.current.say({ source: "tip", text, cause: { trigger: causeTrigger, surface: "learn", subject: causeSubject || id } }) === "shown") claimedRef.current = true;
+  }, [id, armed, repeatAfterMs, text, causeTrigger, causeSubject]);
   useEffect(() => () => {
     if (claimedRef.current) { recordTipSeen(id); claimedRef.current = false; }
   }, [id]);
@@ -3720,12 +3888,21 @@ export function useNovaTip(id, { armed = true, repeatAfterMs = 0, text = null } 
    remain accepted for the call sites that pass them; they
    named the companion figure the one Nova per screen ruling
    already retired, and the bubble is text only now. */
-function NovaTip({ id, state = "greeting", size = 44, bare = false, tail = "left", armed = true, repeatAfterMs = 0, style, children }) {
-  const { show, dismiss } = useNovaTip(id, { armed, repeatAfterMs, text: typeof children === "string" ? children : null });
+function NovaTip({ id, state = "greeting", size = 44, bare = false, tail = "left", armed = true, repeatAfterMs = 0, style, causeTrigger, causeSubject, actionLabel, onAction, children }) {
+  const { show, dismiss } = useNovaTip(id, { armed, repeatAfterMs, text: typeof children === "string" ? children : null, causeTrigger, causeSubject });
   if (!show) return null;
+  /* Answering her (2026-10-29): a tip that names a control
+     carries that control as its one action button. Pressing
+     it goes to or arms the control and ends the line: the
+     line briefs, the button moves. A tip naming no action
+     carries no button. */
+  const action = actionLabel ? {
+    label: actionLabel,
+    onAction: () => { if (onAction) onAction(); dismiss(); },
+  } : null;
   return (
     <div style={style}>
-      <NovaBubble variant="sheet" tail={tail} onDismiss={dismiss}>{children}</NovaBubble>
+      <NovaBubble variant="sheet" tail={tail} onDismiss={dismiss} action={action}>{children}</NovaBubble>
     </div>
   );
 }
@@ -4123,21 +4300,36 @@ export function computeNovaMemory(profile, progress, now = Date.now()) {
 /* The memory line itself, strongest fact first. Thin data earns
    a shorter line or none at all; she never guesses. */
 export function memoryLineFor(facts) {
+  const f = memoryLineFactFor(facts);
+  return f ? f.text : null;
+}
+
+/* The memory fact behind the line, keyed by what the fact is
+   about (2026-10-29, dialog spec Lane 1): the screen fact test
+   in NovaLive speaks a memory line only when its fact is about
+   what is on the screen now, and the key is how the caller
+   names that thing (a path title for the furthest path, the
+   streak, the subject reading). Existence of a stored fact is
+   no longer enough on its own. The wording is memoryLineFor's,
+   unchanged, and she still never invents a fact she does not
+   have: every text here is built from the computed facts and
+   nothing else. */
+export function memoryLineFactFor(facts) {
   if (!facts) return null;
   if (facts.subjects) {
     /* Reworded 2026-10-28 (Nova content rethink): "scores leak"
        was machine assembled phrasing no person would say, and it
        sat one slot away from her own line about not allowing
        leaks, which made the collision louder. */
-    return "Your " + facts.subjects.strong + " is solid. Your " + facts.subjects.weak + " is lagging.";
+    return { key: "subjects", text: "Your " + facts.subjects.strong + " is solid. Your " + facts.subjects.weak + " is lagging." };
   }
   if (facts.furthest && facts.furthest.pct >= 25) {
-    return facts.furthest.pct + " percent into " + facts.furthest.title + ". Nothing else is close.";
+    return { key: "path:" + facts.furthest.title, text: facts.furthest.pct + " percent into " + facts.furthest.title + ". Nothing else is close." };
   }
   if (facts.daysKnown >= 7 && facts.streak >= 2) {
-    return "Day " + (facts.daysKnown + 1) + " of this. Streak " + facts.streak + ". I keep the tally.";
+    return { key: "streak", text: "Day " + (facts.daysKnown + 1) + " of this. Streak " + facts.streak + ". I keep the tally." };
   }
-  if (facts.streak >= 5) return facts.streak + " days in a row. Someone has to count. It is me.";
+  if (facts.streak >= 5) return { key: "streak", text: facts.streak + " days in a row. Someone has to count. It is me." };
   return null;
 }
 
@@ -15093,6 +15285,11 @@ export default function LearnView({ P, accent, at, onNavigate }) {
      cooldown. The seen mark lands whether or not the gate has
      room to show the comment. */
   const [shelfLine, setShelfLine] = useState(null);
+  /* The object the shelf comment is about (2026-10-29): the
+     comment's cause names it, and its action button names it
+     too, so the learner can be taken to the shelf it landed
+     on. */
+  const [shelfObj, setShelfObj] = useState(null);
   useEffect(() => {
     const q0 = loadNovaQuirks();
     const seenIds = Array.isArray(q0.shelfSeen) ? q0.shelfSeen : [];
@@ -15102,10 +15299,18 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     const res = shelfCommentFor({ ...unseen, category: path ? path.category : "" }, q0, Date.now());
     if (res) {
       saveNovaQuirks(res.quirks);
-      if (res.line) setShelfLine(res.line);
+      if (res.line) { setShelfLine(res.line); setShelfObj(unseen); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shelf]);
+
+  /* This visit to the Nova page, stamped once when the home
+     mounts (2026-10-29): her arrival lines (the reviews due
+     count) fire once per visit, and the stamp is how the
+     resident figures tell a remount on a tab switch from a
+     new visit. */
+  const visitIdRef = useRef(null);
+  if (visitIdRef.current === null) visitIdRef.current = "visit-" + Date.now();
 
   /* The Library rotation carries her running gag (quirks wave):
      when the gag's long cooldown is up, the library tip tells it
@@ -15238,6 +15443,14 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     : bandCourse
       ? () => setScreen({ name: "path", courseId: bandCourse.id })
       : () => setScreen({ name: "bpath", pathId: LEARNING_PATHS[0].id });
+  /* The memory tip's screen fact test (2026-10-29, dialog spec
+     Lane 1): the memory line under the stage is armed only
+     when the fact behind it is about what this screen shows,
+     the band's path or the streak the stage copy states. A
+     fact about anything else (the subject reading) waits for
+     a screen that shows it. */
+  const novaMemoryFact = memoryLineFactFor(novaFacts);
+  const novaMemoryOnScreen = !!(novaMemoryFact && (novaMemoryFact.key === "path:" + bandTitle || novaMemoryFact.key === "streak"));
   /* Where the learner stands on the band's subject, in plain
      words (2026-10-24, plain words wave): how many of its
      lessons are finished, out of how many, on this path or
@@ -15511,7 +15724,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
               {/* No circle behind her (2026-10-14, the owner's
                   ruling): the bust stands on the page itself. */}
               <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <NovaLive state={novaMood} size={66} />
+                <NovaLive state={novaMood} size={66} surface="nova-home" visitId={visitIdRef.current} reviewDue={reviewDueCount} onStartReview={startReview} />
               </span>
               <div style={{ minWidth: 0 }}>
                 <h1 className="lv-wordmark" style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.display, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
@@ -15580,7 +15793,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
       <div data-tour-anchor="stage" className="lv-fade" style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 24, margin: "20px 0 20px" }}>
         <div style={{ display: "flex", gap: 28, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", maxWidth: "100%" }}>
-            {!tourOpen && <NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" />}
+            {!tourOpen && <NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" surface="nova-home" visitId={visitIdRef.current} reviewDue={reviewDueCount} onStartReview={startReview}
+              screenTopics={["path:" + bandTitle, "streak"]} />}
           </span>
           <div style={{ flex: "1 1 260px", minWidth: 0 }}>
             <h1 className="lv-stage-word" style={{ fontFamily: WORDMARK, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h1>
@@ -15693,7 +15907,15 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             </>
           )}
           {shelfLine && (
-            <NovaTip id="shelf" bare state="pleased" armed={!!shelfLine} repeatAfterMs={14 * 24 * 3600 * 1000} style={{ marginTop: 14 }}>
+            <NovaTip id="shelf" bare state="pleased" armed={!!shelfLine} repeatAfterMs={14 * 24 * 3600 * 1000} style={{ marginTop: 14 }}
+              causeTrigger="shelf-object" causeSubject={shelfObj ? shelfObj.pathId : "shelf"}
+              actionLabel={shelfObj ? "See " + shelfObj.title + " on the shelf" : "Open the shelf"}
+              onAction={() => {
+                try {
+                  const el = document.querySelector('[data-tour-anchor="shelf"]');
+                  if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                } catch { /* the shelf is on this screen; the scroll is a courtesy */ }
+              }}>
               {shelfLine}
             </NovaTip>
           )}
@@ -15703,7 +15925,8 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         Each lesson teaches one part of a subject, then quizzes you on it. Paths, the catalog, and a question of your own all start from the tabs above. Finished lessons come back for review later, before they fade.
       </p>
       {novaMemoryLine && (
-        <NovaTip id="memory" bare state="explaining" armed={!!novaMemoryLine} repeatAfterMs={3 * 24 * 3600 * 1000} style={{ marginTop: 18 }}>
+        <NovaTip id="memory" bare state="explaining" armed={!!novaMemoryLine && novaMemoryOnScreen} repeatAfterMs={3 * 24 * 3600 * 1000} style={{ marginTop: 18 }}
+          causeTrigger="memory-screen-fact" causeSubject={novaMemoryFact ? novaMemoryFact.key : "memory"}>
           {novaMemoryLine}
         </NovaTip>
       )}
@@ -15952,7 +16175,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             Build one on the Create screen, or open an answer in Search and choose Turn into course. The answer becomes lessons with quizzes.
           </p>
           <div style={{ display: "flex", justifyContent: "center", margin: "0 auto 18px" }}>
-            <NovaTip id="library-empty" state="asleep" bare tail="up">
+            <NovaTip id="library-empty" state="asleep" bare tail="up"
+              actionLabel="Open Create"
+              onAction={() => setHomeTab("create")}>
               Empty. Make one on Create, or turn a search answer into a course. I will keep it here.
             </NovaTip>
           </div>
@@ -16014,7 +16239,14 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.55, margin: "0 0 14px" }}>
           Name a topic. Cerebrum looks it up and builds lessons and quizzes from what it finds.
         </p>
-        <NovaTip id="create" bare state="thinking" style={{ margin: "0 0 14px" }}>
+        <NovaTip id="create" bare state="thinking" style={{ margin: "0 0 14px" }}
+          actionLabel="Go to the topic box"
+          onAction={() => {
+            try {
+              const el = document.querySelector('input[aria-label="Course topic"]');
+              if (el) { if (el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" }); el.focus(); }
+            } catch { /* the box is directly below the tip; focusing is a courtesy */ }
+          }}>
           Name a subject in plain words and I will look it up and build the lessons. Specific beats vague.
         </NovaTip>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>

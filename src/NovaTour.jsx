@@ -224,7 +224,7 @@ export function NovaTour({ P, accent, at, onClose, onSpotlight }) {
   useEffect(() => {
     setTypedMs(reduced ? plan.speechEndMs : 0);
     speechRef.current.dismiss();
-    speechRef.current.say({ text: stop.body, source: "lesson" });
+    speechRef.current.say({ text: stop.body, source: "lesson", cause: { trigger: "lesson-verdict", surface: "tour", subject: "tour-step-" + step } });
     /* The celebrate rise is delayed a beat after the stop
        opens, the same shape NovaCelebrateFigure uses on the
        completion screens. The rise used to land synchronously

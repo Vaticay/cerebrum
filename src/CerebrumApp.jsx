@@ -1955,13 +1955,25 @@ const NOVA_HOME_GREETINGS = [
   "Tell me what you need to know. I will check it twice.",
 ];
 
-function EvidenceFilter({ value, onChange, P, accent, isMobile, hideBlurb = false }) {
-  const [open, setOpen] = useState(false);
+function EvidenceFilter({ value, onChange, P, accent, isMobile, hideBlurb = false, open: openProp = undefined, onOpenChange = null, hideToggle = false }) {
+  /* The open state is controllable (2026-10-29, Home B): on the
+     search home the toggle word lives inside the composer field
+     (SignalComposer owns it there and passes the state in),
+     while this component keeps owning the panel. Standalone
+     callers pass neither prop and get the shipped behaviour. */
+  const [openState, setOpenState] = useState(false);
+  const open = openProp !== undefined ? openProp : openState;
+  const setOpen = (next) => {
+    const v = typeof next === "function" ? next(open) : next;
+    if (onOpenChange) onOpenChange(v);
+    else setOpenState(v);
+  };
   const active = EVIDENCE_TIERS.find((t) => t[0] === value) || EVIDENCE_TIERS[0];
   const isDefault = value === "all";
   const [scrollRef, maskStyle] = useEdgeMask();
   return (
-    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: isMobile ? "stretch" : "center", gap: 10 }}>
+    <div style={{ marginTop: hideToggle ? 0 : 10, display: "flex", flexDirection: "column", alignItems: isMobile ? "stretch" : "center", gap: 10 }}>
+      {!hideToggle && (
       <UIButton P={P} variant="ghost"
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -1986,6 +1998,7 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile, hideBlurb = fals
           <Icon name="chevronDown" size={12} />
         </span>
       </UIButton>
+      )}
       <div style={{
         display: "grid",
         gridTemplateRows: open ? "1fr" : "0fr",
@@ -2230,9 +2243,20 @@ function SignalComposer({
     const t = setInterval(() => setPhIdx((i) => (i + 1) % list.length), 6000);
     return () => clearInterval(t);
   }, [stageQsKey, reduced, focused, inputEmpty]);
-  const placeholder = stageQs && askMode === "explain"
+  /* Home B (2026-10-29): on the stage the rotating pool is the
+     placeholder in every mode. The pool the home passes is the
+     Try asking set itself, so the example questions live in
+     the field's placeholder text, one at a time, and are never
+     drawn as a list on the surface. */
+  const placeholder = stageQs
     ? stageQs[phIdx % stageQs.length]
     : (isMobile ? (mode.placeholderShort || mode.placeholder) : mode.placeholder);
+  /* The constraints disclosure (2026-10-29, Home B): the
+     EvidenceFilter toggle is demoted into the field as the
+     single word Constraints, so its open state lives here and
+     the filter below renders its panel only. */
+  const [constraintsOpen, setConstraintsOpen] = useState(false);
+  const constraintsTier = EVIDENCE_TIERS.find((t) => t[0] === evidenceFilter) || EVIDENCE_TIERS[0];
   /* ── Command deck: recent-questions dropdown ──
      Opens when the visitor themselves engages the field (a click or
      tap in, a Tab onto it, ArrowDown inside it) while the input is
@@ -2508,6 +2532,16 @@ function SignalComposer({
           />
         </div>
         <div className="cb-ask-tools">
+          {variant === "stage" && setEvidenceFilter && (
+            <button
+              type="button"
+              onClick={() => { clickSfx(); setConstraintsOpen((o) => !o); }}
+              aria-expanded={constraintsOpen}
+              title={constraintsTier[1]}
+              className="cb-ask-constraints"
+              data-active={evidenceFilter !== "all" ? "true" : undefined}
+            >Constraints</button>
+          )}
           <button
             onClick={() => imageInputRef.current?.click()}
             title="Attach an image" aria-label="Attach an image"
@@ -2594,20 +2628,25 @@ function SignalComposer({
           text via predictAskMode (the shapeshifter). No tabs, no segmented
           control, no numbered modes. The detected mode appears quietly in
           the footer below with a reset option. */}
-      {/* Evidence tier filter — one row, plain words. Pulled up under the
-          mode row so the console reads as one unit, not stacked rows. */}
-      <div style={{ marginTop: 6 }}>
-        {/* This composer is the home stage's alone (see the
-            header note above), and the stage's filter carries
-            no prose paragraph under it (2026-10-29): hideBlurb
-            is passed always here, never in the thread. */}
+      {/* Evidence tier filter (2026-10-29, Home B): the toggle
+          is the word Constraints inside the field above, and
+          what renders here is its panel only, opening under
+          the field with the same tiers and the same filtering
+          behaviour. The standalone Add constraints row that
+          used to sit under the composer is gone from this
+          surface; the thread's own filter keeps its toggle.
+          No prose paragraph under it: hideBlurb stands. */}
+      {variant === "stage" && setEvidenceFilter && (
+      <div style={{ marginTop: constraintsOpen ? 6 : 0 }}>
         <EvidenceFilter
           value={evidenceFilter}
           onChange={(v) => { clickSfx(); setEvidenceFilter(v); }}
           P={P} accent={accent} isMobile={isMobile}
-          hideBlurb
+          hideBlurb hideToggle
+          open={constraintsOpen} onOpenChange={setConstraintsOpen}
         />
       </div>
+      )}
     </div>
   );
 }
@@ -5334,30 +5373,36 @@ function ConsensusMeter({ t, P }) {
    her resting greeting after a few seconds. Decoration only: no panel,
    no interruption, aria hidden. Her speech runs through the one
    controller in NovaSpeech.jsx (2026-10-15): this mount owns an
-   instance, offers the search category whenever her appState face
-   changes (searching as a search starts, high confidence or the
-   preprint warning as it lands), and passes the controller to her
-   NovaRive, so a search reaction is a caused line that can preempt
-   an ambient quip, never a second voice beside it. */
+   instance, offers the landed search categories as her appState
+   face changes (high confidence or the preprint warning as a
+   search lands, with the search's identity as the cause), and
+   passes the controller to her NovaRive, so a search reaction
+   is a caused line that can preempt an ambient quip, never a
+   second voice beside it. She offers nothing as a search
+   starts (2026-10-29): starting is the thinking face's job. */
 const NOVA_SEARCH_FACES = {
   idle: { state: "greeting", appState: 0 },
   thinking: { state: "thinking", appState: 1 },
   pleased: { state: "pleased", appState: 2 },
   deadpan: { state: "deadpan", appState: 3 },
 };
-let novaSearchFace = { face: "idle", at: 0 };
+let novaSearchFace = { face: "idle", at: 0, outcome: null };
 const novaSearchListeners = new Set();
 function currentNovaSearchFace() {
   /* A landed face is only news for a few seconds; a Nova mounting later
      (a restored session, a scrolled back answer) shows her resting
      greeting, not a stale reaction. Thinking never expires on its own:
      it ends when the lifecycle reports an outcome. */
-  if (novaSearchFace.face !== "thinking" && Date.now() - novaSearchFace.at > 5000) return { face: "idle", at: 0 };
+  if (novaSearchFace.face !== "thinking" && Date.now() - novaSearchFace.at > 5000) return { face: "idle", at: 0, outcome: null };
   return novaSearchFace;
 }
 function emitSearchNova(outcome) {
   const face = outcome === "start" ? "thinking" : outcome === "success" ? "pleased" : "deadpan";
-  novaSearchFace = { face, at: Date.now() };
+  /* The outcome rides the store (2026-10-29, dialog spec Lane 1):
+     the speech offer below needs to know whether this landing was
+     a success or a failure, and the store's stamp is the search's
+     identity in the line's cause record. */
+  novaSearchFace = { face, at: Date.now(), outcome };
   try { emitNovaActivity("search", outcome); } catch { /* the store above is this surface's own record */ }
   novaSearchListeners.forEach((fn) => { try { fn(); } catch { /* one bad listener never breaks a search */ } });
 }
@@ -5394,7 +5439,21 @@ function SearchNova({ size = 52, live = true }) {
     prevAppRef.current = f.appState;
     if (prev === f.appState) return;
     const cat = searchCategoryForState(f.appState);
-    if (cat) speechRef.current.offerCategory(cat);
+    /* She does not narrate the search starting (2026-10-29,
+       dialog spec Lane 1): the thinking face already says it,
+       so the searching category is never offered. Landed
+       categories are offered with their cause record: the
+       search landed (or failed) trigger, this surface, and
+       the search's identity, the lifecycle stamp the store
+       above carries. A queued line is judged against that
+       identity at promotion, so a stale reaction is dropped
+       in silence instead of spoken late. */
+    if (!cat || cat === "searching") return;
+    speechRef.current.offerCategory(cat, {
+      trigger: snap.outcome === "failed" ? "search-failed" : "search-landed",
+      surface: "search",
+      subject: "search@" + (snap.at || 0),
+    });
   }, [f.appState]);
   return (
     <span aria-hidden="true" style={{ display: "inline-flex", flexShrink: 0, lineHeight: 0 }}>
@@ -23819,22 +23878,37 @@ function App({ profileHandle = null } = {}) {
      button, as everywhere. */
   const homeStage = view === "search" && !started;
   const stageLastQ = lastInvestigationQuestion(history);
-  /* Nova runs the home (2026-10-29, the owner's pick): her
-     greeting for the day, and her shelf of past questions.
-     The shelf takes the newest investigations, newest first
-     (history is stored newest first, the order
+  /* Home B (2026-10-29, The Quiet Column): her greeting for
+     the day, from the one greeting set, and the Last time
+     line's data. History is stored newest first, so the most
+     recent investigation is its first entry; the line names
+     its most recent substantial question (the walk
      lastInvestigationQuestion and the composer's recents
-     already read), each labelled by its title or its first
-     question, tidied the way the investigations ledger
-     tidies them. A tap reopens the thread itself through
-     openHistoryItem, the ledger's own opener. */
+     already read), falling back to the entry's tidied title,
+     and a tap reopens the thread itself through
+     openHistoryItem, the ledger's own opener. No entry, or no
+     nameable question, and the line is absent. */
   const stageGreeting = NOVA_HOME_GREETINGS[Math.floor(Date.now() / 86400000) % NOVA_HOME_GREETINGS.length];
-  const shelfItems = history.slice(0, 6)
-    .map((h) => ({ h, q: tidyQuestionTitle(h.title || (h.turns && h.turns[0] && h.turns[0].q) || "") }))
-    .filter((x) => x.q);
+  const stageLastEntry = history && history.length ? history[0] : null;
+  const stageLastQText = stageLastQ
+    || (stageLastEntry ? tidyQuestionTitle(stageLastEntry.title || (stageLastEntry.turns && stageLastEntry.turns[0] && stageLastEntry.turns[0].q) || "") : "");
   const stageInquiries = deckHasContent
     ? (ASK_MODE_EXAMPLES[askMode] || []).slice(0, 3)
     : FIRST_RUN_QUESTIONS.slice(0, 3);
+  /* The composer's rotating placeholder pool (2026-10-29,
+     Home B): the Try asking set itself, one question at a time
+     in the field's placeholder text, never a list on the
+     surface. For signed out and free tier viewers the free
+     allowance joins the rotation as one line, the cut quota
+     pill's new home; it also lives in Account. Pro and Lite
+     carry different terms and do not see it. The caps
+     themselves live in functions/lib/proEntitlement.js and
+     are unchanged. */
+  const stageFreeTier = !(proStatus?.tier === "pro" || user?.isPro || proStatus?.tier === "lite" || proStatus?.isLite);
+  const stagePlaceholderQs = [
+    ...stageInquiries.map((ex) => ex.q),
+    ...(stageFreeTier ? ["Free allowance: 50 AI answers every 5 days."] : []),
+  ];
   /* The footer strip's traced claim turns over daily: deterministic
      within a day, so it never flickers between renders. */
   /* stageSpecimen left with the stage footer specimen on
@@ -24342,79 +24416,78 @@ function App({ profileHandle = null } = {}) {
           {!started ? (
             /* ══════════════════════════════════════════════════════
                The home stage: the empty search home. Since
-               2026-10-29 it is Nova's room, on the owner's pick
-               ("Nova runs the home. She greets you, the composer
-               sits with her, history is her shelf of past
-               questions."), dressed in the title card door's
-               register at his word ("I like the intro so use
-               that as inspiration."): the same deep neutral
-               ground, one broad pool of light, very few
-               elements, each given room. She stands in the pool
-               at full presence; her greeting and the composer
-               sit with her as one unit; her shelf of past
-               questions stands below; the deck of saved work
-               closes the column. What the stage used to stack
-               above the composer (a wordmark masthead, a serif
-               headline sentence, a proof line, a prose filter
-               paragraph, a ruled Continue row) is gone, and its
-               absence is verified in the rendered page, not
-               just in this source. The column is the thread
-               column (LAYOUT.answer, 1080), one width with text
-               left aligned inside it, centered in the space
-               beside the sidebar, which renders here as it does
-               over a thread (see homeStage): navigation lives in
-               the sidebar alone. The first submit yields to the
-               existing thread layout.
+               2026-10-29 (Home B, The Quiet Column, the owner's
+               pick from the home concepts) it is one left aligned
+               reading column in the title card door's register,
+               and exactly four elements stand above the fold:
+
+               1. The top line: the wordmark in the reading serif
+                  at the left, and the single word History at the
+                  right, one tap to the full past questions list.
+                  Nothing else shares the line.
+               2. The greeting unit: her bust small in a faint
+                  light pool at the left, and her greeting line
+                  set in the reading serif at display size. The
+                  greeting is typography, not a bubble: it is not
+                  timed, not dismissible, and not controller
+                  speech. When a controller line does fire on
+                  this surface (a poke answer, a landing line
+                  promoted while she stands here), its box is
+                  the one NovaBubble in its flow variant, in flow
+                  inside this unit under the greeting line at the
+                  column's width (see NovaSpeech.jsx and the flow
+                  mount in NovaRive.jsx and LearnView.jsx).
+               3. One resumable line: Last time, with the most
+                  recent question in the serif and an arrow, one
+                  tap to reopen it. No history, no line: there is
+                  never an empty placeholder row.
+               4. The composer, docked at the bottom of the
+                  column by the auto margin on its wrapper, with
+                  Constraints as one word inside the field and
+                  the example questions rotating in its
+                  placeholder text.
+
+               Cut from this surface, per the concept's cut list:
+               the shelf plaques and the shelf section, the
+               History button as a button, the Try asking list,
+               the standalone constraints row under the composer,
+               the free quota pill (the allowance lives in
+               Account, and as one line in the placeholder
+               rotation for free viewers), the HomeDeck panel,
+               the old stage figure at 288 and 216, the permanent
+               cream greeting bubble, and the mode reset and
+               allowance one liners of the old stack. The
+               features underneath all stand: Investigations,
+               Library, and the composer's own panels are
+               untouched. The column is the thread column
+               (LAYOUT.answer, 1080), centered in the space beside
+               the sidebar, which renders here as it does over a
+               thread (see homeStage). The first submit yields to
+               the existing thread layout.
                ══════════════════════════════════════════════════════ */
-            /* 2026-10-28 (declutter verdict): the mobile bottom
-               padding below was raised past the fixed tab bar. It
-               was 40px, and the stage's own end scrolled to rest
-               underneath the bar, half covered, in the owner's
-               phone photo. The document's body rule alone did not
-               reach this column's end.
-               2026-10-29 (Nova runs the home): 96px still was not
-               structural. The bar is 64px of tab plus the phone's
-               own safe area inset, and on a phone with a deep
-               inset the two add past 96, so the stage's last row
-               rested under the bar again in his Oct 29 photo. The
-               padding now carries the inset itself: 96px of air
-               plus env(safe-area-inset-bottom), so the shelf and
-               the deck scroll clear of the bar on any phone. */
+            /* The docked composer and the bottom bar (2026-10-29,
+               Home B): the old home's Continue row overlapped the
+               fixed bottom bar in the owner's phone photo. Here
+               the composer is the column's last in flow element,
+               the column is a flex column that fills the stage,
+               and the mobile bottom padding below still carries
+               96px plus env(safe-area-inset-bottom), so the
+               docked composer and any in flow dialog box rest
+               clear of the bar on any phone. Nothing on this
+               surface is positioned over the bottom chrome. */
             <Reveal style={{ flex: 1, minWidth: 0, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 calc(96px + env(safe-area-inset-bottom))" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
-              <div style={{
+              <div className="cb-homeb-column" style={{
                 width: "100%", minWidth: 0, maxWidth: LAYOUT.answer, padding: isMobile ? "0" : "0 24px",
-                /* Solid stage backing in light palettes only
-                   (2026-10-20, readability residue wave): the stage
-                   text tones are dark in a light palette (ink #22252a,
-                   ink2 #4b5058, faint #5f656d) and sat directly over
-                   the graded calm film (wrapper brightness 0.30, reel
-                   intensity 0.35), where they compute to 0.98 to 3.50
-                   to 1 against the film patches, under the 4.5 to 1
-                   floor. Suppressing the film alone would not fix it:
-                   the cb-atmo gradient under it darkens toward the
-                   viewport bottom and computes to 1.47 to 3.84 to 1
-                   at its worst patch. So in light palettes the column
-                   itself carries a solid opaque P.bg backing, per the
-                   owner's standing rule that text sits on a solid
-                   opaque background: every stage tone then computes
-                   at 5.16 to 1 or better (faint on bg, the worst).
-                   Dark palettes spread nothing here, so their
-                   rendered stage is unchanged: their light tones pass over the
-                   film at 4.85 to 1 or better, and the film still
-                   mounts behind the panel margins in light too.
-                   2026-10-28 (declutter verdict) extends the backing
-                   to dark palettes: the owner photographed the app
-                   wearing a murky yellow green haze on phone and
-                   desktop alike, and the dark stage sat directly on
-                   the moving parts of it (the Sage default palette's
-                   green black ground, the atmo's accent glow at 0.20,
-                   and the calm smoke film at a third strength behind
-                   unbacked text). The column now carries the solid
-                   opaque P.bg in every palette, per the same standing
-                   rule; dark palettes take the ground only, no
-                   border, radius, or padding, so their layout is
-                   unchanged and only the haze leaves the text. */
+                display: "flex", flexDirection: "column", flex: 1,
+                /* The solid stage backing stands (2026-10-28,
+                   declutter verdict, carried into Home B): the
+                   column carries the solid opaque P.bg in every
+                   palette, so every stage tone computes against
+                   the ground and never against the calm film or
+                   the atmo glow. Dark palettes take the ground
+                   only, no border, radius, or padding; light
+                   palettes take the bordered panel form. */
                 ...(P.dark ? {
                   background: P.bg,
                 } : {
@@ -24424,256 +24497,94 @@ function App({ profileHandle = null } = {}) {
                 "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
                 "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
               }}>
-                {/* Nova's stage (2026-10-29, the owner's pick:
-                    Nova runs the home). She stands at full
-                    presence in one broad pool of neutral light:
-                    the title card door's pool carried into the
-                    room it opens into, on the stage's own solid
-                    ground, at his word that the intro is the
-                    inspiration. Her greeting sits beside her in
-                    her bubble, the composer sits with her in the
-                    same unit, and her shelf stands below them.
-                    The masthead, the serif headline sentence,
-                    and the proof line that used to stack above
-                    the composer are gone from this screen: the
-                    door is the title, and this room is hers. */}
-                <div className="cb-nova-stage" style={{ position: "relative", marginTop: isMobile ? 2 : 8 }}>
+                {/* 1. The top line. */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+                  <span style={{ fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.section, fontWeight: 500, lineHeight: 1.2, color: P.ink }}>Cerebrum</span>
+                  <button type="button" onClick={() => setView("investigations")} className="cb-stage-textbtn"
+                    style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>
+                    History
+                  </button>
+                </div>
+
+                {/* 2. The greeting unit. The grid areas are bust,
+                    greeting, and bubble: NovaLive renders as the
+                    flow mount, so her bust takes the bust area and
+                    a controller line, when one fires, takes the
+                    bubble area in flow under the greeting line at
+                    the column's width. The light pool sits behind
+                    the bust alone. */}
+                <div className="cb-homeb-greeting" style={{
+                  position: "relative", display: "grid",
+                  gridTemplateAreas: '"bust greeting" "bubble bubble"',
+                  gridTemplateColumns: "auto minmax(0, 1fr)",
+                  alignItems: "center",
+                  columnGap: isMobile ? SP.md : SP.lg, rowGap: SP.md,
+                  marginTop: isMobile ? SP.xl : SP.xxl,
+                }}>
                   <div aria-hidden="true" style={{
                     position: "absolute", pointerEvents: "none",
-                    inset: isMobile ? "-24px -12px -18px" : "-44px -56px -24px",
-                    background: `radial-gradient(ellipse 62% 68% at ${isMobile ? "50% 36%" : "29% 40%"}, ${P.dark ? "rgba(238,236,228,0.13)" : "rgba(253,243,215,0.55)"} 0%, rgba(238,236,228,0) 70%)`,
+                    left: isMobile ? -104 : -88, top: -58, width: 300, height: 210,
+                    background: `radial-gradient(ellipse 60% 60% at 50% 50%, ${P.dark ? "rgba(238,236,228,0.13)" : "rgba(253,243,215,0.55)"} 0%, rgba(238,236,228,0) 70%)`,
                   }} />
+                  <NovaLive size={isMobile ? 66 : 84} surface="search-home" bubbleVariant="flow" />
                   <div style={{
-                    position: "relative", display: "flex",
-                    flexDirection: isMobile ? "column" : "row",
-                    alignItems: isMobile ? "stretch" : "center",
-                    gap: isMobile ? 10 : 30,
+                    gridArea: "greeting", minWidth: 0,
+                    fontFamily: "var(--cb-serif)", fontWeight: 400,
+                    fontSize: isMobile ? FONT_SIZES.section : 36,
+                    lineHeight: 1.22, color: P.ink,
                   }}>
-                    <div style={{
-                      flexShrink: 0, alignSelf: isMobile ? "center" : undefined,
-                      display: "flex", flexDirection: "column", alignItems: "center",
-                    }}>
-                      {/* The resident Nova at full presence: this
-                          screen's only Nova, the same NovaLive
-                          brain that stood at 66px in the masthead
-                          she replaces, standing on the hairline
-                          floor under her feet. The moment a search
-                          starts the stage unmounts and the ask
-                          lifecycle's SearchNova takes over. */}
-                      <NovaLive size={isMobile ? 216 : 288} framing="full" />
-                      <div aria-hidden="true" style={{ width: "118%", height: 1, background: P.line, marginTop: -4 }} />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-                      {/* Her greeting: one line a day, in her
-                          voice, in the speech bubble's own cream
-                          and ink, tail toward her. Composed, not
-                          ambient: the concept has her greet you
-                          on arrival, every arrival. Her speech
-                          controller's lines still arrive over her
-                          head from time to time, as they do on
-                          every surface she stands on. */}
-                      <div className="cb-nova-greeting" style={{
-                        position: "relative", alignSelf: isMobile ? "center" : "flex-start",
-                        maxWidth: 430, background: "#FDF3D7", color: "#1A1A1A",
-                        border: "1px solid rgba(26,26,26,0.16)", borderRadius: RADIUS.lg,
-                        padding: "10px 14px", fontSize: FONT_SIZES.body, lineHeight: 1.45,
-                        fontFamily: "var(--cb-font)",
-                      }}>
-                        {stageGreeting}
-                        <span aria-hidden="true" style={{
-                          position: "absolute", width: 13, height: 13, background: "#FDF3D7",
-                          transform: "rotate(45deg)",
-                          ...(isMobile
-                            ? { top: -7, left: "50%", marginLeft: -7, borderTop: "1px solid rgba(26,26,26,0.16)", borderLeft: "1px solid rgba(26,26,26,0.16)" }
-                            : { left: -7, top: 24, borderLeft: "1px solid rgba(26,26,26,0.16)", borderBottom: "1px solid rgba(26,26,26,0.16)" }),
-                        }} />
-                      </div>
-
-                  {/* The composer as an instrument. */}
-                  {/* 2026-10-28 (search home polish): the composer gap
-                      sits on the SP scale (SP.lg) at both widths, and
-                      the attached image remove control's invisible
-                      hit area grows from 40px to 48px. */}
-                  <div style={{ marginTop: SP.lg }}>
-                    {attachedImage && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 12px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, maxWidth: "fit-content" }}>
-                        <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: RADIUS.md, objectFit: "cover" }} />
-                        <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImageName}</span>
-                        <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ position: "relative", minWidth: 0, minHeight: 0, background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><span aria-hidden="true" style={{ position: "absolute", inset: -17, borderRadius: "50%" }} /><Icon name="close" size={14} /></button>
-                      </div>
-                    )}
-                    <SignalComposer
-                      variant="stage"
-                      specimenPlaceholders={STAGE_PLACEHOLDER_QUESTIONS}
-                      input={input} setInput={setInput} inputRef={inputRef}
-                      ask={ask} busy={busy}
-                      askMode={askMode} setAskMode={setAskMode} isMobile={isMobile}
-                      accent={accent} P={P}
-                      imageInputRef={imageInputRef} attachedImage={attachedImage}
-                      focused={composerFocused} setFocused={setComposerFocused}
-                      recentQuestions={history.slice(0, 6).map((h) => h.title || (h.turns && h.turns[0] && h.turns[0].q)).filter(Boolean)}
-                      evidenceFilter={evidenceFilter} setEvidenceFilter={setEvidenceFilter} sfx={sfx}
-                    />
-                  </div>
-
-                  {/* The detected mode reset is the only thing left
-                      under the composer: the marketing paragraph
-                      that used to sit here went with the plate
-                      voice. The coverage line and the record live
-                      on the answer itself and on the About page,
-                      where they belong. */}
-                  {askMode !== "explain" && (
-                    <div style={{ marginTop: SP.md, display: "flex", justifyContent: "flex-end" }}>
-                      <button type="button" onClick={() => setAskMode("explain")}
-                        style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: P.faint, fontSize: FONT_SIZES.label, flexShrink: 0 }}
-                        title="Detected mode. Click to reset to Explain.">
-                        {(ASK_MODES.find((m) => m.key === askMode) || {}).label || askMode} · reset
-                      </button>
-                    </div>
-                  )}
-
-                  {/* 2026-10-26 (external loop round 3): the free
-                      allowance is stated on the search screen itself,
-                      before a first answer, not only on the public
-                      pages and at the quota wall. Visibility only:
-                      the caps live in functions/lib/proEntitlement.js
-                      (50 AI answers, 3 document reads, 1 saved diagram
-                      per 5 day period) and are unchanged. Shown to
-                      signed out and free tier viewers; Pro and Lite
-                      carry different terms and do not see it. */}
-                  {!(proStatus?.tier === "pro" || user?.isPro || proStatus?.tier === "lite" || proStatus?.isLite) && (
-                    <p style={{ margin: "14px 0 0", fontSize: FONT_SIZES.label, lineHeight: 1.55, color: P.faint, fontFamily: "var(--cb-font)" }}>
-                      Free allowance: 50 AI answers every 5 days. Document reads and saved diagrams are metered separately, at 3 reads and 1 diagram every 5 days with a free account.
-                    </p>
-                  )}
-
-                    </div>
+                    {stageGreeting}
                   </div>
                 </div>
 
-                {/* Her shelf: the past questions as objects
-                    standing on a board, newest first, each one
-                    labelled with its question. A tap reopens the
-                    thread itself through the ledger's own
-                    opener. This replaces the Continue row and
-                    its History action (2026-10-29): the full
-                    ledger stays one tap away on the History
-                    button at the shelf's end, as it was from the
-                    Continue row. A visitor with no past questions
-                    gets no shelf at all: the board is bare and
-                    her greeting carries the screen. */}
-                {shelfItems.length > 0 && (
-                  <div className="cb-stage-shelf" style={{ marginTop: SP.xl }}>
-                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16 }}>
-                      <div style={{ fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.body, color: P.ink2 }}>The shelf</div>
-                      <button type="button" onClick={() => setView("investigations")} className="cb-stage-textbtn" style={{ fontSize: 13, fontWeight: 500 }}>History</button>
-                    </div>
-                    <div className="cb-scroll-x" style={{
-                      display: "flex", gap: 10, alignItems: "flex-end",
-                      overflowX: "auto", paddingTop: 12,
-                      borderBottom: `2px solid ${P.line}`,
-                    }}>
-                      {shelfItems.map(({ h, q }) => (
-                        <button key={h.id} type="button" title={q}
-                          onClick={() => { openHistoryItem(h); setView("search"); }}
-                          style={{
-                            flexShrink: 0, width: 218, minHeight: 64, textAlign: "left",
-                            background: P.surface, border: `1px solid ${P.line}`, borderBottom: "none",
-                            borderTopLeftRadius: RADIUS.md, borderTopRightRadius: RADIUS.md,
-                            borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
-                            padding: "10px 12px", cursor: "pointer",
-                            color: P.ink2, fontFamily: "var(--cb-font)", fontSize: 13, lineHeight: 1.45,
-                          }}>
-                          <span style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{q}</span>
-                        </button>
-                      ))}
-                    </div>
+                {/* 3. Last time: her memory of the user's work,
+                    one tap back into it, through the ledger's own
+                    opener. Absent when there is no history. */}
+                {stageLastEntry && stageLastQText && (
+                  <div style={{ marginTop: SP.xxl }}>
+                    <button type="button" onClick={() => openHistoryItem(stageLastEntry)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 14, width: "100%",
+                        textAlign: "left", background: "none", border: "none",
+                        padding: "6px 0", cursor: "pointer", minHeight: 48,
+                      }}>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 4 }}>Last time</span>
+                        <span style={{
+                          display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                          fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.subhead, lineHeight: 1.4, color: P.ink,
+                        }}>{stageLastQText}</span>
+                      </span>
+                      <span aria-hidden="true" style={{ color: accent, fontSize: 16, flexShrink: 0 }}>&#8594;</span>
+                    </button>
                   </div>
                 )}
 
-                  {/* Example questions: three full sentence
-                      questions as a plain ruled list under a plain
-                      label. One behavior for everyone since
-                      2026-10-19 (audit tail 10): a tap fills the
-                      composer so the question can be edited before
-                      it runs. Hidden while typing. */}
-                  {!input.trim() && stageInquiries.length > 0 && (
-                    <div style={{ marginTop: SP.xl }}>
-                      {/* 2026-10-29 (Nova runs the home): the label
-                          takes the stage's set voice, the reading
-                          serif, like the shelf's label above it.
-                          The words are unchanged. */}
-                      <div style={{ fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.body, color: P.ink2 }}>Try asking</div>
-                      <div style={{ marginTop: SP.sm }}>
-                        {stageInquiries.map((ex) => (
-                          <button key={ex.q} type="button" className="cb-stage-inq"
-                            onClick={() => { setInput(ex.q); setTimeout(() => inputRef.current?.focus(), 30); }}
-                            title={`Ask: ${ex.q}`}
-                            style={{
-                              display: "flex", alignItems: "baseline", gap: 14,
-                              width: "100%", textAlign: "left", background: "none",
-                              border: "none", borderTop: `1px solid ${P.line}`,
-                              padding: "13px 0", cursor: "pointer", minHeight: 48,
-                            }}
-                          >
-                            <span className="cb-stage-inq-q" style={{
-                              fontFamily: "var(--cb-font)", flex: 1,
-                              fontSize: 13, lineHeight: 1.55, color: P.ink2,
-                            }}>{ex.q}</span>
-                            <span className="cb-stage-inq-arrow" aria-hidden="true" style={{ color: accent, fontSize: 14 }}>&#8594;</span>
-                          </button>
-                        ))}
-                      </div>
+                {/* 4. The composer, docked at the bottom of the
+                    column: the auto top margin is the dock, and
+                    the wide empty middle above it is deliberate,
+                    the room the conversation grows into. */}
+                <div style={{ marginTop: "auto", paddingTop: SP.xxl }}>
+                  {attachedImage && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 12px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, maxWidth: "fit-content" }}>
+                      <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: RADIUS.md, objectFit: "cover" }} />
+                      <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImageName}</span>
+                      <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ position: "relative", minWidth: 0, minHeight: 0, background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><span aria-hidden="true" style={{ position: "absolute", inset: -17, borderRadius: "50%" }} /><Icon name="close" size={14} /></button>
                     </div>
                   )}
-
-                  {/* 2026-10-22 (simplify audit SH3 and SH4): the
-                      stage Trending row and the stage Sign in row are
-                      gone. Trending lives in the sidebar alone, and
-                      sign in lives in the sidebar and the mobile
-                      bottom nav. The stage offers one thing: the
-                      question. */}
-
-                  {/* Your work, at the stage's own width and left
-                      edge. The deck component is unchanged; only its
-                      wrapper lost the second helping of left padding
-                      and the mismatched width. */}
-                  {/* The bare count line that used to sit here is cut
-                      (2026-10-19, audit M12): it repeated the deck's own
-                      counts with no label and no action. */}
-                  {/* 2026-10-22 (simplify audit SH6): the deck and
-                      its 36px spacer mount only when the deck has
-                      something to say. A true first visit (signed out,
-                      no last question, nothing saved) skips the whole
-                      block instead of rendering a blank band. */}
-                  {(user || stageLastQ || (saved && saved.length > 0)) && (
-                  /* Composition wave, 2026-10-26: the deck sits on a
-                     surface of its own, so the stage reads as two
-                     places: the instrument above, and your work below
-                     on its own panel, instead of one column of ruled
-                     rows from top to bottom. In light palettes the
-                     panel sits inside the stage's opaque backing and
-                     takes the surface tone above it. */
-                  <div style={{ marginTop: SP.xxl, background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, padding: isMobile ? `${SP.md}px ${SP.md}px` : `${SP.lg}px ${SP.lg}px`, boxShadow: SHADOW.sm(P) }}>
-                    <HomeDeck
-                      suppressContinue
-                      stageDeck
-                      P={P} accent={accent} at={at} user={user} isMobile={isMobile}
-                      greetingName={firstName} flush={deckHasContent} hideGreeting
-                      history={history} saved={saved} sessions={sessions}
-                      watchKey={watchKey}
-                      onAsk={(q) => ask(q)}
-                      onOpenHistory={() => setView("investigations")}
-                      onOpenSaved={() => setView("library")}
-                    />
-                  </div>
-                  )}
-                  {/* 2026-10-22 (simplify audit SH4 and SH7): the
-                      stage footer specimen is deleted. It set an
-                      unrelated claim at the largest type on the
-                      stage, under the users own work, and repeated
-                      the proof line in a second form. Specimens live
-                      on the intro door, where they belong. */}
+                  <SignalComposer
+                    variant="stage"
+                    specimenPlaceholders={stagePlaceholderQs}
+                    input={input} setInput={setInput} inputRef={inputRef}
+                    ask={ask} busy={busy}
+                    askMode={askMode} setAskMode={setAskMode} isMobile={isMobile}
+                    accent={accent} P={P}
+                    imageInputRef={imageInputRef} attachedImage={attachedImage}
+                    focused={composerFocused} setFocused={setComposerFocused}
+                    recentQuestions={history.slice(0, 6).map((h) => h.title || (h.turns && h.turns[0] && h.turns[0].q)).filter(Boolean)}
+                    evidenceFilter={evidenceFilter} setEvidenceFilter={setEvidenceFilter} sfx={sfx}
+                  />
+                </div>
               </div>
               {provenanceOpen && <SourcesDialog P={P} accent={accent} onClose={() => setProvenanceOpen(false)} />}
             </Reveal>
@@ -27031,6 +26942,21 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   transition: color 280ms ease, background 280ms ease;
 }
 .cb-ask-tool:hover { color: var(--cb-ink); background: color-mix(in srgb, var(--cb-acc) 8%, transparent); }
+/* Home B (2026-10-29): the constraints toggle as one word
+   inside the field. A text control, not a pill: no border, no
+   fill, at the label size, with a 44px hit height. A non
+   default tier in force inks the word and underlines it, so
+   the field itself says the search is constrained. */
+.cb-ask-constraints {
+  min-height: 44px; padding: 0 8px; flex-shrink: 0;
+  background: none; border: 0; cursor: pointer;
+  color: var(--cb-faint); font-family: var(--cb-font);
+  font-size: 13px; font-weight: 500; line-height: 1.2;
+  transition: color 280ms ease;
+}
+.cb-ask-constraints:hover { color: var(--cb-ink); }
+.cb-ask-constraints[data-active="true"] { color: var(--cb-ink); text-decoration: underline; text-underline-offset: 4px; }
+.cb-ask-constraints:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; }
 .cb-ask-mic {
   width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;

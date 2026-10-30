@@ -136,7 +136,7 @@ const WANTED = [
   "plainSpeechText", "speechSentence", "feedbackCorrectionFor", "feedbackTeachLine",
   "NOVA_OPINION_HARD_LINE", "NOVA_OPINION_FAST_LINE", "NOVA_OPINION_BROW_LINE", "NOVA_OPINION_PERFECT_LINE",
   "loadNovaQuirks", "saveNovaQuirks", "pickNovaLine", "hourLineSet",
-  "computeNovaMemory", "memoryLineFor", "loadNovaMemoryFacts",
+  "computeNovaMemory", "memoryLineFor", "memoryLineFactFor", "loadNovaMemoryFacts",
   "opinionForEvent", "pokeStep", "gagDue", "recordGag", "recordNovaVisit", "shelfCommentFor", "pickEggLine",
 ];
 /* Tour script extraction (2026-10-15, the cutscene redo): the
@@ -228,7 +228,7 @@ const {
   plainSpeechText, speechSentence, feedbackCorrectionFor, feedbackTeachLine,
   NOVA_OPINION_HARD_LINE, NOVA_OPINION_FAST_LINE, NOVA_OPINION_BROW_LINE, NOVA_OPINION_PERFECT_LINE,
   loadNovaQuirks, saveNovaQuirks, pickNovaLine, hourLineSet,
-  computeNovaMemory, memoryLineFor, loadNovaMemoryFacts,
+  computeNovaMemory, memoryLineFor, memoryLineFactFor, loadNovaMemoryFacts,
   opinionForEvent, pokeStep, gagDue, recordGag, recordNovaVisit, shelfCommentFor, pickEggLine,
   cortexEmptyProfile, cortexEmptyBuiltinProgress,
 } = context.__x;
@@ -297,7 +297,7 @@ function riveDeclFor(name) {
 const RIVE_WANTED = [
   "NOVA_RIVE_STATE_MACHINE", "NOVA_RIVE_SRC", "NOVA_RIVE_ASSET", "NOVA_RIVE_INPUTS", "NOVA_RIVE_EVENTS",
   "NOVA_QUIP_BANK", "QUIP_MIN_GAP_MS", "QUIP_LONG_IDLE_MS",
-  "QUIP_CATEGORY_COOLDOWN_MS", "QUIP_CATEGORY_CHANCE",
+  "QUIP_CATEGORY_COOLDOWN_MS",
   "quizCategoryForState", "searchCategoryForState", "quipCategoryForRiveEvent",
   "quipGateAllows", "pickQuipLine", "quizPointerFor", "appStateForActivity", "quizStateForSheet",
 ];
@@ -313,7 +313,7 @@ vm.runInContext(riveJs, riveContext);
 const {
   NOVA_RIVE_STATE_MACHINE, NOVA_RIVE_SRC, NOVA_RIVE_ASSET, NOVA_RIVE_INPUTS, NOVA_RIVE_EVENTS,
   NOVA_QUIP_BANK, QUIP_MIN_GAP_MS, QUIP_LONG_IDLE_MS,
-  QUIP_CATEGORY_COOLDOWN_MS, QUIP_CATEGORY_CHANCE,
+  QUIP_CATEGORY_COOLDOWN_MS,
   quizCategoryForState, searchCategoryForState, quipCategoryForRiveEvent,
   quipGateAllows, pickQuipLine, quizPointerFor, appStateForActivity, quizStateForSheet,
 } = riveContext.__rive;
@@ -3731,7 +3731,7 @@ await test("the live Nova stands at the persistent spots and the artwork moments
   // wave): the standing Nova is the raster art now, and the
   // Library empty state's 120px presence shows the full figure
   // in its cream panel instead of a disc crop.
-  assert.ok(learnSrc.includes("<NovaLive state={novaMood} size={66} />"), "the header does not render the mood driven live Nova");
+  assert.ok(learnSrc.includes('<NovaLive state={novaMood} size={66} surface="nova-home"'), "the header does not render the mood driven live Nova");
   // Pin removed 2026-10-14 (owner's ruling, "There's a circle
   // over her"): the 68px cream circle that wrapped the header
   // Nova is gone; she stands on the page. The absence is the pin.
@@ -4139,13 +4139,19 @@ await test("the presence wave: Nova is live where she stands, and her tips obey 
   // she dislikes being poked, on a schedule, in pokeStep.
   // Pin moved 2026-10-14 (owner's disc ruling): the wrapper's
   // default framing is the bust, not the disc.
-  assert.ok(learnSrc.includes('function NovaLive({ state = "greeting", size = 48, framing = "bust" })'), "the reactive Nova wrapper is missing");
+  assert.ok(learnSrc.includes('function NovaLive({ state = "greeting", size = 48, framing = "bust", surface = null,'), "the reactive Nova wrapper is missing");
   // Pin moved 2026-10-14 (the owner's browser check clicked the
-  // header Nova and saw nothing): the tap beat now also pops
-  // the wrapper scale, composed with the hover lift.
+  // header Nova and saw nothing): the tap beat popped the
+  // wrapper scale, composed with the hover lift.
   // Pin moved again the same night (adaptive animation): the
   // proximity lean rides in on the same wrapper transform.
-  assert.ok(learnSrc.includes('(lift ? "translateY(-2px)" : "translateY(0px)") + (beat ? " scale(1.07)" : "") + " translate(" + lean.x + "px, " + lean.y + "px) rotate(" + lean.r + "deg)"'), "the hover lift, tap pop, and proximity lean do not ride in on the wrapper");
+  // Pin moved 2026-10-29 (the owner's poke ruling): the 1.07
+  // scale pop is out by his explicit decision, superseding
+  // the October instruction that made the beat unmissable.
+  // The audit's recoil rides in its place: 2px lateral and
+  // 1.5 degrees, no scale anywhere in the wrapper transform.
+  assert.ok(learnSrc.includes('(lift ? "translateY(-2px)" : "translateY(0px)") + " translate(" + lean.x + "px, " + lean.y + "px) rotate(" + lean.r + "deg)" + (recoil ? " translateX(2px) rotate(1.5deg)" : "")'), "the hover lift, proximity lean, and poke recoil do not ride in on the wrapper");
+  assert.ok(!learnSrc.includes("scale(1.07)"), "the retired poke scale pop is back in the wrapper");
   assert.ok(learnSrc.includes("pokeStep(loadNovaQuirks(), Date.now())"), "a tap does not run the poke ladder");
   assert.ok(learnSrc.includes("saveNovaQuirks(step.quirks)"), "the poke ladder's state is not stored");
   assert.ok(learnSrc.includes('const SEEN_TIPS_KEY = "cerebrum-learn2-seentips";'), "the seen tips store is not its own key");
@@ -5104,7 +5110,7 @@ await test("her stage: full body framing on Today, the living rig, the shelf on 
   // Pin updated 2026-10-16 (layout audit finding 12): the stage
   // size is now phone aware, 264 at widths up to 430px where 288
   // squeezed sideways, and 288 above them.
-  assert.ok(learnSrc.includes('<NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" />'), "the Today stage does not mount her large and full body");
+  assert.ok(learnSrc.includes('<NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" surface="nova-home"'), "the Today stage does not mount her large and full body");
   assert.ok(learnSrc.indexOf("NOVA'S SHELF") < learnSrc.indexOf("Due for review"), "the shelf is not on the stage above the review bench");
   assert.ok(riveSrc.includes('framing === "full" || framing === "panel"'), "the canvas has no full body framing");
   assert.ok(riveSrc.includes("Math.round(size * 1.85)"), "the bust box changed under the small spots");
@@ -5117,9 +5123,19 @@ await test("her stage: full body framing on Today, the living rig, the shelf on 
      and the reduced motion still, with the seam still
      passing reduced motion through from the brain. */
   assert.ok(figureSrc.includes("nvfBreathe"), "the rig lost her breathing cycle");
-  assert.ok(figureSrc.includes("nvfBlink"), "the rig lost her blink cycle");
+  /* Pin updated 2026-10-29 (motion spec Lane 2): the fixed
+     blink and glance keyframe loops are deleted. The blink is
+     a randomized JS driven swap (interval 2.5 to 7.5s biased
+     to 4s, 12 percent doubles), and the 13 second glance loop
+     is replaced by micro saccades, instant pupil shifts at
+     irregular intervals. The pins now hold the new machinery
+     and guard the loops' absence. */
+  assert.ok(figureSrc.includes("novaBlinkIntervalMs"), "the rig lost her randomized blink");
+  assert.ok(figureSrc.includes("data-blink"), "the rig no longer exposes her blink state");
+  assert.ok(!figureSrc.includes("nvfBlink"), "the fixed blink loop is back");
   assert.ok(figureSrc.includes("nvfGill"), "the rig lost her gill sway");
-  assert.ok(figureSrc.includes("nvfGlance"), "the rig lost her slow glance");
+  assert.ok(!figureSrc.includes("nvfGlance"), "the fixed glance loop is back");
+  assert.ok(figureSrc.includes("saccade"), "the rig lost her micro saccades");
   assert.ok(figureSrc.includes("nvf-still"), "the rig has no reduced motion still");
   assert.ok(riveSrc.includes("reducedMotion={reducedMotion}"), "the canvas no longer passes reduced motion to the rig");
   // Pin replaced 2026-10-15 (the old model purge): this slot
@@ -5213,7 +5229,11 @@ await test("the quip gate keeps her mostly silent", () => {
   assert.equal(quipGateAllows({ ...base, busy: true }), false, "never over another line");
   assert.equal(quipGateAllows({ ...base, now: QUIP_MIN_GAP_MS - 1 }), false, "the global gap binds");
   assert.equal(quipGateAllows({ ...base, lastCategoryAt: base.now - 1000 }), false, "the category cooldown binds");
-  assert.equal(quipGateAllows({ ...base, roll: 0.99 }), false, "the chance roll can still say no");
+  /* Pin updated 2026-10-29 (dialog spec Lane 1): the chance
+     roll is deleted as a speech decider; a handed in roll is
+     not consulted, so the gate reads exactly as it does
+     without one. */
+  assert.equal(quipGateAllows({ ...base, roll: 0.99 }), true, "a handed in roll still decides the gate");
   assert.equal(quipGateAllows({ ...base, category: "nonsense" }), false, "an unknown category never speaks");
   assert.equal(quipGateAllows({ ...base, category: null }), false);
 });
@@ -5227,9 +5247,13 @@ await test("line picking stays inside the category and avoids an immediate repea
   assert.equal(pickQuipLine("nonsense", 0), null);
 });
 
-await test("her silence is priced in: praise is the rarest category, warnings the least rare", () => {
-  assert.ok(QUIP_CATEGORY_CHANCE.highConfidence < QUIP_CATEGORY_CHANCE.searching, "she is not a cheerleader");
-  assert.ok(QUIP_CATEGORY_CHANCE.preprintWarning > QUIP_CATEGORY_CHANCE.highConfidence, "a warning is useful; praise is not");
+await test("her silence is priced in: no chance table decides speech, the gap and reading time hold", () => {
+  /* Pin updated 2026-10-29 (dialog spec Lane 1): the chance
+     table that priced her categories is deleted outright.
+     What prices her silence now is the cause gate at the
+     controller, the per category cooldowns as wording
+     discipline, and the global gap below. */
+  assert.ok(!riveSrc.includes("QUIP_CATEGORY_CHANCE"), "the deleted chance table is back in NovaRive");
   assert.ok(QUIP_MIN_GAP_MS >= 60000, "no two quips land within a minute");
   /* Pin moved 2026-10-15 (the speech unification): QUIP_SHOW_MS
      retired with the quip engine it timed. Display time is
@@ -5354,7 +5378,7 @@ await test("Nova stands on the lesson complete screen, pleased, with a line from
   assert.ok(doneNova.includes("const [celebrateN, setCelebrateN] = useState(0)"), "the celebrate counter does not start at 0");
   assert.ok(doneNova.includes("setTimeout(() => setCelebrateN(1), 700)"), "the celebrate counter does not rise a beat after mount");
   assert.ok(doneNova.includes("celebrateN={celebrateN}"), "the celebrate trigger is not raised for the asset");
-  assert.ok(doneNova.includes('say({ source: "lesson", text: line })'), "the completion line is not spoken through the controller");
+  assert.ok(doneNova.includes('say({ source: "lesson", text: line, cause: { trigger: "lesson-complete"'), "the completion line is not spoken through the controller");
   assert.ok(Array.isArray(NOVA_LESSON_DONE_LINES) && NOVA_LESSON_DONE_LINES.length >= 3, "the completion lines are missing from her library");
   for (const line of NOVA_LESSON_DONE_LINES) {
     assert.ok(!/[-–—]/.test(line), `a completion line carries a dash: ${line}`);
@@ -5477,7 +5501,7 @@ await test("one Nova per screen: exactly one resident figure on every home scree
   // the runtime rule this test exists to hold is unchanged.
   const mounts = learnSrc.match(/<NovaLive/g) || [];
   assert.equal(mounts.length, 2, "NovaLive mounts beyond the header and the Today stage");
-  assert.ok(learnSrc.includes("<NovaLive state={novaMood} size={66} />"), "the header resident is gone");
+  assert.ok(learnSrc.includes('<NovaLive state={novaMood} size={66} surface="nova-home"'), "the header resident is gone");
   assert.ok(learnSrc.includes('homeTab !== "today"'), "the header resident no longer steps aside on Today");
   for (const gone of [
     'state="fading" size={54}',            // the review bench greeter
@@ -5544,7 +5568,7 @@ function popDeclFor(name) {
 }
 const POP_WANTED = [
   "POP_FIRST_LINE", "POP_LINES", "POP_MIN_SESSION_MS", "POP_GAP_MS", "POP_LONG_GAP_MS",
-  "POP_DISMISSAL_STRETCH", "POP_IGNORE_STOP", "POP_CHECK_MS", "POP_TIMELINE",
+  "POP_DISMISSAL_STRETCH", "POP_IGNORE_STOP", "POP_CHECK_MS", "POP_TIMELINE", "POP_EXIT_MS",
   "popGapMs", "popBlocked", "popEligible", "popLineFor", "recordPop", "recordPopDismissal", "recordPopIgnore",
 ];
 const popChunks = [];
@@ -5558,7 +5582,7 @@ const popContext = vm.createContext({});
 vm.runInContext(popJs, popContext);
 const {
   POP_FIRST_LINE, POP_LINES, POP_MIN_SESSION_MS, POP_GAP_MS, POP_LONG_GAP_MS,
-  POP_DISMISSAL_STRETCH, POP_IGNORE_STOP, POP_CHECK_MS, POP_TIMELINE,
+  POP_DISMISSAL_STRETCH, POP_IGNORE_STOP, POP_CHECK_MS, POP_TIMELINE, POP_EXIT_MS,
   popGapMs, popBlocked, popEligible, popLineFor, recordPop, recordPopDismissal, recordPopIgnore,
 } = popContext.__pop;
 
@@ -5579,12 +5603,19 @@ await test("the pop numbers are the chosen ones: the owner's line, the gaps, the
   assert.equal(POP_LONG_GAP_MS, 7 * 24 * 3600 * 1000, "a week once she has been dismissed twice");
   assert.equal(POP_DISMISSAL_STRETCH, 2);
   assert.equal(POP_CHECK_MS, 15000, "the budget is re checked every fifteen seconds");
+  /* Pin updated 2026-10-29 (dialog spec Lane 1): the wave
+     steps are deleted (the wave counter fed the celebrate
+     counter on a still figure, which the round 3 audit
+     flagged), and the fixed five second end is gone: the
+     timeline now carries appearance only (enter, hold, exit
+     as a floor), and the visit's end is priced by the line's
+     reading time plus POP_EXIT_MS, the shared timing law. */
   assert.deepEqual([...POP_TIMELINE].map((s) => [s.at, s.phase || null, !!s.wave, !!s.end]), [
-    [0, "enter", true, false],
-    [2600, "hold", true, false],
+    [0, "enter", false, false],
+    [2600, "hold", false, false],
     [4400, "exit", false, false],
-    [5000, null, false, true],
-  ], "she enters waving, waves again in the hold, leaves at 4.4 seconds, and is gone at five");
+  ], "her appearance steps changed: enter, hold, exit floor, no wave, no fixed end");
+  assert.equal(POP_EXIT_MS, 600, "the visit no longer ends a beat after the exit step");
 });
 
 await test("popGapMs stretches to a week at two dismissals, and recordPopDismissal counts them", () => {
@@ -5691,7 +5722,12 @@ await test("the pop is mounted once in the shell and is silent, storeless, and q
   assert.ok(popSrc.includes("quips={false}"), "the pop figure can still double bubble through the quip engine");
   assert.ok(popSrc.includes("cbMotionOff"), "the pop does not read the app's motion setting");
   assert.ok(popSrc.includes('".lv-sheet"'), "the lesson exclusion does not probe the lesson sheet");
-  assert.ok(popSrc.includes('aria-label="Dismiss Nova"'), "the bubble has no close affordance");
+  /* Pin updated 2026-10-29 (dialog spec Lane 1): the pop's
+     private bubble and its own close button are deleted; the
+     visit renders through the one NovaBubble, whose sheet
+     dismiss carries the close affordance now. */
+  assert.ok(popSrc.includes("<NovaBubble"), "the pop does not render through the one bubble");
+  assert.ok(speechSrc.includes('aria-label="Dismiss"'), "the one bubble lost its close affordance");
   assert.ok(popSrc.includes("if (!pop) return null;"), "the pop does not unmount to zero cost when idle");
   assert.ok(!/Audio|playSound|speak\(/.test(popSrc), "the pop makes noise; it should be silent by construction");
 });

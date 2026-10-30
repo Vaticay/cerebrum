@@ -30,6 +30,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { cbMotionOff } from "./flowcharts.jsx";
 import { NovaRive } from "./NovaRive.jsx";
+import { NovaBubble, speechDurationFor, speechPlanFor, SPEECH_TAIL_MS } from "./NovaSpeech.jsx";
 import {
   NOVA_SUMMON_LINES,
   NOVA_CELEBRATE_LINES,
@@ -190,15 +191,17 @@ const EGG_CSS = `
 .ne-rig { position: absolute; pointer-events: none; }
 .ne-rig-live { pointer-events: auto; cursor: pointer; }
 .ne-shadow { position: absolute; left: 12%; right: 12%; bottom: -13px; height: 15px; border-radius: 50%; background: rgba(0,0,0,0.35); filter: blur(7px); }
-.ne-bubble { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 290px; background: #FDF3D7; color: #1A1A1A; border: 1px solid rgba(26,26,26,0.16); border-radius: 2px; padding: 11px 48px 11px 14px; font-size: 14.5px; line-height: 1.5; pointer-events: auto; box-shadow: none; animation: neBubbleIn 0.35s var(--cb-ease) both; }
+/* The bubble's placement only (2026-10-29, dialog spec Lane
+   1): the bubble itself is the shared NovaBubble from
+   NovaSpeech, in its sheet geometry fitted by the style the
+   component passes, so the private bubble styles, tail, and
+   close button that used to live here are gone. The shared
+   bubble's own dismiss carries the same 44px hit area the
+   private one grew in the phase 2 fitted polish. This
+   wrapper only centers the bubble over the figure and keeps
+   its entrance fade, on the site curve. */
+.ne-bubblewrap { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 290px; pointer-events: auto; animation: neBubbleIn 0.35s var(--cb-ease) both; }
 @keyframes neBubbleIn { from { opacity: 0; transform: translateX(-50%) translateY(6px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-.ne-bubble-tail { position: absolute; bottom: -7px; left: 50%; margin-left: -7px; width: 13px; height: 13px; background: #FDF3D7; border-right: 1px solid rgba(26,26,26,0.16); border-bottom: 1px solid rgba(26,26,26,0.16); transform: rotate(45deg); }
-/* The close hit area is 44px (phase 2 fitted polish,
-   2026-10-28), the same area the sidebar pop and the sheet
-   dismiss carry; the glyph size is unchanged, and the bubble
-   padding above reserves the wider box. The 28px box it
-   replaces sat under every tap floor on the site. */
-.ne-bubble-x { position: absolute; top: 0; right: 0; width: 44px; height: 44px; background: none; border: none; color: #6E675C; cursor: pointer; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 /* The celebration visit is a still visit too: she fades in
    at the corner, pleased, says her line, and fades out. */
 .ne-celebrate { right: 22px; bottom: 22px; }
@@ -235,36 +238,59 @@ const EGG_CSS = `
    moves to stay over the figure. The centered summon bubble
    is untouched: the middle of the screen has room for it. */
 @media (max-width: 480px) {
-  .ne-celebrate .ne-bubble, .ne-still .ne-bubble { left: auto; right: -4px; transform: none; max-width: calc(100vw - 40px); animation-name: neBubbleInEdge; }
-  .ne-celebrate .ne-bubble-tail, .ne-still .ne-bubble-tail { left: auto; right: 52px; margin-left: 0; }
+  .ne-celebrate .ne-bubblewrap, .ne-still .ne-bubblewrap { left: auto; right: -4px; transform: none; max-width: calc(100vw - 40px); animation-name: neBubbleInEdge; }
   @keyframes neBubbleInEdge { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ne-rig, .ne-bubble { animation: none !important; }
+  .ne-rig, .ne-bubblewrap { animation: none !important; }
 }
 `;
 
 /* Timelines: phase steps per kind, milliseconds from the start
    of the visit. The pose rides along with the phases; the line
-   shows during the speaking phases. */
-const EGG_TIMELINES = {
-  celebrate: [
-    { at: 0, phase: "show", pose: "pleased", line: true },
-    { at: 5800, phase: "leave", pose: "pleased" },
-    { at: 6600, end: true },
-  ],
-  summon: [
-    { at: 0, phase: "rise", pose: "greeting" },
-    { at: 1600, phase: "speak", pose: "explaining", line: true },
-    { at: 6600, phase: "leave", pose: "pleased" },
-    { at: 8500, end: true },
-  ],
-  still: [
+   shows during the speaking phases. The leave step waits for
+   the line (2026-10-29, dialog spec Lane 1): its time is the
+   later of the visit's shipped leave time and the moment the
+   line's reading time ends, priced by the shared timing law
+   in NovaSpeech (speechDurationFor, floored by the speech
+   plan's own end), and the end follows the leave by the same
+   gap the fixed timelines kept. The old fixed speech clocks
+   (6600ms, 8500ms for the summon) are gone: no surface prices
+   a line by a visit timeline again. A visit with no line
+   keeps the shipped appearance times exactly. */
+function eggTimelineFor(kind, lineMs) {
+  const leaveGap = kind === "summon" ? 1900 : 800;
+  if (kind === "summon") {
+    const leaveAt = Math.max(6600, 1600 + lineMs);
+    return [
+      { at: 0, phase: "rise", pose: "greeting" },
+      { at: 1600, phase: "speak", pose: "explaining", line: true },
+      { at: leaveAt, phase: "leave", pose: "pleased" },
+      { at: leaveAt + leaveGap, end: true },
+    ];
+  }
+  if (kind === "celebrate") {
+    const leaveAt = Math.max(5800, lineMs);
+    return [
+      { at: 0, phase: "show", pose: "pleased", line: true },
+      { at: leaveAt, phase: "leave", pose: "pleased" },
+      { at: leaveAt + leaveGap, end: true },
+    ];
+  }
+  const leaveAt = Math.max(5800, lineMs);
+  return [
     { at: 0, phase: "show", pose: "greeting", line: true },
-    { at: 5800, phase: "leave", pose: "greeting" },
-    { at: 6600, end: true },
-  ],
-};
+    { at: leaveAt, phase: "leave", pose: "greeting" },
+    { at: leaveAt + leaveGap, end: true },
+  ];
+}
+
+/* A line's reading time under the shared law, the same
+   formula the controller's speechShow uses. */
+function eggLineMs(line) {
+  if (!line) return 0;
+  return Math.max(speechDurationFor(line), speechPlanFor(line).speechEndMs - SPEECH_TAIL_MS);
+}
 
 const EGG_SIZES = { celebrate: 120, summon: 168, still: 120 };
 const EGG_SPEAK_PHASES = { celebrate: ["show"], summon: ["speak"], still: ["show"] };
@@ -348,14 +374,15 @@ export default function NovaEgg() {
     saveEggStore(store);
     sessionRef.current.hadEgg = true;
 
-    const firstStep = EGG_TIMELINES[k][0];
+    const timeline = eggTimelineFor(k, eggLineMs(line));
+    const firstStep = timeline[0];
     const v = {
       kind: k, phase: firstStep.phase, pose: firstStep.pose, line,
       showLine: !!firstStep.line && !!line, id: now,
     };
     visitRef.current = v;
     setVisit(v);
-    for (const step of EGG_TIMELINES[k]) {
+    for (const step of timeline) {
       if (step.at === 0) continue;
       const t = setTimeout(() => {
         if (!visitRef.current || visitRef.current.id !== v.id) return;
@@ -480,12 +507,12 @@ export default function NovaEgg() {
         <div className="ne-shadow" />
         <EggFigure pose={visit.pose} size={EGG_SIZES[visit.kind] || 140} />
         {visit.showLine && visit.line && (
-          <div className="ne-bubble" role="status">
-            <span className="ne-bubble-tail" />
-            {visit.line}
-            <button type="button" className="ne-bubble-x" aria-label="Dismiss Nova" onClick={(e) => { e.stopPropagation(); dismissVisit(); }}>
-              ✕
-            </button>
+          /* The shared bubble, fitted to the visit: the sheet
+             geometry in a placed wrapper, its own dismiss
+             button counting as a dismissal. */
+          <div className="ne-bubblewrap">
+            <NovaBubble variant="sheet" tail="down" text={visit.line} onDismiss={dismissVisit}
+              style={{ width: "auto", maxWidth: 290 }} />
           </div>
         )}
       </div>
