@@ -1,146 +1,113 @@
-/* ── Nova's figure, rebuilt from primitives (2026-10-29) ─────
-   The owner's verdict on the shipped mascot, in his words:
-   she needs "to look less cartoonish", she "needs to be more
-   stern and have life". The figure she replaces was the Rive
-   editor asset at public/nova/nova.riv: a chibi build with an
-   oversized head, oversized glossy eyes, and sticker
-   proportions, which his standing bar (an adult product with
-   swagger, never cute or childish) never allowed. A .riv
-   binary cannot be re proportioned from code, so her figure
-   is drawn here, from primitives, in the construction
-   discipline of his own model sheet: flat vector only, no
-   gradients, no glow, no soft shadow, no texture; closed
-   paths; every limb, gill, and garment piece its own named
-   group with its pivot at the joint; a solid black fill must
-   still read as an axolotl in a coat with countable gills.
+/* ── Nova's figure: the drop (2026-10-31) ────────────────────
+   The owner's ruling of 2026-10-31 settled her form: a little
+   bubble, like Cortana, and of the two builds of it he picked
+   Claude's version. This component is that artwork, drawn
+   behind the same seam the retired rig used: NovaRive.jsx's
+   NovaCanvas feeds it the behavior state name, quizState and
+   appState, the sleep stage, the scanning flag, the speech
+   controller's talking flag, the pointer, the reduced motion
+   flag, and the poke and celebrate counters. Expressions ride
+   those feeds; nothing here invents a second brain. The Home
+   B composition, the dialog rework, and the brain are
+   untouched by the swap.
 
-   What changed against the chibi build:
-   - Adult proportions. The head is about a fifth of her
-     height, not half of it. The torso and limbs are long,
-     the coat reaches mid thigh, and she stands like a
-     person, not a plush.
-   - The eyes are natural sized, solid, with no sparkle and
-     no gloss highlight anywhere on her.
-   - Her resting face is the stern one: heavy lids sitting
-     low over the eyes, a brow line set low and flat, a flat
-     mouth. Unimpressed is the default. A greeting eases the
-     brows and lids a fraction; a pleased moment raises one
-     brow and ticks one mouth corner; neither lingers, and
-     there is no scowl anywhere in the set.
-   - Life is slow idle motion only: a breathing cycle in the
-     torso, a blink cycle, a faint sway in each gill, and the
-     head turn the pointer feed has always driven. No bounce,
-     no waving, no loops that read as sticker energy.
+   The visual authority is Claude's own SVG (kept at
+   ~/workspace/nova-bubble-claude-oct30/nova-claude.svg): its
+   body path, filament paths and lengths, gold, water, mass,
+   specular, and mouth are law, transcribed below. Her values
+   (ground, pool, gold, and the artwork's colors and gradient
+   stops) come from the shared register tokens in
+   registerTokens.js, not from literals local to this file,
+   so the site wide register pass inherits one source.
 
-   Palette, from his model sheet, unchanged: skin (warm clay
-   rose) #C97B63, coat (parchment cream, the lightest value)
-   #FDF3D7, line (deep obsidian brown) #2A1A12, glasses
-   (muted gold) #A98A4C. Stroke weights are the sheet's,
-   scaled to this canvas: heavy 6, thin 2.5, glasses 8.
+   The retired rig (2026-10-29 to 2026-10-31) drew a standing
+   figure on this same 480 by 640 canvas, and the canvas
+   contract in NovaCanvas is built around that box: bust
+   mounts crop the top of it, full mounts hug it. The drop
+   keeps the canvas and is placed inside it: scaled 0.85 from
+   the authority artwork's 480 square, top anchored in the
+   head zone for bust mounts, standing on her contact shadow
+   for full mounts. Two forced changes ride on the seam, both
+   minimal, both logged in the swap report: the authority
+   file's full frame ground and light pool are its portrait
+   backdrop and are not drawn here (every mount sits on a
+   live surface whose own ground shows through; the pool
+   survives inside her, refracted), and the identity strokes
+   gain weight in the small and medium size classes, because
+   the authority wire at 2.7 to 3.2 units renders under half
+   a pixel at the 66px header size. Per size identity drawing
+   is the consult's own requirement; the values at stage size
+   are Claude's exactly.
 
-   The seam is NovaRive.jsx's NovaCanvas, which feeds this
-   component the same feeds it fed the canvas: the behavior
-   state name, quizState and appState, the sleep stage, the
-   scanning flag, the speech controller's talking flag, the
-   pointer, the reduced motion flag, and the poke and
-   celebrate counters. Expressions ride those feeds; nothing
-   here invents a second brain. Reduced motion, by prop or
-   by the system setting, stills every cycle and leaves the
-   composed stern figure.
-
-   ── Motion plumbing (2026-10-29, Lane 2 of the motion and
-   dialog spec, Part 1, built on this rig so every timing is
-   proven before the plate art lands) ──────────────────────
-   - Size buckets: the figure measures its own visible
-     rendered height (clipped by any overflow hidden mount,
-     which is how the bust crop reports its true height) and
-     scales plate transform amplitudes by it: under 90px
-     times 3, 90 to 200px times 1.8, above 200px times 1.
-     State swaps (lids, brows, mouths, expressions) are never
-     scaled. The owner weighted the bust and small classes
-     first, so the lid beats that must read at 66px (attention
-     wake, reread, the pre sleep long blink) take a larger
-     state step in the small class instead of the stage step.
-   - The blink is randomized: a triangular interval between
-     2.5 and 7.5 seconds with its mode at 4 seconds, 12
-     percent double blinks, close 80ms, hold 40ms, open
-     160ms ease out. It is driven from state now, not from a
-     fixed keyframe loop.
-   - The six gills are detuned: each has its own period
-     spread between 5.8 and 7.6 seconds and its own travel
-     between 3 and 4 degrees, pivoting at its root. In the
-     small class the detune collapses to one shared sway.
-   - Breath has phase lag: the torso leads on a 4.8 second
-     cycle (7.5 seconds asleep), the head follows 120ms
-     behind at 0.8 amplitude, and the gills ride a further
-     60ms behind the head.
-   - The fixed 13 second glance keyframes are deleted. In
-     their place, micro saccades: the pupils shift 0.6 to
-     1.2 units (times the bucket multiplier) at irregular
-     1.5 to 4 second intervals, instant, never a glide, in
-     the stage and medium classes only. Eyes otherwise move
-     for a cause only. Pointer gaze stays as shipped.
-   - The mouth is plan driven: the 0.36 second ellipse chew
-     loop is gone. Four speech shapes (closed, slot, narrow
-     open, wide open) are chosen from the speech plan's
-     bursts, and the mouth is closed through every pause
-     (clause 150ms, sentence 320ms, breath 120ms, punch
-     560ms, as speechPlanFor in NovaSpeech.jsx computes
-     them). A caller may hand the plan in directly through
-     the speech, speechPlan, or speechText props; on the
-     shipped seam NovaCanvas forwards only the talking flag,
-     and that flag is itself pulsed by the controller from
-     the same plan (speechTalkingAt), so the burst and pause
-     timing the mouth obeys is the plan's either way. Shape
-     choice inside a burst follows novaTalkShapeAt when only
-     the flag is available, and novaMouthShapeAt when the
-     plan itself is in hand.
-   - Expression transitions are a table, not one global
-     300ms: ordinary 300ms, verdict faces (deadpan, pleased,
-     worried) 120ms in, drift toward sleep 1000ms, greeting
-     softening 260ms.
-   - Worried and explaining are real drawn states now, not
-     fall throughs to stern. Worried: inner brow up about 4
-     units and outer down about 2 (a rotation of each brow
-     around its centre, plus a 1 unit lift), lids one state
-     up, mouth shortened by 20 percent with corners level.
-     Explaining: lids one state up, head rotated 1 degree,
-     and the speech mouth set while she teaches, with the
-     narrow open shape as its resting shape between bursts.
-   - Idle repertoire, wired where the rig can see its
-     triggers: weight shift every 20 to 60 seconds (1 to 2
-     degrees of lean and a 1 unit height change, settling
-     over 600ms, stage and medium only), a sigh once every
-     2 to 5 minutes (one breath cycle at 1.5 amplitude and
-     1.3 duration, stage and medium only), a glasses adjust
-     no more often than the sigh (glasses rise 2 units over
-     150ms and settle, stage only, brow flashing under it),
-     attention wake (typing raises her lids one state before
-     any line), pre sleep resistance (one long blink, then
-     the drift to fading lands), and reread (attention
-     returning to her narrows her lids one state for 2 to 4
-     seconds). Sleep and wake timing stays with the brain
-     that feeds sleepStage; this rig only renders the stages.
-   - Reduced motion: no loops, no transforms, no saccades.
-     Expression swaps still occur, and the mouth does not
-     perform. The nvf-still class below enforces the stills,
-     and every timer in this file checks the same flag. */
+   ── Behavior on the drop (the consult's motion sections
+   are the authority, ~/workspace/nova-bubble-claude-oct30/
+   claude-bubble-feedback.md) ──────────────────────────────
+   - Idle: a vertical drift on a 5 second sine, about 3
+     percent of her diameter, the filaments following the
+     body 200ms behind and settling, the interior mass
+     rotating on a 22 second cycle, and each filament
+     swaying on its own detuned period from the authority
+     file (5.4 to 8.3 seconds, a degree or so each way).
+     Driven from one 120ms clock in this file, not from
+     keyframe loops, so the lag is a lag and not a phase
+     guess. No bounce, no overshoot anywhere.
+   - Blink: lids low at rest (about 30 percent of the lens
+     covered, stern), close in 90ms, hold 40ms, reopen in
+     260ms. The slow reopen is the personality. Interval
+     randomized between 7 and 13 seconds. (Claude's SVG file
+     reopens in about 105ms against its own consult's 260;
+     the consult wins, as the parent ruled.)
+   - Expressions are lid and mass state changes on the
+     existing expression names: greeting eases the lids up,
+     explaining and worried sit one step up, thinking lowers
+     them a step and stills the filaments while one bright
+     node orbits inside the mass, pleased brightens the
+     specular over 600ms and lifts the filaments a few
+     degrees (no smile; the mouth stays flat), deadpan is
+     the unimpressed beat (lids drop a further 15 percent of
+     the lens and she drifts a few units away from the
+     pointer's side), poked dips the lids for the flash's
+     750ms (the recoil itself still lives on the NovaLive
+     wrapper, per the owner's ruling), fading descends, and
+     sleep closes the lids and stills the cycles.
+   - Talking: no visemes, no mouth shapes. Three channels
+     from the existing speech plan: lid micro movement at
+     phrase boundaries, a faint pressure ripple crossing
+     the surface once per burst, and the mouth line's width
+     changing 2 to 3 percent at the heart of a burst (the
+     plan's wide phase reads as the stressed syllable).
+     Pauses close nothing; the line simply rests.
+   - Attention: the face cluster (mass, lids, wire, mouth)
+     shifts a few units toward the pointer over 250ms and
+     the filaments follow at a slower transition, trailing.
+     No tilt, no nod.
+   - Arrive: she resolves on mount, opacity and a 0.94 to 1
+     settle over 400ms, the gold last over the final 200ms.
+   - The rig's standing body repertoire retired with it:
+     weight shift, the sigh, the glasses adjust, micro
+     saccades (she has no pupils to shift), and breath in
+     the torso. The attention wake and reread lid beats
+     carry over; they were always lid beats. The pre sleep
+     long blink carries over on the same terms.
+   - Reduced motion, by prop or by the system setting,
+     stills every cycle and leaves the composed drop: state
+     swaps still occur, the mouth does not perform. */
 
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { speechPlanFor } from "./NovaSpeech.jsx";
+import { NOVA_DROP_TOKENS } from "./registerTokens.js";
 
-const SKIN = "#C97B63";
-const COAT = "#FDF3D7";
-const LINE = "#2A1A12";
-const GOLD = "#A98A4C";
-const HEAVY = 6;
-const THIN = 2.5;
-const GLASSES_W = 8;
+const T = NOVA_DROP_TOKENS;
 
-/* ── Size buckets (spec 1.1 and 1.5) ────────────────────────
-   Plate transform amplitudes are authored for the stage and
-   scaled by the bucket the figure actually renders in. State
-   swaps are never scaled: a swap reads whole at any size. */
+/* ── Size buckets ───────────────────────────────────────────
+   The figure measures its own visible rendered height and
+   classes itself: under 90px small, 90 to 200 medium, above
+   200 stage. On the rig these classes scaled transform
+   amplitudes; on the drop they scale the identity layer's
+   stroke weights, because a swap reads whole at any size
+   and a transform has nothing to prove at 66px, while a
+   3 unit wire at 66px is under half a pixel. State swaps
+   are never scaled. */
 export function novaSizeClassFor(heightPx) {
   if (typeof heightPx !== "number" || !Number.isFinite(heightPx) || heightPx <= 0) {
     return { name: "stage", multiplier: 1, heightPx: 0 };
@@ -149,56 +116,26 @@ export function novaSizeClassFor(heightPx) {
   if (heightPx <= 200) return { name: "medium", multiplier: 1.8, heightPx };
   return { name: "stage", multiplier: 1, heightPx };
 }
+const NOVA_IDENTITY_BOOST = { small: 2.1, medium: 1.45, stage: 1 };
 
-/* ── The randomized blink (spec 1.4) ────────────────────────
-   A triangular draw between 2.5 and 7.5 seconds whose mode
-   sits at 4 seconds, so most blinks land near 4 seconds and
-   few land at the edges. rand is a 0 to 1 draw, injected so
-   the shape of the distribution is testable. */
+/* ── The randomized blink (consult section 4) ───────────────
+   Interval randomized between 7 and 13 seconds; rand is a 0
+   to 1 draw, injected so the distribution is testable.
+   Close 90ms, hold 40ms, reopen 260ms: the consult's
+   numbers, not the authority file's faster reopen. */
 export function novaBlinkIntervalMs(rand = Math.random()) {
-  const lo = 2500, mode = 4000, hi = 7500;
   const u = Math.max(0, Math.min(1, rand));
-  const fc = (mode - lo) / (hi - lo);
-  if (u < fc) return Math.round(lo + Math.sqrt(u * (hi - lo) * (mode - lo)));
-  return Math.round(hi - Math.sqrt((1 - u) * (hi - lo) * (hi - mode)));
+  return Math.round(7000 + u * 6000);
 }
-export const NOVA_BLINK_CLOSE_MS = 80;
+export const NOVA_BLINK_CLOSE_MS = 90;
 export const NOVA_BLINK_HOLD_MS = 40;
-export const NOVA_BLINK_OPEN_MS = 160;
-export const NOVA_BLINK_DOUBLE_CHANCE = 0.12;
+export const NOVA_BLINK_OPEN_MS = 260;
 
-/* ── Gill detune (spec 1.4) ─────────────────────────────────
-   Six gills, three a side, each with its own period spread
-   between 5.8 and 7.6 seconds and its own tip travel
-   between 3 and 4 degrees. The sway keyframe rotates each
-   gill by half its travel either way around its root. In
-   the small class every gill takes the shared row instead:
-   one period, one travel, no detune. */
-export const NOVA_GILL_SWAY = [
-  { periodS: 5.8, travelDeg: 3.0, delayS: -0.8 },
-  { periodS: 6.35, travelDeg: 3.5, delayS: -2.1 },
-  { periodS: 6.9, travelDeg: 4.0, delayS: -4.0 },
-  { periodS: 7.6, travelDeg: 3.2, delayS: -1.3 },
-  { periodS: 6.1, travelDeg: 3.8, delayS: -3.2 },
-  { periodS: 7.25, travelDeg: 3.6, delayS: -5.1 },
-];
-export const NOVA_GILL_SWAY_SMALL = { periodS: 6.7, travelDeg: 3.4, delayS: 0 };
-
-/* ── Breath (spec 1.4) ──────────────────────────────────────
-   One cycle of 4.8 seconds, 7.5 asleep. The torso rises 1.5
-   units and scales 1.006 at its base; the head follows
-   120ms behind at 0.8 amplitude; the gills ride a further
-   60ms behind the head (180ms behind the torso). A sigh
-   runs one cycle at 1.5 amplitude and 1.3 duration. */
-export const NOVA_BREATH_MS = 4800;
-export const NOVA_BREATH_SLEEP_MS = 7500;
-export const NOVA_HEAD_LAG_MS = 120;
-export const NOVA_GILL_LAG_MS = 180;
-
-/* ── Expression transitions (spec 1.6) ──────────────────────
-   Ordinary changes keep the 300ms baseline. Verdict faces
-   land in 120ms. The drift toward sleep takes 1000ms.
-   Greeting softening takes 260ms. */
+/* ── Expression transitions ─────────────────────────────────
+   The table the build already used, unchanged: ordinary
+   300ms, verdict faces (deadpan, pleased, worried) 120ms
+   in, drift toward sleep 1000ms, greeting softening 260ms.
+   On the drop these price the lid and state transitions. */
 export const NOVA_EXPRESSION_TRANSITIONS_MS = {
   ordinary: 300,
   verdict: 120,
@@ -215,12 +152,15 @@ export function novaExpressionTransitionMs(fromExpr, toExpr) {
   return NOVA_EXPRESSION_TRANSITIONS_MS.ordinary;
 }
 
-/* ── The plan driven mouth (spec 1.1, 1.3, Part 2) ──────────
-   Four speech shapes. Given a plan from speechPlanFor and
-   an elapsed time, the shape is closed through every pause
-   and opens inside a burst: a slot as the burst starts, the
-   wide open at the heart of a long burst (a short burst
-   peaks at narrow), and narrow as it closes. */
+/* ── The plan driven speech phases ──────────────────────────
+   The same two readers the rig's mouth used, kept because
+   the seam's plan timing is unchanged. What they drive is
+   different: not a mouth shape, but the drop's stress value
+   (the mouth line's width) and her burst boundaries (the
+   lid nudge and the pressure ripple). A burst's phases:
+   slot at its start, wide at the heart of a long burst (a
+   short burst peaks at narrow), narrow as it closes, and
+   closed through every pause the plan computes. */
 export function novaMouthShapeAt(plan, elapsedMs) {
   if (!plan || !Array.isArray(plan.bursts) || typeof elapsedMs !== "number" || elapsedMs < 0) return "closed";
   for (const b of plan.bursts) {
@@ -234,12 +174,6 @@ export function novaMouthShapeAt(plan, elapsedMs) {
   }
   return "closed";
 }
-/* When only the talking flag is in hand, the flag itself is
-   the plan's burst signal (the controller pulses it from
-   speechTalkingAt), so the pauses still close the mouth on
-   the plan's own timing. Inside one burst the shapes cycle
-   slot, narrow, wide, narrow over 440ms rather than scaling
-   one ellipse on a loop. */
 export function novaTalkShapeAt(burstElapsedMs) {
   const t = Math.max(0, burstElapsedMs || 0) % 440;
   if (t < 110) return "slot";
@@ -248,81 +182,121 @@ export function novaTalkShapeAt(burstElapsedMs) {
   return "narrow";
 }
 
-/* Lid rest offsets per expression, in units, positive down.
-   One state up is the greeting step (minus 2); one state
-   down toward closed is the thinking step (plus 2), then
-   fading (plus 5) and sleep (plus 11). Worried and
-   explaining sit one state up. Poked lids sit one state
-   lower, as the shipped rig had them. */
-export function novaLidOffsetFor(expression) {
+/* The stress value a speech phase carries: the mouth line
+   widens 3 percent at a burst's heart, narrows 2 percent
+   as it closes, and rests at its drawn width otherwise. */
+function novaMouthStressFor(shape) {
+  if (shape === "wide") return 1.03;
+  if (shape === "narrow") return 0.98;
+  return 1;
+}
+
+/* ── Lid positions ──────────────────────────────────────────
+   The authority lids are dark shapes clipped to the lens
+   circles, drawn parked above the lens (translate minus 46
+   on the left, minus 44 on the right) and dropped over it
+   to blink. A position here is that translate for the left
+   lid; the right rides 2 units higher, as drawn. The lid's
+   lower edge sits about 35 units below the lens top at
+   translate 0, so coverage of the 60 unit lens runs from
+   nothing at minus 46 to full at plus 25. Rest is minus
+   17, about 30 percent covered: low, stern, never fully
+   open, per the consult. Deadpan drops a further 15
+   percent of the lens (9 units) from rest. Sleep is full
+   closure. */
+export const NOVA_DROP_LID_CLOSED = 25;
+export function novaDropLidFor(expression) {
   switch (expression) {
-    case "greeting": return -2;
-    case "thinking": return 2;
-    case "poked": return 2.5;
-    case "fading": return 5;
-    case "sleep": return 11;
-    case "worried": return -2;
-    case "explaining": return -2;
-    default: return 0;
+    case "greeting": return -25;
+    case "explaining": return -23;
+    case "worried": return -23;
+    case "thinking": return -11;
+    case "pleased": return -19;
+    case "deadpan": return -8;
+    case "poked": return -11;
+    case "fading": return 8;
+    case "sleep": return NOVA_DROP_LID_CLOSED;
+    default: return -17;
   }
 }
 
-/* Brow transforms per expression. Worried is the audit
-   geometry: rotating each brow about its centre by 8
-   degrees, with a 1 unit lift, puts the inner end about 4
-   units up and the outer end about 2 units down. Poked is
-   the raised high state of spec 1.3 (the shipped rig pressed
-   the poked brow down 3.5 units, which read as deadpan; the
-   spec's raised high wins). */
-function novaBrowTransformsFor(expression, glassesFlash) {
-  let l = "", r = "";
-  if (expression === "greeting") { l = "translateY(-3px)"; r = l; }
-  else if (expression === "pleased") { l = "translateY(-2.5px)"; }
-  else if (expression === "deadpan") { l = "translateY(2px)"; r = l; }
-  else if (expression === "poked") { l = "translateY(-5px)"; r = l; }
-  else if (expression === "worried") {
-    l = "rotate(-8deg) translateY(-1px)";
-    r = "rotate(8deg) translateY(-1px)";
-  }
-  if (glassesFlash) {
-    const flash = "translateY(-2px)";
-    l = flash + (l ? " " + l : "");
-    r = flash + (r ? " " + r : "");
-  }
-  return { l, r };
+/* ── Attention ──────────────────────────────────────────────
+   The pointer feed is the contract's joystick, minus 100
+   to 100. On the drop it becomes a few units of face
+   cluster shift toward the pointer: the mass, lids, wire,
+   and mouth move; the body and its light stay. */
+export function novaAttentionShift(pointer) {
+  if (!pointer) return { x: 0, y: 0 };
+  const clamp = (v, m) => Math.max(-m, Math.min(m, v));
+  return {
+    x: Math.round(clamp(pointer.x * 0.03, 3) * 10) / 10,
+    y: Math.round(clamp(pointer.y * 0.02, 2) * 10) / 10,
+  };
 }
 
-const NOVA_FIGURE_CSS = `
-.nvf-root .nvf-breathe { transform-box: view-box; transform-origin: 240px 528px; animation: nvfBreathe var(--nvf-breath-dur, 4.8s) ease-in-out infinite alternate; }
-.nvf-root .nvf-headlag { transform-box: view-box; transform-origin: 240px 190px; animation: nvfBreatheHead var(--nvf-breath-dur, 4.8s) ease-in-out infinite alternate; animation-delay: 0.12s; }
-.nvf-root .nvf-gillbreath { transform-box: view-box; transform-origin: 240px 130px; animation: nvfBreatheHead var(--nvf-breath-dur, 4.8s) ease-in-out infinite alternate; animation-delay: 0.18s; }
-.nvf-root .nvf-tail { transform-box: view-box; transform-origin: 306px 532px; animation: nvfTail 9s ease-in-out infinite alternate; }
-.nvf-root .nvf-gill { transform-box: view-box; animation: nvfGill var(--nvf-gill-dur, 6.5s) ease-in-out infinite alternate; }
-.nvf-root .nvf-brow, .nvf-root .nvf-lids, .nvf-root .nvf-headexpr, .nvf-root .nvf-glasses { transition: transform var(--nvf-expr-ms, 300ms) ease; }
-.nvf-root .nvf-brow { transform-box: fill-box; transform-origin: 50% 50%; }
-.nvf-root .nvf-headexpr { transform-box: fill-box; transform-origin: 50% 62%; }
-.nvf-root .nvf-glasses { transition: transform 150ms ease; }
-.nvf-root[data-expression="thinking"] .nvf-headexpr { transform: rotate(1.4deg) translateX(2px); }
-.nvf-root[data-expression="explaining"] .nvf-headexpr { transform: rotate(1deg); }
-.nvf-root.nvf-still *, .nvf-root.nvf-still { animation: none !important; transition: none !important; }
-@keyframes nvfBreathe { from { transform: translateY(0) scale(1); } to { transform: translateY(calc(-1.5px * var(--nvf-amp, 1) * var(--nvf-sigh-amp, 1))) scale(calc(1 + 0.006 * var(--nvf-amp, 1) * var(--nvf-sigh-amp, 1))); } }
-@keyframes nvfBreatheHead { from { transform: translateY(0) scale(1); } to { transform: translateY(calc(-1.2px * var(--nvf-amp, 1) * var(--nvf-sigh-amp, 1))) scale(calc(1 + 0.0048 * var(--nvf-amp, 1) * var(--nvf-sigh-amp, 1))); } }
-@keyframes nvfTail { from { transform: rotate(-0.8deg); } to { transform: rotate(0.9deg); } }
-@keyframes nvfGill { from { transform: rotate(calc(var(--nvf-gill-travel, 3.4deg) * -0.5)); } to { transform: rotate(calc(var(--nvf-gill-travel, 3.4deg) * 0.5)); } }
+/* ── The authority geometry ─────────────────────────────────
+   Transcribed from Claude's SVG. The body path, the six
+   filaments (three a side, uneven, never mirrored) with
+   their sway values from the file's own animation (a and b
+   are the two turn extremes in degrees, dur the wobble
+   period in seconds, root the pivot the file rotates each
+   filament around), the filament roots under the surface,
+   and the lid paths. */
+const BODY_PATH = "M 238 108 C 306 110, 362 164, 362 230 C 362 294, 310 356, 244 356 C 180 356, 120 300, 120 238 C 120 172, 172 108, 238 108 Z";
+const RIM_ARC_PATH = "M 238 108 C 306 110, 362 164, 362 230 C 362 294, 310 356, 244 356";
+const FILAMENTS = [
+  { id: "Gill_L1", d: "M 145 157 C 117 137, 96 119, 70 100 C 88 124, 108 146, 139 165 Z", root: [145, 157], a: -1.3, b: 0.7, dur: 7.1 },
+  { id: "Gill_R1", d: "M 333 150 C 356 133, 376 120, 398 106 C 380 126, 362 146, 340 163 Z", root: [333, 150], a: 1.5, b: -0.6, dur: 8.3 },
+  { id: "Gill_L2", d: "M 121 223 C 98 220, 80 218, 62 215 C 80 222, 100 228, 122 232 Z", root: [121, 227], a: 1.1, b: -1.4, dur: 6.2 },
+  { id: "Gill_R2", d: "M 360 220 C 384 219, 404 217, 424 214 C 404 223, 382 229, 360 231 Z", root: [360, 225], a: -1.0, b: 1.2, dur: 5.4 },
+  { id: "Gill_L3", d: "M 145 297 C 129 310, 116 324, 102 340 C 112 320, 126 304, 150 304 Z", root: [147, 300], a: 0.9, b: -1.1, dur: 7.8 },
+  { id: "Gill_R3", d: "M 335 298 C 350 310, 360 320, 370 332 C 362 314, 352 304, 341 296 Z", root: [337, 300], a: -1.2, b: 0.8, dur: 6.7 },
+];
+const FILAMENT_ROOTS = [
+  { d: "M 142 162 C 158 176, 170 186, 182 194", w: 4 },
+  { d: "M 336 155 C 322 170, 312 180, 302 189", w: 3.5 },
+  { d: "M 124 227 C 142 230, 154 232, 166 234", w: 3.6 },
+  { d: "M 357 226 C 340 228, 328 230, 316 232", w: 3.2 },
+  { d: "M 148 300 C 162 290, 172 284, 182 278", w: 3 },
+  { d: "M 334 299 C 322 290, 314 285, 306 280", w: 2.8 },
+];
+const LID_L_PATH = "M 160 170 L 234 170 L 234 212 C 214 221, 180 221, 160 212 Z";
+const LID_R_PATH = "M 252 174 L 322 174 L 322 214 C 304 223, 272 223, 252 214 Z";
+const GOLD_BAR_PATH = "M 150 212 C 178 214, 262 218, 334 222";
+const GOLD_ARC_L = "M 170 203 A 30 30 0 0 1 210 190";
+const GOLD_ARC_R = "M 262 207 A 28 28 0 0 1 294 192";
+const MOUTH_PATH = "M 228 277 L 254 277.5";
+
+/* Her placement on the seam's 480 by 640 canvas: the
+   authority artwork scaled 0.85. Bust mounts anchor her at
+   the top, in the head zone the rig's bust crop reads;
+   full mounts stand her on her contact shadow, low in the
+   box the way the standing figure stood on its line. */
+const ART_SCALE = 0.85;
+const PLACE = {
+  bust: { x: 36, y: 2 },
+  full: { x: 36, y: 250 },
+};
+const MASS_CENTER = { x: 237, y: 241 };
+
+const NOVA_DROP_CSS = `
+.nvd-root .nvd-arrive { animation: nvdArrive 400ms ease-out both; transform-box: fill-box; transform-origin: 50% 50%; }
+.nvd-root .nvd-gold-in { animation: nvdGoldIn 200ms ease-out 200ms both; }
+.nvd-root .nvd-ripple { animation: nvdRipple 900ms ease-out both; }
+.nvd-root.nvd-still *, .nvd-root.nvd-still { animation: none !important; transition: none !important; }
+@keyframes nvdArrive { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
+@keyframes nvdGoldIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes nvdRipple { 0% { transform: translateX(-70px); opacity: 0; } 30% { opacity: 0.10; } 100% { transform: translateX(120px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .nvf-root *, .nvf-root { animation: none !important; transition: none !important; }
+  .nvd-root *, .nvd-root { animation: none !important; transition: none !important; }
 }
 `;
 
 /* The resting expression and its neighbours, read off the
-   same feeds the Rive contract carried. Sleep outranks
-   everything; a result outranks a thought; the default,
-   when nothing is being asked of her, is the stern face.
-   Worried and explaining pass through as themselves now:
-   their triggers (the second straight miss, a streak at
-   risk, a darkened mood, the lesson sheet's third phase)
-   already produced these names upstream and the rig used
-   to drop them to stern. */
+   same feeds the contract carried, unchanged from the rig:
+   sleep outranks everything, a result outranks a thought,
+   and the default, when nothing is being asked of her, is
+   the stern face. */
 function baseExpressionFor({ state, quizState, appState, sleepStage, scanning }) {
   if (sleepStage >= 2 || state === "asleep") return "sleep";
   if (sleepStage === 1 || state === "fading") return "fading";
@@ -346,16 +320,33 @@ function userIsTypingNow(eventTarget) {
   }
 }
 
+/* One filament's sway angle at a moment in its wobble: the
+   authority file turns each filament from rest to a, then
+   to b, then back to rest over its period. Cosine steps
+   keep the turns soft; there is no overshoot in the shape. */
+function filamentAngleAt(tickMs, durS, a, b) {
+  const period = durS * 1000;
+  const f = ((tickMs % period) + period) % period / period;
+  const seg = (t0, t1, v0, v1, t) => {
+    const u = Math.max(0, Math.min(1, (t - t0) / (t1 - t0)));
+    const s = 0.5 - 0.5 * Math.cos(u * Math.PI);
+    return v0 + (v1 - v0) * s;
+  };
+  if (f < 0.35) return seg(0, 0.35, 0, a, f);
+  if (f < 0.7) return seg(0.35, 0.7, a, b, f);
+  return seg(0.7, 1, b, 0, f);
+}
+
 export function NovaFigure(props) {
   const {
     state = null, quizState = 0, appState = 0, sleepStage = 0, scanning = false,
     talking = false, pointer = null, reducedMotion = false, pokeN = 0, celebrateN = 0,
     bust = false,
   } = props;
-  /* Optional speech plan feeds (see the header note): a
-     controller object, a plan, or a line of text to plan
-     from. All optional; the shipped seam passes none of
-     them and the talking flag carries the plan's timing. */
+  /* Optional speech plan feeds, as on the rig: a controller
+     object, a plan, or a line of text to plan from. All
+     optional; the shipped seam passes none of them and the
+     talking flag carries the plan's timing. */
   const speechProp = props.speech || null;
   const speechCurrent = speechProp && speechProp.current ? speechProp.current : null;
   const plan = useMemo(() => props.speechPlan || (speechCurrent && speechCurrent.plan)
@@ -407,18 +398,17 @@ export function NovaFigure(props) {
     };
   }, [bust]);
   const sizeClass = sizeInfo.name;
-  const amp = sizeInfo.multiplier;
   const smallClass = sizeClass === "small";
+  const boost = NOVA_IDENTITY_BOOST[sizeClass] || 1;
 
-  /* Poke and celebrate arrive as counters, the same
-     contract the canvas bound to triggers: a rising count
-     flashes the matching expression, then she settles back
-     to whatever the feeds say. A poke earns the poked face
-     for 750ms (spec 1.3); a celebration earns the dry
-     pleased face for 1600ms, never a bounce. The recoil
-     that accompanies a poke lives on the NovaLive wrapper
-     in LearnView.jsx, per the owner's ruling: rotation and
-     a lateral shift, no scale anywhere. */
+  /* Poke and celebrate arrive as counters, the contract the
+     canvas bound to triggers: a rising count flashes the
+     matching expression, then she settles back to whatever
+     the feeds say. A poke earns the dipped lid face for
+     750ms; a celebration earns the pleased state for
+     1600ms, never a bounce. The recoil that accompanies a
+     poke lives on the NovaLive wrapper, per the owner's
+     ruling: rotation and a lateral shift, no scale. */
   const [flash, setFlash] = useState(null);
   const prevPokeRef = useRef(pokeN);
   const prevCelebrateRef = useRef(celebrateN);
@@ -444,10 +434,9 @@ export function NovaFigure(props) {
   /* ── Pre sleep resistance ───────────────────────────────
      When the sleep stage steps up toward fading, she first
      performs one long blink that closes and reopens, and
-     only then does the fading face land: the drift reads as
-     resisted, not as a slider. The long blink is larger and
-     slower in the small class, where a stage sized blink
-     would barely register at 66px. */
+     only then does the fading face land. The long blink is
+     larger and slower in the small class, where a stage
+     sized blink would barely register at 66px. */
   const [resisting, setResisting] = useState(false);
   const [longBlink, setLongBlink] = useState(null);
   const prevSleepRef = useRef(sleepStage);
@@ -478,12 +467,9 @@ export function NovaFigure(props) {
   const awake = expression !== "sleep" && expression !== "fading";
 
   /* Expression transition duration for this change, from
-     the table, held in a CSS variable the brow, lid, and
-     head transitions all read. Derived during render (the
-     tracked previous expression lives in state and updates
-     in the same render), because a duration set in an
-     effect would land one change late: the transition it
-     prices would already have run at the old value. */
+     the table, derived during render the way the rig
+     derived it, because a duration set in an effect would
+     land one change late. */
   const [exprTrack, setExprTrack] = useState({ expr: expression, ms: 300 });
   let exprMs = exprTrack.ms;
   if (exprTrack.expr !== expression) {
@@ -493,18 +479,16 @@ export function NovaFigure(props) {
 
   /* ── The blink engine ───────────────────────────────────
      A timeout chain, not a loop with a fixed period: wait a
-     randomized interval, close in 80ms, hold 40ms, open in
-     160ms ease out; 12 percent of blinks blink twice. Off
-     while she sleeps and under reduced motion. The closed
-     travel is one unit larger in the small class so the
-     blink still reads at 66px. */
+     randomized 7 to 13 seconds, close in 90ms, hold 40ms,
+     reopen in 260ms ease out. Off while she sleeps and
+     under reduced motion. */
   const [blinkPhase, setBlinkPhase] = useState("open");
   useEffect(() => {
     if (reducedMotion || expression === "sleep") { setBlinkPhase("open"); return undefined; }
     let cancelled = false;
     const timers = [];
     const later = (fn, ms) => { timers.push(setTimeout(() => { if (!cancelled) fn(); }, ms)); };
-    const oneBlink = (again) => {
+    const oneBlink = () => {
       setBlinkPhase("closing");
       later(() => {
         setBlinkPhase("closed");
@@ -512,58 +496,22 @@ export function NovaFigure(props) {
           setBlinkPhase("opening");
           later(() => {
             setBlinkPhase("open");
-            if (again) later(() => oneBlink(false), 140);
-            else later(() => oneBlink(Math.random() < NOVA_BLINK_DOUBLE_CHANCE), novaBlinkIntervalMs());
+            later(oneBlink, novaBlinkIntervalMs());
           }, NOVA_BLINK_OPEN_MS);
         }, NOVA_BLINK_HOLD_MS);
       }, NOVA_BLINK_CLOSE_MS);
     };
-    later(() => oneBlink(Math.random() < NOVA_BLINK_DOUBLE_CHANCE), novaBlinkIntervalMs());
+    later(oneBlink, novaBlinkIntervalMs());
     return () => { cancelled = true; timers.forEach((t) => clearTimeout(t)); };
   }, [reducedMotion, expression === "sleep"]);
-  const blinkCloseY = smallClass ? 9 : 8;
-  const blinkY = longBlink
-    ? (longBlink.phase === "opening" ? 0 : blinkCloseY)
-    : (blinkPhase === "closing" || blinkPhase === "closed" ? blinkCloseY : 0);
-  const blinkTransitionMs = longBlink
-    ? (longBlink.phase === "opening" ? longBlink.openMs : longBlink.closeMs)
-    : blinkPhase === "opening" ? NOVA_BLINK_OPEN_MS : blinkPhase === "closing" ? NOVA_BLINK_CLOSE_MS : NOVA_BLINK_CLOSE_MS;
-  const blinkEase = (longBlink && longBlink.phase === "opening") || blinkPhase === "opening" ? "ease-out" : "ease";
-
-  /* ── Micro saccades ─────────────────────────────────────
-     Stage and medium classes only, awake only, never under
-     reduced motion. The pupils jump 0.6 to 1.2 units (times
-     the bucket multiplier) at irregular 1.5 to 4 second
-     intervals and hold; there is no transition on the eye
-     group, so a shift is instant and never a glide. */
-  const [saccade, setSaccade] = useState({ x: 0, y: 0 });
-  useEffect(() => {
-    if (reducedMotion || smallClass || !awake) { setSaccade({ x: 0, y: 0 }); return undefined; }
-    let cancelled = false;
-    const timers = [];
-    const step = () => {
-      const mag = (0.6 + Math.random() * 0.6) * amp;
-      const dir = Math.random() < 0.5 ? -1 : 1;
-      setSaccade({ x: Math.round(mag * dir * 10) / 10, y: Math.round(mag * (Math.random() - 0.5) * 8) / 10 });
-      timers.push(setTimeout(() => { if (!cancelled) step(); }, 1500 + Math.random() * 2500));
-    };
-    timers.push(setTimeout(() => { if (!cancelled) step(); }, 1500 + Math.random() * 2500));
-    return () => { cancelled = true; timers.forEach((t) => clearTimeout(t)); };
-  }, [reducedMotion, smallClass, awake, amp]);
 
   /* ── Attention wake and reread ──────────────────────────
      Attention wake: the moment typing starts, her lids rise
-     one state, before any line answers. Reread: when
+     one step, before any line answers. Reread: when
      attention returns to her (the tab or window comes back,
      or the pointer returns to her), her lids narrow one
-     state for 2 to 4 seconds, then release. In the small
-     class both beats take a larger state step, and reread
-     presses the brow as well, because a 2 unit lid step is
-     under a pixel at 66px. A new question landing in view
-     reaches this rig only as the thinking face it already
-     wears; no separate feed for it crosses NovaCanvas, so
-     that subtrigger rides the attention return signals
-     above. */
+     step for 2 to 4 seconds, then release. Both were lid
+     beats on the rig and are lid beats here. */
   const [attentionWake, setAttentionWake] = useState(false);
   const [reread, setReread] = useState(false);
   const wakeTimerRef = useRef(null);
@@ -595,77 +543,12 @@ export function NovaFigure(props) {
     };
   }, []);
 
-  /* ── Weight shift and sigh ──────────────────────────────
-     Stage and medium only, awake only, never under reduced
-     motion. Weight shift: every 20 to 60 seconds she
-     resettles, 1 to 2 degrees of lean and a 1 unit height
-     change (times the bucket multiplier), settling over
-     600ms, holds a few seconds, and settles back. Sigh:
-     every 2 to 5 minutes, one breath cycle at 1.5 amplitude
-     and 1.3 duration, which the breath CSS variables below
-     carry. */
-  const [weightShift, setWeightShift] = useState({ deg: 0, dy: 0 });
-  const [sigh, setSigh] = useState(false);
-  const rareBeatsOk = !reducedMotion && !smallClass && awake;
-  useEffect(() => {
-    if (!rareBeatsOk) { setWeightShift({ deg: 0, dy: 0 }); return undefined; }
-    let cancelled = false;
-    const timers = [];
-    const cycle = () => {
-      const deg = Math.round((1 + Math.random()) * (Math.random() < 0.5 ? -1 : 1) * 10) / 10;
-      const dy = Math.round((Math.random() < 0.5 ? -1 : 1) * amp * 10) / 10;
-      setWeightShift({ deg, dy });
-      timers.push(setTimeout(() => { if (!cancelled) setWeightShift({ deg: 0, dy: 0 }); }, 4000 + Math.random() * 4000));
-      timers.push(setTimeout(() => { if (!cancelled) cycle(); }, 20000 + Math.random() * 40000));
-    };
-    timers.push(setTimeout(() => { if (!cancelled) cycle(); }, 20000 + Math.random() * 40000));
-    return () => { cancelled = true; timers.forEach((t) => clearTimeout(t)); };
-  }, [rareBeatsOk, amp]);
-  useEffect(() => {
-    if (!rareBeatsOk) { setSigh(false); return undefined; }
-    let cancelled = false;
-    const timers = [];
-    const cycle = () => {
-      setSigh(true);
-      /* One full breath cycle at the sighed duration is a
-         rise and a fall: two alternate iterations. Holding
-         for both keeps the duration from reverting mid pose. */
-      timers.push(setTimeout(() => { if (!cancelled) setSigh(false); }, Math.round(NOVA_BREATH_MS * 1.3 * 2)));
-      timers.push(setTimeout(() => { if (!cancelled) cycle(); }, 120000 + Math.random() * 180000));
-    };
-    timers.push(setTimeout(() => { if (!cancelled) cycle(); }, 120000 + Math.random() * 180000));
-    return () => { cancelled = true; timers.forEach((t) => clearTimeout(t)); };
-  }, [rareBeatsOk]);
-
-  /* ── Glasses adjust ─────────────────────────────────────
-     Stage only, awake only, no more often than the sigh:
-     the first beat waits at least 4 minutes and repeats at
-     4 to 7 minute intervals, slower than the sigh's 2 to 5.
-     The glasses rise 2 units (times the bucket multiplier,
-     which is 1 on the stage) over 150ms and settle back,
-     with the brow flashing raised under them. */
-  const [glassesUp, setGlassesUp] = useState(false);
-  useEffect(() => {
-    if (reducedMotion || sizeClass !== "stage" || !awake) { setGlassesUp(false); return undefined; }
-    let cancelled = false;
-    const timers = [];
-    const cycle = () => {
-      setGlassesUp(true);
-      timers.push(setTimeout(() => { if (!cancelled) setGlassesUp(false); }, 500));
-      timers.push(setTimeout(() => { if (!cancelled) cycle(); }, 240000 + Math.random() * 180000));
-    };
-    timers.push(setTimeout(() => { if (!cancelled) cycle(); }, 240000 + Math.random() * 180000));
-    return () => { cancelled = true; timers.forEach((t) => clearTimeout(t)); };
-  }, [reducedMotion, sizeClass, awake]);
-
-  /* ── The mouth ──────────────────────────────────────────
-     Plan first: when a plan and a start time are in hand, a
-     60ms clock (the controller's own cadence) reads the
-     shape off the plan. Flag second: the talking flag's
-     rising edge starts a burst, shapes cycle inside it, and
-     the flag falling closes the mouth, which is the plan's
-     pause arriving through the seam. Under reduced motion
-     the mouth does not perform at all. */
+  /* ── Speech: plan, stress, boundaries ───────────────────
+     The plan readers above give the current phase. The
+     phase drives the mouth line's stress value, and its
+     boundaries (a burst starting) fire the lid nudge and
+     the pressure ripple, once per burst. Under reduced
+     motion her mouth does not perform at all. */
   const [nowMs, setNowMs] = useState(0);
   useEffect(() => {
     if (!plan || planStartMs == null || reducedMotion) return undefined;
@@ -688,81 +571,128 @@ export function NovaFigure(props) {
     return () => clearInterval(iv);
   }, [talking, reducedMotion]);
   const planShape = plan && planStartMs != null && !reducedMotion ? novaMouthShapeAt(plan, nowMs - planStartMs) : null;
-  const speaking = !reducedMotion && (talking || (planShape != null && planShape !== "closed") || (plan != null && planStartMs == null && talking));
-  let activeMouth = "flat";
-  if (speaking) {
-    const shape = planShape != null ? planShape : burstShape;
-    activeMouth = shape === "closed" ? "flat" : shape;
-  } else if (expression === "pleased") activeMouth = "smirk";
-  else if (expression === "worried") activeMouth = "worried";
-  else if (expression === "explaining") activeMouth = "narrow";
-  const mouthShown = (name) => (activeMouth === name ? "block" : "none");
+  const speaking = !reducedMotion && (talking || (planShape != null && planShape !== "closed"));
+  const shapeNow = speaking ? (planShape != null ? planShape : burstShape) : "closed";
+  const mouthStress = speaking ? novaMouthStressFor(shapeNow) : 1;
 
-  /* Lid offset: the expression's own step, plus the
-     attention wake and reread steps while she is awake.
-     Small class steps are larger, by the owner's bust
-     weighting: wake minus 3.5 with a brow lift, reread plus
-     3.5 with a brow press, against minus 2 and plus 2 on
-     the larger classes. */
-  let lidY = novaLidOffsetFor(expression);
-  let browExtraL = "", browExtraR = "";
-  if (awake && expression !== "poked") {
-    if (attentionWake) {
-      lidY += smallClass ? -3.5 : -2;
-      if (smallClass) { browExtraL = "translateY(-2px)"; browExtraR = browExtraL; }
+  const [talkNudge, setTalkNudge] = useState(false);
+  const [rippleKey, setRippleKey] = useState(0);
+  const prevShapeRef = useRef("closed");
+  const nudgeTimerRef = useRef(null);
+  useEffect(() => {
+    const prev = prevShapeRef.current;
+    prevShapeRef.current = shapeNow;
+    if (reducedMotion) return undefined;
+    if (prev === "closed" && shapeNow !== "closed") {
+      setTalkNudge(true);
+      setRippleKey((k) => k + 1);
+      if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+      nudgeTimerRef.current = setTimeout(() => setTalkNudge(false), 240);
     }
-    if (reread) {
-      lidY += smallClass ? 3.5 : 2;
-      if (smallClass) { browExtraL = "translateY(1.5px)"; browExtraR = browExtraL; }
-    }
-  }
-  lidY = Math.max(-5.5, Math.min(11, lidY));
-  const brows = novaBrowTransformsFor(expression, glassesUp);
-  const browL = (browExtraL ? browExtraL + " " : "") + brows.l;
-  const browR = (browExtraR ? browExtraR + " " : "") + brows.r;
+    return undefined;
+  }, [shapeNow, reducedMotion]);
+  useEffect(() => () => { if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current); }, []);
+  const rippleLive = rippleKey > 0 && speaking;
 
-  const breathDurS = expression === "sleep" ? (NOVA_BREATH_SLEEP_MS / 1000) + "s" : sigh ? ((NOVA_BREATH_MS * 1.3) / 1000) + "s" : (NOVA_BREATH_MS / 1000) + "s";
-  const rootVars = {
-    "--nvf-amp": amp,
-    "--nvf-sigh-amp": sigh ? 1.5 : 1,
-    "--nvf-breath-dur": breathDurS,
-    "--nvf-expr-ms": exprMs + "ms",
-  };
-
-  /* The pointer feed is the contract's joystick, minus 100
-     to 100: it becomes a few degrees and a few pixels of
-     head turn around the neck pivot, the layered parallax
-     the rig always promised, and nothing larger. Kept as
-     shipped: aim up to 3.2 across and 2.4 down rides the
-     NovaLive gaze feed, and the head tilt here caps at 2.2
-     degrees. */
-  const headTilt = pointer
-    ? {
-        transform: `rotate(${(pointer.x * 0.022).toFixed(2)}deg) translate(${(pointer.x * 0.035).toFixed(1)}px, ${(pointer.y * 0.02).toFixed(1)}px)`,
-        transformOrigin: "240px 190px",
-        transformBox: "view-box",
-        transition: "transform 260ms ease",
+  /* ── The motion clock ───────────────────────────────────
+     One 120ms clock drives the idle life, so the parts
+     keep their relations: the drift is a 5 second sine,
+     the filaments read the same clock 200ms behind it,
+     the mass turns on a 22 second cycle, and the filament
+     sway eases in and out with its causes (thinking and
+     sleep still the filaments; pleased lifts them). The
+     phases freeze while she sleeps; the drift settles to
+     centre as she goes. Under reduced motion the clock
+     never runs and every value sits at rest. */
+  const [motion, setMotion] = useState({ driftY: 0, lagY: 0, massAngle: 0, gillAmp: 1, liftDeg: 0, angles: FILAMENTS.map(() => 0), orbit: null });
+  const phaseRef = useRef({ drift: 0, mass: 0, tick: 0, gillAmp: 1, lift: 0, driftY: 0 });
+  useEffect(() => {
+    if (reducedMotion) return undefined;
+    let last = Date.now();
+    const iv = setInterval(() => {
+      const now = Date.now();
+      const dt = Math.min(250, now - last);
+      last = now;
+      const PH = phaseRef.current;
+      PH.tick += dt;
+      const sleeping = expression === "sleep";
+      if (!sleeping) {
+        PH.drift += dt;
+        PH.mass += dt;
       }
-    : { transformOrigin: "240px 190px", transformBox: "view-box", transition: "transform 260ms ease" };
+      const driftTarget = sleeping ? 0 : Math.sin((PH.drift / 5000) * Math.PI * 2) * 6;
+      PH.driftY += (driftTarget - PH.driftY) * Math.min(1, dt / 300);
+      const lagTarget = sleeping ? 0 : Math.sin(((PH.drift - 200) / 5000) * Math.PI * 2) * 6;
+      const gillTarget = (sleeping || expression === "thinking") ? 0 : 1;
+      PH.gillAmp += (gillTarget - PH.gillAmp) * Math.min(1, dt / 600);
+      const liftTarget = expression === "pleased" ? -2.2 : 0;
+      PH.lift += (liftTarget - PH.lift) * Math.min(1, dt / 600);
+      setMotion({
+        driftY: Math.round(PH.driftY * 100) / 100,
+        lagY: Math.round(lagTarget * 100) / 100,
+        massAngle: Math.round(((PH.mass / 22000) * 360 % 360) * 10) / 10,
+        gillAmp: PH.gillAmp,
+        liftDeg: Math.round(PH.lift * 100) / 100,
+        angles: FILAMENTS.map((f) => Math.round(filamentAngleAt(PH.tick, f.dur, f.a, f.b) * PH.gillAmp * 100) / 100),
+        orbit: expression === "thinking"
+          ? {
+              x: Math.round((MASS_CENTER.x + 20 * Math.cos((PH.tick / 2000) * Math.PI * 2)) * 10) / 10,
+              y: Math.round((MASS_CENTER.y + 13 * Math.sin((PH.tick / 2000) * Math.PI * 2)) * 10) / 10,
+            }
+          : null,
+      });
+    }, 120);
+    return () => clearInterval(iv);
+  }, [reducedMotion, expression]);
+  /* The filament layer reads the drift 200ms behind the
+     body: the same sine at the lagged phase, carried in
+     the clock's state as lagY, applied as the layer's own
+     offset from the body's driftY. */
 
-  const gillStyle = (i, origin) => {
-    const sway = smallClass ? NOVA_GILL_SWAY_SMALL : NOVA_GILL_SWAY[i];
-    return {
-      transformOrigin: origin,
-      animationDuration: sway.periodS + "s",
-      animationDelay: sway.delayS + "s",
-      "--nvf-gill-dur": sway.periodS + "s",
-      "--nvf-gill-travel": sway.travelDeg + "deg",
-    };
-  };
-  /* The gill keyframe reads its duration and travel from
-     these variables, so they ride the element style; the
-     animation shorthand in the stylesheet names the
-     keyframes only. */
-  const gillAnimStyle = (i, origin) => {
-    const s = gillStyle(i, origin);
-    return { ...s, animationName: "nvfGill", animationDuration: s["--nvf-gill-dur"], animationTimingFunction: "ease-in-out", animationIterationCount: "infinite", animationDirection: "alternate" };
-  };
+  /* ── Lid composition ────────────────────────────────────
+     The outer group carries the expression's position (plus
+     the wake, reread, and talking nudges while she is
+     awake); the inner group carries the blink's closure,
+     travelling from wherever the lids sit to full closure.
+     The right lid rides 2 units higher throughout, as
+     drawn in the authority file. */
+  let lidBase = novaDropLidFor(expression);
+  if (awake && expression !== "poked") {
+    if (attentionWake) lidBase -= 4;
+    if (reread) lidBase += 4;
+    if (talkNudge) lidBase -= 2;
+  }
+  lidBase = Math.max(-30, Math.min(NOVA_DROP_LID_CLOSED, lidBase));
+  const blinkClosed = longBlink ? longBlink.phase !== "opening" : (blinkPhase === "closing" || blinkPhase === "closed");
+  const blinkDelta = blinkClosed ? NOVA_DROP_LID_CLOSED - lidBase : 0;
+  const blinkMs = longBlink
+    ? (longBlink.phase === "opening" ? longBlink.openMs : longBlink.closeMs)
+    : blinkPhase === "opening" ? NOVA_BLINK_OPEN_MS : blinkPhase === "closing" ? NOVA_BLINK_CLOSE_MS : NOVA_BLINK_CLOSE_MS;
+  const blinkEase = (longBlink && longBlink.phase === "opening") || blinkPhase === "opening" ? "ease-out" : "ease";
+  const lidGroup = (clipId, path, dy) => (
+    <g clipPath={`url(#${clipId})`}>
+      <g style={{ transform: `translateY(${lidBase + dy}px)`, transition: `transform ${exprMs}ms ease` }}>
+        <g style={{ transform: `translateY(${blinkDelta}px)`, transition: `transform ${blinkMs}ms ${blinkEase}` }}>
+          <path d={path} fill={T.lid} />
+        </g>
+      </g>
+    </g>
+  );
+
+  /* Attention and the unimpressed drift. The face cluster
+     shifts toward the pointer over 250ms; the filaments
+     follow the same shift at 40 percent over 450ms, so
+     they trail and settle. Deadpan adds her drift away:
+     a few canvas units opposite the pointer's side, on
+     the placement itself. */
+  const att = novaAttentionShift(pointer);
+  const awayShift = expression === "deadpan" ? (pointer && pointer.x > 0 ? -5 : 5) : 0;
+  const place = bust ? PLACE.bust : PLACE.full;
+  const shadowCx = place.x + 246 * ART_SCALE;
+  const shadowCy = place.y + 371 * ART_SCALE;
+  const specularScale = (smallClass ? 1.15 : 1) * (expression === "pleased" ? 1.15 : 1);
+
+  const stops = (list) => list.map((s, i) => <stop key={i} offset={s[0]} stopColor={s[1]} />);
 
   return (
     <span ref={wrapRef} style={{ display: "block", width: "100%", height: "100%" }}
@@ -771,151 +701,170 @@ export function NovaFigure(props) {
         if (rereadTimerRef.current) clearTimeout(rereadTimerRef.current);
         rereadTimerRef.current = setTimeout(() => setReread(false), 2000 + Math.random() * 2000);
       }}>
-      <style>{NOVA_FIGURE_CSS}</style>
+      <style>{NOVA_DROP_CSS}</style>
       <svg
-        className={"nvf-root" + (reducedMotion ? " nvf-still" : "")}
-        data-nova-figure="rig"
+        className={"nvd-root" + (reducedMotion ? " nvd-still" : "")}
+        data-nova-figure="drop"
         data-expression={expression}
         data-talking={talking ? "true" : "false"}
         data-size-class={sizeClass}
-        data-amp={amp}
-        data-mouth={activeMouth}
+        data-mouth={speaking ? "talk" : "flat"}
         data-blink={longBlink ? "long-" + longBlink.phase : blinkPhase}
+        data-attention={pointer ? "on" : "off"}
         viewBox="0 0 480 640"
         preserveAspectRatio={bust ? "xMidYMin meet" : "xMidYMax meet"}
         width="100%"
         height="100%"
-        style={{ display: "block", ...rootVars }}
+        style={{ display: "block" }}
         aria-hidden="true"
       >
-        <g id="WeightShift" style={{
-          transform: weightShift.deg || weightShift.dy ? `rotate(${weightShift.deg}deg) translateY(${weightShift.dy}px)` : "none",
-          transformOrigin: "240px 630px",
+        <defs>
+          <radialGradient id="nvdPoolRefracted" cx={T.poolRefracted.cx} cy={T.poolRefracted.cy} r={T.poolRefracted.r}>
+            {stops(T.poolRefracted.stops)}
+          </radialGradient>
+          <radialGradient id="nvdWater" cx={T.water.cx} cy={T.water.cy} r={T.water.r}>
+            {stops(T.water.stops)}
+          </radialGradient>
+          <radialGradient id="nvdGill" gradientUnits="userSpaceOnUse" cx={T.gill.cx} cy={T.gill.cy} r={T.gill.r}>
+            {stops(T.gill.stops)}
+          </radialGradient>
+          <filter id="nvdSoftMass" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="10" />
+          </filter>
+          <filter id="nvdSoftMassTight" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="6" />
+          </filter>
+          <filter id="nvdSoftLens" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="3.2" />
+          </filter>
+          <filter id="nvdSoftShadow" x="-60%" y="-120%" width="220%" height="340%">
+            <feGaussianBlur stdDeviation="13" />
+          </filter>
+          <filter id="nvdSoftRoot" x="-60%" y="-60%" width="220%" height="220%">
+            <feGaussianBlur stdDeviation="2.4" />
+          </filter>
+          <filter id="nvdEdgeSoft" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="0.5" />
+          </filter>
+          <path id="nvdBodyPath" d={BODY_PATH} />
+          <clipPath id="nvdBodyClip"><use href="#nvdBodyPath" /></clipPath>
+          <clipPath id="nvdLensL"><circle cx="196" cy="216" r="30" /></clipPath>
+          <clipPath id="nvdLensR"><circle cx="285" cy="219" r="28" /></clipPath>
+        </defs>
+
+        {/* The contact shadow sits on the mount's own ground,
+            outside the placed artwork: she drifts, it stays. */}
+        <ellipse cx={shadowCx} cy={shadowCy} rx={99 * ART_SCALE} ry={15 * ART_SCALE} fill="#000000" opacity="0.82" filter="url(#nvdSoftShadow)" />
+        <ellipse cx={place.x + 244 * ART_SCALE} cy={place.y + 366 * ART_SCALE} rx={54 * ART_SCALE} ry={8 * ART_SCALE} fill="#000000" opacity="0.6" filter="url(#nvdSoftShadow)" />
+
+        <g style={{
+          transform: `translate(${place.x + awayShift}px, ${place.y}px) scale(${ART_SCALE})`,
           transformBox: "view-box",
-          transition: "transform 600ms ease",
+          transition: "transform 300ms ease",
         }}>
-        <g id="Tail" className="nvf-tail">
-          <path d="M 306 512 C 374 538 424 564 450 596 C 458 606 450 618 434 616 C 382 608 336 584 306 556 C 298 536 298 524 306 512 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-          <path d="M 330 552 C 372 572 404 588 424 600" fill="none" stroke={LINE} strokeWidth={THIN} strokeLinecap="round" />
-        </g>
-        <g id="Legs">
-          <path d="M 201 480 L 231 480 L 232 596 L 200 596 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-          <path d="M 249 480 L 279 480 L 280 596 L 248 596 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-          <path d="M 188 594 C 186 607 195 615 210 615 L 232 615 C 244 615 248 606 242 597 C 234 589 196 587 188 594 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-          <path d="M 238 594 C 236 607 245 615 260 615 L 282 615 C 294 615 298 606 292 597 C 284 589 246 587 238 594 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-          <path d="M 210 600 L 212 608 M 226 600 L 228 608 M 260 600 L 262 608 M 276 600 L 278 608" stroke={LINE} strokeWidth={THIN} strokeLinecap="round" />
-        </g>
-        <g id="Neck">
-          <path d="M 216 168 L 216 212 C 216 222 264 222 264 212 L 264 168 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-        </g>
-        <g id="Upper">
-          <g id="TorsoBreath" className="nvf-breathe">
-          <g id="Body">
-            <path d="M 170 212 C 156 217 149 230 147 258 L 142 506 C 142 520 150 528 164 528 L 316 528 C 330 528 338 520 338 506 L 333 258 C 331 230 324 217 310 212 C 278 224 202 224 170 212 Z" fill={COAT} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-            <path d="M 234 252 L 234 520 M 246 252 L 246 520" stroke={LINE} strokeWidth={THIN} />
-            <circle cx="240" cy="306" r="4.5" fill={GOLD} stroke={LINE} strokeWidth="2" />
-            <circle cx="240" cy="368" r="4.5" fill={GOLD} stroke={LINE} strokeWidth="2" />
-            <circle cx="240" cy="430" r="4.5" fill={GOLD} stroke={LINE} strokeWidth="2" />
-            <path d="M 234 226 L 198 216 L 208 268 L 234 288 Z" fill={COAT} stroke={LINE} strokeWidth={THIN} strokeLinejoin="round" />
-            <path d="M 246 226 L 282 216 L 272 268 L 246 288 Z" fill={COAT} stroke={LINE} strokeWidth={THIN} strokeLinejoin="round" />
-            <path d="M 168 420 L 216 420 L 216 446 L 168 446 Z" fill={COAT} stroke={LINE} strokeWidth={THIN} strokeLinejoin="round" />
-            <path d="M 264 420 L 312 420 L 312 446 L 264 446 Z" fill={COAT} stroke={LINE} strokeWidth={THIN} strokeLinejoin="round" />
-            <g id="Badge" transform="translate(174 326) rotate(-2)">
-              <rect x="0" y="0" width="46" height="56" rx="5" fill={COAT} stroke={LINE} strokeWidth={THIN} />
-              <rect x="0" y="0" width="46" height="10" fill={GOLD} />
-              <circle cx="23" cy="27" r="8" fill={SKIN} stroke={LINE} strokeWidth="2" />
-              <path d="M 10 43 L 36 43 M 10 49 L 29 49" stroke={LINE} strokeWidth="2" strokeLinecap="round" />
-            </g>
-          </g>
-          <g id="Arm_L">
-            <path d="M 168 216 C 148 224 138 246 136 276 L 128 420 C 127 434 134 442 146 442 L 162 442 C 172 442 176 434 176 422 L 180 300 C 182 262 178 232 168 216 Z" fill={COAT} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-            <path d="M 130 404 L 178 404 L 178 424 L 130 424 Z" fill={COAT} stroke={LINE} strokeWidth={THIN} strokeLinejoin="round" />
-            <path d="M 138 442 C 134 462 138 480 150 482 C 162 484 169 472 169 454 L 169 442 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-          </g>
-          <g id="Arm_R">
-            <path d="M 310 214 C 334 220 352 238 358 266 L 366 330 C 368 342 362 350 352 348 L 330 344 C 322 342 318 336 317 326 L 313 262 C 311 240 308 226 310 214 Z" fill={COAT} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-            <path d="M 352 348 C 346 376 342 392 338 404 L 316 398 C 322 374 328 356 330 344 Z" fill={COAT} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-            <path d="M 322 398 C 312 410 314 428 326 432 C 338 435 348 424 346 408 L 344 396 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-          </g>
-          </g>
-          <g id="HeadTilt" style={headTilt}>
-            <g className="nvf-gillbreath">
-            <g id="Gill_L1" className="nvf-gill" style={gillAnimStyle(0, "168px 118px")}>
-              <path d="M 170 106 C 142 84 124 62 116 38 C 112 24 100 22 96 36 C 88 68 102 98 130 120 C 144 130 158 126 170 106 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-            </g>
-            <g id="Gill_L2" className="nvf-gill" style={gillAnimStyle(1, "164px 118px")}>
-              <path d="M 166 126 C 130 112 100 104 74 108 C 60 110 56 98 68 90 C 98 68 142 80 164 104 C 172 112 172 118 166 126 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-            </g>
-            <g id="Gill_L3" className="nvf-gill" style={gillAnimStyle(2, "162px 132px")}>
-              <path d="M 168 146 C 138 150 112 162 94 182 C 84 194 72 190 76 174 C 84 144 116 122 148 122 C 162 122 170 132 168 146 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-            </g>
-            <g id="Gill_R1" className="nvf-gill" style={gillAnimStyle(3, "312px 118px")}>
-              <path d="M 310 106 C 338 84 356 62 364 38 C 368 24 380 22 384 36 C 392 68 378 98 350 120 C 336 130 322 126 310 106 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-            </g>
-            <g id="Gill_R2" className="nvf-gill" style={gillAnimStyle(4, "316px 118px")}>
-              <path d="M 314 126 C 350 112 380 104 406 108 C 420 110 424 98 412 90 C 382 68 338 80 316 104 C 308 112 308 118 314 126 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-            </g>
-            <g id="Gill_R3" className="nvf-gill" style={gillAnimStyle(5, "318px 132px")}>
-              <path d="M 312 146 C 342 150 368 162 386 182 C 396 194 408 190 404 174 C 396 144 364 122 332 122 C 318 122 310 132 312 146 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-            </g>
-            </g>
-            <g id="HeadLag" className="nvf-headlag">
-            <g id="Head">
-              <path d="M 240 58 C 290 58 322 86 324 128 C 326 166 296 194 240 194 C 184 194 154 166 156 128 C 158 86 190 58 240 58 Z" fill={SKIN} stroke={LINE} strokeWidth={HEAVY} strokeLinejoin="round" />
-              <g id="Face" className="nvf-headexpr">
-                <g id="Brows">
-                  <g id="Brow_L" className="nvf-brow nvf-brow-l" style={{ transform: browL }}>
-                    <path d="M 186 98 C 198 96 216 97 226 101" fill="none" stroke={LINE} strokeWidth={HEAVY} strokeLinecap="round" />
+          <g className="nvd-arrive">
+            <g style={{ transform: `translateY(${motion.driftY}px)` }}>
+              {/* Filaments: behind the body, swaying on their
+                  own periods, lifted as a layer when she is
+                  pleased, and following the face's attention
+                  shift at 40 percent over a slower transition
+                  so they trail it and settle. */}
+              <g style={{
+                transform: `rotate(${motion.liftDeg}deg)`,
+                transformOrigin: `${place.x + 240 * ART_SCALE}px ${place.y + 300 * ART_SCALE}px`,
+                transformBox: "view-box",
+                transition: "transform 600ms ease",
+              }}>
+                <g style={{
+                  transform: `translate(${Math.round(att.x * 0.4 * 10) / 10}px, ${Math.round((att.y * 0.4 + (motion.lagY - motion.driftY)) * 10) / 10}px)`,
+                  transition: "transform 450ms ease",
+                }}>
+                  <g fill="url(#nvdGill)">
+                    {FILAMENTS.map((f, i) => (
+                      <path key={f.id} id={f.id} d={f.d}
+                        stroke={smallClass ? "#8d8069" : "none"} strokeWidth={smallClass ? 1 : 0}
+                        transform={`rotate(${motion.angles[i]} ${f.root[0]} ${f.root[1]})`} />
+                    ))}
                   </g>
-                  <g id="Brow_R" className="nvf-brow nvf-brow-r" style={{ transform: browR }}>
-                    <path d="M 254 101 C 264 97 282 96 294 98" fill="none" stroke={LINE} strokeWidth={HEAVY} strokeLinecap="round" />
-                  </g>
-                </g>
-                <g id="Eyes" className="nvf-glance" style={{ transform: saccade.x || saccade.y ? `translate(${saccade.x}px, ${saccade.y}px)` : "none" }}>
-                  <path d="M 190 132 C 197 124 213 124 220 132 C 213 137 197 137 190 132 Z" fill={LINE} />
-                  <path d="M 260 132 C 267 124 283 124 290 132 C 283 137 267 137 260 132 Z" fill={LINE} />
-                </g>
-                <g id="Lids" className="nvf-lids" style={{ transform: `translateY(${lidY}px)`, transition: `transform ${exprMs}ms ease` }}>
-                  <g className="nvf-blink" style={{ transform: `translateY(${blinkY}px)`, transition: `transform ${blinkTransitionMs}ms ${blinkEase}` }}>
-                    <path d="M 187 129 C 198 125 216 125 227 129 L 227 100 L 187 100 Z" fill={SKIN} />
-                    <path d="M 187 129 C 198 125 216 125 227 129" fill="none" stroke={LINE} strokeWidth={HEAVY} strokeLinecap="round" />
-                    <path d="M 253 129 C 264 125 282 125 293 129 L 293 100 L 253 100 Z" fill={SKIN} />
-                    <path d="M 253 129 C 264 125 282 125 293 129" fill="none" stroke={LINE} strokeWidth={HEAVY} strokeLinecap="round" />
-                  </g>
-                </g>
-                <g id="Glasses" className="nvf-glasses" style={{ transform: glassesUp ? `translateY(${(-2 * amp).toFixed(1)}px)` : "none" }}>
-                  <rect x="183" y="104" width="48" height="46" rx="12" fill="none" stroke={GOLD} strokeWidth={GLASSES_W} />
-                  <rect x="249" y="104" width="48" height="46" rx="12" fill="none" stroke={GOLD} strokeWidth={GLASSES_W} />
-                  <path d="M 231 116 C 237 111 243 111 249 116" fill="none" stroke={GOLD} strokeWidth={GLASSES_W} />
-                  <path d="M 183 114 L 162 108 M 297 114 L 318 108" stroke={GOLD} strokeWidth={GLASSES_W} strokeLinecap="round" />
-                </g>
-                <g id="Nose">
-                  <circle cx="233" cy="156" r="2.6" fill={LINE} />
-                  <circle cx="247" cy="156" r="2.6" fill={LINE} />
-                </g>
-                <g id="Mouth_Flat" className="nvf-mouth nvf-mouth-flat" style={{ display: mouthShown("flat") }}>
-                  <path d="M 218 170 L 262 170" stroke={LINE} strokeWidth={HEAVY} strokeLinecap="round" />
-                </g>
-                <g id="Mouth_Pleased" className="nvf-mouth nvf-mouth-smirk" style={{ display: mouthShown("smirk") }}>
-                  <path d="M 218 169 C 232 173 250 172 261 164" fill="none" stroke={LINE} strokeWidth={HEAVY} strokeLinecap="round" />
-                </g>
-                <g id="Mouth_Worried" className="nvf-mouth nvf-mouth-worried" style={{ display: mouthShown("worried") }}>
-                  <path d="M 222.5 170 L 257.5 170" stroke={LINE} strokeWidth={HEAVY} strokeLinecap="round" />
-                </g>
-                <g id="Mouth_Slot" className="nvf-mouth nvf-mouth-slot" style={{ display: mouthShown("slot") }}>
-                  <rect x="227" y="168.5" width="26" height="3.5" rx="1.75" fill={LINE} />
-                </g>
-                <g id="Mouth_Narrow" className="nvf-mouth nvf-mouth-narrow" style={{ display: mouthShown("narrow") }}>
-                  <ellipse cx="240" cy="171" rx="4" ry="3" fill={LINE} />
-                </g>
-                <g id="Mouth_Talk" className="nvf-mouth nvf-mouth-talk" style={{ display: mouthShown("wide") }}>
-                  <ellipse cx="240" cy="171" rx="6" ry="4.5" fill={LINE} />
                 </g>
               </g>
-            </g>
+
+              {/* The water body and everything inside its clip. */}
+              <use href="#nvdBodyPath" fill="url(#nvdWater)" />
+              <g clipPath="url(#nvdBodyClip)">
+                <rect x="110" y="98" width="262" height="268" fill="url(#nvdPoolRefracted)" opacity="0.85" />
+                <g stroke={T.root} fill="none" strokeLinecap="round" opacity="0.3" filter="url(#nvdSoftRoot)">
+                  {FILAMENT_ROOTS.map((r, i) => (
+                    <path key={i} d={r.d} strokeWidth={r.w} />
+                  ))}
+                </g>
+
+                {/* The face cluster: mass, lids, wire, mouth.
+                    It shifts toward the pointer; the body and
+                    its light do not. */}
+                <g style={{ transform: `translate(${att.x}px, ${att.y}px)`, transition: "transform 250ms ease" }}>
+                  <g transform={`rotate(${motion.massAngle} ${MASS_CENTER.x} ${MASS_CENTER.y})`}>
+                    <ellipse cx="237" cy="241" rx="64" ry="50" fill={T.mass} opacity="0.4" filter="url(#nvdSoftMass)" />
+                    <ellipse cx="233" cy="236" rx="35" ry="27" fill={T.massCore} opacity="0.3" filter="url(#nvdSoftMassTight)" />
+                    <ellipse cx="252" cy="258" rx="22" ry="16" fill={T.massLobe} opacity="0.2" filter="url(#nvdSoftMassTight)" />
+                  </g>
+                  <g clipPath="url(#nvdLensL)">
+                    <ellipse cx="197" cy="221" rx="26" ry="22" fill={T.lensMass} opacity="0.4" filter="url(#nvdSoftLens)" />
+                  </g>
+                  <g clipPath="url(#nvdLensR)">
+                    <ellipse cx="284" cy="223" rx="24" ry="21" fill={T.lensMassRight} opacity="0.36" filter="url(#nvdSoftLens)" />
+                  </g>
+                  {lidGroup("nvdLensL", LID_L_PATH, 0)}
+                  {lidGroup("nvdLensR", LID_R_PATH, 2)}
+                  {/* The mouth: one flat line. Its width is the
+                      only thing speech moves. */}
+                  <g style={{
+                    transform: `scaleX(${mouthStress})`,
+                    transformBox: "fill-box",
+                    transformOrigin: "50% 50%",
+                    transition: "transform 90ms ease",
+                  }}>
+                    <path d={MOUTH_PATH} stroke={T.mouth} strokeWidth={2 * boost} opacity="0.3" strokeLinecap="butt" fill="none" />
+                  </g>
+                  {/* The gold: one continuous drawn line, crisp
+                      on the front surface, last to arrive. */}
+                  <g className="nvd-gold-in" fill="none" stroke={T.gold} strokeLinecap="round">
+                    <path d={GOLD_BAR_PATH} strokeWidth={2.7 * boost} />
+                    <circle cx="196" cy="216" r="30" strokeWidth={3.2 * boost} />
+                    <circle cx="285" cy="219" r="28" strokeWidth={3 * boost} />
+                  </g>
+                  <g className="nvd-gold-in" fill="none" stroke={T.goldBright} strokeLinecap="round" opacity="0.55">
+                    <path d={GOLD_ARC_L} strokeWidth={2.6 * boost} />
+                    <path d={GOLD_ARC_R} strokeWidth={2.3 * boost} />
+                  </g>
+                </g>
+
+                <ellipse cx="300" cy="306" rx="78" ry="58" fill={T.sheen} opacity="0.26" filter="url(#nvdSoftMass)" />
+                {motion.orbit && (
+                  <circle cx={motion.orbit.x} cy={motion.orbit.y} r="3.2" fill={T.massCore} opacity="0.55" />
+                )}
+                {rippleLive && (
+                  <ellipse key={rippleKey} className="nvd-ripple" cx="175" cy="235" rx="26" ry="95" fill={T.massCore} opacity="0" />
+                )}
+              </g>
+              <use href="#nvdBodyPath" fill="none" stroke={T.meniscus} strokeWidth="2.4" opacity="0.75" />
+              <g clipPath="url(#nvdBodyClip)">
+                <path d={RIM_ARC_PATH} fill="none" stroke={T.rimArc} strokeWidth="2.2" opacity="0.5" />
+              </g>
+              {/* The single hard specular, and its satellite.
+                  Pleased brightens it over 600ms. */}
+              <g style={{
+                transform: `scale(${specularScale})`,
+                transformBox: "fill-box",
+                transformOrigin: "50% 50%",
+                opacity: expression === "pleased" ? 1 : 0.85,
+                transition: "transform 600ms ease, opacity 600ms ease",
+              }}>
+                <ellipse cx="183" cy="150" rx="13.5" ry="7" transform="rotate(-34 183 150)" fill={T.specular} opacity="0.92" filter="url(#nvdEdgeSoft)" />
+                <ellipse cx="200" cy="140" rx="3.4" ry="2" transform="rotate(-30 200 140)" fill={T.specular} opacity="0.5" filter="url(#nvdEdgeSoft)" />
+              </g>
             </g>
           </g>
-        </g>
         </g>
       </svg>
     </span>

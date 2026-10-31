@@ -280,8 +280,13 @@ const {
 const riveSrc = readFileSync(join(root, "src/NovaRive.jsx"), "utf8");
 /* Added 2026-10-29 (the owner's mascot verdict): her figure is
    the primitive built vector rig in src/NovaFigure.jsx now, so
-   the Nova pins read the rig's source alongside the seam file. */
+   the Nova pins read the rig's source alongside the seam file.
+   Updated 2026-10-31 (the owner's ruling picking Claude's drop
+   as her settled form): the figure in that file is the drop
+   now, and her values live in the shared register tokens, so
+   the pins read src/registerTokens.js alongside it. */
 const figureSrc = readFileSync(join(root, "src/NovaFigure.jsx"), "utf8");
+const tokenSrc = readFileSync(join(root, "src/registerTokens.js"), "utf8");
 const speechSrc = readFileSync(join(root, "src/NovaSpeech.jsx"), "utf8");
 const riveAst = parse(riveSrc, { sourceType: "module", plugins: ["jsx"] });
 function riveDeclFor(name) {
@@ -5040,8 +5045,15 @@ await test("the state machine contract is the one the editor build is authored a
    the same seams. The contract constants in the test above
    stay pinned untouched: every consumer still speaks the
    same Nova language. These assertions hold the new figure
-   seam and keep the retired surfaces out. */
-await test("the figure has landed: the canvas renders the in repo vector rig", () => {
+   seam and keep the retired surfaces out.
+   Pin rewritten 2026-10-31 (the owner's ruling): the rig
+   itself failed his eye from his photos, the 3D route he
+   picked next was killed by him the same day, and he
+   settled her form as a bubble, picking Claude's build of
+   it. The figure in src/NovaFigure.jsx is that drop now,
+   behind the identical seam; the assertions below hold the
+   swap. */
+await test("the figure has landed: the canvas renders the in repo drop", () => {
   // Pin updated 2026-10-20 citing the owner photos from 2026-10-20 and his order: the asset constant carries the version query, and NovaCanvas renders no img fallback or poster.
   assert.equal(NOVA_RIVE_ASSET, "/nova/nova.riv?v=3", "the asset switch must carry the shipped versioned asset path");
   assert.ok(NOVA_RIVE_ASSET.includes("?v=3"), "the asset constant carries no version query");
@@ -5049,21 +5061,30 @@ await test("the figure has landed: the canvas renders the in repo vector rig", (
   assert.ok(riveSrc.includes("return <NovaCanvas {...props} />;"), "the wrapper must render the canvas directly");
   assert.ok(!riveSrc.includes("NovaFallback"), "the retired fallback surface is back");
   assert.ok(!riveSrc.includes("<NovaAvatar"), "the canvas file still renders the retired avatar");
-  assert.ok(riveSrc.includes('from "./NovaFigure.jsx"'), "the canvas does not import the vector rig");
-  assert.ok(riveSrc.includes("<NovaFigure"), "the canvas does not render the vector rig");
-  assert.ok(!riveSrc.includes("@rive-app"), "the Rive runtime is imported again; the figure is the in repo rig now");
-  /* The rig itself: her canvas, her discipline, her named
-     groups. Flat vector only, the model sheet palette carried
-     as constants, and six countable gills, three a side. */
-  assert.ok(figureSrc.includes('viewBox="0 0 480 640"'), "the rig lost its canvas");
-  assert.ok(figureSrc.includes("data-expression={expression}"), "the rig does not key its face off the expression");
+  assert.ok(riveSrc.includes('from "./NovaFigure.jsx"'), "the canvas does not import the figure");
+  assert.ok(riveSrc.includes("<NovaFigure"), "the canvas does not render the figure");
+  assert.ok(!riveSrc.includes("@rive-app"), "the Rive runtime is imported again; the figure is in repo code now");
+  /* The figure itself: her canvas, her named groups, her
+     values. Pins updated 2026-10-31 (the owner's ruling
+     picking Claude's drop as her settled form): the standing
+     rig and its flat discipline retired with it. The drop is
+     Claude's artwork, gradients and blur included, because
+     that is the build he picked; the coat cream and muted
+     gold pins are replaced by the drop's gold, which lives
+     in the shared register tokens the figure imports, and
+     the gill ids are data in the figure's filament table
+     rather than literal attributes. The canvas, the
+     expression keying, and six countable gills carry over. */
+  assert.ok(figureSrc.includes('viewBox="0 0 480 640"'), "the figure lost its canvas");
+  assert.ok(figureSrc.includes("data-expression={expression}"), "the figure does not key its face off the expression");
   for (const g of ["Gill_L1", "Gill_L2", "Gill_L3", "Gill_R1", "Gill_R2", "Gill_R3"]) {
-    assert.ok(figureSrc.includes(`id="${g}"`), g + " missing from the rig: her gills must stay countable");
+    assert.ok(figureSrc.includes(`"${g}"`), g + " missing from the figure: her gills must stay countable");
   }
-  assert.ok(figureSrc.includes("#FDF3D7"), "the parchment cream coat is missing from the rig");
-  assert.ok(figureSrc.includes("#A98A4C"), "the muted gold is missing from the rig");
-  assert.ok(!figureSrc.includes("Gradient"), "a gradient crept into the flat rig");
-  assert.ok(!figureSrc.includes("<filter"), "a filter crept into the flat rig");
+  assert.ok(figureSrc.includes("registerTokens"), "the figure does not read the shared register tokens");
+  assert.ok(tokenSrc.includes("#c89a3a"), "the drop gold is missing from the register tokens");
+  assert.ok(tokenSrc.includes("#e0bd68"), "the bright gold of the wire's upper arcs is missing from the register tokens");
+  assert.ok(figureSrc.includes("radialGradient"), "the drop lost its water: the picked artwork is gradient built");
+  assert.ok(figureSrc.includes("<filter"), "the drop lost its soft mass: the picked artwork is blur built");
 });
 
 /* Regression pin for the dead canvas of 2026-10-15. The asset
@@ -5122,22 +5143,26 @@ await test("her stage: full body framing on Today, the living rig, the shelf on 
      (breathing, blinking, gill sway, an occasional glance)
      and the reduced motion still, with the seam still
      passing reduced motion through from the brain. */
-  assert.ok(figureSrc.includes("nvfBreathe"), "the rig lost her breathing cycle");
-  /* Pin updated 2026-10-29 (motion spec Lane 2): the fixed
-     blink and glance keyframe loops are deleted. The blink is
-     a randomized JS driven swap (interval 2.5 to 7.5s biased
-     to 4s, 12 percent doubles), and the 13 second glance loop
-     is replaced by micro saccades, instant pupil shifts at
-     irregular intervals. The pins now hold the new machinery
-     and guard the loops' absence. */
-  assert.ok(figureSrc.includes("novaBlinkIntervalMs"), "the rig lost her randomized blink");
-  assert.ok(figureSrc.includes("data-blink"), "the rig no longer exposes her blink state");
+  /* Pins updated 2026-10-31 (the owner's ruling picking
+     Claude's drop): the rig's idle machinery retired with
+     the rig. What stands here now is the drop's idle set
+     from the consult: a JS clock driving the drift, the
+     interior mass rotation, and the per filament sway, the
+     randomized blink at the consult's 7 to 13 seconds, the
+     attention shift of the face cluster (the drop has no
+     pupils, so the micro saccades retire honestly rather
+     than being faked), and the reduced motion still under
+     the drop's own class prefix. The guards against the
+     retired fixed loops stay. */
+  assert.ok(figureSrc.includes("filamentAngleAt"), "the drop lost her filament sway");
+  assert.ok(figureSrc.includes("massAngle"), "the drop lost her interior mass rotation");
+  assert.ok(figureSrc.includes("novaBlinkIntervalMs"), "the figure lost her randomized blink");
+  assert.ok(figureSrc.includes("data-blink"), "the figure no longer exposes her blink state");
   assert.ok(!figureSrc.includes("nvfBlink"), "the fixed blink loop is back");
-  assert.ok(figureSrc.includes("nvfGill"), "the rig lost her gill sway");
   assert.ok(!figureSrc.includes("nvfGlance"), "the fixed glance loop is back");
-  assert.ok(figureSrc.includes("saccade"), "the rig lost her micro saccades");
-  assert.ok(figureSrc.includes("nvf-still"), "the rig has no reduced motion still");
-  assert.ok(riveSrc.includes("reducedMotion={reducedMotion}"), "the canvas no longer passes reduced motion to the rig");
+  assert.ok(figureSrc.includes("novaAttentionShift"), "the drop lost her attention shift");
+  assert.ok(figureSrc.includes("nvd-still"), "the drop has no reduced motion still");
+  assert.ok(riveSrc.includes("reducedMotion={reducedMotion}"), "the canvas no longer passes reduced motion to the figure");
   // Pin replaced 2026-10-15 (the old model purge): this slot
   // pinned the fallback surface mapping "full" onto the
   // avatar's "panel" framing. The fallback is deleted; the

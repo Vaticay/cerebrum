@@ -23,17 +23,21 @@
      the bank and the pure mapping helpers the controller
      imports.
    - The renderer itself: NovaRive is the figure surface and
-     nothing else. The rendered figure is the primitive rig
-     in NovaFigure.jsx, rebuilt under the 2026-10-29 verdict:
-     adult proportions instead of the editor asset's chibi
-     build (an oversized head and glossy oversized eyes that
-     a .riv binary cannot be re proportioned out of from
-     code), a stern resting face, and slow idle life. The
-     .riv file remains in public/ as the retired asset; it
-     renders nowhere. There is no second surface behind the
-     rig, and no runtime or wasm is fetched for her any more:
-     the self hosted Rive wasm wiring that stood here from
-     2026-10-15 retired with the asset it served.
+     nothing else. The rendered figure is the drop in
+     NovaFigure.jsx: a sphere of dark water carrying six
+     gill filaments and a gold wire, settled by the owner's
+     ruling of 2026-10-31, which picked Claude's build of
+     the bubble form he ordered after the standing rig (the
+     2026-10-29 rebuild) and every figure before it failed
+     his eye. The rig retired with that ruling; this seam
+     did not change: the drop consumes the same feeds under
+     the same names, and the composition, dialog, and brain
+     around it are untouched. The .riv file remains in
+     public/ as the retired asset; it renders nowhere. There
+     is no second surface behind the figure, and no runtime
+     or wasm is fetched for her any more: the self hosted
+     Rive wasm wiring that stood here from 2026-10-15
+     retired with the asset it served.
 
    Palette discipline: the code side visuals here stay in
    the house palette only. The speech bubble itself lives in
@@ -55,14 +59,17 @@ import { NovaFigure } from "./NovaFigure.jsx";
    Triggers: poke, celebrate, sleep, wake.
    Events the asset may fire: EmitIdleQuip, EmitQuizQuip,
    EmitSearchQuip.
-   Figure box: the rig in NovaFigure.jsx draws on a 480 by
-   640 canvas and fills it edge to edge, standing on its
-   bottom line. NovaCanvas takes a framing prop: "bust" (the
-   default for the small spots, a head and shoulders crop of
-   the size times 1.85 mount, applied in NovaCanvas below)
-   or "full" (a box hugging the figure's own aspect, width
-   size * 1.02 by height size), and "panel" means full too,
-   the standing figure semantics the large spots always used.
+   Figure box: the drop in NovaFigure.jsx draws on the same
+   480 by 640 canvas this seam has always used, placed in it
+   rather than filling it: top anchored in the head zone for
+   bust mounts, standing on her contact shadow near the
+   bottom line for full mounts. NovaCanvas takes a framing
+   prop: "bust" (the default for the small spots, a head and
+   shoulders crop of the size times 1.85 mount, applied in
+   NovaCanvas below) or "full" (a box hugging the figure's
+   own aspect, width size * 1.02 by height size), and "panel"
+   means full too, the large spot semantics the large spots
+   always used.
    Her stage on the learning home passes framing "full" at a
    large size. The state machine names above are the retired
    asset's contract, kept as the record; the feeds themselves
@@ -348,8 +355,8 @@ function NovaCanvas(props) {
   const talkingNow = speech ? !!speech.talking : false;
 
   /* Framing. "full" and "panel" give the figure a box in its
-     own proportions: the rig's canvas is 480 by 640 and she
-     fills it edge to edge, standing on its bottom line, so a
+     own proportions: the canvas is 480 by 640 and the drop
+     stands on her contact shadow near its bottom line, so a
      box of size times 1.02 by size holds her whole figure
      with air at the sides, and size reads as the height she
      stands at. maxWidth keeps the stage box inside a narrow
