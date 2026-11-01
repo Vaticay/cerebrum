@@ -128,7 +128,12 @@ await test("a prune effect intersects the selection with the visible keys whenev
 
 await test("select all compares against the visible keys it actually selects, not the raw set size", () => {
   assert.ok(!app.includes("selectedSavedKeys.size === visibleSaved.length"), "the old size against length comparison is still present");
-  const header = slice(app, 'aria-label={visibleSaved.length > 0 && visibleSaved.every', 'style={{ width: 18, height: 18, accentColor: accent, cursor: "pointer", flexShrink: 0 }} />');
+  // Slice markers updated 2026-11-01 (audit wave step 10): the header
+  // control is the drawn checkbox now, so the slice runs from its
+  // label prop to its close instead of the native input's style tail.
+  // The protected behavior is unchanged: an every check over the
+  // visible keys drives the label, the checked state, and the change.
+  const header = slice(app, 'label={visibleSaved.length > 0 && visibleSaved.every', 'new Set(visibleSaved.map((s, i) => sourceKey(s) || `idx-${i}`))); }} />');
   assert.ok(header.includes("visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`))"), "select all is not an every check over visible keys");
 });
 
