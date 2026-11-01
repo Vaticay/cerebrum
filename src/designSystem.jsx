@@ -21,6 +21,7 @@
 import { useState, useRef, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 import { PALETTES } from "./palettes.js";
+import { REGISTER_GOLD } from "./registerTokens.js";
 
 export const FONT_SIZES = {
   // Look modernization, 2026-10-26 (owner order, whole site look):
@@ -68,7 +69,7 @@ export const COLOR = {
   ink: "#F4F2EC",
   ink2: "#B3B6BD",
   faint: "#9AA0A8",
-  accent: "#C4A35A",
+  accent: REGISTER_GOLD,
   accentInk: "#121110",
   surface1: "#16181D",
   surface2: "#1F232B",
@@ -92,13 +93,16 @@ export const STATUS = { good: "#10b981", warn: "#d9a520", bad: "#e5484d" };
 
 // Pro brand colors (M58, 2026-10-18): one color for identity and one
 // color for action, named here so call sites stop mixing them. Identity
-// is the gold #d4a437 (tier labels, identity marks). Action is the
-// emerald #34d399 (purchase and upgrade buttons), and actionInk is the
-// one ink that sits on that emerald fill. This is a brand decision, not
-// the user's selected accent. The emerald names stay as aliases for the
-// action pair because older call sites already read them.
+// is the one gold, REGISTER_GOLD #c89a3a (tier labels, identity marks);
+// the identity gold #d4a437 this block originally carried was retired
+// by the full site audit of 2026-10-31, which ruled one gold for the
+// whole product. Action is the emerald #34d399 (purchase and upgrade
+// buttons), and actionInk is the one ink that sits on that emerald
+// fill. This is a brand decision, not the user's selected accent. The
+// emerald names stay as aliases for the action pair because older call
+// sites already read them.
 export const PRO = {
-  identity: "#d4a437",
+  identity: REGISTER_GOLD,
   action: "#34d399",
   actionInk: "#06281c",
   // The action emerald darkened for light grounds (text links), where

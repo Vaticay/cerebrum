@@ -3,8 +3,11 @@
  *
  * Extracted from CerebrumApp.jsx (monolith split, 2026-10-07).
  * Pure data: PALETTES (all themes incl. 4 Pro-exclusive), PRO_PALETTE_NAMES,
- * isProPalette() helper, and ACCENTS. No dependencies.
+ * isProPalette() helper, and ACCENTS. One dependency: REGISTER_GOLD from
+ * registerTokens.js, so the Amber accent is the product's one gold by
+ * reference rather than by a copied value (audit of 2026-10-31).
  */
+import { REGISTER_GOLD } from "./registerTokens.js";
 
 const PALETTES = {
   // Commit 46: REVERSED the "lift off pure black" direction from the two
@@ -105,6 +108,8 @@ const isProPalette = (pn) => PRO_PALETTE_NAMES.indexOf(pn) !== -1;
 // cooler/harder so none of them reads as a pastel accent next to the new
 // obsidian base.
 // 2026-10-14: Amber moves to the plan gold, desaturated.
-const ACCENTS = { Mono: "#ffffff", Sage: "#8ba888", Amber: "#c4a35a" };
+// 2026-11-01 (full site audit): Amber is the one gold, REGISTER_GOLD
+// #c89a3a, by reference; the plan gold #c4a35a is retired as a value.
+const ACCENTS = { Mono: "#ffffff", Sage: "#8ba888", Amber: REGISTER_GOLD };
 
 export { PALETTES, PRO_PALETTE_NAMES, isProPalette, ACCENTS };

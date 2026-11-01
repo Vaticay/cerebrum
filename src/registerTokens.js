@@ -20,11 +20,13 @@
 
    The gold here, #c89a3a, is the drop's gold, set by the
    owner's chosen artwork (Claude's SVG, picked 2026-10-31).
-   The design system carries an older identity gold, #d4a437,
-   for tier labels and marks. The two sit a few points apart;
-   reconciling them is the site wide phase's call, not this
-   lane's, so both stand named rather than one silently
-   swallowing the other. */
+   The design system carried an older identity gold, #d4a437,
+   and the accent set a plan gold, #c4a35a. The full site
+   audit of 2026-10-31 ruled one gold, this one, because it is
+   the value the owner himself picked, most recently, on the
+   artwork: the audit wave of 2026-11-01 points PRO.identity,
+   COLOR.accent, and ACCENTS.Amber at REGISTER_GOLD, and the
+   old values stand retired in the design system. */
 
 /* The ground every register surface sits on. */
 export const REGISTER_GROUND = "#060606";
@@ -33,24 +35,74 @@ export const REGISTER_GROUND = "#060606";
    roles in designSystem.jsx already use. */
 export const REGISTER_SERIF = "var(--cb-serif)";
 
-/* Gold: the register's only warmth. */
+/* Gold: the register's only warmth. One gold, ruled by the
+   2026-10-31 full site audit: this value, from the artwork
+   the owner picked, with its bright step and a darkened step
+   for text on light grounds (the same precedent as
+   PRO.actionOnLight). The design system's older identity
+   gold and the accent set's plan gold now point here. */
 export const REGISTER_GOLD = "#c89a3a";
 export const REGISTER_GOLD_BRIGHT = "#e0bd68";
+/* Darkened for text on light grounds, where the base value
+   cannot hold 4.5 to 1. */
+export const REGISTER_GOLD_ON_LIGHT = "#8a6618";
 
-/* The one broad pool of light: a radial fall from a warm
-   neutral core to the ground, centred high and left of
-   centre, the door's pool geometry. Stops are
-   [offset, color] pairs. */
+/* The one broad pool of light. These values are the door's
+   own non WebGL fallback (introAtmosphere.jsx ATMO_FALLBACK)
+   and are the register's definition of the pool for every
+   surface that cannot run the shader. Neutral leaning cool,
+   centred, wider than tall, fading to zero with no edge.
+   The first draft of this token described a warm, off centre,
+   hard edged pool that never existed on the door; the audit
+   of 2026-10-31 caught it, and the tokens were rewritten to
+   the door as it renders. */
+export const REGISTER_POOL_CSS = [
+  "radial-gradient(ellipse 80% 58% at 50% 40%, rgba(198,204,212,0.13), rgba(198,204,212,0) 66%)",
+  "radial-gradient(ellipse 120% 90% at 50% 112%, rgba(64,68,74,0.16), rgba(64,68,74,0) 62%)",
+  REGISTER_GROUND,
+].join(", ");
+
+/* The shader's own parameters, for any surface that mounts
+   the live atmosphere rather than the CSS stand in. The
+   ceiling is the calm law in one number: the door clamps
+   every pixel to 0.44, which is why it never gets bright and
+   why the register reads as restrained. Any surface that
+   paints a fill brighter than the ceiling on the ground is
+   out of register by definition. */
 export const REGISTER_POOL = {
-  cx: "0.42",
-  cy: "0.34",
-  r: "0.72",
-  stops: [
-    [0, "#17140f"],
-    [0.46, "#0d0c0a"],
-    [1, "#060606"],
-  ],
+  centre: [0, 0.13],   // aspect corrected, y up
+  squashY: 1.18,
+  falloff: 2.05,       // glow = exp(-dot(q,q) * falloff)
+  amount: [0.235, 0.105],  // base, breath
+  lightRGB: [0.80, 0.82, 0.84],
+  groundRGB: [0.010, 0.010, 0.011],
+  ceiling: 0.44,
 };
+
+/* The door's type, as roles rather than literals (the audit
+   of 2026-10-31): the name at display size, its one line
+   under it, and the single text affordance. A surface that
+   speaks the register takes its sizes from here instead of
+   inventing its own. */
+export const REGISTER_SERIF_SCALE = {
+  display: { fontSize: 104, mobileFontSize: 57, fontWeight: 500, letterSpacing: "0.008em", lineHeight: 1.04 },
+  line: { fontSize: 17, mobileFontSize: 15, fontWeight: 400 },
+  affordance: { fontSize: 14, fontWeight: 500 },
+};
+
+/* The three ink strengths the door actually uses: one ink at
+   full, at 0.72, and at 0.55. These are not any palette's
+   ink steps, and the difference is visible. */
+export const REGISTER_INK = {
+  ink: "#f3f3f1",
+  ink72: "rgba(243,243,241,0.72)",
+  ink55: "rgba(243,243,241,0.55)",
+};
+
+/* The register's edge, stated so it can be enforced: there
+   is no edge. No border, no radius, no shadow. A surface
+   that adds one is out of register by definition. */
+export const REGISTER_EDGE = { border: "none", borderRadius: 0, boxShadow: "none" };
 
 /* ── The drop's artwork values ──────────────────────────────
    Nova's settled form (the owner picked Claude's version,

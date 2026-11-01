@@ -802,8 +802,8 @@ await test("no style color property anywhere in the app is assigned a bare impor
      by t, t = 0.14 at rest and 0.22 on hover (color-mix percentages
      over the now solid field). accentInk corrects against P.bg only,
      and on the tinted grounds it lands short in four combinations;
-     the worst is Light with Amber: ink #86672f, 4.20 to 1 at rest,
-     3.99 to 1 on hover. accentInkOn (appUtils.js) starts from that
+     the worst is Light with Amber: ink #85682d, 4.19 to 1 at rest,
+     3.93 to 1 on hover. accentInkOn (appUtils.js) starts from that
      correction and searches against the tinted ground itself; the
      composer ships the ink calibrated on the hover ground, the
      harder of the two, as --cb-ask-ink. The helpers below mirror
@@ -851,12 +851,17 @@ await test("no style color property anywhere in the app is assigned a bare impor
   // recomputed from the shipped helpers, same practice as 2026-10-14.
   // The defect story is unchanged: the old correction still fails on
   // the hover ground (3.99 to 1).
+  // 2026-11-01 (audit wave, one gold): ACCENTS.Amber is REGISTER_GOLD
+  // #c89a3a by reference, so the pinned arithmetic below was recomputed
+  // from the shipped helpers, same practice as 2026-10-14 and
+  // 2026-10-26. The defect story is unchanged: the old correction
+  // still fails on the hover ground (3.93 to 1).
   await test("the old correction provably fails on the tinted ground (the defect, pinned)", () => {
     const L = PALETTES.Light, amber = ACCENTS.Amber;
     const ink = accentInk(L, amber);
-    assert.equal(ink, "#7e6a3f", "accentInk's Light Amber correction changed; recompute the pinned arithmetic");
-    assert.equal(ratio(ink, mixHex(L.bg, amber, 0.14)).toFixed(2), "4.21", "the old ink no longer computes to 4.21 at rest");
-    assert.equal(ratio(ink, mixHex(L.bg, amber, 0.22)).toFixed(2), "3.99", "the old ink no longer computes to 3.99 on hover");
+    assert.equal(ink, "#85682d", "accentInk's Light Amber correction changed; recompute the pinned arithmetic");
+    assert.equal(ratio(ink, mixHex(L.bg, amber, 0.14)).toFixed(2), "4.19", "the old ink no longer computes to 4.19 at rest");
+    assert.equal(ratio(ink, mixHex(L.bg, amber, 0.22)).toFixed(2), "3.93", "the old ink no longer computes to 3.93 on hover");
   });
   await test("the calibrated Ask ink clears 4.5 to 1 on its real ground, rest and hover, every palette and accent", () => {
     for (const [pn, P] of Object.entries(PALETTES)) {
@@ -868,14 +873,14 @@ await test("no style color property anywhere in the app is assigned a bare impor
         assert.ok(hover >= 4.5, `${pn} with ${an}: Ask ink ${ink} is ${hover.toFixed(2)} to 1 on hover`);
       }
     }
-    // The headline cases, exact: Light Amber ships #72603b (4.90 rest,
-    // 4.64 hover; recomputed 2026-10-26 for the re skinned Light
-    // ground, see the note above the defect pin); Mid Sage ships
+    // The headline cases, exact: Light Amber ships #775e2a (4.92 rest,
+    // 4.62 hover; recomputed 2026-11-01 for the one gold #c89a3a, see
+    // the note above the defect pin); Mid Sage ships
     // #99b396 (5.39 rest, 4.62 hover, recomputed the same day).
     const li = accentInkOn(PALETTES.Light, ACCENTS.Amber, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.22));
-    assert.equal(li, "#72603b");
-    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.14)).toFixed(2), "4.90");
-    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.22)).toFixed(2), "4.64");
+    assert.equal(li, "#775e2a");
+    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.14)).toFixed(2), "4.92");
+    assert.equal(ratio(li, mixHex(PALETTES.Light.bg, ACCENTS.Amber, 0.22)).toFixed(2), "4.62");
     const ms = accentInkOn(PALETTES.Mid, ACCENTS.Sage, mixHex(PALETTES.Mid.bg, ACCENTS.Sage, 0.22));
     assert.equal(ms, "#99b396");
     assert.equal(ratio(ms, mixHex(PALETTES.Mid.bg, ACCENTS.Sage, 0.22)).toFixed(2), "4.62");
