@@ -133,6 +133,7 @@ import {
   Intro, CerebrumFieldCanvas, CinematicFilm, Mark, MarkBreathe,
   plateHead,
 } from "./intro.jsx";
+import { REGISTER_GOLD } from "./registerTokens.js";
 
 /* Unified scroll lock (replaces the three competing implementations). */
 import { cbDialogLockScroll, cbDialogUnlockScroll, useScrollLock } from "./scrollLock.js";
@@ -12824,6 +12825,38 @@ const TRENDING_POLL_MS = 5 * 60 * 1000;
    same margins, the same title size and the same rhythm. One page shape,
    used everywhere.
    ══════════════════════════════════════════════════════════════════ */
+
+/* The drawn checkbox (audit wave step 10, 2026-11-01): the Library
+   ledger's native 18px inputs, the operating system's own blue
+   boxes, are replaced with a drawn 16px box, a 1px line border at
+   RADIUS.sm, and a gold check on select, the gold being the one
+   gold, REGISTER_GOLD. The real input stays, invisible over the
+   box, so the control keeps its keyboard focus, its screen reader
+   semantics, and its change events exactly; the box takes the
+   gold border while the input holds focus. Callers keep their
+   own tap target sizing around it. */
+function DrawnCheckbox({ P, checked, onChange, label }) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <span style={{ position: "relative", display: "inline-flex", width: 16, height: 16, flexShrink: 0 }}>
+      <input type="checkbox" aria-label={label} checked={checked} onChange={onChange}
+        onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+        style={{ position: "absolute", inset: 0, width: 16, height: 16, margin: 0, opacity: 0, cursor: "pointer" }} />
+      <span aria-hidden="true" style={{
+        width: 16, height: 16, boxSizing: "border-box", borderRadius: RADIUS.sm, pointerEvents: "none",
+        border: `1px solid ${focused ? REGISTER_GOLD : P.line}`,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+      }}>
+        {checked && (
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" style={{ display: "block" }}>
+            <path d="M1.5 5.5 L4 8 L8.5 2" stroke={REGISTER_GOLD} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </svg>
+        )}
+      </span>
+    </span>
+  );
+}
+
 function WorkspacePage({ P, accent, isMobile, title, count, description, actions, children, wide = false }) {
   return (
     /* minHeight 100%, or the reading floor below stops where the content
@@ -12865,7 +12898,7 @@ function WorkspacePage({ P, accent, isMobile, title, count, description, actions
                 ruling. */}
             <h1 style={{
               margin: 0, fontSize: isMobile ? 28 : FONT_SIZES.display, fontWeight: 500,
-              letterSpacing: TYPE.display.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1,
+              letterSpacing: TYPE.display.letterSpacing, color: P.ink, fontFamily: "var(--cb-serif)", lineHeight: 1.1,
             }}>{title}</h1>
             {count != null && count > 0 && (
               <span style={{
@@ -13133,7 +13166,7 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
         <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <NovaLive size={66} />
         </span>
-        <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</h1>
+        <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-serif)", letterSpacing: TYPE.heading.letterSpacing }}>Usage</h1>
         <span style={{ marginLeft: "auto", fontSize: FONT_SIZES.label, fontWeight: 500, color: isPro ? PRO.identity : P.ink2, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", gap: 8 }}>
           {isPro && <ProBadge />}
           {isPro ? "Pro" : isLite ? "Pro Lite" : "Free"}
@@ -15560,12 +15593,12 @@ function ProfileView({ P, accent, at, isMobile, user, profile, setProfile, profi
                 onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value }))}
                 placeholder={displayName}
                 aria-label="Your name"
-                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.display.letterSpacing, outline: "none" }}
+                style={{ display: "block", width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${P.line2}`, padding: "2px 0 6px", fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-serif)", letterSpacing: TYPE.display.letterSpacing, outline: "none" }}
               />
             ) : (
               <h1 style={{
                 margin: 0, fontSize: FONT_SIZES.display, fontWeight: 500,
-                color: P.ink, fontFamily: "var(--cb-font)",
+                color: P.ink, fontFamily: "var(--cb-serif)",
                 letterSpacing: TYPE.display.letterSpacing, lineHeight: TYPE.display.lineHeight,
               }}><span style={{ overflowWrap: "anywhere" }}>{displayName}</span></h1>
             )}
@@ -24930,13 +24963,19 @@ function App({ profileHandle = null } = {}) {
                     {/* The ledger: one row per paper, dense and scannable.
                         Columns: Title / Type / Source or Journal / Saved date
                         / Used in / Actions. */}
-                    {visibleSaved.length > 0 && (<div role="list" aria-label="Saved papers" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, overflowX: "auto", background: P.surface }}>
+                    {/* Flattened (audit wave step 10, 2026-11-01): the
+                        ledger's container loses its surface fill, its
+                        border, and its radius, and the header row
+                        loses its accent wash; the table is hairlines
+                        and spacing on the page ground now. The ground
+                        colour under the Library is not changed here;
+                        that choice waits on the palette ruling. */}
+                    {visibleSaved.length > 0 && (<div role="list" aria-label="Saved papers" style={{ borderTop: `1px solid ${P.line}`, overflowX: "auto" }}>
                       {!isMobile && (
-                        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${P.line}`, background: withAlpha(accent, 0.04), minWidth: 780 }}>
-                          <input type="checkbox" aria-label={visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`)) ? "Deselect all papers" : "Select all papers"}
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${P.line}`, minWidth: 780 }}>
+                          <DrawnCheckbox P={P} label={visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`)) ? "Deselect all papers" : "Select all papers"}
                             checked={visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`))}
-                            onChange={() => { setSelectedSavedKeys(visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`)) ? new Set() : new Set(visibleSaved.map((s, i) => sourceKey(s) || `idx-${i}`))); }}
-                            style={{ width: 18, height: 18, accentColor: accent, cursor: "pointer", flexShrink: 0 }} />
+                            onChange={() => { setSelectedSavedKeys(visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`)) ? new Set() : new Set(visibleSaved.map((s, i) => sourceKey(s) || `idx-${i}`))); }} />
                           <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TITLE</span>
                           <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TYPE</span>
                           <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>JOURNAL OR SOURCE</span>
@@ -24968,7 +25007,7 @@ function App({ profileHandle = null } = {}) {
                         return (
                           <div key={key} role="listitem" className="cb-lib-item"
                             onClick={() => { if (selectedSavedKeys.size > 0) toggleSavedKey(key); else setPeekSavedKey(key); }}
-                            style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: "16px", borderTop: i ? `1px solid ${P.line}` : "none", background: checked ? withAlpha(accent, 0.06) : "transparent", minWidth: isMobile ? 0 : 780, cursor: "pointer", "--cb-lib-i": Math.min(i, 8) }}>
+                            style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: "16px", borderTop: i ? `1px solid ${P.line}` : "none", minWidth: isMobile ? 0 : 780, cursor: "pointer", "--cb-lib-i": Math.min(i, 8) }}>
                             {/* The checkbox visual stays small, but its
                                 tap target is a full 44 square: the bare
                                 18 square was the whole target on a phone,
@@ -24977,8 +25016,7 @@ function App({ profileHandle = null } = {}) {
                                 footprint the size it was. */}
                             <label onClick={(e) => e.stopPropagation()}
                               style={{ width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", margin: "-13px" }}>
-                              <input type="checkbox" aria-label={`Select ${sv.title || "paper"}`} checked={checked} onChange={() => toggleSavedKey(key)}
-                                style={{ width: 18, height: 18, accentColor: accent, cursor: "pointer", flexShrink: 0, margin: 0 }} />
+                              <DrawnCheckbox P={P} label={`Select ${sv.title || "paper"}`} checked={checked} onChange={() => toggleSavedKey(key)} />
                             </label>
                             <span style={{ flex: 1, minWidth: 0 }}>
                               {hasUrl ? (

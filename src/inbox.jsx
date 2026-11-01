@@ -1953,7 +1953,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
           <div style={{ padding: `${SP.lg}px ${SP.lg}px ${SP.md}px`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
               <div style={{ minWidth: 0 }}>
-                <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, lineHeight: TYPE.heading.lineHeight }}>Inbox</h1>
+                <h1 style={{ margin: 0, fontSize: FONT_SIZES.display, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-serif)", letterSpacing: TYPE.heading.letterSpacing, lineHeight: TYPE.heading.lineHeight }}>Inbox</h1>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 3 }}>Your conversations and the papers shared in them</div>
               </div>
             </div>

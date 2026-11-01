@@ -2220,19 +2220,20 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const divider = P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
 
   const Section = ({ title, footer, tone, children }) => (
-    /* Composition wave, 2026-10-26: a section is a place now, not a
-       stretch of one long form. Each one sits on its own surfaced
-       panel with a border and room inside it, so the eye lands
-       somewhere as it moves down the page. This supersedes the Pass 4
-       flat table on the panel's finding that account, privacy and
-       the danger zone all read at one weight. The danger tone gives
-       the destructive section its own register: a bad tint border
-       and its title in the bad ink. Rows inside keep their hairlines
-       and every handler is unchanged. */
+    /* Composition wave, 2026-10-26: a section sat on its own
+       surfaced panel with a border and room inside it, so the eye
+       landed somewhere as it moved down the page. The audit wave
+       (step 10, 2026-11-01) flattens that: the panel repeated the
+       card down the whole page until the page itself disappeared.
+       A section is now spacing and one hairline, on the page
+       ground, with its title doing the naming; the danger tone
+       keeps its title in the bad ink and loses the tint border
+       with the rest. Rows inside keep their hairlines and every
+       handler is unchanged. The ground colour under Settings is
+       not changed here; that choice waits on the palette ruling. */
     <div style={{
-      marginBottom: 22, background: P.surface,
-      border: `1px solid ${tone === "danger" ? withAlpha(STATUS.bad, 0.45) : P.line}`,
-      borderRadius: RADIUS.xl, padding: "20px 22px",
+      marginBottom: 40, paddingTop: 28,
+      borderTop: `1px solid ${P.line}`,
     }}>
       {title && <div style={{ ...TYPE.subhead, color: tone === "danger" ? statusBad(P) : P.ink, marginBottom: SP.md, fontFamily: "var(--cb-font)" }}>{title}</div>}
       <div>{children}</div>
@@ -2396,7 +2397,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 with the same reasoning as the WorkspacePage header:
                 one Nova, not one per surface. */}
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ ...TYPE.heading, fontSize: FONT_SIZES.display, color: P.ink, fontFamily: "var(--cb-font)" }}>Settings</div>
+              <div style={{ ...TYPE.heading, fontSize: FONT_SIZES.display, color: P.ink, fontFamily: "var(--cb-serif)" }}>Settings</div>
             </div>
 
             {/* Commit 67 — search. See SETTINGS_INDEX. */}
