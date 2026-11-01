@@ -11,7 +11,6 @@ import { FONT_SIZES, Icon, LAYOUT, PRO, ProBadge, RADIUS, SP, STATUS, TRACKING, 
 import { isProPalette } from "./palettes.js";
 import { Sfx } from "./sfx.js";
 import { Dialog } from "./flowcharts.jsx";
-import { NovaLive } from "./LearnView.jsx";
 import { clearE2EEMemory, confirmRecoveryPhrase, ensureE2EEDevice, getBackupInfo, getRecoveryPhrase, listBackups, listDevices, restoreFromPhrase, revokeDevice, uploadBackupNow } from "./e2ee/messaging.js";
 import { ZkSession, isValidRecoveryPhrase, makeItemId } from "./zkData.js";
 import { normalizePhrase } from "./e2ee/recovery.js";
@@ -2392,13 +2391,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             where width really is scarce, keeps the strip. */}
         <div style={{ flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
-            {/* The resident header Nova (2026-10-15), left of the
-                Settings title at the usual 66px, idle brain like
-                the other quiet tabs. */}
+            {/* The resident header Nova that used to sit left of
+                this title is removed (audit wave step 7, 2026-11-01),
+                with the same reasoning as the WorkspacePage header:
+                one Nova, not one per surface. */}
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <NovaLive size={66} />
-              </span>
               <div style={{ ...TYPE.heading, fontSize: FONT_SIZES.display, color: P.ink, fontFamily: "var(--cb-font)" }}>Settings</div>
             </div>
 

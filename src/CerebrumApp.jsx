@@ -12855,16 +12855,14 @@ function WorkspacePage({ P, accent, isMobile, title, count, description, actions
       }}>
         <div style={{ marginBottom: 26 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            {/* The resident header Nova (2026-10-15): the same
-                NovaLive the learning home runs, one per screen, at
-                the same 66px class, left of the page title. Every
-                WorkspacePage destination (Library, Investigations,
-                Collections, Find people) gets her from this one
-                mount; her brain runs idle here and hears the same
-                nova-activity events as everywhere else. */}
-            <span aria-hidden="true" style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <NovaLive size={66} />
-            </span>
+            {/* The resident header Nova that used to sit left of
+                this title is removed (audit wave step 7, 2026-11-01):
+                she was pasted onto every shared surface by this one
+                mount, and a mascot repeated per surface is what she
+                is not. This header serves Library, Investigations,
+                Collections, and Find people; all four lose her here.
+                The home mount is untouched and waits on the owner's
+                ruling. */}
             <h1 style={{
               margin: 0, fontSize: isMobile ? 28 : FONT_SIZES.display, fontWeight: 500,
               letterSpacing: TYPE.display.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.1,
