@@ -20050,13 +20050,16 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
   const hoverOut = (key) => (e) => { if (view !== key) e.currentTarget.style.background = "transparent"; };
   const itemStyle = (key) => ({ ...S.sidebarItem, ...(view === key ? S.sidebarItemActive : {}) });
 
-  /* Compact rail: collapsed to a 68px icon strip; hovering re-expands as an
-     overlay so the page doesn't reflow. Accordions only make sense with
-     labels visible, so they apply in the expanded state. All desktop-only:
-     mobile keeps the full slide-over drawer. */
-  const [railHover, setRailHover] = useState(false);
-  const expanded = isMobile || !railCollapsed || railHover;
-  const railW = !isMobile && railCollapsed && !railHover ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar;
+  /* Compact rail: collapsed to a 68px icon strip, and the chevron in
+     the footer is the only thing that changes it (audit wave step 4,
+     2026-11-01). The hover expansion that used to re expand the rail
+     as an overlay is deleted: a hovering rail slid over the work and
+     blocked the screen, and a control that fires when a pointer
+     passes over it startles. Accordions only make sense with labels
+     visible, so they apply in the expanded state. All desktop only:
+     mobile keeps the slide over drawer, now at full width. */
+  const expanded = isMobile || !railCollapsed;
+  const railW = !isMobile && railCollapsed ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar;
 
   // The rail is persistent chrome, so this fires once on mount rather than
   // on every navigation — a sidebar that re-animates each time you click an
@@ -20067,8 +20070,6 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
 
   const body = (
     <nav ref={navRevealRef} aria-label="Main"
-      onMouseEnter={() => { if (!isMobile && railCollapsed) setRailHover(true); }}
-      onMouseLeave={() => setRailHover(false)}
       /* 2026-10-16 layout fix (finding 22): a closed mobile drawer is
          hidden and inert, not just translated off screen. Without this
          its buttons stayed in keyboard and screen reader order while
@@ -20078,7 +20079,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
          Desktop is unaffected: the spread and the inert attribute only
          apply on mobile while closed. */
       {...(isMobile && !mobileOpen ? { inert: "" } : {})}
-      style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), width: railW, transition: "width 280ms var(--cb-ease), transform 280ms var(--cb-ease), visibility 0s linear " + (isMobile && !mobileOpen ? "280ms" : "0s"), overflowX: "hidden", visibility: isMobile && !mobileOpen ? "hidden" : "visible", ...(railCollapsed && railHover && !isMobile ? { boxShadow: "none" } : {}) }}>
+      style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), width: isMobile ? "100%" : railW, transition: "width 280ms var(--cb-ease), transform 280ms var(--cb-ease), visibility 0s linear " + (isMobile && !mobileOpen ? "280ms" : "0s"), overflowX: "hidden", visibility: isMobile && !mobileOpen ? "hidden" : "visible" }}>
       {/* Explicit close button for the mobile drawer. */}
       {isMobile && mobileOpen && (
         <UIButton P={P} variant="ghost"
@@ -23241,7 +23242,11 @@ function App({ profileHandle = null } = {}) {
       if (!active) return;
       const t = e.touches[0];
       const dx = t.clientX - sx, dy = t.clientY - sy;
-      if (!sidebarMobileOpen && sx < 24 && dx > 80 && Math.abs(dy) < 50) {
+      /* The opening edge zone is 12px, not 24 (audit wave step 4,
+         2026-11-01): at 24 the drawer's trigger overlapped the
+         system back gesture's own zone, and near edge content
+         touches kept reading as drawer swipes. */
+      if (!sidebarMobileOpen && sx < 12 && dx > 80 && Math.abs(dy) < 50) {
         active = false;
         setSidebarMobileOpen(true);
       } else if (sidebarMobileOpen && dx < -80 && Math.abs(dy) < 50) {
