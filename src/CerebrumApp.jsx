@@ -134,6 +134,7 @@ import {
   plateHead,
 } from "./intro.jsx";
 import { REGISTER_GOLD } from "./registerTokens.js";
+import { IntroAtmosphere } from "./introAtmosphere.jsx";
 
 /* Unified scroll lock (replaces the three competing implementations). */
 import { cbDialogLockScroll, cbDialogUnlockScroll, useScrollLock } from "./scrollLock.js";
@@ -22403,6 +22404,10 @@ function App({ profileHandle = null } = {}) {
   // it only changes what people who haven't opted out of motion get by
   // default. Respects an explicit stored preference either way.
   const [animationMode, setAnimationMode] = useState(() => getCookie("cb_anim2") || "cinematic");
+  // The home stage's own reduced motion read (audit wave step 2,
+  // 2026-11-01): the atmosphere ground under the home column holds
+  // still under the same signal the door holds still under.
+  const stageReducedMotion = useReducedMotion();
   // v5: this used to swap the chip row's content out from under the user
   // every 8s unconditionally — a real interaction hazard, not just a CSS
   // animation, since a keyboard user who tabs to a chip and takes >8s to
@@ -24566,20 +24571,32 @@ function App({ profileHandle = null } = {}) {
                clear of the bar on any phone. Nothing on this
                surface is positioned over the bottom chrome. */
             <Reveal style={{ flex: 1, minWidth: 0, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 calc(96px + env(safe-area-inset-bottom))" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
+              {/* The home ground (audit wave step 2, 2026-11-01,
+                  HELD FOR SHIP pending a phone capture): the door's
+                  own atmosphere, mounted with the door's props, so
+                  the home sits in the same light the intro renders
+                  instead of on the flat palette ground. Dark
+                  palettes only: the shader paints the register
+                  ground, and a light palette home keeps its panel
+                  form until the palette ruling lands. Still under
+                  reduced motion or animation off, exactly as the
+                  door holds still. */}
+              {P.dark && <IntroAtmosphere animationMode={animationMode} still={stageReducedMotion || animationMode === "off"} />}
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               <div className="cb-homeb-column" style={{
                 width: "100%", minWidth: 0, maxWidth: LAYOUT.answer, padding: isMobile ? "0" : "0 24px",
-                display: "flex", flexDirection: "column", flex: 1,
-                /* The solid stage backing stands (2026-10-28,
-                   declutter verdict, carried into Home B): the
-                   column carries the solid opaque P.bg in every
-                   palette, so every stage tone computes against
-                   the ground and never against the calm film or
-                   the atmo glow. Dark palettes take the ground
-                   only, no border, radius, or padding; light
-                   palettes take the bordered panel form. */
+                display: "flex", flexDirection: "column", flex: 1, position: "relative",
+                /* The solid stage backing stood from 2026-10-28
+                   (declutter verdict, carried into Home B) until
+                   the audit wave (step 2, 2026-11-01): in dark
+                   palettes the column is now transparent and the
+                   atmosphere layer mounted behind it is the
+                   ground, so the home reads in the door's light
+                   rather than on a second, flatter ground with a
+                   seam where they meet. Light palettes keep the
+                   bordered panel form until the palette ruling
+                   lands. */
                 ...(P.dark ? {
-                  background: P.bg,
                 } : {
                   background: P.bg, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg,
                   padding: isMobile ? "20px 16px 24px" : "20px 24px 28px",
@@ -24601,8 +24618,10 @@ function App({ profileHandle = null } = {}) {
                     flow mount, so her bust takes the bust area and
                     a controller line, when one fires, takes the
                     bubble area in flow under the greeting line at
-                    the column's width. The light pool sits behind
-                    the bust alone. */}
+                    the column's width. The local radial smudge that
+                    used to sit behind the bust alone is deleted
+                    (audit wave step 2, 2026-11-01): the stage has
+                    one light now, the atmosphere ground. */}
                 <div className="cb-homeb-greeting" style={{
                   position: "relative", display: "grid",
                   gridTemplateAreas: '"bust greeting" "bubble bubble"',
@@ -24611,11 +24630,6 @@ function App({ profileHandle = null } = {}) {
                   columnGap: isMobile ? SP.md : SP.lg, rowGap: SP.md,
                   marginTop: isMobile ? SP.xl : SP.xxl,
                 }}>
-                  <div aria-hidden="true" style={{
-                    position: "absolute", pointerEvents: "none",
-                    left: isMobile ? -104 : -88, top: -58, width: 300, height: 210,
-                    background: `radial-gradient(ellipse 60% 60% at 50% 50%, ${P.dark ? "rgba(238,236,228,0.13)" : "rgba(253,243,215,0.55)"} 0%, rgba(238,236,228,0) 70%)`,
-                  }} />
                   <NovaLive size={isMobile ? 66 : 84} surface="search-home" bubbleVariant="flow" />
                   <div style={{
                     gridArea: "greeting", minWidth: 0,
