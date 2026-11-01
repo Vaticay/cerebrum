@@ -48,6 +48,7 @@
 import React from "react";
 import { NovaBubble } from "./NovaSpeech.jsx";
 import { NovaFigure } from "./NovaFigure.jsx";
+import { NovaGlyph } from "./NovaGlyph.jsx";
 
 /* ── The contract ─────────────────────────────────────────────
    State machine: Nova_Controller.
@@ -354,6 +355,18 @@ function NovaCanvas(props) {
   const flowMount = bubbleVariant === "flow";
   const talkingNow = speech ? !!speech.talking : false;
 
+  /* The small mark (audit wave step 8, 2026-11-01): below 120px
+     the drop renders as the flat glyph (NovaGlyph.jsx, the
+     locked values) inside the caller's own framing box, so no
+     caller's layout moves; the bubble still renders beside it
+     exactly as it does beside the figure. The band from 120 to
+     200 keeps the drop as it renders today, and 200 and above
+     is untouched. The one exclusion is the flow mount, the
+     search home's greeting figure: the home's Nova is held for
+     the owner's ruling (steps 3 and 7), so this routing does
+     not decide her there. */
+  const smallMark = size < 120 && !flowMount;
+
   /* Framing. "full" and "panel" give the figure a box in its
      own proportions: the canvas is 480 by 640 and the drop
      stands on her contact shadow near its bottom line, so a
@@ -392,7 +405,11 @@ function NovaCanvas(props) {
   );
   return (
     <span ref={anchorRef} className="cb-nova-sprite" style={flowMount ? { display: "contents" } : { position: "relative", display: "inline-flex" }}>
-      {fullBody ? (
+      {smallMark ? (
+        <span style={{ width: w, height: h, maxWidth: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <NovaGlyph size={h} />
+        </span>
+      ) : fullBody ? (
         <span style={{ width: w, height: h, maxWidth: "100%", display: "block", ...(flowMount ? { gridArea: "bust", justifySelf: "start" } : null) }}>
           {figure}
         </span>
