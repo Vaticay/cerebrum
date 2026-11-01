@@ -2436,8 +2436,13 @@ function playSound(kind, enabled) {
 const SERIF = "var(--cb-serif)";
 /* Display headings take the Inter stack at weight 500. Serif stays for teach body, prompts and the feedback WHY. */
 const SANS = "var(--cb-font)";
-/* Wordmark only (2026-10-15, owner pick Orbitron 800): the standalone word Nova, never headings or body text. */
-const WORDMARK = "'Orbitron', 'Inter Tight', ui-sans-serif, system-ui, sans-serif";
+/* The wordmark set in Orbitron until the audit wave (step 9,
+   2026-11-01): the standalone word Nova now sets in the reading
+   serif at weight 500 with the register's letter spacing, the
+   door's own treatment of a name. The 2026-10-15 Orbitron pick
+   is retired by the full site audit of 2026-10-31. The share
+   card's drawn name carries its own Orbitron literal and is not
+   this constant; it is artwork, and it is unchanged here. */
 const CSS = `
 /* One motion system (phase 2 fitted polish, 2026-10-28): every
    curve below is the site curve var(--cb-ease), and every
@@ -14627,7 +14632,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
         <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
           <NovaRive state="greeting" size={128} framing="full" />
           <div style={{ minWidth: 0 }}>
-            <h1 style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
+            <h1 style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 500, margin: "0 0 8px", lineHeight: 1.2 }}>Nova</h1>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "0 0 6px" }}>{CORTEX_TAGLINE}</p>
           </div>
         </div>
@@ -15727,7 +15732,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
                 <NovaLive state={novaMood} size={66} surface="nova-home" visitId={visitIdRef.current} reviewDue={reviewDueCount} onStartReview={startReview} />
               </span>
               <div style={{ minWidth: 0 }}>
-                <h1 className="lv-wordmark" style={{ fontFamily: WORDMARK, fontSize: FONT_SIZES.display, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
+                <h1 className="lv-wordmark" style={{ fontFamily: SERIF, fontSize: FONT_SIZES.display, fontWeight: 500, letterSpacing: "0.008em", color: P.ink, margin: 0, lineHeight: 1.1 }}>Nova</h1>
                 <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "8px 0 0" }}>{CORTEX_TAGLINE}</p>
               </div>
             </>
@@ -15795,14 +15800,14 @@ export default function LearnView({ P, accent, at, onNavigate }) {
           wiring is the same NovaLive, so her mood, stage, and
           doing still read on the container, and a tap on her
           still pokes her. */}
-      <div data-tour-anchor="stage" className="lv-fade" style={{ background: P.raised, border: "1px solid " + P.line, borderRadius: RADIUS.xl, padding: 24, margin: "20px 0 20px" }}>
+      <div data-tour-anchor="stage" className="lv-fade" style={{ padding: 24, margin: "20px 0 20px" }}>
         <div style={{ display: "flex", gap: 28, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", maxWidth: "100%" }}>
             {!tourOpen && <NovaLive state={novaMood} size={stageNarrow ? 264 : 288} framing="full" surface="nova-home" visitId={visitIdRef.current} reviewDue={reviewDueCount} onStartReview={startReview}
               screenTopics={["path:" + bandTitle, "streak"]} />}
           </span>
           <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-            <h1 className="lv-stage-word" style={{ fontFamily: WORDMARK, fontWeight: 500, letterSpacing: "0.02em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h1>
+            <h1 className="lv-stage-word" style={{ fontFamily: SERIF, fontWeight: 500, letterSpacing: "0.008em", color: P.ink, margin: 0, lineHeight: 1.05 }}>Nova</h1>
             <p style={{ fontSize: FONT_SIZES.body, color: ink, margin: "10px 0 0" }}>{CORTEX_TAGLINE}</p>
             <p style={{ fontSize: FONT_SIZES.body, color: P.ink2, lineHeight: 1.6, margin: "12px 0 0", maxWidth: 460 }}>
               Nova teaches science in short lessons. A path is one whole subject taught in order. Each lesson teaches first, then quizzes you on what it just taught.
