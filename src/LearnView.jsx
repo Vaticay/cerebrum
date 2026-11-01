@@ -15736,7 +15736,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <button onClick={() => { tourReturnRef.current = homeTab; setTourOpen(true); }}
             style={{ background: "none", border: "none", color: ink, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6 }}>
-            How Nova works <Icon name="arrowRight" size={13} />
+            How Nova works
           </button>
           <button onClick={() => setScreen({ name: "settings" })}
             style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44 }}>

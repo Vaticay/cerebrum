@@ -20247,7 +20247,6 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               }}>{user.email || "Signed in"}</span>
             </span>
             )}
-            {expanded && <span aria-hidden="true" style={{ color: P.faint, display: "inline-flex", flexShrink: 0 }}><Icon name="chevronRight" size={14} /></span>}
           </button>
         ) : (
           /* Sign in is a text line, not a button (audit wave step
@@ -23994,7 +23993,7 @@ function App({ profileHandle = null } = {}) {
         <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 12, textDecoration: "none", color: isSaved(s) ? accentInk(P, accent) : undefined }} onClick={(e) => { e.stopPropagation(); const wasSaved = isSaved(s); toggleSave(s); if (!wasSaved) flyToLibrary(e.currentTarget, accent); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={12} />{isSaved(s) ? "Saved" : "Save"}</button>
         <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 12, textDecoration: "none", color: isPinned(s) ? accentInk(P, accent) : undefined }} onClick={(e) => { e.stopPropagation(); togglePin(s); }} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={12} />{isPinned(s) ? "Pinned" : "Pin"}</button>
         <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 12 }} onClick={(e) => { e.stopPropagation(); if (!user) { stableOnRequireAuth(); return; } setSharePaper(paperAttachmentFromSource(s)); }} title="Send this paper into a conversation"><Icon name="send" size={12} />Share</button>
-        {s.authors && <button type="button" className="cb-textbtn" style={{ padding: "6px 4px", fontSize: 12 }} onClick={(e) => { e.stopPropagation(); setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author →</button>}
+        {s.authors && <button type="button" className="cb-textbtn" style={{ padding: "6px 4px", fontSize: 12 }} onClick={(e) => { e.stopPropagation(); setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author</button>}
       </div>
     </div>
   );
@@ -24571,7 +24570,6 @@ function App({ profileHandle = null } = {}) {
                           fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.subhead, lineHeight: 1.4, color: P.ink,
                         }}>{stageLastQText}</span>
                       </span>
-                      <span aria-hidden="true" style={{ color: accent, fontSize: 16, flexShrink: 0 }}>&#8594;</span>
                     </button>
                   </div>
                 )}
