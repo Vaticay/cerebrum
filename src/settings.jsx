@@ -2858,9 +2858,17 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               />
             </Section>
 
+            {/* The footer is conditional on sign in (audit wave
+                step 11, 2026-11-01): the signed in sentence
+                promised a guest an Inbox, incoming calls, and a
+                watchlist, none of which a guest has. A guest is
+                told plainly that these switches belong to an
+                account; the signed in sentence is unchanged. */}
             <Section
               title="What to notify me about"
-              footer="These live in this browser, like every other preference here. Turning one off stops the notification only. The call still rings in the app, the message still arrives in your Inbox, and the papers still appear on your watchlist."
+              footer={user
+                ? "These live in this browser, like every other preference here. Turning one off stops the notification only. The call still rings in the app, the message still arrives in your Inbox, and the papers still appear on your watchlist."
+                : "These live in this browser, like every other preference here. Calls, messages, and watched topics belong to an account, so these switches take effect when you sign in. Turning one off will stop the notification only, never the thing itself."}
             >
               <Row label="Incoming calls" desc="Someone is calling you right now" control={
                 <Switch on={notify.call} onChange={(v) => setNotifyKind("call", v)} label="Notify me about incoming calls" />

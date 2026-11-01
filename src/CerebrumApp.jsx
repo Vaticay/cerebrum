@@ -4455,7 +4455,51 @@ function renderAnswer(text, sources, P, accent, hoverCite, setHoverCite, activeC
   let ledeUsed = false;
 
   const blocks = clean.split(/\n{2,}/);
+
+  /* Empty section guard (audit wave step 11, 2026-11-01): a heading
+     whose section renders no body is an ornament wearing a heading's
+     clothes. The captured case was "The short answer" standing over a
+     blank gap because the model's section arrived empty and the
+     renderer emitted the masthead anyway. The drop set is computed
+     before anything renders, because rendering registers claims in
+     the sink as it goes and a dropped heading must not leave claims
+     behind for a section that never showed. The classification
+     mirrors the heading branches below exactly: a block is a bare
+     heading when a branch would render it as a heading with no body
+     of its own, a headed block when it carries its body with it, and
+     content otherwise. A bare heading survives only when real
+     content follows it before the next heading of either kind. */
+  const classifyBlock = (para) => {
+    const h2m = para.match(/^##\s+(.+)$/);
+    if (h2m) { const s = splitGluedHeading(h2m[1]); if (!s.head) return "content"; return s.body ? "headed" : "bare"; }
+    const h3m = para.match(/^###\s+(.+)$/);
+    if (h3m) { const s = splitGluedHeading(h3m[1]); if (!s.head) return "content"; return s.body ? "headed" : "bare"; }
+    const mm = para.match(/^[ \t]*(#{1,6})[ \t]+([^\n]+)(?:\n([\s\S]*))?$/);
+    if (mm) {
+      const rawTitle = stripStrayHashes(mm[2]).replace(/[ \t]*#+[ \t]*$/, "").trim();
+      const s = splitGluedHeading(rawTitle);
+      if (!s.head) return "content";
+      const below = [s.body, (mm[3] || "").trim()].filter(Boolean).join("\n\n");
+      return below ? "headed" : "bare";
+    }
+    const bh = para.match(/^\*\*([^*]+)\*\*\s*$/);
+    if (bh) { const t = bh[1].trim(); if (t && t.length <= 60 && !t.includes("\n") && !/[.!?;,]$/.test(t)) return "bare"; }
+    return "content";
+  };
+  const blockKinds = blocks.map(classifyBlock);
+  const emptyHeadings = new Set();
+  blocks.forEach((para, i) => {
+    if (blockKinds[i] !== "bare") return;
+    let has = false;
+    for (let j = i + 1; j < blocks.length; j++) {
+      if (blockKinds[j] !== "content") break;
+      if (blocks[j].trim()) { has = true; break; }
+    }
+    if (!has) emptyHeadings.add(i);
+  });
+
   const nodes = blocks.map((para, pi) => {
+    if (emptyHeadings.has(pi)) return null;
     // Markdown headers
     const h2 = para.match(/^##\s+(.+)$/);
     // v30: dropped the borderBottom divider — that read as a frame line on
