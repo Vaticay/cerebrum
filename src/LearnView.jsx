@@ -15742,10 +15742,15 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             style={{ background: "none", border: "none", color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", padding: "10px 8px", minHeight: 44 }}>
             Settings
           </button>
+          {/* Deboxed (audit wave step 5, 2026-11-01): no border,
+              no pill outline; the 44px hit area stays and the glyph
+              sits at 18px in faint, going to ink on hover. */}
           <button onClick={toggleSound}
             aria-label={soundOn ? "Mute lesson sounds" : "Unmute lesson sounds"}
-            style={{ background: "transparent", border: "1px solid " + P.line, borderRadius: RADIUS.pill, color: P.ink2, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon name={soundOn ? "volumeOn" : "volumeOff"} size={19} />
+            onMouseEnter={(e) => { e.currentTarget.style.color = P.ink; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; }}
+            style={{ background: "transparent", border: "none", color: P.faint, cursor: "pointer", width: 44, height: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "color 200ms var(--cb-ease)" }}>
+            <Icon name={soundOn ? "volumeOn" : "volumeOff"} size={18} />
           </button>
         </div>
       </div>

@@ -20172,33 +20172,37 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
           than a row you might not notice.
           ══════════════════════════════════════════════════════════ */}
       <div style={S.sidebarFooter}>
-        {/* Mute is a preference, not a destination: a quiet icon button,
-            not a full nav-styled row competing with real navigation. The
-            chevron beside it collapses the rail to icons. */}
+        {/* Mute is a preference, not a destination: a quiet glyph, not
+            a full nav-styled row competing with real navigation. The
+            chevron beside it collapses the rail to icons. Both are
+            deboxed (audit wave step 5, 2026-11-01): no border, no
+            background, no radius; the 44px hit area stays, the glyph
+            sits at 18px in faint and goes to ink on hover, and hover
+            moves the glyph's colour only, never a wash behind it. */}
         <div style={{ display: "flex", justifyContent: expanded ? "flex-end" : "center", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
           {!isMobile && (
             <UIButton P={P} variant="ghost" onClick={onToggleRail} title={railCollapsed ? "Expand navigation" : "Collapse to icons"} aria-pressed={!!railCollapsed} aria-label={railCollapsed ? "Expand navigation" : "Collapse navigation to icons"}
               style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 44, height: 44, borderRadius: 2, cursor: "pointer",
-                background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
-                transition: "background 200ms var(--cb-ease), color 200ms var(--cb-ease), border-color 200ms var(--cb-ease)",
+                width: 44, height: 44, cursor: "pointer",
+                background: "transparent", border: "none", color: P.faint,
+                transition: "color 200ms var(--cb-ease)",
               }}
-              onMouseEnter={hoverIn} onMouseLeave={hoverOut("__rail")}>
+              onMouseEnter={(e) => { e.currentTarget.style.color = P.ink; }} onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; }}>
               <span style={{ display: "inline-flex", transform: railCollapsed ? "rotate(180deg)" : "none", transition: "transform 280ms var(--cb-ease)" }}>
-                <Icon name="chevronLeft" size={16} />
+                <Icon name="chevronLeft" size={18} />
               </span>
             </UIButton>
           )}
           <button onClick={onToggleMute} title={muted ? "Unmute all audio" : "Mute all audio"} aria-label={muted ? "Unmute all audio" : "Mute all audio"} aria-pressed={muted}
-            onMouseEnter={hoverIn} onMouseLeave={hoverOut("__mute")}
+            onMouseEnter={(e) => { e.currentTarget.style.color = P.ink; }} onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; }}
             style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 44, height: 44, borderRadius: 2, cursor: "pointer",
-              background: "transparent", border: `1px solid ${P.line}`, color: P.faint,
-              transition: "background 200ms var(--cb-ease), color 200ms var(--cb-ease), border-color 200ms var(--cb-ease)",
+              width: 44, height: 44, cursor: "pointer",
+              background: "transparent", border: "none", color: P.faint,
+              transition: "color 200ms var(--cb-ease)",
             }}>
-            <Icon name={muted ? "volumeOff" : "volumeOn"} size={16} />
+            <Icon name={muted ? "volumeOff" : "volumeOn"} size={18} />
           </button>
         </div>
         {user ? (
@@ -20219,8 +20223,13 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               transition: "background 200ms var(--cb-ease), border-color 200ms var(--cb-ease)",
             }}
           >
+            {/* The avatar tile (audit wave step 5, 2026-11-01): the
+                squared 2px tile is gone; the tile is a circle, the
+                form person avatars already take in the Inbox, and
+                it keeps its identity skin, which is the user's
+                picture rather than control chrome. */}
             <span aria-hidden="true" style={{
-              width: 28, height: 28, borderRadius: 2, flexShrink: 0,
+              width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
               ...avatarSkin(user.email || user.id || "cerebrum"),
@@ -20241,22 +20250,24 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             {expanded && <span aria-hidden="true" style={{ color: P.faint, display: "inline-flex", flexShrink: 0 }}><Icon name="chevronRight" size={14} /></span>}
           </button>
         ) : (
+          /* Sign in is a text line, not a button (audit wave step
+             5, 2026-11-01): no icon, no border, no accent wash; the
+             word at label size in the ink, left aligned to the
+             footer's padding, and the full row is the 44px target.
+             It stays a real button element so it stays focusable
+             and activatable exactly as before. */
           <UIButton P={P} variant="ghost"
             onClick={() => { if (onOpenAuth) onOpenAuth("login"); else onNavigate("profile"); }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.18); }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = withAlpha(accent, 0.1); }}
             title={expanded ? undefined : "Sign in"}
             aria-label="Sign in"
             style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%",
-              padding: expanded ? "12px 12px" : "12px 0", borderRadius: RADIUS.md, cursor: "pointer",
-              border: `1px solid ${withAlpha(accent, 0.4)}`, background: withAlpha(accent, 0.1),
+              display: "flex", alignItems: "center", justifyContent: expanded ? "flex-start" : "center", width: "100%",
+              minHeight: 44, padding: expanded ? "0 10px" : "0", cursor: "pointer",
+              border: "none", background: "transparent",
               color: P.ink, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
-              transition: "background 200ms var(--cb-ease)",
             }}
           >
-            <Icon name="user" size={15} />
-            {expanded && <span>Sign in</span>}
+            <span>Sign in</span>
           </UIButton>
         )}
       </div>
