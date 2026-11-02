@@ -25223,18 +25223,20 @@ function App({ profileHandle = null } = {}) {
             </div>
           )}
             {/* Investigations, folded in as a named ledger section:
-                the same questions the standalone view lists, in the
-                same row format. Opening one opens the record in the
-                investigations view. */}
-            {investigations.length > 0 && (
+                the same records the standalone view lists, in the
+                same row format. In this tree an investigation record
+                is a history item: its title falls back to the first
+                question it holds, and opening it is openHistoryItem,
+                the same handler the standalone view uses. */}
+            {history.length > 0 && (
               <LedgerSection title="Investigations">
                 <div role="list" aria-label="Investigations">
-                  {investigations.map((inv) => (
+                  {history.map((inv) => (
                     <LedgerRow key={inv.id}
-                      title={inv.question || inv.title || "Untitled investigation"}
-                      meta={[inv.ts ? new Date(inv.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "", `${(inv.steps || []).length} step${(inv.steps || []).length === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
-                      onClick={() => { sfx(); openRecord(inv.id); setView("investigations"); }}
-                      ariaLabel={`Open investigation ${inv.question || inv.title || ""}`} />
+                      title={inv.title || ((inv.turns || [])[0] && (inv.turns || [])[0].q) || "Untitled investigation"}
+                      meta={[inv.ts ? new Date(inv.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "", `${(inv.turns || []).length} question${(inv.turns || []).length === 1 ? "" : "s"}`, `${(inv.allSources || []).length} paper${(inv.allSources || []).length === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
+                      onClick={() => { sfx(); openHistoryItem(inv); setView("search"); }}
+                      ariaLabel={`Open investigation ${inv.title || ((inv.turns || [])[0] && (inv.turns || [])[0].q) || ""}`} />
                   ))}
                 </div>
               </LedgerSection>
