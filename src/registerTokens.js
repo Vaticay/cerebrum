@@ -116,7 +116,14 @@ export const REGISTER_EDGE = { border: "none", borderRadius: 0, boxShadow: "none
    The only class a palette may move: its ground and ink come
    from the selected palette, through the resolver.
    Instrument: the Library, Settings, the Inbox, Diagram
-   Studio, Usage. Ground is INSTRUMENT_GROUND, fixed.
+   Studio, Usage. Palette governed, like Reading (correct
+   fix, 2026-11-02): the Wave Zero build aliased the
+   Instrument ground to the Register ground, which is the
+   mechanism the incident named F7 and M5, surfaces handed
+   a black ground while their interiors kept palette ink.
+   Option B as clarified by Claude and adopted by the owner
+   gives palettes to Reading and Instrument both; only the
+   Register class is fixed.
 
    The permanent record page is the named hybrid: public
    Reading on a Register ground. It is not a fourth class; it
@@ -124,11 +131,12 @@ export const REGISTER_EDGE = { border: "none", borderRadius: 0, boxShadow: "none
    because the record page is a standalone function that
    cannot import this module and inlines these values. */
 
-/* The Instrument ground, an alias of the Register ground on
-   purpose: tests can tell an Instrument surface that chose
-   the fixed ground from one that took a palette ground by
-   accident, because only the resolver hands this name out. */
-export const INSTRUMENT_GROUND = REGISTER_GROUND;
+/* The Instrument ground (correct fix, 2026-11-02): there is
+   no fixed Instrument ground any more. The export survives
+   as a null marker so a stale import fails loudly in review
+   rather than silently painting the register ground on a
+   palette surface again. */
+export const INSTRUMENT_GROUND = null;
 
 /* The Reading measure: sustained reading columns cap at 72
    characters, the standing Reader rule. */
@@ -171,12 +179,13 @@ const CLASS_NAMES = ["Register", "Reading", "Instrument"];
 /* resolveSurface(view, palette): the one path from tokens to
    a surface. `view` is a view identifier from SURFACE_CLASSES
    or a class name itself. `palette` is a palette object from
-   palettes.js (the fields a Reading surface may read: bg,
-   ink, ink2, faint, line, line2, dark); Register and
-   Instrument resolutions ignore it entirely, which is the
-   Option B ruling in code: palettes govern Reading only.
-   An unmapped view throws, so a new view cannot silently
-   inherit a ground nobody chose for it. */
+   palettes.js (the fields a palette governed surface may
+   read: bg, ink, ink2, faint, line, line2, dark); the
+   Register resolution ignores it entirely, which is the
+   Option B ruling in code: palettes govern Reading and
+   Instrument surfaces, the Register is fixed. An unmapped
+   view throws, so a new view cannot silently inherit a
+   ground nobody chose for it. */
 export function resolveSurface(view, palette = null) {
   const cls = CLASS_NAMES.includes(view) ? view : SURFACE_CLASSES[view];
   if (!cls) throw new Error("resolveSurface: unmapped view " + String(view));
@@ -200,14 +209,23 @@ export function resolveSurface(view, palette = null) {
     };
   }
   if (cls === "Instrument") {
+    /* Correct fix (2026-11-02): an Instrument surface
+       resolves WITH its palette, ground and ink together,
+       exactly as Reading does. The resolver never hands a
+       surface a ground without the ink that belongs to it
+       again (incident F7). Without a palette it falls back
+       to the Register pair, ground and ink together. */
+    const p = palette && typeof palette === "object" ? palette : null;
     return {
       ...base,
       class: "Instrument",
-      ground: INSTRUMENT_GROUND,
-      ink: { ...REGISTER_INK },
-      line: REGISTER_LINE,
-      gold: REGISTER_GOLD,
-      goldRole: "selection state only, as a word, a rule, or a mark, never a fill",
+      ground: p ? p.bg : REGISTER_GROUND,
+      ink: p
+        ? { ink: p.ink, ink72: p.ink2, ink55: p.faint }
+        : { ...REGISTER_INK },
+      line: p ? p.line : REGISTER_LINE,
+      gold: p && !p.dark ? REGISTER_GOLD_ON_LIGHT : REGISTER_GOLD,
+      goldRole: "the surface accent paths, with fills permitted for primary actions",
       measure: null,
       hybrid: null,
     };

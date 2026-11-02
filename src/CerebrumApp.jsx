@@ -2483,6 +2483,7 @@ function SignalComposer({
            itself, with no wash under it to calibrate against.
            The disabled state reads the register ink55 step. */
         "--cb-ask-ink": askGold,
+        "--cb-on-acc": accentInk(P, accent),
         "--cb-ink55": REGISTER_INK.ink55,
       }}
     >
@@ -8628,11 +8629,17 @@ function QueryRetryForm({ P, accent, onAsk, id }) {
       <button
         type="submit" disabled={!ready}
         style={{ minHeight: 44,
-          /* Wave Zero (2026-11-02): a submit action is a gold
-             text word on a transparent ground; the disabled
-             state is the register ink55 step. */
-          padding: "8px 16px", borderRadius: RADIUS.md, border: "none",
-          background: "transparent", color: ready ? (P.dark ? REGISTER_GOLD : REGISTER_GOLD_ON_LIGHT) : REGISTER_INK.ink55, fontSize: FONT_SIZES.caption,
+          /* Correct fix F6 (2026-11-02): a filled submit again,
+             and the disabled state reads the palette faint step,
+             which is resolved against the ground this form sits
+             on. The Wave Zero disabled colour was the register
+             ink55 (white at 55 percent) unconditionally, which
+             computed to about 1 to 1 on Light grounds and made
+             the word invisible there. */
+          padding: "8px 16px", borderRadius: RADIUS.md,
+          border: `1px solid ${ready ? withAlpha(accent, 0.42) : P.line}`,
+          background: ready ? withAlpha(accent, 0.15) : "transparent",
+          color: ready ? P.ink : P.faint, fontSize: FONT_SIZES.caption,
           fontWeight: 500, fontFamily: "var(--cb-font)", cursor: ready ? "pointer" : "default",
           whiteSpace: "nowrap",
         }}
@@ -19294,7 +19301,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        reel/field/grain stack it used to be transparent for is gone, so
        there is nothing left to show through — a transparent page was only
        ever the reel's window. Every product surface is a solid shell now. */
-    page: { minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
+    page: { minHeight: "100dvh", background: REGISTER_GROUND, color: P.ink, fontFamily: font, WebkitFontSmoothing: "antialiased", display: "flex", flexDirection: "column", overflowX: "clip" },
 
     /* RESTORED 2026-09-17: the film grain overlay — the texture of the
        ambient stack. A fixed noise layer at the palette's grain opacity;
@@ -19397,8 +19404,15 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
          reads as its own material, and the mobile drawer carries the
          palette shadow when it slides over content (the panel named
          the shadowless drawer arriving flat on phones). */
-      background: P.surface,
-      borderRight: `1px solid ${P.line}`,
+      /* Correct fix (2026-11-02): the rail is shell, and the shell
+         speaks the register in every palette: REGISTER_GROUND,
+         REGISTER_INK steps, REGISTER_LINE. The palette purple rail
+         with lime icons that framed every rejection photo came
+         from painting the frame with the surface system the
+         interiors were ordered to leave; the frame now carries
+         the door's values, and interiors carry their own. */
+      background: REGISTER_GROUND,
+      borderRight: `1px solid ${REGISTER_LINE}`,
       display: "flex", flexDirection: "column",
       transform: isMobile ? "translateX(-100%)" : "none",
       transition: "transform 280ms var(--cb-ease)",
@@ -19410,13 +19424,13 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        was small and visible on every screen. */
     sidebarBrand: { display: "flex", alignItems: "center", gap: 10, padding: "24px 24px 24px", cursor: "pointer", flexShrink: 0 },
     sidebarNav: { flex: 1, overflowY: "auto", padding: "6px 12px", display: "flex", flexDirection: "column", gap: 2 },
-    sidebarSectionLabel: { fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: P.faint, fontFamily: "var(--cb-font)", padding: "16px 12px 6px" },
+    sidebarSectionLabel: { fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: REGISTER_INK.ink55, fontFamily: "var(--cb-font)", padding: "16px 12px 6px" },
     sidebarItem: {
       display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left",
       /* 44px min-height for touch targets (was 38px, which defeated the
          global 44px button floor via inline style). */
       padding: "9px 12px", minHeight: 44, borderRadius: RADIUS.lg, border: "none", background: "transparent",
-      color: P.ink2, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500,
+      color: REGISTER_INK.ink72, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500,
       /* Shell polish, 2026-10-28: the row state change (hover fill,
          active fill, ink) moves on the one curve instead of the
          generic ease it carried. */
@@ -19438,14 +19452,14 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        white step (see hoverIn in the Sidebar), so tint means current
        page and nothing else. */
     sidebarItemActive: {
-      background: P.raised, color: P.ink, fontWeight: 500,
+      background: "rgba(255,255,255,0.07)", color: REGISTER_INK.ink, fontWeight: 500,
       boxShadow: `none`,
     },
-    sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)", padding: "2px 7px", borderRadius: RADIUS.viewport, fontFamily: "var(--cb-font)" },
+    sidebarItemBadge: { marginLeft: "auto", fontSize: FONT_SIZES.caption, fontWeight: 500, color: REGISTER_INK.ink72, background: "rgba(255,255,255,0.08)", padding: "2px 7px", borderRadius: RADIUS.viewport, fontFamily: "var(--cb-font)" },
     /* Shell polish, 2026-10-28: on phones the rail is a full height
        drawer, so its footer clears the home indicator inset; desktop
        keeps the plain 16px foot. */
-    sidebarFooter: { flexShrink: 0, padding: isMobile ? "12px 12px calc(16px + env(safe-area-inset-bottom, 0px))" : "12px 12px 16px", borderTop: `1px solid ${P.line}`, display: "flex", flexDirection: "column", gap: 2 },
+    sidebarFooter: { flexShrink: 0, padding: isMobile ? "12px 12px calc(16px + env(safe-area-inset-bottom, 0px))" : "12px 12px 16px", borderTop: `1px solid ${REGISTER_LINE}`, display: "flex", flexDirection: "column", gap: 2 },
     // `position: relative` + `zIndex: 1` are load-bearing, not decoration:
     // without them this is a plain static box, which CSS paints in the
     // in-flow layer — strictly below ANY positioned element in the same
@@ -19509,7 +19523,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
        100%) guarantees the backdrop reaches the viewport bottom even when
        the content is short. Document Mode overrides this back to
        transparent at its mount: it runs its own film by design. */
-    pageView: { flex: 1, width: "100%", background: P.bg, minHeight: "100dvh", position: "relative", zIndex: Z.content },
+    pageView: { flex: 1, width: "100%", background: REGISTER_GROUND, minHeight: "100dvh", position: "relative", zIndex: Z.content },
     /* Reading panels: stable surfaces for profiles, bibliography, inbox,
        and long answers. The footage stays visible around them; the text
        sits on a solid surface that doesn't compete with it.
@@ -19704,17 +19718,16 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       minWidth: 0, letterSpacing: TYPE.heading.letterSpacing
     },
     searchBtn: {
-      /* Wave Zero (2026-11-02): the follow up submit is the
-         same gold text word as the composer send, on a
-         transparent ground, with no circle and no fill. Its
-         gold follows the Reading resolver: the darkened gold
-         on a light ground, REGISTER_GOLD on a dark one. */
+      /* Correct fix (2026-11-02): the follow up submit is a
+         filled pill in the surface accent again, with the ink
+         computed on the accent. The Wave Zero gold word on
+         transparent is retired with the rest of that form. */
       display: "inline-flex", alignItems: "center", justifyContent: "center",
-      minWidth: 44, height: 44, flexShrink: 0, padding: "0 10px",
-      background: "transparent",
-      color: P.dark ? REGISTER_GOLD : REGISTER_GOLD_ON_LIGHT,
+      minWidth: 44, height: 44, flexShrink: 0, padding: "0 16px",
+      background: accent,
+      color: at,
       border: "none",
-      borderRadius: 0, cursor: "pointer",
+      borderRadius: RADIUS.viewport, cursor: "pointer",
       transition: "transform 150ms ease, background 280ms ease",
       boxShadow: "none",
     },
@@ -20214,14 +20227,12 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
         <span aria-hidden="true" style={{
           width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
           display: "inline-flex", alignItems: "center", justifyContent: "center",
-          fontSize: 20, fontWeight: 500, fontFamily: "var(--cb-serif)",
+          fontSize: 20, fontWeight: 600, fontFamily: "var(--cb-font)",
           boxShadow: rank === "pro" ? `0 0 0 2px ${PRO.identity}` : `0 0 0 1px ${P.line}`,
-          /* Wave Zero (2026-11-02): the account tile no longer
-             takes a hue hashed from the email. The initial
-             stands in the register gold on the register
-             ground, the token tile chrome uses everywhere. */
-          background: REGISTER_GROUND, color: REGISTER_GOLD,
-        }}>{(user?.email || "?")[0].toUpperCase()}</span>
+          /* Correct fix (2026-11-02): the per user identity
+             skin restored here as in the rail tile. */
+          ...avatarSkin(displayName || user?.email || user?.id || "?"),
+        }}>{(displayName || user?.email || "?")[0].toUpperCase()}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{displayName}</span>
@@ -20269,22 +20280,23 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
    untouched. Public pages outside the shell carry their own
    template line, a different lifecycle, not a second shell
    row. */
+const SHELL_LEGAL_LINKS = [
+  ["/about", "About"],
+  ["/privacy", "Privacy"],
+  ["/terms", "Terms"],
+  ["/disclosures", "Disclosures"],
+  ["/contact", "Contact"],
+];
 function ShellLegalRow({ P }) {
   return (
     <div className="cb-shell-legal" style={{
       display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 12px",
-      padding: "10px 12px 2px", fontSize: FONT_SIZES.caption, color: P.faint,
+      padding: "10px 12px 2px", fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55,
       fontFamily: "var(--cb-font)", lineHeight: 1.6,
     }}>
-      {[
-        ["/about", "About"],
-        ["/privacy", "Privacy"],
-        ["/terms", "Terms"],
-        ["/disclosures", "Disclosures"],
-        ["/contact", "Contact"],
-      ].map(([href, label]) => (
+      {SHELL_LEGAL_LINKS.map(([href, label]) => (
         <a key={href} href={href} style={{
-          color: P.faint, textDecoration: "none", display: "inline-flex",
+          color: REGISTER_INK.ink55, textDecoration: "none", display: "inline-flex",
           alignItems: "center", minHeight: 32, whiteSpace: "nowrap",
         }}>{label}</a>
       ))}
@@ -20292,8 +20304,37 @@ function ShellLegalRow({ P }) {
     </div>
   );
 }
+/* The collapsed rail's legal popover (correct fix F5,
+   2026-11-02): the legal row renders in the expanded rail
+   foot and inside the mobile drawer, but a collapsed desktop
+   rail has no room for words, and the incident found the
+   links simply vanished for those users. The collapsed rail
+   carries one shield button at its foot; the popover it opens
+   renders the same links from the same table, on the register
+   ground, beside the rail. */
+function ShellLegalPopover({ onClose }) {
+  return (
+    <div role="dialog" aria-label="Legal" style={{
+      position: "fixed", left: 76, bottom: 12, zIndex: Z.modal,
+      background: REGISTER_GROUND, border: `1px solid ${REGISTER_LINE}`,
+      borderRadius: RADIUS.lg, padding: "10px 6px", minWidth: 168,
+      display: "flex", flexDirection: "column",
+      fontFamily: "var(--cb-font)",
+    }}>
+      {SHELL_LEGAL_LINKS.map(([href, label]) => (
+        <a key={href} href={href} style={{
+          color: REGISTER_INK.ink72, textDecoration: "none",
+          padding: "8px 12px", fontSize: FONT_SIZES.label, minHeight: 44,
+          display: "flex", alignItems: "center",
+        }}>{label}</a>
+      ))}
+      <span style={{ padding: "6px 12px 2px", fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55 }}>© {new Date().getFullYear()} Cerebrum™</span>
+    </div>
+  );
+}
 
 const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate, isMobile, mobileOpen, onCloseMobile, user, history, saved, collections, threads, muted, onToggleMute, onLogoClick, railCollapsed, onToggleRail, proStatus, onOpenPro, onSignOut, onOpenAuth, onOpenInvestigation, onOpenPalette }) {
+  const [legalOpen, setLegalOpen] = useState(false);
   // Wave 3 — the profile chip opens the account menu, not the profile
   // page: identity, membership state and sign-out in one place.
   const [acctOpen, setAcctOpen] = useState(false);
@@ -20352,7 +20393,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
      wash, two points under the active row's 10 percent wash, so hover
      and current read as the same state. Hover is a neutral light step
      now; the accent is reserved for the current page rule. */
-  const hoverIn = (e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.045)"; };
+  const hoverIn = (e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; };
   const hoverOut = (key) => (e) => { if (view !== key) e.currentTarget.style.background = "transparent"; };
   const itemStyle = (key) => ({ ...S.sidebarItem, ...(view === key ? S.sidebarItemActive : {}) });
 
@@ -20385,7 +20426,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
          Desktop is unaffected: the spread and the inert attribute only
          apply on mobile while closed. */
       {...(isMobile && !mobileOpen ? { inert: "" } : {})}
-      style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), width: isMobile ? "100%" : railW, transition: "width 280ms var(--cb-ease), transform 280ms var(--cb-ease), visibility 0s linear " + (isMobile && !mobileOpen ? "280ms" : "0s"), overflowX: "hidden", visibility: isMobile && !mobileOpen ? "hidden" : "visible" }}>
+      style={{ ...S.sidebar, ...(isMobile && mobileOpen ? S.sidebarMobileOpen : {}), "--cb-accent": REGISTER_GOLD, width: isMobile ? "100%" : railW, transition: "width 280ms var(--cb-ease), transform 280ms var(--cb-ease), visibility 0s linear " + (isMobile && !mobileOpen ? "280ms" : "0s"), overflowX: "hidden", visibility: isMobile && !mobileOpen ? "hidden" : "visible" }}>
       {/* Explicit close button for the mobile drawer. */}
       {isMobile && mobileOpen && (
         <UIButton P={P} variant="ghost"
@@ -20404,12 +20445,12 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
         >✕</UIButton>
       )}
       <div className="cb-shell-brand" style={{ ...S.sidebarBrand, ...(expanded ? {} : { padding: "24px 0 24px", justifyContent: "center" }) }} onClick={onLogoClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLogoClick(); } }} aria-label="Back to landing page">
-        <Mark size={22} accent={accent} glow={false} />
+        <Mark size={22} accent={REGISTER_GOLD} glow={false} />
         {/* Design character pass, 2026-10-28: the wordmark sets in the
             editorial serif now, the same face as the stage headline and
             the door title. The sans wordmark read as UI text; the serif
             is the one identity mark the shell carries. */}
-        {expanded && <span style={{ fontWeight: 500, fontSize: FONT_SIZES.section, color: P.ink, fontFamily: "var(--cb-serif)" }}>Cerebrum</span>}
+        {expanded && <span style={{ fontWeight: 500, fontSize: FONT_SIZES.section, color: REGISTER_INK.ink, fontFamily: "var(--cb-serif)" }}>Cerebrum</span>}
       </div>
       {/* Workstream E (2026-10-08): the command palette gets a visible
           trigger. A palette nobody can find is a feature nobody has. */}
@@ -20419,15 +20460,15 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             style={{
               display: "flex", alignItems: "center", gap: 10, width: "100%",
               minHeight: 44, padding: "10px 12px", borderRadius: RADIUS.md,
-              background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
-              border: `1px solid ${P.line}`, color: P.faint, cursor: "pointer",
+              background: "rgba(255,255,255,0.04)",
+              border: `1px solid ${REGISTER_LINE}`, color: REGISTER_INK.ink55, cursor: "pointer",
               fontSize: FONT_SIZES.label, fontFamily: "var(--cb-font)",
               transition: "background 200ms var(--cb-ease)",
             }}
-            onMouseEnter={hoverIn} onMouseLeave={(e) => { e.currentTarget.style.background = P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"; }}>
+            onMouseEnter={hoverIn} onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}>
             <Icon name="search" size={15} />
             <span style={{ flex: 1, textAlign: "left" }}>Find pages and your work</span>
-            <kbd style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.faint, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, padding: "2px 7px" }}>{typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K"}</kbd>
+            <kbd style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55, border: `1px solid ${REGISTER_LINE}`, borderRadius: RADIUS.sm, padding: "2px 7px" }}>{typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K"}</kbd>
           </button>
         </div>
       )}
@@ -20446,7 +20487,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             {expanded && <span>{label}</span>}
             {key === "inbox" && inboxUnread > 0 && (expanded
               ? <span className="cb-shell-badge" style={S.sidebarItemBadge}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>
-              : <span className="cb-shell-badge" aria-hidden="true" style={{ position: "absolute", top: 5, right: 5, minWidth: 16, height: 16, borderRadius: RADIUS.viewport, background: "transparent", border: `1px solid ${REGISTER_GOLD}`, color: REGISTER_GOLD, fontSize: 10, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>)}
+              : <span className="cb-shell-badge" aria-hidden="true" style={{ position: "absolute", top: 5, right: 5, minWidth: 16, height: 16, borderRadius: RADIUS.viewport, background: REGISTER_GOLD, border: "none", color: REGISTER_GROUND, fontSize: 10, fontWeight: 600, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>)}
           </button>
           );
         })}
@@ -20491,21 +20532,21 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
                 width: 44, height: 44, cursor: "pointer",
-                background: "transparent", border: "none", color: P.faint,
+                background: "transparent", border: "none", color: REGISTER_INK.ink55,
                 transition: "color 200ms var(--cb-ease)",
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = P.ink; }} onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; }}>
+              onMouseEnter={(e) => { e.currentTarget.style.color = REGISTER_INK.ink; }} onMouseLeave={(e) => { e.currentTarget.style.color = REGISTER_INK.ink55; }}>
               <span style={{ display: "inline-flex", transform: railCollapsed ? "rotate(180deg)" : "none", transition: "transform 280ms var(--cb-ease)" }}>
                 <Icon name="chevronLeft" size={18} />
               </span>
             </UIButton>
           )}
           <button onClick={onToggleMute} title={muted ? "Unmute all audio" : "Mute all audio"} aria-label={muted ? "Unmute all audio" : "Mute all audio"} aria-pressed={muted}
-            onMouseEnter={(e) => { e.currentTarget.style.color = P.ink; }} onMouseLeave={(e) => { e.currentTarget.style.color = P.faint; }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = REGISTER_INK.ink; }} onMouseLeave={(e) => { e.currentTarget.style.color = REGISTER_INK.ink55; }}
             style={{
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               width: 44, height: 44, cursor: "pointer",
-              background: "transparent", border: "none", color: P.faint,
+              background: "transparent", border: "none", color: REGISTER_INK.ink55,
               transition: "color 200ms var(--cb-ease)",
             }}>
             <Icon name={muted ? "volumeOff" : "volumeOn"} size={18} />
@@ -20524,33 +20565,34 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
               padding: expanded ? "9px 10px" : "9px 0", justifyContent: expanded ? "flex-start" : "center",
               borderRadius: RADIUS.md, cursor: "pointer",
-              border: `1px solid ${view === "profile" ? REGISTER_GOLD : P.line}`,
+              border: `1px solid ${view === "profile" ? REGISTER_GOLD : REGISTER_LINE}`,
               background: "transparent",
               transition: "background 200ms var(--cb-ease), border-color 200ms var(--cb-ease)",
             }}
           >
-            {/* The account tile (Wave Zero, 2026-11-02): the hue
-                hashed identity skin is removed from chrome. The
-                initial stands in the register gold on the
-                register ground, in the serif, the same tile the
-                account menu carries. avatarSkin survives only
-                inside the Profile and People surfaces, which a
-                later wave owns. */}
+            {/* The account tile (correct fix, 2026-11-02): the
+                per user identity skin is restored. The Wave Zero
+                brand tile made every user the same black and gold
+                initial, and the tile lost its silhouette on dark
+                grounds; the hashed skin is the identity, and the
+                incident lists its loss as a capability regression.
+                The initial sets in the sans, like the name beside
+                it. */}
             <span aria-hidden="true" style={{
               width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-serif)",
-              background: REGISTER_GROUND, color: REGISTER_GOLD,
-            }}>{(user.email || "?")[0].toUpperCase()}</span>
+              fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
+              ...avatarSkin(user.name || user.email || user.id || "?"),
+            }}>{(user.name || user.email || "?")[0].toUpperCase()}</span>
             {expanded && (
             <span style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>
               <span style={{
-                fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink,
+                fontSize: FONT_SIZES.caption, fontWeight: 500, color: REGISTER_INK.ink,
                 fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 display: "flex", alignItems: "center", gap: 6,
               }}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.name || (user.email || "").split("@")[0] || "Your profile"}</span>{user.isPro && <ProBadge />}</span>
               <span style={{
-                fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)",
+                fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55, fontFamily: "var(--cb-font)",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>{user.email || "Signed in"}</span>
             </span>
@@ -20571,16 +20613,31 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               display: "flex", alignItems: "center", justifyContent: expanded ? "flex-start" : "center", width: "100%",
               minHeight: 44, padding: expanded ? "0 10px" : "0", cursor: "pointer",
               border: "none", background: "transparent",
-              color: P.ink, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
+              color: REGISTER_INK.ink, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
             }}
           >
             <span>Sign in</span>
           </UIButton>
         )}
-        {/* The shell's one legal row, at the rail foot. It
-            renders only in the expanded rail; the collapsed
-            icon rail has no room for words and carries none. */}
+        {/* The shell's legal row, at the rail foot. Expanded
+            and mobile rails render the row; the collapsed icon
+            rail renders one shield button whose popover carries
+            the same links, so no shell state leaves the legal
+            links unreachable (correct fix F5). */}
         {expanded && <ShellLegalRow P={P} />}
+        {!expanded && (
+          <button type="button" onClick={() => setLegalOpen((o) => !o)}
+            aria-label="Legal links" aria-expanded={legalOpen}
+            title="About, Privacy, Terms, Disclosures, Contact"
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: "100%", minHeight: 44, background: "transparent", border: "none",
+              color: REGISTER_INK.ink55, cursor: "pointer",
+            }}>
+            <Icon name="shield" size={17} />
+          </button>
+        )}
+        {legalOpen && !expanded && <ShellLegalPopover onClose={() => setLegalOpen(false)} />}
       </div>
     </nav>
   );
@@ -24448,20 +24505,13 @@ function App({ profileHandle = null } = {}) {
             ground with a solid backing of its own. The reel still
             mounts the moment a search starts, over the thread,
             exactly as before. */}
-        {!cbMotionOff() && animationMode !== "off" && !homeStage && (
-          <div aria-hidden="true" style={{
-            position: "fixed", inset: 0, zIndex: Z.base + 1, pointerEvents: "none",
-            filter: "brightness(0.30) saturate(0.60) blur(12px)",
-          }}>
-            <CinematicFilm
-              reel="calm"
-              animationMode={animationMode}
-              intensity={0.35}
-              onAutoplayBlocked={() => {}}
-              onPlaybackChange={() => {}}
-            />
-          </div>
-        )}
+        {/* Correct fix (2026-11-02): the calm reel no longer
+            mounts over the thread. Blurred footage behind the
+            answer was one of the layers that washed the shipped
+            surfaces; the entered app now sits on the register
+            ground and its own surfaces, and the cinematic layer
+            lives on the door and the home atmosphere, where it
+            was approved. */}
         {/* Search atmosphere (2026-10-08 rev): the cinematic feel returns,
            calm — Dusty's note was "too distracting", not "kill the mood".
            Deep gradient + two slow blurred glows + grain + focus scrim.
@@ -24481,55 +24531,34 @@ function App({ profileHandle = null } = {}) {
         <div className="cb-atmo" aria-hidden="true"
           style={{
             zIndex: Z.base,
-            "--cb-atmo-top": P.bg,
+            "--cb-atmo-top": REGISTER_GROUND,
           }}>
           <div className="cb-atmo-base" />
           <div className="cb-atmo-grain" />
         </div>
         </>
-      ) : filmBlocked(animationMode, false) ? (
-        <CerebrumFieldCanvas
-          accent={accent}
-          P={P}
-          mode={started ? "reading" : "ambient"}
-          energy={busy ? 1 : 0}
-          core={started ? 0.34 : 0.85}
-          corePos={started ? [0.72, 0.58] : [0, 0.08]}
-          coreScale={started ? 0.42 : 0.9}
-          animationMode={animationMode}
-        />
       ) : (
-        <div style={{ position: "fixed", inset: 0, zIndex: Z.base, pointerEvents: "none", filter: "brightness(0.30) saturate(0.60) blur(12px)" }} aria-hidden="true">
-          <CinematicFilm
-            ref={wsFilmRef}
-            animationMode={animationMode}
-            proReel={!!user?.isPro}
-            onAutoplayBlocked={() => setWsFilmVetoed(true)}
-            onPlaybackChange={(playing) => { setWsFilmPlaying(playing); if (playing) setWsFilmVetoed(false); }}
-            /* No manual pause control in the workspace — the reel runs while
-               the tab is visible and yields to reduced-motion/Save-Data via
-               filmBlocked above. But if autoplay is vetoed (iOS Low Power
-               Mode), a tap-to-play button appears below — otherwise the
-               backdrop is stuck on the poster with no way out. */
-            /* Opens on the door's clip when the visitor just stepped through,
-               so the background frame is retained across the handoff. */
-            startAt={enterClip}
-            /* One grade for every view (2026-10-19, S7 shell lane, audit H6):
-               the wrapper filter above is the same dark, blurred grade the
-               search home uses. No view grades brighter than another. */
-            intensity={
-              started ? 0.16
-                : (view && view !== "search") ? 0.20
-                : 0.38
-            }
-          />
+        /* Correct fix (2026-11-02): non search views no longer
+           mount the reel or the field canvas behind their
+           surfaces. Every entered view paints its own ground
+           (palette surfaces on P.bg, the home on the register
+           atmosphere), and the fixed layer under them is the
+           register ground with the grain only, so nothing can
+           wash through a surface again. */
+        <div className="cb-atmo" aria-hidden="true"
+          style={{
+            zIndex: Z.base,
+            "--cb-atmo-top": REGISTER_GROUND,
+          }}>
+          <div className="cb-atmo-base" />
+          <div className="cb-atmo-grain" />
         </div>
       ))}
       {/* Autoplay recovery: iOS Low Power Mode vetoes programmatic play().
           This button runs playNow() inside the tap's gesture window — the one
           place iOS honours it. Rendered only when a veto was observed and the
           reel is still not playing. */}
-      {wsFilmVetoed && !wsFilmPlaying && view !== "search" && (
+      {false && wsFilmVetoed && !wsFilmPlaying && view !== "search" && (
         <button type="button"
           onClick={() => { try { wsFilmRef.current?.playNow(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: wsFilmRef.current?.playNow(); }:", cbErr); } }}
           aria-label="Play background video"
@@ -24654,8 +24683,8 @@ function App({ profileHandle = null } = {}) {
                 /* Opaque fill, no backdrop blur: a full-width fixed bar over
                    scrolling content is per-frame compositor work on a phone
                    for zero legibility gain at 56px. */
-                background: P.bg,
-                borderBottom: `1px solid ${P.line}`,
+                background: REGISTER_GROUND,
+                borderBottom: `1px solid ${REGISTER_LINE}`,
               }}>
               <button
                 className="cb-hbtn"
@@ -24668,14 +24697,14 @@ function App({ profileHandle = null } = {}) {
                   width: 48, height: 48, borderRadius: "50%", flexShrink: 0,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   background: "transparent",
-                  border: `1px solid ${P.line}`,
-                  color: P.ink, cursor: "pointer",
+                  border: `1px solid ${REGISTER_LINE}`,
+                  color: REGISTER_INK.ink, cursor: "pointer",
                 }}
               >
                 <Icon name="menu" size={18} />
               </button>
               <div style={{ flex: 1, minWidth: 0, padding: "0 6px" }}>
-                <div key={headerTitle} className="cb-shell-title-in" style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{headerTitle}</div>
+                <div key={headerTitle} className="cb-shell-title-in" style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: REGISTER_INK.ink, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{headerTitle}</div>
               </div>
               {/* 2026-10-22 (simplify audit SH3): Inbox and Account
                   left the mobile header. The bottom nav carries both,
@@ -24686,7 +24715,8 @@ function App({ profileHandle = null } = {}) {
             <nav aria-label="Primary" className="cb-shell-tabbar-in" style={{
               position: "fixed", bottom: 0, left: 0, right: 0, zIndex: Z.headerBar,
               display: "flex", alignItems: "stretch",
-              background: P.bg, borderTop: `1px solid ${P.line}`,
+              background: REGISTER_GROUND, borderTop: `1px solid ${REGISTER_LINE}`,
+              "--cb-accent": REGISTER_GOLD,
               paddingBottom: "env(safe-area-inset-bottom)",
               /* Shell polish, 2026-10-28: side insets so the end
                  tabs clear a landscape notch, same treatment as
@@ -24711,7 +24741,7 @@ function App({ profileHandle = null } = {}) {
                       flex: 1, minHeight: 64, display: "flex", flexDirection: "column",
                       alignItems: "center", justifyContent: "center", gap: 3,
                       background: "transparent", border: "none", cursor: "pointer",
-                      color: isActiveTab ? accent : P.faint,
+                      color: isActiveTab ? REGISTER_GOLD : REGISTER_INK.ink55,
                       fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
                       position: "relative",
                     }}>
@@ -24722,17 +24752,20 @@ function App({ profileHandle = null } = {}) {
                         carries no rule. */}
                     {!t.fab && <span aria-hidden="true" className="cb-shell-tab-ind" />}
                     {t.fab ? (
-                      /* Wave Zero (2026-11-02): the gold centre
-                         filled circle is deleted. The New search
-                         tab is a text word in the register gold
-                         over a short gold rule, the marginal mark
-                         form, with its label under it like every
-                         other tab. No filled object stands in the
-                         centre of the tab bar. */
+                      /* Correct fix (2026-11-02): the filled centre
+                         action is restored. The Wave Zero hairline
+                         read as a tab indicator, not a button, and
+                         the primary action of the app carried the
+                         same weight as Settings. The 48px filled
+                         gold circle with the plus, raised over the
+                         bar, is the pre incident form. */
                       <span aria-hidden="true" style={{
-                        display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
+                        width: 48, height: 48, borderRadius: "50%", flexShrink: 0,
+                        background: REGISTER_GOLD, color: REGISTER_GROUND,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        marginTop: -22, boxShadow: "0 4px 14px rgba(0,0,0,0.45)",
                       }}>
-                        <span style={{ width: 24, height: 2, background: REGISTER_GOLD }} />
+                        <Icon name="plus" size={20} />
                       </span>
                     ) : (
                       <span style={{ position: "relative", display: "inline-flex" }}>
@@ -24747,7 +24780,7 @@ function App({ profileHandle = null } = {}) {
                         {t.badge > 0 && <span className="cb-shell-badge" style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: RADIUS.md, background: "#d13438", color: "#fff", fontSize: 10, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }} aria-hidden="true">{t.badge > 9 ? "9+" : t.badge}</span>}
                       </span>
                     )}
-                    <span style={{ whiteSpace: "nowrap", color: t.fab ? REGISTER_GOLD : undefined }}>{t.label}</span>
+                    <span style={{ whiteSpace: "nowrap", color: t.fab ? REGISTER_INK.ink72 : undefined }}>{t.label}</span>
                   </button>
                 );
               })}
@@ -24764,7 +24797,7 @@ function App({ profileHandle = null } = {}) {
          gone. Selecting text now does what selecting text does everywhere
          else; SelectionAsk offers the search as a button the reader has to
          actually press. */
-      <div style={S.scroll} ref={threadRef} className="cb-shell-view-in">
+      <div style={{ ...S.scroll, background: started ? P.bg : REGISTER_GROUND }} ref={threadRef} className="cb-shell-view-in">
         <SelectionAsk onAsk={(q) => ask(q)} P={P} accent={accent} containerRef={threadRef} />
         <div style={view === "search" ? { ...S.container, maxWidth: 1760 } : S.container}>
           {!started ? (
@@ -25075,7 +25108,7 @@ function App({ profileHandle = null } = {}) {
       </div>
       )}
       {view === "profile" && (
-        <Reveal style={S.pageView} deps={[view]}>
+        <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}>
           <ProfileView
             P={P} accent={accent} at={at} isMobile={isMobile}
             user={user} profile={profile} setProfile={setProfile} profileMeta={profileMeta}
@@ -25090,20 +25123,20 @@ function App({ profileHandle = null } = {}) {
         </Reveal>
       )}
       {view === "settings" && (
-        <Reveal deps={[view]} style={S.pageView}>
+        <Reveal deps={[view]} style={{ ...S.pageView, background: P.bg }}>
         <SettingsView key={settingsOpenNonce} {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: openPro, onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, onRegisterPasskey: registerPasskey }} />
         </Reveal>
       )}
       {view === "trending" && (
-        <Reveal style={S.pageView} deps={[view]}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} onAsk={(q) => { setView("search"); ask(q); }} onSaveStory={(item) => { const src = trendingStoryToSource(item); if (src) toggleSave(src); }} isStorySaved={(item) => { const src = trendingStoryToSource(item); return src ? isSaved(src) : false; }} /></Reveal>
+        <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}><TrendingView P={P} accent={accent} at={at} isMobile={isMobile} onAsk={(q) => { setView("search"); ask(q); }} onSaveStory={(item) => { const src = trendingStoryToSource(item); if (src) toggleSave(src); }} isStorySaved={(item) => { const src = trendingStoryToSource(item); return src ? isSaved(src) : false; }} /></Reveal>
       )}
       {view === "usage" && (
-        <Reveal style={S.pageView} deps={[view]}><UsageView P={P} accent={accent} at={at} user={user} proStatus={proStatus} proStatusFailed={proStatusFailed} onRetryPro={refreshPro} isMobile={isMobile} onOpenPro={openPro} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} /></Reveal>
+        <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}><UsageView P={P} accent={accent} at={at} user={user} proStatus={proStatus} proStatusFailed={proStatusFailed} onRetryPro={refreshPro} isMobile={isMobile} onOpenPro={openPro} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} /></Reveal>
       )}
       {/* Commit 99 — Document Mode, as a destination. See NotebookMode's own
           comment for why it stopped being an overlay. */}
       {view === "studio" && (
-        <Reveal style={S.pageView} deps={[view]}>
+        <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}>
           {/* 2026-10-22 (simplify audit R21): one Diagram Studio.
               The code editor that used to mount here is gone; the
               page studio and the answer dialog are the same tool
@@ -25147,7 +25180,7 @@ function App({ profileHandle = null } = {}) {
           saved answers are answered turns kept with their investigations;
           exports are this browser's export receipts. ── */}
       {view === "library" && (
-        <Reveal style={S.pageView} deps={[view]}>
+        <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}>
           <WorkspacePage
             P={P} accent={accent} isMobile={isMobile} wide
             title="Your library" count={saved.length + history.length + flowcharts.length}
@@ -25741,7 +25774,7 @@ function App({ profileHandle = null } = {}) {
           into. It now also gets a filter, because the moment this list is
           useful it is long. */}
       {view === "investigations" && (
-        <Reveal style={S.pageView} deps={[view]}>
+        <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}>
           <WorkspacePage
             P={P} accent={accent} isMobile={isMobile} wide
             title="Investigations" count={history.length}
@@ -26012,7 +26045,7 @@ function App({ profileHandle = null } = {}) {
         </Reveal>
       )}
       {view === "people" && (
-        <Reveal style={S.pageView} deps={[view]}>
+        <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}>
           <WorkspacePage
             P={P} accent={accent} isMobile={isMobile} wide
             title="Find people"
@@ -26031,7 +26064,7 @@ function App({ profileHandle = null } = {}) {
         </Reveal>
       )}
       {view === "learn" && (
-        <Reveal style={S.pageView} deps={[view]}>
+        <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}>
           <LearnView
             P={P} accent={accent} at={at}
             onNavigate={(v) => setView(v)}
@@ -26039,7 +26072,7 @@ function App({ profileHandle = null } = {}) {
         </Reveal>
       )}
       {view === "inbox" && (
-        <Reveal style={{ ...S.pageView, display: "flex", flexDirection: "column", height: "100dvh", minHeight: 0 }} deps={[view]}>
+        <Reveal style={{ ...S.pageView, background: P.bg, display: "flex", flexDirection: "column", height: "100dvh", minHeight: 0 }} deps={[view]}>
           <InboxView
             P={P} accent={accent} at={at} isMobile={isMobile}
             threads={threads} setThreads={setThreads}
@@ -27297,7 +27330,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   color: var(--cb-ink2);
   transition: color 280ms ease, background 280ms ease;
 }
-.cb-ask-tool:hover { color: var(--cb-ink); background: transparent; }
+.cb-ask-tool:hover { color: var(--cb-ink); background: color-mix(in srgb, var(--cb-acc) 10%, transparent); }
 /* Home B (2026-10-29): the constraints toggle as one word
    inside the field. A text control, not a pill: no border, no
    fill, at the label size, with a 44px hit height. A non
@@ -27318,28 +27351,39 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   display: inline-flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-/* The Ask action: a word, not a key. Wave Zero (2026-11-02):
-   a gold text word on a transparent ground, no fill, no
-   border, no arrow, no icon. Its ink is the resolver gold
-   role (--cb-ask-ink, set on the composer root from
-   registerTokens.js), and the disabled state is the
-   register ink55 step. Hover underlines the word; that is
-   the whole state change. */
+/* The Ask action (correct fix, 2026-11-02): a filled pill
+   again. The Wave Zero word only send collapsed the product's
+   primary affordance to a link; the pre incident form returns:
+   an accent wash with an accent border at rest, deeper on
+   hover. The stage variant is the solid key: full accent fill
+   with the ink computed on the accent. Disabled reads the
+   surface's own faint step, which is resolved against the
+   ground the composer sits on, never a fixed white. */
 .cb-ask-go {
   min-height: 44px; padding: 0 20px; margin-left: 4px;
-  border: none;
-  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--cb-acc) 42%, transparent);
+  background: color-mix(in srgb, var(--cb-acc) 15%, transparent);
   border-radius: var(--cb-r-md); cursor: pointer;
-  color: var(--cb-ask-ink, var(--cb-accent-ink, var(--cb-acc)));
+  color: var(--cb-ink);
   font-family: var(--cb-font); font-size: 15px; font-weight: 500;
   display: inline-flex; align-items: center; justify-content: center;
-  transition: color 280ms ease, opacity 280ms ease;
+  transition: background 280ms ease, border-color 280ms ease, opacity 280ms ease;
 }
 .cb-ask-go:hover:not(:disabled) {
-  background: transparent;
-  text-decoration: underline; text-underline-offset: 4px;
+  background: color-mix(in srgb, var(--cb-acc) 24%, transparent);
+  border-color: color-mix(in srgb, var(--cb-acc) 60%, transparent);
 }
-.cb-ask-go:disabled { cursor: default; color: var(--cb-ink55, var(--cb-faint)); }
+.cb-ask-go:disabled { cursor: default; color: var(--cb-faint); opacity: 0.6; }
+.cb-ask--stage .cb-ask-go {
+  background: var(--cb-acc);
+  border-color: transparent;
+  color: var(--cb-on-acc);
+}
+.cb-ask--stage .cb-ask-go:hover:not(:disabled) {
+  background: var(--cb-acc);
+  border-color: transparent;
+  opacity: 0.88;
+}
 .cb-ask-spin {
   width: 16px; height: 16px; border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--cb-acc) 35%, transparent);
@@ -27380,9 +27424,8 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 .cb-ask--stage .cb-ask-tool { color: var(--cb-faint); }
 .cb-ask--stage .cb-ask-tool svg { width: 15px; height: 15px; }
 .cb-ask--stage .cb-ask-mic svg { width: 15px; height: 15px; }
-/* Wave Zero (2026-11-02): the round filled stage submit key
-   is deleted. The stage send is the same gold text word as
-   every other composer: Ask, on a transparent ground. */
+/* The stage send is the solid key above (.cb-ask--stage
+   .cb-ask-go): full register gold fill on the home stage. */
 
 /* ── Plate II chrome: text actions and inquiries (the stage top bar
    and its link styles went with the bar when the sidebar returned) ── */
@@ -27408,7 +27451,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 .cb-shape {
   display: inline-flex; align-items: center; gap: 8px;
   min-height: 44px; padding: 6px 16px 6px 14px; margin: 8px 0 0;
-  background: transparent;
+  background: color-mix(in srgb, var(--cb-acc) 10%, transparent);
   border: 1px solid var(--cb-line2);
   border-radius: var(--cb-r-md); cursor: pointer;
   color: var(--cb-ink2); font-family: var(--cb-font);
@@ -27417,7 +27460,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   animation: cbPhIn 280ms ease both;
 }
 .cb-shape:hover {
-  background: transparent;
+  background: color-mix(in srgb, var(--cb-acc) 17%, transparent);
   color: var(--cb-ink);
 }
 .cb-shape:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; }

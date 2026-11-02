@@ -237,6 +237,9 @@ function sliceBetween(src, startMarker, endMarker) {
    or a file, fails the gate. */
 const COLOUR_BASELINE = {
  "src/CerebrumApp.jsx": {
+  /* Correct fix census (2026-11-02): the rail badge step is a new
+     shell literal, counted here so the census stays honest. */
+  "rgba(255,255,255,0.08)": 1,
   "#000": 13,
   "#000000": 7,
   "#05070a": 3,
@@ -320,7 +323,7 @@ const COLOUR_BASELINE = {
   "rgba(0,0,0,0.32)": 1,
   "rgba(0,0,0,0.34)": 1,
   "rgba(0,0,0,0.36)": 1,
-  "rgba(0,0,0,0.45)": 1,
+  "rgba(0,0,0,0.45)": 2, /* correct fix census: the raised centre tab shadow */
   "rgba(0,0,0,0.5)": 4,
   "rgba(0,0,0,0.55)": 4,
   "rgba(0,0,0,0.6)": 3,
@@ -370,7 +373,8 @@ const COLOUR_BASELINE = {
   "rgba(255,255,255,0.05)": 8,
   "rgba(255,255,255,0.055)": 1,
   "rgba(255,255,255,0.06)": 3,
-  "rgba(255,255,255,0.07)": 8,
+  /* Correct fix census (2026-11-02): the rail active row step joins the count. */
+  "rgba(255,255,255,0.07)": 9,
   "rgba(255,255,255,0.09)": 2,
   "rgba(255,255,255,0.1)": 2,
   "rgba(255,255,255,0.11)": 1,
@@ -723,58 +727,58 @@ await test("(c) accent as paint never grows past the frozen baseline anywhere in
   assert.deepEqual(breaches, [], breaches.join("\n"));
 });
 
-await test("(c) chrome and the composer hold zero accent paint", () => {
+await test("(c) correct fix: the shell chrome holds no user accent paint, and the composer send is a filled action again", () => {
   const composer = sliceBetween(appSrc, "function SignalComposer({", "/* ── SSE search streaming");
-  assert.equal(accentPaintCount(composer), 0, "SignalComposer still paints with the accent");
   const filter = sliceBetween(appSrc, "function EvidenceFilter({", "const QUERY_COMMON_WORDS");
-  assert.equal(accentPaintCount(filter), 0, "EvidenceFilter still washes its toggles with the accent");
   const sidebar = sliceBetween(appSrc, "const Sidebar = React.memo(function Sidebar(", "/* Commit 69 — the consent gate.");
-  assert.equal(accentPaintCount(sidebar), 0, "the rail still paints with the accent");
+  assert.equal(accentPaintCount(sidebar), 0, "the rail paints with the user accent: the frame is register, not palette");
   const tabbar = sliceBetween(appSrc, '<nav aria-label="Primary" className="cb-shell-tabbar-in"', '{view === "search" && (');
-  assert.equal(accentPaintCount(tabbar), 0, "the mobile tab bar still paints with the accent");
+  assert.equal(accentPaintCount(tabbar), 0, "the mobile tab bar paints with the user accent");
+  assert.ok(tabbar.includes('"--cb-accent": REGISTER_GOLD'), "the tab bar does not scope its accent variable to the register gold");
   const goRule = sliceBetween(appSrc, ".cb-ask-go {", ".cb-ask-spin {");
-  assert.ok(goRule.includes("background: transparent"), "the composer send action is not on transparent ground");
-  assert.equal(accentPaintCount(goRule), 0, "the composer send rule still paints with the accent");
+  assert.ok(goRule.includes("background: color-mix(in srgb, var(--cb-acc) 15%, transparent)"), "the composer send lost its filled wash");
+  assert.ok(goRule.includes("border: 1px solid color-mix(in srgb, var(--cb-acc) 42%, transparent)"), "the composer send lost its border");
+  assert.ok(goRule.includes("color: var(--cb-faint)"), "the composer disabled state does not read the surface faint step");
+  assert.ok(appSrc.includes(".cb-ask--stage .cb-ask-go {"), "the stage send has no solid key rule");
+  const stageGo = sliceBetween(appSrc, ".cb-ask--stage .cb-ask-go {", ".cb-ask--stage .cb-ask-go:hover");
+  assert.ok(stageGo.includes("background: var(--cb-acc)"), "the stage send is not the solid accent fill");
+  assert.ok(stageGo.includes("color: var(--cb-on-acc)"), "the stage send ink is not computed on the accent");
   const askCss = appSrc.slice(appSrc.indexOf(".cb-ask {"), appSrc.indexOf(".cb-ask-field {"));
   assert.ok(askCss.includes("--cb-acc: #c89a3a"), "the composer accent variable is not the register gold literal");
   const diveCss = appSrc.slice(appSrc.indexOf(".cb-dive {"), appSrc.indexOf(".cb-dive-scroll {"));
   assert.ok(diveCss.includes("--cb-acc: #c89a3a"), "the Dive accent variable is not the register gold literal");
   const searchBtn = sliceBetween(appSrc, "searchBtn: {", 'boxShadow: "none",');
-  assert.ok(searchBtn.includes('background: "transparent"'), "the follow up submit is not on transparent ground");
-  assert.ok(searchBtn.includes('border: "none"'), "the follow up submit still carries a border fill");
-  assert.ok(searchBtn.includes("color: P.dark ? REGISTER_GOLD : REGISTER_GOLD_ON_LIGHT"), "the follow up submit does not take the gold role");
+  assert.ok(searchBtn.includes("background: accent"), "the follow up submit is not the filled accent pill");
+  assert.ok(searchBtn.includes("color: at"), "the follow up submit ink is not the ink computed on the accent");
+  assert.ok(searchBtn.includes("borderRadius: RADIUS.viewport"), "the follow up submit is not a pill");
 });
 
-await test("(c) the composer send action is a gold text word with no arrow, no icon, no fill", () => {
+await test("(c) the composer send action is the filled Ask pill, word kept, on every variant", () => {
   const composer = sliceBetween(appSrc, "function SignalComposer({", "/* ── SSE search streaming");
-  assert.ok(composer.includes('"--cb-ask-ink": askGold'), "the composer ink variable is not the gold role");
-  assert.ok(composer.includes("P && P.dark === false ? REGISTER_GOLD_ON_LIGHT : REGISTER_GOLD"), "the gold role does not switch to the on light derivative on light grounds");
   assert.ok(composer.includes('className="cb-ask-go"'), "the send button class changed shape");
-  assert.ok(!composer.includes("cb-ask-go--round"), "the round filled stage submit is still present");
-  assert.ok(!composer.includes("&#8593;"), "the stage arrow still renders in the composer");
   assert.ok(composer.includes(': "Ask"}'), "the send action does not render the word Ask");
   assert.ok(composer.includes('aria-label={busy ? "Searching" : "Ask"}'), "the send action label changed");
-  assert.ok(composer.includes('"--cb-ink55": REGISTER_INK.ink55'), "the disabled and faint ink is not the register ink55 step");
+  assert.ok(composer.includes('"--cb-on-acc": accentInk(P, accent)'), "the solid key ink is not computed on the accent");
+  assert.ok(composer.includes('"--cb-acc": accent'), "the composer does not carry its surface accent into the fill");
 });
 
-await test("(3b)+(3c) chrome carries no hashed account tile and no filled centre object", () => {
+await test("(3b)+(3c) correct fix: the account tile carries the user's identity skin, and the centre tab is a filled action", () => {
   const sidebar = sliceBetween(appSrc, "const Sidebar = React.memo(function Sidebar(", "/* Commit 69 — the consent gate.");
-  assert.ok(!/avatarSkin\(/.test(sidebar), "the rail still skins its account tile with avatarSkin");
+  assert.ok(/avatarSkin\(/.test(sidebar), "the rail account tile lost the per user identity skin");
   const accountMenu = sliceBetween(appSrc, "function AccountMenu({", "const Sidebar = React.memo(function Sidebar(");
-  assert.ok(!/avatarSkin\(/.test(accountMenu), "the account menu still skins its tile with avatarSkin");
-  assert.equal((appSrc.match(/\.\.\.avatarSkin\(/g) || []).length, 2, "avatarSkin spreads outside the Profile and People surfaces appeared or vanished");
-  assert.ok(sidebar.includes("background: REGISTER_GROUND, color: REGISTER_GOLD"), "the rail account tile is not the gold initial on the register tile");
-  assert.ok(accountMenu.includes("background: REGISTER_GROUND, color: REGISTER_GOLD"), "the account menu tile is not the gold initial on the register tile");
-  assert.ok(!appSrc.includes("cb-shell-fab"), "the filled centre tab object is still present");
+  assert.ok(/avatarSkin\(/.test(accountMenu), "the account menu tile lost the per user identity skin");
+  assert.equal((appSrc.match(/\.\.\.avatarSkin\(/g) || []).length, 4, "avatarSkin spreads: rail tile, account menu tile, Profile and People surfaces only");
   const tabbar = sliceBetween(appSrc, '<nav aria-label="Primary" className="cb-shell-tabbar-in"', '{view === "search" && (');
-  assert.ok(!tabbar.includes("background: accent"), "the mobile tab bar still carries a filled accent object");
-  assert.ok(tabbar.includes("background: REGISTER_GOLD"), "the centre tab marker is not the gold rule");
+  assert.ok(!tabbar.includes("background: accent"), "the mobile tab bar carries a filled user accent object");
+  assert.ok(tabbar.includes("background: REGISTER_GOLD"), "the centre tab action is not the filled register gold circle");
+  assert.ok(tabbar.includes('width: 48, height: 48, borderRadius: "50%"'), "the centre tab action is not the 48px raised circle");
 });
 
 await test("(e) every register token has a consumer, or an expiry on the allowlist", () => {
   const EXPIRY = {
     REGISTER_GOLD_BRIGHT: "glasses rim treatment, Nova alive lane and Wave 5 Nova page",
-    INSTRUMENT_GROUND: "Instrument surface pass, Wave 2",
+    INSTRUMENT_GROUND: "retired by the correct fix (2026-11-02): null marker only, Instrument resolves with its palette",
+    REGISTER_LINE_STRONG: "retired with the Wave 2 ledger (correct fix, 2026-11-02): no consumer remains",
     READING_MEASURE: "Reader and answer measure pass, Wave 4",
     NOTEBOOK_MEASURE: "Nova notebook measure, Wave 5",
   };
@@ -791,7 +795,7 @@ await test("(e) every register token has a consumer, or an expiry on the allowli
   assert.deepEqual(dead, [], "dead register tokens:\n" + dead.join("\n"));
 });
 
-await test("resolver pins: Register ignores the palette, Instrument is fixed, Reading alone moves", () => {
+await test("resolver pins: Register ignores the palette, Reading and Instrument move with it, ground and ink together", () => {
   const palettes = Object.values(PALETTES);
   assert.ok(palettes.length >= 4, "the palette set is missing");
   for (const view of ["door", "search", "signin"]) {
@@ -803,9 +807,13 @@ await test("resolver pins: Register ignores the palette, Instrument is fixed, Re
   for (const view of ["library", "settings", "inbox"]) {
     const r = resolveSurface(view, PALETTES.Light);
     assert.equal(r.class, "Instrument", `${view} is not Instrument`);
-    assert.equal(r.ground, INSTRUMENT_GROUND);
-    assert.equal(r.ground, REGISTER_GROUND, "INSTRUMENT_GROUND must alias REGISTER_GROUND in this wave");
+    assert.equal(r.ground, PALETTES.Light.bg, "an Instrument surface must resolve its ground from its palette");
+    assert.equal(r.ink.ink, PALETTES.Light.ink, "an Instrument surface must resolve its ink with its ground, never the register ink on a palette ground or the reverse");
+    const d = resolveSurface(view, PALETTES.Dark);
+    assert.equal(d.ground, PALETTES.Dark.bg, "an Instrument resolution must move with the palette");
+    assert.equal(d.ink.ink, PALETTES.Dark.ink);
   }
+  assert.equal(INSTRUMENT_GROUND, null, "the fixed Instrument ground alias must stay retired");
   const darkAnswer = resolveSurface("answer", PALETTES.Dark);
   const lightAnswer = resolveSurface("answer", PALETTES.Light);
   assert.equal(darkAnswer.class, "Reading");
@@ -839,15 +847,17 @@ await test("every view the shell renders maps to exactly one surface class", () 
 await test("(3g) exactly one shell legal row, and the footer and home no longer carry legal content", () => {
   assert.equal((appSrc.match(/function ShellLegalRow\(/g) || []).length, 1, "ShellLegalRow must be defined exactly once");
   assert.equal((appSrc.match(/<ShellLegalRow/g) || []).length, 1, "ShellLegalRow must be rendered exactly once, inside the shell");
-  const row = sliceBetween(appSrc, "function ShellLegalRow({ P })", "const Sidebar = React.memo(function Sidebar(");
+  const row = sliceBetween(appSrc, "const SHELL_LEGAL_LINKS = [", "const Sidebar = React.memo(function Sidebar(");
   for (const [href, label] of [["/about", "About"], ["/privacy", "Privacy"], ["/terms", "Terms"], ["/disclosures", "Disclosures"], ["/contact", "Contact"]]) {
-    assert.ok(row.includes(`"${href}"`) && row.includes(`"${label}"`), `the shell legal row is missing ${label}`);
+    assert.ok(row.includes(`"${href}"`) && row.includes(`"${label}"`), `the shell legal link table is missing ${label}`);
   }
-  assert.ok(row.includes("href={href}"), "the shell legal row does not render its links from the row table");
+  assert.ok(row.includes("SHELL_LEGAL_LINKS.map"), "the shell legal row does not render its links from the shared table");
+  assert.ok(appSrc.includes("function ShellLegalPopover("), "the collapsed rail has no legal popover: the links vanish for collapsed users");
+  assert.ok(appSrc.includes('aria-label="Legal links"'), "the collapsed rail carries no legal links button");
   assert.ok(row.includes("Cerebrum™"), "the shell legal row is missing the Cerebrum notice");
   const appBody = appSrc.slice(appSrc.indexOf("function App({"));
   assert.ok(!appBody.includes("©"), "a legal notice renders inside the App body outside the shell legal row");
-  assert.equal((appSrc.match(/©/g) || []).length, 2, "the only notices in CerebrumApp.jsx are InfoPage (outside the shell) and the shell legal row");
+  assert.equal((appSrc.match(/©/g) || []).length, 3, "the only notices in CerebrumApp.jsx are InfoPage (outside the shell), the shell legal row, and the collapsed rail legal popover");
   const foot = appSrc.slice(appSrc.indexOf('<div style={S.foot} className="cb-appfoot">'), appSrc.indexOf('<div style={S.foot} className="cb-appfoot">') + 2600);
   for (const href of ["/about", "/privacy", "/terms", "/disclosures", "/contact"]) {
     assert.ok(!foot.includes(href), `the app footer still carries ${href}`);
