@@ -20244,7 +20244,7 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
         <span aria-hidden="true" style={{
           width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
           display: "inline-flex", alignItems: "center", justifyContent: "center",
-          fontSize: 20, fontWeight: 600, fontFamily: "var(--cb-font)",
+          fontSize: 20, fontWeight: 500, fontFamily: "var(--cb-font)",
           boxShadow: rank === "pro" ? `0 0 0 2px ${PRO.identity}` : `0 0 0 1px ${P.line}`,
           /* Correct fix (2026-11-02): the per user identity
              skin restored here as in the rail tile. */
@@ -20504,7 +20504,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             {expanded && <span>{label}</span>}
             {key === "inbox" && inboxUnread > 0 && (expanded
               ? <span className="cb-shell-badge" style={S.sidebarItemBadge}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>
-              : <span className="cb-shell-badge" aria-hidden="true" style={{ position: "absolute", top: 5, right: 5, minWidth: 16, height: 16, borderRadius: RADIUS.viewport, background: REGISTER_GOLD, border: "none", color: REGISTER_GROUND, fontSize: 10, fontWeight: 600, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>)}
+              : <span className="cb-shell-badge" aria-hidden="true" style={{ position: "absolute", top: 5, right: 5, minWidth: 16, height: 16, borderRadius: RADIUS.viewport, background: REGISTER_GOLD, border: "none", color: REGISTER_GROUND, fontSize: 10, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>)}
           </button>
           );
         })}
@@ -20598,7 +20598,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             <span aria-hidden="true" style={{
               width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              fontSize: FONT_SIZES.caption, fontWeight: 600, fontFamily: "var(--cb-font)",
+              fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
               ...avatarSkin(user.name || user.email || user.id || "?"),
             }}>{(user.name || user.email || "?")[0].toUpperCase()}</span>
             {expanded && (
@@ -24780,7 +24780,7 @@ function App({ profileHandle = null } = {}) {
                         width: 48, height: 48, borderRadius: "50%", flexShrink: 0,
                         background: REGISTER_GOLD, color: REGISTER_GROUND,
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        marginTop: -22, boxShadow: "0 4px 14px rgba(0,0,0,0.45)",
+                        marginTop: -22, boxShadow: P.shadowSm,
                       }}>
                         <Icon name="plus" size={20} />
                       </span>

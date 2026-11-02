@@ -323,7 +323,7 @@ const COLOUR_BASELINE = {
   "rgba(0,0,0,0.32)": 1,
   "rgba(0,0,0,0.34)": 1,
   "rgba(0,0,0,0.36)": 1,
-  "rgba(0,0,0,0.45)": 2, /* correct fix census: the raised centre tab shadow */
+  "rgba(0,0,0,0.45)": 1,
   "rgba(0,0,0,0.5)": 4,
   "rgba(0,0,0,0.55)": 4,
   "rgba(0,0,0,0.6)": 3,
@@ -776,7 +776,6 @@ await test("(3b)+(3c) correct fix: the account tile carries the user's identity 
 
 await test("(e) every register token has a consumer, or an expiry on the allowlist", () => {
   const EXPIRY = {
-    REGISTER_GOLD_BRIGHT: "glasses rim treatment, Nova alive lane and Wave 5 Nova page",
     INSTRUMENT_GROUND: "retired by the correct fix (2026-11-02): null marker only, Instrument resolves with its palette",
     REGISTER_LINE_STRONG: "retired with the Wave 2 ledger (correct fix, 2026-11-02): no consumer remains",
     READING_MEASURE: "Reader and answer measure pass, Wave 4",
