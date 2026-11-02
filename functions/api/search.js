@@ -11943,9 +11943,6 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
       .filter((i) => i >= 0);
     const hitCount = hitIdx.length;
     const subjectHit = subjectSets.some((set) => setTouches(hay, set));
-    const subjectCounted = subjectHit && subjectSets.some((set) =>
-      setTouches(hay, set) && hitIdx.some((i) => setSig(acceptSets[i]) === setSig(set)));
-    const engagedTotal = hitCount + (subjectHit && !subjectCounted ? 1 : 0);
     if (hitCount === 0 && !subjectHit) {
       p._filteredReason = "Paper shares none of the query's core topic terms . likely a different research field entirely";
       return false;
@@ -11968,11 +11965,15 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
     // Subject exemption (2026-11-02, Wave 1A, W2, see the
     // subjectSets block above): subject engagement plus at
     // least one further accept set survives regardless of the
-    // majority count. engagedTotal counts a subject set that is
-    // not itself one of the accept sets as its own engagement,
-    // so both shapes of "subject plus one further" read the
-    // same way here.
-    if (hitCount < required && !(subjectHit && hitCount >= 1 && engagedTotal >= 2)) {
+    // majority count. "Further" means a hit accept set that is
+    // not itself a subject set: the subject's own group and
+    // its head word set are one concept, not two engagements
+    // (the first cut of this exemption counted them as two
+    // and let a subject only paper through; the wave two
+    // rotation pin caught it the same day).
+    const subjectSigs = new Set(subjectSets.map((s) => setSig(s)));
+    const furtherHit = hitIdx.some((i) => !subjectSigs.has(setSig(acceptSets[i])));
+    if (hitCount < required && !(subjectHit && furtherHit)) {
       p._filteredReason = `Paper only shares ${hitCount} of the query's ${acceptSets.length} distinct core topic concepts (needs ${required}) . likely coincidental keyword overlap from a different research field`;
       return false;
     }
