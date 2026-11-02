@@ -256,6 +256,128 @@ export async function streamDocumentApi(body, opts = {}) {
   return donePayload;
 }
 
+/* ── Reading preferences, applied to the Read body CONTAINER ─────
+   Wave 2 (2026-11-02, Reader day one fix i). The text size and
+   dyslexic settings never reached the Read body: the preference CSS
+   targets paragraphs (and spans and list items) while the body
+   renders divs, and the body container carried its own fixed inline
+   size, so a div block inherited nothing the user chose. The fix is
+   structural, not another CSS selector: the container itself carries
+   the computed size and family, and every block inside it inherits
+   both whatever element it renders as. This helper is the single
+   place that computation happens, so the view and the tests read
+   the same numbers. */
+export const READ_BODY_FONT_PX = { small: 14, medium: 16, large: 18, xlarge: 21 };
+export const READ_BODY_LINE_HEIGHT = { normal: 1.55, relaxed: 2.0, loose: 2.4 };
+export const READ_BODY_DYSLEXIC_FAMILY = "'OpenDyslexic', 'Comic Sans MS', sans-serif";
+
+export function readBodyContainerProps(settings = {}) {
+  const fontSizePx = Object.prototype.hasOwnProperty.call(READ_BODY_FONT_PX, settings.fontSize)
+    ? READ_BODY_FONT_PX[settings.fontSize]
+    : READ_BODY_FONT_PX.medium;
+  const style = { fontSize: fontSizePx };
+  if (Object.prototype.hasOwnProperty.call(READ_BODY_LINE_HEIGHT, settings.lineSpacing)) {
+    style.lineHeight = READ_BODY_LINE_HEIGHT[settings.lineSpacing];
+  }
+  let className = "cb-doc-reader cb-doc-readview cb-read-body";
+  if (settings.dyslexicFont) {
+    style.fontFamily = READ_BODY_DYSLEXIC_FAMILY;
+    style.letterSpacing = "0.05em";
+    style.wordSpacing = "0.15em";
+    className += " cb-read-dyslexic";
+  }
+  return { style, className, fontSizePx };
+}
+
+/* ── PDF text extraction on item positions ──────────────────────
+   Wave 2 (2026-11-02, Reader day one fix ii). extractPdfText used
+   to join every text item on a page with spaces, which destroyed
+   the line and paragraph structure the outline and heading
+   detection depend on, on the Reader's primary input. pdf.js hands
+   over items with a transform: transform[4] is x, transform[5] is
+   y (origin at the page's bottom left, so a larger y sits higher),
+   and the item's text height is recoverable from transform[3] or
+   its height field. These helpers rebuild the text from those
+   positions: items group into lines by y within a tolerance,
+   lines break into paragraphs on vertical gaps above a threshold,
+   and pages join as structure, never as one space joined run. */
+
+/* One page of pdf.js text items to structured plain text. */
+export function pdfItemsToText(items) {
+  const list = Array.isArray(items) ? items : [];
+  const shaped = list.filter((it) => it && typeof it.str === "string" && Array.isArray(it.transform)
+    && Number.isFinite(it.transform[4]) && Number.isFinite(it.transform[5]));
+  if (!shaped.length) {
+    // No positioned items at all: fall back to the old space join
+    // rather than returning nothing for a shapeless source.
+    return list.map((it) => (it && typeof it.str === "string" ? it.str : "")).join(" ").replace(/\s+/g, " ").trim();
+  }
+  const norm = shaped.map((it) => ({
+    str: it.str,
+    x: Number(it.transform[4]) || 0,
+    y: Number(it.transform[5]) || 0,
+    size: Math.abs(Number(it.transform[3])) || Number(it.height) || 10,
+  }));
+  norm.sort((a, b) => (b.y - a.y) || (a.x - b.x));
+  const lines = [];
+  for (const it of norm) {
+    const line = lines[lines.length - 1];
+    const tol = line ? Math.max(2, Math.min(it.size, line.size) * 0.5) : 0;
+    if (line && Math.abs(it.y - line.y) <= tol) line.items.push(it);
+    else lines.push({ y: it.y, size: it.size, items: [it] });
+  }
+  let out = "";
+  let prev = null;
+  for (const line of lines) {
+    line.items.sort((a, b) => a.x - b.x);
+    let text = "";
+    for (const it of line.items) {
+      if (!it.str) continue;
+      if (text && !/\s$/.test(text) && !/^\s/.test(it.str)) text += " ";
+      text += it.str;
+    }
+    text = text.replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    if (prev) {
+      const gap = prev.y - line.y;
+      const paragraph = gap > Math.max(prev.size, line.size) * 1.7;
+      out += paragraph ? "\n\n" : "\n";
+    }
+    out += text;
+    prev = line;
+  }
+  return out;
+}
+
+/* Every page of a PDF, in order, with page breaks preserved as
+   paragraph structure between pages. */
+export function pdfPagesToText(pagesItems) {
+  return (Array.isArray(pagesItems) ? pagesItems : [])
+    .map((items) => pdfItemsToText(items))
+    .filter((t) => t)
+    .join("\n\n");
+}
+
+/* The document anatomy: the sections the anatomy bar segments by.
+   Built from the same headings detectDocHeadings finds, so the bar
+   can only ever segment by structure that actually exists in the
+   text. Each entry carries its share of the whole document, and
+   the shares sum to 1. Text before the first heading is its own
+   opening section; a document with no headings is one section. */
+export function buildDocAnatomy(text, headings) {
+  const t = String(text || "");
+  if (!t) return [];
+  const hs = (headings || []).filter((h) => h && Number.isFinite(h.start)).slice().sort((a, b) => a.start - b.start);
+  if (!hs.length) return [{ title: "Full text", start: 0, end: t.length, share: 1 }];
+  const out = [];
+  if (hs[0].start > 0) out.push({ title: "Opening", start: 0, end: hs[0].start, share: hs[0].start / t.length });
+  hs.forEach((h, i) => {
+    const end = i + 1 < hs.length ? hs[i + 1].start : t.length;
+    out.push({ title: h.title, start: h.start, end, share: Math.max(0, end - h.start) / t.length });
+  });
+  return out;
+}
+
 /* Highlight overlap guard: a new highlight must not overlap an existing
    one (adjacent, touching at exactly one edge, is fine). Overlapping
    ranges would make the marked-text renderer ambiguous. */
