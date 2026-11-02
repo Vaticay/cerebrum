@@ -126,34 +126,27 @@ await test("saved sync reads the response counts and reports skips by count", ()
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-group("one Library, one ledger page");
+group("one Library, three tabs");
 
-await test("the Library is one ledger page, sections on one page, no tab bar", () => {
-  // Pin changed 2026-11-02 (Wave 2): the filled tab bar is deleted by
-  // the plan. The Library is a bound ledger: a serif head, the count
-  // as a display numeral, one ruled search field, and every section
-  // on one page. The properties this pin was written for survive:
-  // one Library page, no standalone Collections page or destination.
-  assert.ok(!appSrc.includes('role="tablist" aria-label="Library sections"'), "the filled tab bar is back");
-  assert.ok(appSrc.includes("<LedgerHead word=\"Library\" count={saved.length + history.length + flowcharts.length}"), "no ledger head with the record count");
-  assert.ok(appSrc.includes('placeholder="Search titles, abstracts, collections, years, DOIs"'), "no single ruled search field for the whole Library");
+await test("the Library is one page with Papers and answers, Diagram Studio, and Collections tabs", () => {
+  assert.ok(appSrc.includes('role="tablist" aria-label="Library sections"'), "no Library tab bar");
+  assert.ok(appSrc.includes('libraryTab === "collections"'), "no Collections tab");
   assert.ok(!appSrc.includes('{view === "collections"'), "the standalone Collections page still exists");
   assert.ok(!appSrc.includes('["collections", "Collections", "folder"]'), "the sidebar still lists Collections as a destination");
-  assert.ok(appSrc.includes('case "collections": setLibraryTab("collections"); setView("library");'), "old collections links do not land on the Library");
+  assert.ok(appSrc.includes('case "collections": setLibraryTab("collections"); setView("library");'), "old collections links do not land on the Library tab");
 });
 
-await test("the head count is the whole record count and the sections are named", () => {
-  assert.ok(appSrc.includes("count={saved.length + history.length + flowcharts.length}"), "the head count is not the whole record count");
-  for (const t of ["Papers", "Answers", "Downloads and imports", "Diagrams", "Investigations"]) {
-    assert.ok(appSrc.includes(`<LedgerSection title="${t}"`), "no ledger section named " + t);
-  }
+await test("the header count and the tab counts are one accounting", () => {
+  assert.ok(appSrc.includes("count={saved.length + history.length + flowcharts.length}"), "the header count is not the whole record count");
+  assert.ok(appSrc.includes('{ key: "papers", label: "Papers and answers", count: saved.length + history.length }'), "the Papers tab does not count papers and answers together");
+  assert.ok(appSrc.includes('{ key: "maps", label: "Diagram Studio", count: flowcharts.length }'), "the diagram tab does not carry the one Diagram Studio name");
 });
 
 await test("answers are first class records from the investigations store", () => {
   const lib = slice(appSrc, 'aria-label="Saved answers"', "Your downloads and imports");
   assert.ok(lib.includes("cited paper"), "answer records do not state their cited paper count");
   assert.ok(lib.includes("openHistoryItem(h)"), "answer records do not open the investigation");
-  assert.ok(!appSrc.includes('ariaLabel="What to show"'), "the record type filter is back");
+  assert.ok(appSrc.includes('ariaLabel="What to show"'), "no record type filter on the Papers tab");
 });
 
 await test("export receipts are a downloads and imports list at the foot of the Papers tab", () => {
@@ -198,17 +191,18 @@ await test("deletes offer an undo window instead of only a confirm", () => {
   assert.ok(!appSrc.includes("Remove this paper for good"), "the old arm and confirm delete is still the paper path");
 });
 
-await test("diagram rows carry word covers and keep the one press delete", () => {
-  // Pin changed 2026-11-02 (Wave 2): the card grid is deleted by the
-  // plan. Diagrams are ledger rows whose cover is the diagram's own
-  // step labels as words, and the SVG leaves through the one shared
-  // export path. The property this pin was written for survives:
-  // the armed delete pair stays gone, and remove is one press.
-  const maps = slice(appSrc, 'id="lib-maps"', 'key="collections"');
-  assert.ok(maps.includes("<LedgerRow"), "diagrams do not render as ledger rows");
-  assert.ok(maps.includes("stepWords.join("), "the word cover is not built from the step labels");
-  assert.ok(maps.includes("sharedFcSvgString(fc.nodes || [], fc.edges || [], fc.title, diagramExportColors())"), "the SVG does not leave through the shared export path");
-  assert.ok(!maps.includes("FcThumb"), "the shape cover is back");
+await test("diagram cards give the title the card's full width and keep the one press delete", () => {
+  // Depth wave, 2026-10-26: the diagram rows became cards in a
+  // grid, so this pin's literals changed with the arrangement. The
+  // properties it was written for in October 2023 survive the move:
+  // the title cannot be crushed by the actions beside it (it spans
+  // the card under the cover, and the actions wrap in the card
+  // foot), nothing can clip off a card the way the armed delete
+  // pair clipped off the old row, and that pair stays gone.
+  const maps = slice(appSrc, 'id="lib-maps"', 'libraryTab === "collections"');
+  assert.ok(maps.includes('display: "grid"'), "diagrams do not render as a card grid");
+  assert.ok(maps.includes("height: 150"), "the diagram cover lost its full width frame");
+  assert.ok(maps.includes('flexWrap: "wrap"'), "the card actions cannot wrap inside the card foot");
   assert.ok(!maps.includes("Delete this map for good"), "the armed delete pair that clipped off the row is still there");
 });
 
@@ -217,10 +211,7 @@ await test("paper rows are tap targets and phone rows keep the author action", (
   assert.ok(row.includes("setPeekSavedKey(key)"), "a row tap does not open the peek");
   assert.ok(row.includes("selectedSavedKeys.size > 0) toggleSavedKey(key)") || row.includes("if (selectedSavedKeys.size > 0) toggleSavedKey(key); else setPeekSavedKey(key);"), "a row tap does not select while a selection is active");
   assert.ok(row.includes("More by these authors"), "the phone row lost the author action");
-  // Pin changed 2026-11-02 (Wave 2): ledger rows set the title in the
-  // serif at 18, the ledger row size, not the body size.
-  assert.ok(row.includes("fontSize: 18"), "paper titles are not at the ledger size");
-  assert.ok(row.includes('fontFamily: "var(--cb-serif, Georgia, serif)"'), "paper titles are not set in the serif");
+  assert.ok(row.includes("fontSize: FONT_SIZES.body"), "paper titles are not at the body size");
 });
 
 await test("story modal videos load on tap, and edition images declare their slot size", () => {
