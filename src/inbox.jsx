@@ -517,18 +517,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [msgResults, setMsgResults] = useState([]);
   const [msgSearchState, setMsgSearchState] = useState("idle");
   const [encryptedExcluded, setEncryptedExcluded] = useState(0);
-  /* Wave 2 trust state: the safety number record for the open
-     encrypted DM ({ number, deviceCount, verified, changed } from
-     getSafetyNumber, null while it loads or when it cannot be
-     computed), whether the Verify sheet is open, whether an upgrade
-     is in flight, the recovery phrase an upgrade just created and
-     the reader has not confirmed yet, and this device's backup
-     record, from which the recovery not set state is derived. */
-  const [safety, setSafety] = useState(null);
-  const [verifyOpen, setVerifyOpen] = useState(false);
-  const [upgradeBusy, setUpgradeBusy] = useState(false);
-  const [recoveryDue, setRecoveryDue] = useState(null);
-  const [backupInfo, setBackupInfo] = useState(null);
   // Message search landing: the message a result points at, and the
   // brief highlight that marks it once it is on screen.
   const [targetMessageId, setTargetMessageId] = useState(null);
@@ -1739,75 +1727,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     }
   };
 
-  /* Wave 2: the letterhead's facts load with the thread. Only an
-     encrypted one to one conversation has a safety number; groups
-     have no fingerprint to print and say so instead. */
-  useEffect(() => {
-    let live = true;
-    setSafety(null);
-    setVerifyOpen(false);
-    if (activeThread && activeThread.kind === "dm" && activeThread.encrypted && activeThread.otherId) {
-      getSafetyNumber(apiDataAction, activeThread.otherId)
-        .then((sn) => { if (live) setSafety(sn); })
-        .catch(() => { if (live) setSafety(null); });
-      getBackupInfo()
-        .then((bi) => { if (live) setBackupInfo(bi); })
-        .catch(() => { if (live) setBackupInfo(null); });
-    } else {
-      setBackupInfo(null);
-    }
-    return () => { live = false; };
-  }, [activeId, activeThread?.encrypted, activeThread?.kind]);
-
-  /* Upgrade this conversation: the real action behind the
-     letterhead word. upgradeThread used to have zero call sites.
-     Its ensureE2EEDevice step can create this device's recovery
-     phrase; the phrase used to be discarded at exactly this point,
-     so it is read back here and shown while it is still
-     unconfirmed, with the confirm action the store defines. */
-  const doUpgradeConversation = async () => {
-    if (!activeThread || upgradeBusy) return;
-    setUpgradeBusy(true);
-    try {
-      await upgradeThread(apiDataAction, activeThread.id);
-      let phrase = null;
-      let confirmed = true;
-      try { phrase = await getRecoveryPhrase(); } catch { phrase = null; }
-      try { confirmed = await isRecoveryPhraseConfirmed(); } catch { confirmed = true; }
-      if (phrase && !confirmed) setRecoveryDue(phrase);
-      setActiveThread((t) => (t ? { ...t, encrypted: true } : t));
-      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, encrypted: true } : t)));
-      toast("This conversation is now encrypted.");
-    } catch (e) {
-      toast(e.message || "Couldn't upgrade this conversation.", { tone: "error" });
-    } finally {
-      setUpgradeBusy(false);
-    }
-  };
-
-  /* Mark the safety number verified, backed by the local
-     verification store getSafetyNumber reads. Completing this is
-     the only thing that clears a key changed line: the stored
-     digest then matches the current one again. */
-  const doMarkVerified = async () => {
-    if (!activeThread || !activeThread.otherId) return;
-    try {
-      await markSafetyNumberVerified(apiDataAction, activeThread.otherId);
-      const sn = await getSafetyNumber(apiDataAction, activeThread.otherId).catch(() => null);
-      if (sn) setSafety(sn);
-      setVerifyOpen(false);
-      toast("Verified. If the key ever changes, the letterhead will say so.");
-    } catch (e) {
-      toast(e.message || "Couldn't save that verification.", { tone: "error" });
-    }
-  };
-
-  const doConfirmRecovery = async () => {
-    try { await confirmRecoveryPhrase(); } catch { /* the sheet closes either way; the phrase stays readable on this device */ }
-    setRecoveryDue(null);
-    toast("Noted. Keep the phrase somewhere safe.");
-  };
-
   const subtitle = activeThread
     ? (activeThread.kind === "group"
       // Group subtitle: member names, truncated. The full roster is one
@@ -2047,12 +1966,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         inbox follows the container instead of overflowing it by
         exactly the difference. The mobile paddings stay: they clear
         the app's own fixed chrome, which overlays the parent too. */}
-    <div style={{ height: "100%", maxHeight: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 0 : 16, boxSizing: "border-box", background: INBOX_SURFACE_GROUND, paddingTop: isMobile ? 56 : 16, paddingRight: isMobile ? 0 : 16, paddingBottom: isMobile ? `calc(72px + env(safe-area-inset-bottom, 0px) + ${keyboardInset}px)` : 16, paddingLeft: isMobile ? 0 : 16 }}>
+    <div style={{ height: "100%", maxHeight: "100%", flex: 1, minHeight: 0, display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 0 : 16, boxSizing: "border-box", background: P.bg, paddingTop: isMobile ? 56 : 16, paddingRight: isMobile ? 0 : 16, paddingBottom: isMobile ? `calc(72px + env(safe-area-inset-bottom, 0px) + ${keyboardInset}px)` : 16, paddingLeft: isMobile ? 0 : 16 }}>
       {showList && (
-        /* Wave 2: the list panel is deleted as a panel. The ledger of
-           correspondents sits on the ground, split from the
-           conversation by one hairline. */
-        <div className="cb-inbox-thread-in" style={{ width: isMobile ? "100%" : 336, flexShrink: 0, borderRight: isMobile ? "none" : `1px solid ${P.line}`, border: "none", borderRadius: 0, background: "transparent", boxShadow: "none", overflow: "hidden", display: "flex", flexDirection: "column", height: "100%" }}>
+        <div className="cb-inbox-thread-in" style={{ width: isMobile ? "100%" : 336, flexShrink: 0, borderRight: isMobile ? "none" : undefined, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, background: P.surface, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden", display: "flex", flexDirection: "column", height: "100%" }}>
           <div style={{ padding: `${SP.lg}px ${SP.lg}px ${SP.md}px`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
               <div style={{ minWidth: 0 }}>
@@ -2168,41 +2084,49 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               // column now — see functions/api/data.js) instead of every
               // row rendering identically regardless of read state.
               return (
-                /* Wave 2: a ledger row. Name in the serif at 18, the
-                   last line one line in the label size, the date in
-                   mono, ruled lines only. No avatar tile, no fills,
-                   no state icons beside the name, no unread pill:
-                   unread is full ink against ink72, with the count
-                   in mono. Row state (pinned, muted, encrypted)
-                   lives in the row menu and the letterhead now. */
-                <div key={t.id} className="cb-inbox-row-in" style={{ position: "relative", display: "flex", alignItems: "stretch", borderBottom: `1px solid ${P.line}`, background: "transparent", "--cb-inbox-i": Math.min(rowIdx, 8) }}>
+                <div key={t.id} className="cb-inbox-row-in" style={{ position: "relative", display: "flex", alignItems: "stretch", borderBottom: `1px solid ${P.line}`, background: activeId === t.id ? withAlpha(accent, 0.08) : "transparent", transition: "background-color 240ms var(--cb-ease)", "--cb-inbox-i": Math.min(rowIdx, 8) }}>
                 <button onClick={() => setActiveId(t.id)} className="cb-row" style={{ minHeight: 44,
-                  flex: 1, minWidth: 0, textAlign: "left", padding: "13px 10px", borderRadius: 0, border: "none",
+                  flex: 1, minWidth: 0, textAlign: "left", padding: "12px 10px", borderRadius: 0, border: "none",
                   cursor: "pointer", background: "transparent",
                   display: "flex", gap: 11, alignItems: "flex-start", fontFamily: "var(--cb-font)",
                 }}>
+                  {/* Composition wave, 2026-10-26: a group row reads as a
+                      group at a glance: a squared mark carrying the
+                      network glyph, where a direct conversation keeps
+                      the round portrait with initials. */}
+                  <span style={{ width: 42, height: 42, borderRadius: t.kind === "group" ? RADIUS.md : "50%", ...avatarSkin(t.name || t.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>{t.kind === "group" ? <Icon name="network" size={17} /> : initials}</span>
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "baseline" }}>
-                      <span style={{ display: "inline-flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
-                        <span style={{ fontSize: 18, fontWeight: 500, color: t.unread ? REGISTER_INK.ink : REGISTER_INK.ink72, fontFamily: "var(--cb-serif)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
-                        {t.otherUsername && <span style={{ fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55, fontFamily: "var(--cb-mono)", whiteSpace: "nowrap", flexShrink: 0 }}>@{t.otherUsername}</span>}
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                        {t.unread && <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: "50%", background: accent, flexShrink: 0 }} />}
+                        <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</span>
+                        {t.otherUsername && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, whiteSpace: "nowrap", flexShrink: 0 }}>@{t.otherUsername}</span>}
+                        {/* E2EE Phase 1.4 — list badge ONLY when the server
+                            says encrypted. Same promise as the header badge. */}
+                        {t.encrypted && <Icon name="lock" size={11} style={{ color: statusGood(P), flexShrink: 0 }} title="Encrypted" />}
+                        {t.kind === "group" && <Icon name="network" size={12} style={{ color: P.faint, flexShrink: 0 }} title="Group" />}
+                        {t.pinned && <Icon name="pinFilled" size={11} style={{ color: accent, flexShrink: 0 }} title="Pinned" />}
+                        {t.muted && <Icon name="volumeOff" size={11} style={{ color: P.faint, flexShrink: 0 }} title="Muted" />}
                       </span>
-                      <span style={{ display: "inline-flex", alignItems: "baseline", gap: 8, flexShrink: 0 }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                         {t.unreadCount > 0 && (
-                          <span aria-label={`${t.unreadCount} unread`} style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink, fontVariantNumeric: "tabular-nums" }}>{t.unreadCount > 99 ? "99+" : t.unreadCount}</span>
+                          <span aria-label={`${t.unreadCount} unread`} style={{ minWidth: 20, height: 20, borderRadius: RADIUS.md, background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px", fontVariantNumeric: "tabular-nums" }}>{t.unreadCount > 99 ? "99+" : t.unreadCount}</span>
                         )}
-                        <span style={{ fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55, fontFamily: "var(--cb-mono)" }}>{relativeTime(t.lastMessage?.createdAt)}</span>
+                        <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{relativeTime(t.lastMessage?.createdAt)}</span>
                       </span>
                     </span>
                     {((t.kind !== "group" && t.otherAffiliation) || (t.kind === "group" && t.memberCount)) ? (
-                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.kind === "group" ? `Group of ${t.memberCount}` : t.otherAffiliation}</span>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.kind === "group" ? `Group of ${t.memberCount}` : t.otherAffiliation}</span>
                     ) : null}
-                    <span style={{ display: "block", fontSize: FONT_SIZES.label, color: t.unread ? REGISTER_INK.ink : REGISTER_INK.ink72, fontWeight: t.unread ? 500 : 400, marginTop: 3, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", lineHeight: 1.5 }}>{preview}</span>
+                    <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", fontSize: FONT_SIZES.caption, color: t.unread ? P.ink2 : P.faint, fontWeight: t.unread ? 500 : 400, marginTop: 3, overflow: "hidden", lineHeight: 1.5 }}>{preview}</span>
                     {paperChip && (
-                      <span style={{ display: "block", marginTop: 5, fontSize: FONT_SIZES.caption, fontWeight: 500, color: REGISTER_INK.ink72, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Shared paper: {paperChip}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 6, padding: "6px 9px", background: P.raised, border: `1px solid ${P.line}`, borderRadius: RADIUS.sm, maxWidth: "100%" }}>
+                        <Icon name="bookOpen" size={12} style={{ color: P.ink2, flexShrink: 0 }} />
+                        <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{paperChip}</span>
+                      </span>
                     )}
                     {sharedLine && (
-                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55, marginTop: 5 }}>{sharedLine}</span>
+                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 5 }}>{sharedLine}</span>
                     )}
                   </span>
                 </button>
@@ -2280,15 +2204,18 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
           composer docks on the ground at the bottom, where the list
           beside it is one uniform surface panel. */}
       {showThread && (
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100%", background: INBOX_SURFACE_GROUND, border: "none", borderRadius: 0, boxShadow: "none", overflow: "hidden" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", height: "100%", background: P.bg, border: isMobile ? "none" : `1px solid ${P.line}`, borderRadius: isMobile ? 0 : RADIUS.xl, boxShadow: isMobile ? "none" : SHADOW.sm(P), overflow: "hidden" }}>
           {activeThread && activeThread.id === activeId ? (<>
-            <div className="cb-inbox-thread-in" style={{ padding: `${SP.md}px ${SP.lg}px`, borderBottom: `1px solid ${P.line}`, background: "transparent", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div className="cb-inbox-thread-in" style={{ padding: `${SP.md}px ${SP.lg}px`, borderBottom: `1px solid ${P.line}`, background: P.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                 {isMobile && (
                   <button onClick={() => { if (!historyNav.requestBack("thread", String(activeId))) setActiveId(null); }} aria-label="Back to conversations" style={{ background: "none", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, color: P.ink2, cursor: "pointer", width: 48, height: 48, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icon name="arrowRight" size={16} style={{ transform: "rotate(180deg)" }} />
                   </button>
                 )}
+                <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: activeThread.kind === "group" ? RADIUS.md : "50%", ...avatarSkin(activeThread.name || activeThread.id), display: "flex", alignItems: "center", justifyContent: "center", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", flexShrink: 0 }}>
+                  {activeThread.kind === "group" ? <Icon name="network" size={16} /> : (activeThread.name || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()}
+                </span>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                     {activeThread.kind === "group" ? (
@@ -2313,6 +2240,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                         finding 15): the full badge would not shrink and
                         crushed the person name to nothing at phone widths.
                         The word stays available as the label. */}
+                    {activeThread.encrypted && (
+                      <span aria-label={isMobile ? "Encrypted" : undefined} title={isMobile ? "Encrypted" : undefined} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: FONT_SIZES.caption, fontWeight: 500, color: statusGood(P), background: withAlpha(STATUS.good, 0.12), padding: "3px 8px", borderRadius: RADIUS.viewport, flexShrink: 0, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>
+                        <Icon name="lock" size={11} />{isMobile ? null : " Encrypted"}
+                      </span>
+                    )}
                   </div>
                   {subtitle && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{subtitle}</div>}
                 </div>
@@ -2397,64 +2329,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 keeps a short thread resting on the composer, exactly as it
                 does everywhere else, and has no effect once the thread is
                 long enough to scroll. */}
-            {/* Wave 2: the letterhead. Every conversation opens with
-                the correspondent's name in the serif, the verified
-                key fingerprint in mono groups when there is one,
-                and the trust state as one plain sentence, worded
-                from what the code can prove. Six honest states: not
-                encrypted, encrypted not verified, verified, key
-                changed, group not locked, recovery not set. */}
-            <div className="cb-inbox-letterhead" style={{ borderBottom: `1px solid ${P.line}`, padding: "16px 20px 12px", background: "transparent" }}>
-              <div style={{ fontFamily: REGISTER_SERIF, fontSize: 20, fontWeight: 500, color: REGISTER_INK.ink, lineHeight: 1.3 }}>{activeThread.name || "Conversation"}</div>
-              {activeThread.kind === "dm" && activeThread.encrypted && safety && safety.number && (
-                <div style={{ fontFamily: "var(--cb-mono)", fontSize: 13, letterSpacing: "0.05em", color: REGISTER_INK.ink72, marginTop: 7, lineHeight: 1.8, wordBreak: "break-all" }}>{safety.number}</div>
-              )}
-              {activeThread.kind === "group" ? (
-                <div style={{ fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72, marginTop: 6, lineHeight: 1.55 }}>
-                  Group messages are not locked the way one to one encrypted messages are, so the server can read them.
-                </div>
-              ) : !activeThread.encrypted ? (
-                <>
-                  <div style={{ fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72, marginTop: 6, lineHeight: 1.55 }}>
-                    This conversation is not encrypted. The server can read these messages.
-                  </div>
-                  <TrustWordAction onClick={doUpgradeConversation} disabled={upgradeBusy}>
-                    {upgradeBusy ? "Upgrading…" : "Upgrade this conversation"}
-                  </TrustWordAction>
-                </>
-              ) : !safety ? (
-                <div style={{ fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72, marginTop: 6, lineHeight: 1.55 }}>
-                  Checking the key fingerprint for this conversation.
-                </div>
-              ) : safety.changed ? (
-                <>
-                  <div role="alert" style={{ fontSize: FONT_SIZES.label, color: REGISTER_INK.ink, marginTop: 6, lineHeight: 1.55, borderTop: `1px solid ${REGISTER_GOLD}`, paddingTop: 8 }}>
-                    The key for this conversation changed since you verified it. Compare the safety number with {activeThread.name || "them"} over a channel you already trust, then mark it verified. Only that clears this line.
-                  </div>
-                  <TrustWordAction onClick={() => setVerifyOpen(true)}>Verify the safety number</TrustWordAction>
-                </>
-              ) : safety.verified ? (
-                <>
-                  <div style={{ fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72, marginTop: 6, lineHeight: 1.55 }}>
-                    You verified this key. If it ever changes, a warning will stand here in its place.
-                  </div>
-                  <TrustWordAction onClick={() => setVerifyOpen(true)}>See the safety number</TrustWordAction>
-                </>
-              ) : (
-                <>
-                  <div style={{ fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72, marginTop: 6, lineHeight: 1.55 }}>
-                    This conversation is encrypted, but you have not verified the key yet. Verifying proves the messages reach {activeThread.name || "the person you mean"} and no one else.
-                  </div>
-                  <TrustWordAction onClick={() => setVerifyOpen(true)}>Verify the safety number</TrustWordAction>
-                </>
-              )}
-              {activeThread.kind === "dm" && activeThread.encrypted && backupInfo && !backupInfo.at && (
-                <div style={{ fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72, marginTop: 4, lineHeight: 1.55 }}>
-                  Recovery is not set up on this device. If you lose this device, your encrypted messages cannot be restored. You can set up a recovery phrase in Settings, under Privacy.
-                </div>
-              )}
-            </div>
-            <div ref={msgPaneRef} onScroll={handleMsgScroll} className="cb-inbox-thread-in" style={{ flex: 1, overflowY: "auto", padding: isMobile ? `${SP.lg}px ${SP.md}px` : `${SP.xl}px ${SP.xl}px`, display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: SP.md, minHeight: 0, background: "transparent", animationDelay: "90ms" }}>
+            <div ref={msgPaneRef} onScroll={handleMsgScroll} className="cb-inbox-thread-in" style={{ flex: 1, overflowY: "auto", padding: isMobile ? `${SP.lg}px ${SP.md}px` : `${SP.xl}px ${SP.xl}px`, display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: SP.md, minHeight: 0, background: P.bg, animationDelay: "90ms" }}>
               {(activeThread.messages || []).length === 0 && (
                 <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.label, marginTop: 20, lineHeight: 1.6 }}>No messages yet. Write the first one below.</div>
               )}
@@ -2528,22 +2403,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   </div>
                 )}
                 {showLegacyDivider && (
-                  <div style={{ alignSelf: "stretch", margin: "12px 0 4px", paddingTop: 8, borderTop: `1px solid ${P.line}`, fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55, fontFamily: "var(--cb-font)", lineHeight: 1.55 }}>
+                  <div style={{ alignSelf: "center", margin: "12px 0 4px", padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight, border: `1px solid ${P.line}`, borderRadius: RADIUS.viewport, background: P.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)", display: "flex", alignItems: "center", gap: 6 }}>
+                    <Icon name="lock" size={11} style={{ flexShrink: 0 }} />
                     Messages sent before this conversation was locked. The server could read those older ones.
                   </div>
                 )}
                 {showDay && (
-                  <div style={{ alignSelf: "stretch", margin: "14px 0 2px", display: "flex", alignItems: "center", gap: 12 }}>
-                    <span style={{ flex: 1, height: 1, background: P.line }} />
-                    <span style={{ fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55, fontFamily: "var(--cb-mono)", letterSpacing: "0.04em" }}>{dayLabel}</span>
-                    <span style={{ flex: 1, height: 1, background: P.line }} />
-                  </div>
+                  <div style={{ alignSelf: "center", margin: "10px 0 2px", padding: "4px 12px", background: P.raised || P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.pill, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{dayLabel}</div>
                 )}
-                {/* Wave 2: a letter, not a bubble. The block takes
-                    the measure, sits on the ground, and is separated
-                    from the last by whitespace and its name line.
-                    No alignment by sender, no tint, no radius. */}
-                <div className="cb-msg-bubble cb-inbox-bubble" id={m.id ? "cb-msg-" + m.id : undefined} style={{ maxWidth: 680, width: "100%", alignSelf: "stretch", marginTop: groupedWithPrev ? 2 : 20, borderRadius: 0, ...(highlightMessageId && m.id === highlightMessageId ? { outline: `2px solid ${REGISTER_GOLD}`, outlineOffset: 3 } : {}) }}
+                <div className="cb-msg-bubble cb-inbox-bubble" id={m.id ? "cb-msg-" + m.id : undefined} style={{ maxWidth: 460, alignSelf: m.mine ? "flex-end" : "flex-start", marginTop: groupedWithPrev ? -10 : 6, borderRadius: RADIUS.lg, ...(highlightMessageId && m.id === highlightMessageId ? { outline: `2px solid ${accent}`, outlineOffset: 3, background: withAlpha(accent, 0.07) } : {}) }}
                   onMouseEnter={() => setHoverMsgId(key)} onMouseLeave={() => setHoverMsgId((h) => (h === key ? null : h))}
                   onTouchStart={() => { if (longPressRef.current) clearTimeout(longPressRef.current); longPressRef.current = setTimeout(() => setActionMsgId(m.id || key), 450); }}
                   onTouchEnd={() => { if (longPressRef.current) clearTimeout(longPressRef.current); }}
@@ -2553,13 +2421,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   {/* Group threads show who said what — DMs don't need it, you
                       already know who you're talking to. One label per
                       group of messages, with the person's own color. */}
-                  {!groupedWithPrev && (
-                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 5 }}>
-                      <span style={{ fontFamily: "var(--cb-serif)", fontSize: 15, fontWeight: 500, color: REGISTER_INK.ink }}>{m.mine ? "You" : (m.who || activeThread.name || "Correspondent")}</span>
-                      <span style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55, flexShrink: 0 }}>{timeLabel}</span>
+                  {activeThread?.kind === "group" && !m.mine && m.who && !groupedWithPrev && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, paddingLeft: 2 }}>
+                      <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: "50%", ...avatarSkin(senderKey), display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 500, fontFamily: "var(--cb-font)" }}>{(m.who || "?").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()}</span>
+                      <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: senderColor(senderKey, accent, P), fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>{m.who}</span>
                     </div>
                   )}
-                  <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: "row" }}>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 5, flexDirection: m.mine ? "row-reverse" : "row" }}>
                     <div style={{ minWidth: 0 }}>
                       {bubbleText && (
                         /* Depth wave, 2026-10-26: the bubble's corners
@@ -2579,14 +2447,16 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                            bubble reads as an object in this room and
                            not a flat tint on the page ground. */
                         <div style={{
-                          padding: 0, fontSize: FONT_SIZES.body, lineHeight: 1.6,
-                          borderRadius: 0,
-                          color: REGISTER_INK.ink,
-                          background: "transparent",
-                          border: "none",
-                          boxShadow: "none",
-                          ...(e2eeError ? { color: REGISTER_INK.ink72 } : {}),
-                        }}>{e2eeError ? bubbleText : renderLinkedText(bubbleText)}</div>
+                          padding: "11px 15px", fontSize: FONT_SIZES.body, lineHeight: 1.55,
+                          borderRadius: m.mine
+                            ? `${RADIUS.xl}px ${groupedWithPrev ? RADIUS.md : RADIUS.xl}px ${groupedWithNext ? RADIUS.md : RADIUS.sm}px ${RADIUS.xl}px`
+                            : `${groupedWithPrev ? RADIUS.md : RADIUS.xl}px ${RADIUS.xl}px ${RADIUS.xl}px ${groupedWithNext ? RADIUS.md : RADIUS.sm}px`,
+                          color: m.mine ? at : P.ink,
+                          background: m.mine ? accent : (P.raised || P.surface),
+                          border: m.mine ? "none" : `1px solid ${P.line}`,
+                          boxShadow: SHADOW.xs(P),
+                          ...(e2eeError ? { color: P.ink2 } : {}),
+                        }}>{e2eeError ? (<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon name="lock" size={13} style={{ flexShrink: 0 }} />{bubbleText}</span>) : renderLinkedText(bubbleText)}</div>
                       )}
                       {/* Image: shown at real size in the thread (a figure
                           you have to click to evaluate is a figure you
@@ -2712,7 +2582,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     )}
                   </div>
                   {actionMsgId === (m.id || key) && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, justifyContent: "flex-start", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, justifyContent: m.mine ? "flex-end" : "flex-start", flexWrap: "wrap" }}>
                       {!m.mine && m.id && (
                         <button onClick={() => { setActionMsgId(null); setReportModal({ kind: "message", messageId: m.id }); }} style={{ minHeight: 44, padding: "7px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: statusBad(P), fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Report this message</button>
                       )}
@@ -2725,7 +2595,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   {(!groupedWithNext || (m.mine && lastMineMessage?.id === m.id)) && (
                   <div style={{
                     display: "flex", alignItems: "center", gap: 6, marginTop: 4,
-                    justifyContent: "flex-start",
+                    justifyContent: m.mine ? "flex-end" : "flex-start",
                     fontSize: FONT_SIZES.caption, color: P.faint,
                   }}>
                     {/* A message with no time on it is a message you can't
@@ -2749,17 +2619,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                       a partial encrypted send admits exactly how far
                       it got. */}
                   {m.mine && m.pending === "sending" && (
-                    <div style={{ display: "flex", justifyContent: "flex-start", marginTop: 4, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Sending…</div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4, fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>Sending…</div>
                   )}
                   {m.mine && m.pending === "failed" && (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 8, marginTop: 4 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
                       <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Failed to send</span>
                       <button onClick={() => retrySend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: accent, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Retry</button>
                       <button onClick={() => discardSend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
                     </div>
                   )}
                   {m.mine && m.pending === "partial" && (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 8, marginTop: 4 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
                       <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: statusBad(P), fontFamily: "var(--cb-font)" }}>Sent to {m.partialSent} of {m.partialTotal} devices</span>
                       <button onClick={() => discardSend(m.id)} style={{ minHeight: 44, padding: "6px 14px", borderRadius: RADIUS.pill, border: `1px solid ${P.line}`, background: P.surface, color: P.faint, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer" }}>Discard</button>
                     </div>
@@ -2770,9 +2640,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               })}
             </div>
             {showNewMessages && (
-              <div className="cb-inbox-pop-in" style={{ display: "flex", justifyContent: "center", padding: "9px 0", background: "transparent", borderTop: `1px solid ${P.line}` }}>
-                <button onClick={jumpToLatest} className="cb-press" style={{ minHeight: 48, padding: "7px 18px", borderRadius: 0, border: "none", background: "transparent", color: REGISTER_GOLD, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer", boxShadow: "none" }}>
-                  New messages
+              <div className="cb-inbox-pop-in" style={{ display: "flex", justifyContent: "center", padding: "9px 0", background: P.surface, borderTop: `1px solid ${P.line}` }}>
+                <button onClick={jumpToLatest} className="cb-press" style={{ minHeight: 48, padding: "7px 18px", borderRadius: RADIUS.pill, border: "none", background: accent, color: at, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: "pointer", boxShadow: SHADOW.sm(P) }}>
+                  New messages ↓
                 </button>
               </div>
             )}
@@ -2780,7 +2650,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 reading ground and the controls dock in a raised tray
                 lifted on the small shadow, a designed place at the foot
                 of the column instead of a leftover row on the surface. */}
-            <div className="cb-inbox-thread-in" style={{ padding: `${SP.md}px ${SP.lg}px ${SP.md}px`, borderTop: showNewMessages ? "none" : `1px solid ${P.line}`, background: "transparent", animationDelay: "150ms" }}>
+            <div className="cb-inbox-thread-in" style={{ padding: `${SP.md}px ${SP.lg}px ${SP.md}px`, borderTop: showNewMessages ? "none" : `1px solid ${P.line}`, background: P.bg, animationDelay: "150ms" }}>
               {/* The durable outbox could not be written (storage full
                   or unavailable): failed sends are NOT saved for retry
                   in this browser right now, and pretending otherwise
@@ -2793,31 +2663,19 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   <span>This browser could not save messages for retry. If a send fails and you close this tab, that message will be lost.</span>
                 </div>
               )}
-              {/* Wave 2: the group disclosure renders where people
-                  type, not only in the letterhead and a comment in
-                  the group refresh path. */}
-              {activeThread.kind === "group" && (
-                <div style={{ fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55, fontFamily: "var(--cb-font)", lineHeight: 1.55, marginBottom: 10 }}>
-                  Group messages are not locked the way one to one encrypted messages are, so the server can read them.
-                </div>
-              )}
               {activeThread.blocked ? (
                 <div style={{ textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, padding: "8px 0" }}>
                   You blocked {activeThread.name}. Unblock them from the menu above to send a message.
                 </div>
               ) : (<>
-                {/* Wave 2: the composer is a ruled field. The tray,
-                    the boxed textarea, and the filled send button
-                    are deleted; Attach and Send are words, Send in
-                    gold. */}
-                <div className="cb-inbox-composer" style={{ display: "flex", gap: 14, alignItems: "flex-end", background: "transparent", border: "none", borderRadius: 0, boxShadow: "none", padding: 0 }}>
+                <div className="cb-inbox-composer" style={{ display: "flex", gap: 8, alignItems: "flex-end", background: P.raised || P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm(P), padding: 8 }}>
                   <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: "none" }} aria-hidden="true" />
-                  <button type="button"
+                  <UIButton P={P} variant="ghost"
                     onClick={() => imageInputRef.current?.click()}
                     disabled={attachBusy}
                     aria-label="Attach an image" title="Attach an image"
-                    style={{ minHeight: 48, padding: "10px 0", flexShrink: 0, background: "transparent", border: "none", color: REGISTER_INK.ink72, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: attachBusy ? "default" : "pointer", opacity: attachBusy ? 0.55 : 1 }}
-                  >Attach</button>
+                    style={{ width: 48, height: 48, borderRadius: RADIUS.lg, flexShrink: 0, background: "transparent", border: "none", color: P.ink2, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                  ><Icon name={attachBusy ? "refresh" : "image"} size={16} className={attachBusy ? "cb-spin" : undefined} /></UIButton>
                   <textarea
                     ref={composerRef}
                     value={draft}
@@ -2825,11 +2683,11 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                     placeholder={`Message ${activeThread.name}…`}
                     aria-label="Reply"
                     rows={1}
-                    style={{ flex: 1, padding: "11px 2px", borderRadius: 0, border: "none", borderBottom: `1px solid ${REGISTER_INK.ink55}`, background: "transparent", color: REGISTER_INK.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.45, resize: "none", maxHeight: 140, overflowY: "auto", outline: "none" }}
+                    style={{ flex: 1, padding: "11px 14px", borderRadius: RADIUS.lg, border: `1px solid ${P.line}`, background: P.surface, color: P.ink, fontFamily: "var(--cb-font)", fontSize: 16, lineHeight: 1.45, resize: "none", maxHeight: 140, overflowY: "auto", outline: "none" }}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !isTouch) { e.preventDefault(); sendMessage(); } }}
                   />
-                  <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ minHeight: 48, padding: "10px 0", background: "transparent", color: REGISTER_GOLD, border: "none", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, transition: "opacity 180ms var(--cb-ease)", flexShrink: 0 }}>
-                    Send
+                  <button onClick={() => sendMessage()} disabled={!draft.trim()} aria-label="Send" className="cb-magnetic" style={{ width: 48, height: 48, borderRadius: RADIUS.lg, background: accent, color: at, border: "none", cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.5, transition: "opacity 180ms var(--cb-ease)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Icon name="send" size={16} />
                   </button>
                 </div>
                 {!isMobile && !isTouch && (
@@ -2903,48 +2761,6 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         <img src={lightbox} alt="Attached" role="button" tabIndex={0} aria-label="Attached image. Activate to close." className="cb-inbox-pop-in"
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLightbox(null); } }}
           style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: RADIUS.lg, objectFit: "contain" }} onClick={() => setLightbox(null)} />
-      </Dialog>
-    )}
-    {/* Wave 2: the Verify sheet. The safety number in mono groups,
-        the comparison instruction, and the word action that writes
-        the local verification store. */}
-    {verifyOpen && activeThread && safety && safety.number && (
-      <Dialog label="Safety number" onClose={() => setVerifyOpen(false)} zIndex={260}>
-        <div style={{ padding: "6px 2px", maxWidth: 460 }}>
-          <div style={{ fontFamily: REGISTER_SERIF, fontSize: 20, fontWeight: 500, color: REGISTER_INK.ink }}>{activeThread.name || "Safety number"}</div>
-          <div style={{ fontFamily: "var(--cb-mono)", fontSize: 15, letterSpacing: "0.05em", color: REGISTER_INK.ink, marginTop: 12, lineHeight: 2, wordBreak: "break-all" }}>{safety.number}</div>
-          <p style={{ fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72, lineHeight: 1.6, marginTop: 12 }}>
-            This number fingerprints the device keys of both of you, yours and theirs together. Read it with {activeThread.name || "them"} over a channel you already trust, like a voice call. If every group matches the number on their device, mark it verified.
-          </p>
-          {safety.changed && (
-            <p role="alert" style={{ fontSize: FONT_SIZES.label, color: REGISTER_INK.ink, lineHeight: 1.6, marginTop: 8 }}>
-              This number changed since you last verified it. A new device is the usual reason. Treat it as unverified until the comparison above is done.
-            </p>
-          )}
-          <div style={{ display: "flex", gap: 18, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
-            {!safety.verified && <TrustWordAction onClick={doMarkVerified}>Mark as verified</TrustWordAction>}
-            {safety.verified && <span style={{ fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72 }}>Verified on this device.</span>}
-            <TrustWordAction onClick={() => setVerifyOpen(false)}>Close</TrustWordAction>
-          </div>
-        </div>
-      </Dialog>
-    )}
-    {/* Wave 2: the recovery phrase, surfaced at upgrade time instead
-        of discarded. It stays readable on this device afterwards;
-        the sheet exists so it is seen once, at the moment it is
-        created, with its purpose stated plainly. */}
-    {recoveryDue && (
-      <Dialog label="Your recovery phrase" onClose={() => setRecoveryDue(null)} zIndex={270}>
-        <div style={{ padding: "6px 2px", maxWidth: 460 }}>
-          <div style={{ fontFamily: REGISTER_SERIF, fontSize: 20, fontWeight: 500, color: REGISTER_INK.ink }}>Your recovery phrase</div>
-          <p style={{ fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72, lineHeight: 1.6, marginTop: 10 }}>
-            Upgrading created a recovery phrase for your encrypted messages on this device. If you lose this device, the phrase is the only way back into them. Write it down and keep it somewhere safe. Anyone who has it can restore your encrypted messages, so treat it like a key.
-          </p>
-          <div style={{ fontFamily: "var(--cb-mono)", fontSize: 15, letterSpacing: "0.04em", color: REGISTER_INK.ink, marginTop: 12, lineHeight: 2, wordBreak: "break-word", borderTop: `1px solid ${REGISTER_INK.ink55}`, borderBottom: `1px solid ${REGISTER_INK.ink55}`, padding: "10px 0" }}>{recoveryDue}</div>
-          <div style={{ display: "flex", gap: 18, alignItems: "center", marginTop: 10 }}>
-            <TrustWordAction onClick={doConfirmRecovery}>I wrote it down</TrustWordAction>
-          </div>
-        </div>
       </Dialog>
     )}
     {reportModal && activeThread && (

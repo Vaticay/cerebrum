@@ -23998,9 +23998,6 @@ function App({ profileHandle = null } = {}) {
     { label: "Make a diagram in Diagram Studio", run: () => { setCmdOpen(false); setView("studio"); setStudioResetNonce((n) => n + 1); } },
     { label: "Open your library", hint: kbdLabel("B"), run: () => { setCmdOpen(false); setView("library"); } },
     { label: "Open your investigations", run: () => { setCmdOpen(false); setView("investigations"); } },
-    /* Wave 2 (2026-11-02): the Inbox joins the palette. It was the
-       one major surface with no command at all. */
-    { label: "Open inbox", run: () => { setCmdOpen(false); setView("inbox"); } },
     // Collections' header button is desktop-only (there's no room for it in
     // the mobile header), but this palette is available on every viewport —
     // it's a signed-in-only feature, hence gated on `user` here.
