@@ -19,6 +19,7 @@ import {
 import { safeHref } from "./textUtils.js";
 import { staticFieldCss } from "./cerebrumField.js";
 import { SCHOLARLY_SOURCES } from "../functions/lib/product.js";
+import { REGISTER_GROUND, REGISTER_INK, REGISTER_SERIF, REGISTER_SERIF_SCALE, REGISTER_EDGE } from "./registerTokens.js";
 import { IntroAtmosphere } from "./introAtmosphere.jsx";
 import { cbMotionOff, Dialog } from "./flowcharts.jsx";
 
@@ -863,9 +864,9 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
      0.72 alpha and the affordance the 0.55, both of which clear
      their contrast floors against the atmosphere's clamped
      centre, measured on rendered captures (see the addendum). */
-  const ink = "#f3f3f1";
-  const ink2 = "rgba(243,243,241,0.72)";
-  const faint = "rgba(243,243,241,0.55)";
+  const ink = REGISTER_INK.ink;
+  const ink2 = REGISTER_INK.ink72;
+  const faint = REGISTER_INK.ink55;
 
   const [beginHover, setBeginHover] = useState(false);
 
@@ -877,7 +878,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       minHeight: cinema ? "100%" : "100dvh", height: cinema ? "100%" : undefined, position: "relative", overflowX: "clip",
       display: "flex", flexDirection: "column", cursor: "pointer",
       WebkitTapHighlightColor: "transparent",
-      fontFamily: "var(--cb-font)", background: "#060606", color: ink,
+      fontFamily: "var(--cb-font)", background: REGISTER_GROUND, color: ink, ...REGISTER_EDGE,
     }}>
       {/* The atmosphere (2026-10-28, the owner's material order;
           reworked the same night for the title card): the card's
@@ -921,14 +922,14 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       }}>
         <h1 className="cb-door-stage-2" style={{
           margin: 0,
-          fontFamily: "var(--cb-serif)", fontWeight: 500,
-          fontSize: isMobile ? 57 : 104, lineHeight: 1.04, letterSpacing: "0.008em",
+          fontFamily: REGISTER_SERIF, fontWeight: REGISTER_SERIF_SCALE.display.fontWeight,
+          fontSize: isMobile ? REGISTER_SERIF_SCALE.display.mobileFontSize : REGISTER_SERIF_SCALE.display.fontSize, lineHeight: REGISTER_SERIF_SCALE.display.lineHeight, letterSpacing: REGISTER_SERIF_SCALE.display.letterSpacing,
           color: ink,
         }}>Cerebrum</h1>
 
         <p className="cb-door-stage-3" style={{
           margin: isMobile ? "18px 0 0" : "22px 0 0",
-          fontFamily: "var(--cb-font)", fontSize: isMobile ? 15 : 17, fontWeight: 400,
+          fontFamily: "var(--cb-font)", fontSize: isMobile ? REGISTER_SERIF_SCALE.line.mobileFontSize : REGISTER_SERIF_SCALE.line.fontSize, fontWeight: REGISTER_SERIF_SCALE.line.fontWeight,
           lineHeight: 1.5, color: ink2,
         }}>
           Answers from published research.
@@ -1042,7 +1043,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       overflow: "hidden",
     }}>
       <div style={{
-        position: "relative", overflow: "hidden", background: "#060606", flex: "0 0 auto",
+        position: "relative", overflow: "hidden", background: REGISTER_GROUND, flex: "0 0 auto",
         width: cinema === "wide" ? "min(100vw, calc(100dvh * 16 / 9))" : "min(100vw, calc(100dvh * 9 / 16))",
         height: cinema === "wide" ? "min(100dvh, calc(100vw * 9 / 16))" : "min(100dvh, calc(100vw * 16 / 9))",
       }}>

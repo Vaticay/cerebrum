@@ -89,6 +89,7 @@
  *     the old poster and never black.
  */
 import React, { useEffect, useRef, useState } from "react";
+import { REGISTER_POOL, REGISTER_POOL_CSS } from "./registerTokens.js";
 
 /* The composed still time: mid breath, mist settled, the frame the
    reduced motion door opens on. Tuned to the title card material's
@@ -224,7 +225,7 @@ const FRAG_SRC = [
 "",
 "  /* The clamp is the calm law in numbers: whatever the breath",
 "     and the swell do, no pixel of this material gets bright. */",
-"  col = min(col, vec3(0.44));",
+"  col = min(col, vec3(" + REGISTER_POOL.ceiling + "));",
 "  gl_FragColor = vec4(col, 1.0);",
 "}",
 ].join("\n");
@@ -236,11 +237,11 @@ const FRAG_SRC = [
    glow low in the frame in a green tint, the same fault the
    owner's photos caught in the shader itself. */
 const ATMO_FALLBACK = {
-  background: [
-    "radial-gradient(ellipse 80% 58% at 50% 40%, rgba(198,204,212,0.13), rgba(198,204,212,0) 66%)",
-    "radial-gradient(ellipse 120% 90% at 50% 112%, rgba(64,68,74,0.16), rgba(64,68,74,0) 62%)",
-    "#060606",
-  ].join(", "),
+  /* Wave Zero (2026-11-02): the fallback is REGISTER_POOL_CSS
+     itself, by reference. This component is the only home the
+     CSS pool has; surfaces mount the atmosphere, never the
+     CSS, as their ground. */
+  background: REGISTER_POOL_CSS,
 };
 
 function compileShader(gl, type, src) {
