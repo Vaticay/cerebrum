@@ -48,7 +48,7 @@ export const FONT_SIZES = {
   // Title folded into subhead (card titles, ledes, prompts) and
   // heading folded into section. Every key below is either a plan
   // role or an exact plan value alias.
-  caption: 12,      // caption and meta, timestamps, metadata, badges
+  caption: 13,      // caption and meta, timestamps, metadata, badges (13 since 2026-11-02, beta readability update: 12px at weight 400 in the faint step was the product wide small text failure; see TYPE.caption)
   label: 14,        // label and control, form inputs, chips, buttons (14 since 2026-10-26, see above)
   body: 16,         // body, primary prose everywhere (16 since 2026-10-20, see above)
   subhead: 18,      // subhead, card titles, card subheads, ledes (18 since 2026-10-26)
@@ -137,6 +137,16 @@ export function withAlpha(hex, a) {
   const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16); return `rgba(${r},${g},${b},${a})`;
 }
 
+/* The one icon family. Spec (tightened 2026-11-02, beta update):
+   viewBox 0 0 24 24 with art inside a 20 by 20 live area, stroke
+   currentColor at 1.5 with round caps and joins, fill none, shapes
+   on whole or half pixel coordinates, rectangles at radius 2, one
+   focal shape per glyph plus at most one filled dot accent at
+   radius 1.3. No second stroke weight anywhere in the family, no
+   filled silhouette variants in navigation rows (a filled row icon
+   reads as a state, and state belongs to the gold rule), and no
+   icon ever takes the gold directly. New glyphs are added as cases
+   here, drawn to this spec, never imported from an outside set. */
 export function Icon({ name, size = 18, className, style }) {
   const common = {
     width: size, height: size, viewBox: "0 0 24 24", fill: "none",
@@ -148,7 +158,7 @@ export function Icon({ name, size = 18, className, style }) {
     case "plus": return <svg {...common}><path d="M12 5v14M5 12h14" /></svg>;
     case "bookmark": return <svg {...common}><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>;
     case "bookmarkFilled": return <svg {...common} fill="currentColor" stroke="none"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>;
-    case "settings": return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" /></svg>;
+    case "settings": return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 4.5V7M12 17v2.5M4.5 12H7M17 12h2.5M6.7 6.7l1.8 1.8M15.5 15.5l1.8 1.8M17.3 6.7l-1.8 1.8M8.5 15.5l-1.8 1.8" /></svg>;
     case "volumeOn": return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" /></svg>;
     case "volumeOff": return <svg {...common}><path d="M11 5L6 9H2v6h4l5 4V5z" /><path d="M22 9l-6 6M16 9l6 6" /></svg>;
     case "search": return <svg {...common}><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.2-4.2" /></svg>;
@@ -187,7 +197,9 @@ export function Icon({ name, size = 18, className, style }) {
     case "warning": return <svg {...common}><path d="M12 3.5L21.5 20H2.5L12 3.5z" /><path d="M12 10v4M12 16.7h.01" /></svg>;
     case "edit": return <svg {...common}><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z" /></svg>;
     case "link": return <svg {...common}><path d="M9.5 14.5l5-5" /><path d="M13.5 6l1.3-1.3a3.6 3.6 0 015 5L18.5 11" /><path d="M10.5 18l-1.3 1.3a3.6 3.6 0 01-5-5L5.5 13" /></svg>;
-    case "chart": return <svg {...common}><path d="M3 3v18h18" /><path d="M7 17v-5M12 17V8M17 17v-9" /></svg>;
+    case "chart": return <svg {...common}><path d="M4 19l5-6.5 4 2.5 6.5-8.5" /><circle cx="19.5" cy="6.5" r="1.3" fill="currentColor" stroke="none" /></svg>;
+    case "trail": return <svg {...common}><circle cx="6" cy="6" r="2.2" /><circle cx="12" cy="12.5" r="2.2" /><circle cx="18" cy="18" r="2.2" /><path d="M7.5 7.5l2.9 3.4M13.6 14.1l2.8 2.3" /></svg>;
+    case "people": return <svg {...common}><circle cx="13.5" cy="8.5" r="3" /><path d="M6.8 20a6.7 6.7 0 0113.4 0" /><circle cx="6.8" cy="10" r="2.3" /><path d="M2.6 20a4.4 4.4 0 014-4.4" /></svg>;
     case "gauge": return <svg {...common}><path d="M4.5 19a9 9 0 1115 0" /><path d="M12 15l4.5-4.5" /><circle cx="12" cy="15" r="1.3" fill="currentColor" stroke="none" /></svg>;
     case "shield": return <svg {...common}><path d="M12 2.5l8 3.2v5.8c0 5.2-3.4 8.9-8 10.3-4.6-1.4-8-5.1-8-10.3V5.7z" /></svg>;
     case "lock": return <svg {...common}><rect x="5" y="10.5" width="14" height="9.5" rx="2" /><path d="M8 10.5V7.5a4 4 0 018 0v3" /></svg>;
@@ -262,7 +274,7 @@ export function Icon({ name, size = 18, className, style }) {
     case "play": return <svg {...common} fill="currentColor" stroke="none"><path d="M8 5v14l11-7z" /></svg>;
     case "star": return <svg {...common}><path d="M12 2.8l2.8 5.8 6.4.9-4.7 4.5 1.1 6.3L12 17.3l-5.6 3 1.1-6.3L2.8 9.5l6.4-.9z" /></svg>;
     case "starFilled": return <svg {...common} fill="currentColor" stroke="none"><path d="M12 2.8l2.8 5.8 6.4.9-4.7 4.5 1.1 6.3L12 17.3l-5.6 3 1.1-6.3L2.8 9.5l6.4-.9z" /></svg>;
-    case "pause": return <svg {...common}><path d="M9 5v14M15 5v14" strokeWidth={2.6} /></svg>;
+    case "pause": return <svg {...common}><path d="M9 5v14M15 5v14" /></svg>;
     // Panel/sidebar toggle: a frame with its left panel divided off.
     case "panelLeft": return <svg {...common}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9.5 4v16" /></svg>;
     // Studio brand mark: the two brain hemispheres joined by a link edge
@@ -318,7 +330,7 @@ export const TYPE = {
   body:    { fontFamily: "var(--cb-font)", fontSize: 16, fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 },
   reading: { fontFamily: "var(--cb-serif)", fontSize: 16, fontWeight: 400, letterSpacing: 0, lineHeight: 1.55 }, // reading, answer body and lesson text only; 16 since 2026-10-20 (owner readability order, see FONT_SIZES)
   label:   { fontFamily: "var(--cb-font)", fontSize: 14, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
-  caption: { fontFamily: "var(--cb-font)", fontSize: 12, fontWeight: 400, letterSpacing: 0, lineHeight: 1.3 },
+  caption: { fontFamily: "var(--cb-font)", fontSize: 13, fontWeight: 500, letterSpacing: 0, lineHeight: 1.45 }, // 2026-11-02: was 12/400/1.3; small plus light plus faint was three dimming factors on one element across hundreds of sites
   mono:    { fontFamily: "var(--cb-mono)", fontSize: 12, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
 };
 
@@ -334,7 +346,12 @@ export const LAYOUT = {
   reader: 680,
   // Corrected to the shipped shell values, 2026-10-19 (design
   // audit M2): the sidebar ships at 216 and collapses to 68.
-  sidebar: 216,
+  // 2026-11-02 (beta update): the labelled sidebar widens 216 to
+  // 248 for the 20px icon slot, the group headings, and the inbox
+  // badge riding after the label. The collapsed width stays 68:
+  // the legal popover position and the Nova pop geometry are
+  // pinned to it.
+  sidebar: 248,
   sidebarCollapsed: 68,
   sources: 280,
   // Container widths in use, tokenized 2026-10-19 (M2). stage is
@@ -692,14 +709,21 @@ function ProBadge({ style } = {}) {
   );
 }
 
-function TierBadge({ tier, style } = {}) {
+function TierBadge({ tier, style, P } = {}) {
   if (tier === "pro") return <ProBadge style={style} />;
+  /* 2026-11-02 (beta readability): the badge colours used to be two
+     hard coded values that ignored the ground entirely, and the
+     retired gold #d4af37 family at that. With a palette in hand the
+     LITE badge takes the register gold on dark grounds and the
+     on light gold on light ones, and FREE takes the palette faint
+     step. Without a palette the old values remain as the fallback. */
+  const liteInk = P ? (P.dark ? REGISTER_GOLD : "#8a6618") : "#c99a2e";
   if (tier === "lite") return (
     <span style={{
       display: "inline-flex", alignItems: "center",
       fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
-      fontFamily: "var(--cb-font)", color: "#c99a2e",
-      border: "1px solid rgba(212,164,55,0.55)",
+      fontFamily: "var(--cb-font)", color: liteInk,
+      border: `1px solid ${withAlpha(liteInk, 0.55)}`,
       borderRadius: RADIUS.sm, padding: "1px 8px 1px 9px",
       whiteSpace: "nowrap", ...style,
     }}>LITE</span>
@@ -708,8 +732,8 @@ function TierBadge({ tier, style } = {}) {
     <span style={{
       display: "inline-flex", alignItems: "center",
       fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.eyebrow,
-      fontFamily: "var(--cb-font)", color: "#9aa3a8",
-      border: "1px solid rgba(150,160,165,0.4)",
+      fontFamily: "var(--cb-font)", color: P ? P.faint : "#9aa3a8",
+      border: `1px solid ${P ? P.line2 : "rgba(150,160,165,0.4)"}`,
       borderRadius: RADIUS.sm, padding: "1px 8px 1px 9px",
       whiteSpace: "nowrap", ...style,
     }}>FREE</span>

@@ -15,14 +15,20 @@
  *     base and never gains a back trap.
  *
  *   closeLayer(kind, key)
- *     A programmatic close. The layer is marked dead so the
- *     popstate that follows cannot call its onClose a second time,
- *     and if the layer is the current top entry the browser steps
- *     back once to drop its entry. That is the loop guard: a close
- *     never pushes, and a pop never recloses. A push that lands in
- *     the same task as the close (the queued traversal has not run
- *     yet) reaps the dead top layer first — see pushLayer — so the
- *     close's step back cannot consume the new layer's entry.
+ *     A programmatic close. If the layer is the current top entry,
+ *     the layer leaves the stack at once and its own history entry
+ *     is restamped in place with the depth of the layer below, so
+ *     the entry now describes the screen the user is actually on.
+ *     No traversal is queued: a queued history.back() captures its
+ *     target entry when it is queued in a real browser, so a push
+ *     issued in the same task (a dialog row that closes the dialog
+ *     and navigates) still got stepped over by the close's own
+ *     traversal, and the navigation reverted itself. That was
+ *     reproduced in a real headless browser on 2026-11-02 against
+ *     the account menu, whose rows landed back on the previous
+ *     view. Restamping removes the race instead of modelling
+ *     around it: a close never pushes, never traverses, and a pop
+ *     never recloses.
  *
  *   releaseLayer(kind, key)
  *     Marks a layer dead without moving the browser, for unmounts
@@ -64,7 +70,31 @@ export function createHistoryNav(win) {
   let layers = [];
   let redo = [];
   let currentDepth = 0;
+  let pendingCollapse = null;
   const restoreMarks = new Set();
+
+  /* A programmatic top close restamps its entry instead of
+     traversing (see killLayer). One task later, if nothing pushed
+     and no pop arrived in between, the browser steps back once
+     to collapse the duplicated entry, so a plain close still
+     costs no extra back press. A push, a pop, a requestBack or
+     dispose cancels the step: after any of those, the restamped
+     entry is simply where the user is. */
+  function cancelCollapse() {
+    if (pendingCollapse === null) return;
+    const t = pendingCollapse;
+    pendingCollapse = null;
+    try { if (w && w.clearTimeout) w.clearTimeout(t); else clearTimeout(t); } catch { /* nothing to cancel */ }
+  }
+  function scheduleCollapse() {
+    cancelCollapse();
+    const fire = () => {
+      pendingCollapse = null;
+      try { w.history.back(); } catch { /* nothing to step back to */ }
+    };
+    try { pendingCollapse = w && w.setTimeout ? w.setTimeout(fire, 0) : setTimeout(fire, 0); }
+    catch { pendingCollapse = null; }
+  }
   const markKey = (kind, key) => String(kind) + ":" + String(key == null ? "" : key);
 
   function safeState() {
@@ -88,36 +118,16 @@ export function createHistoryNav(win) {
 
   function pushLayer(kind, key, onClose, onRestore) {
     if (!w || !kind) return false;
+    cancelCollapse();
     const k = key == null ? "" : String(key);
-    /* A dead top layer is reaped before the push (2026-10-28, the
-       account menu profile bug). history.back() does not run in
-       the task that calls it: the traversal is queued, and a
-       pushState issued in the same task lands first. So when a
-       dialog closes programmatically and its owner navigates in
-       the same click — the account menu's rows close the menu,
-       then set the view — the close's queued step back lands on
-       the entry under the NEW layer's entry, and the popstate
-       that follows reports the killed layer's depth. Counted
-       against a stack that still holds the corpse, that pop
-       trims the new layer and restores the old view: the
-       navigation silently reverted itself (reproduced against
-       this module with a deferred traversal: close, push, flush,
-       and the view was back where it started with its layer
-       gone). Dropping the corpse here lets the new layer take
-       the top slot, so the same pop reports a depth equal to
-       the stack and trims nothing; the new layer's own entry
-       sits one history step above, and a later back press still
-       closes it in the usual way. Only trailing corpses whose
-       close queued a step (killLayer marks them steppedBack)
-       are reaped: a layer released with no step behind it, like
-       a swapped out thread, is padding the depths above it
-       still count on, and a dead layer buried under live ones
-       keeps its slot for the same reason. */
-    while (layers.length > 0) {
-      const topLayer = layers[layers.length - 1];
-      if (topLayer.alive || !topLayer.steppedBack) break;
-      layers.pop();
-    }
+    /* A dead layer is never reaped here. A layer released with
+       no browser move behind it, like a swapped out thread, is
+       padding the depths above it still count on, and a dead
+       layer buried under live ones keeps its slot for the same
+       reason. A programmatic close of the top layer needs no
+       reap either: killLayer now removes it and restamps its
+       entry in the same task, so no corpse and no queued
+       traversal survive into this push. */
     const top = layers[layers.length - 1];
     if (top && top.alive && top.kind === kind && top.key === k) {
       if (onClose) top.onClose = onClose;
@@ -125,7 +135,7 @@ export function createHistoryNav(win) {
       return false;
     }
     stampBase();
-    layers.push({ kind, key: k, onClose: onClose || null, onRestore: onRestore || null, alive: true, steppedBack: false });
+    layers.push({ kind, key: k, onClose: onClose || null, onRestore: onRestore || null, alive: true });
     redo = [];
     const depth = layers.length;
     try {
@@ -149,18 +159,42 @@ export function createHistoryNav(win) {
   function killLayer(kind, key, moveBrowser) {
     const layer = findLayer(kind, key);
     if (!layer) return false;
+    const depth = layers.indexOf(layer) + 1;
+    if (moveBrowser && w && depth === layers.length && currentDepth === depth) {
+      /* Programmatic close of the top layer (2026-11-02, beta
+         update). The old code queued history.back() here, and a
+         real browser fixes that traversal's target entry at
+         queue time: when the same click also navigated (the
+         account menu rows close the menu, then set the view),
+         the push landed first and the queued step still walked
+         to the entry under the closed layer, trimming the new
+         layer and restoring the old view. Reproduced in a real
+         headless browser: Your profile landed back on the
+         previous view every time. So the close no longer moves
+         the browser at all. The layer leaves the stack now, and
+         its entry is restamped with the depth and identity of
+         the layer below, which is the screen now showing. A
+         later back press steps to the entry below that one and
+         closes the layer below in the usual way, and forward
+         returns to this restamped entry, whose depth equals the
+         stack, so nothing restores or traps. */
+      layers.splice(depth - 1, 1);
+      currentDepth = depth - 1;
+      try {
+        const s = safeState();
+        const base = s && typeof s === "object" ? { ...s } : {};
+        const below = layers[layers.length - 1];
+        base.cbNav = below
+          ? { depth: depth - 1, kind: below.kind, key: below.key }
+          : { depth: depth - 1 };
+        w.history.replaceState(base, "");
+      } catch { /* history is a nicety, not a dependency */ }
+      scheduleCollapse();
+      return true;
+    }
     layer.alive = false;
     layer.onClose = null;
     layer.onRestore = null;
-    const depth = layers.indexOf(layer) + 1;
-    if (moveBrowser && w && depth === layers.length && currentDepth === depth) {
-      /* The close has a browser step queued behind it. A push that
-         lands before that step runs may reap this corpse (see
-         pushLayer); a layer released without a step (releaseLayer)
-         was never marked, and keeps its slot as padding instead. */
-      layer.steppedBack = true;
-      try { w.history.back(); } catch { /* nothing to step back to */ }
-    }
     return true;
   }
 
@@ -169,6 +203,7 @@ export function createHistoryNav(win) {
 
   function requestBack(kind, key) {
     if (!w) return false;
+    cancelCollapse();
     const layer = key === undefined
       ? [...layers].reverse().find((l) => l.kind === kind && l.alive)
       : findLayer(kind, key);
@@ -181,6 +216,7 @@ export function createHistoryNav(win) {
 
   function onPopState() {
     if (!w) return;
+    cancelCollapse();
     const d = cbNavDepthOf(safeState());
     if (d == null) return;
     if (d < layers.length) {
@@ -235,7 +271,7 @@ export function createHistoryNav(win) {
     depth() { return layers.length; },
     currentDepth() { return currentDepth; },
     layers() { return layers.map((l) => ({ kind: l.kind, key: l.key, alive: l.alive })); },
-    dispose() { if (w && w.removeEventListener) w.removeEventListener("popstate", onPopState); },
+    dispose() { cancelCollapse(); if (w && w.removeEventListener) w.removeEventListener("popstate", onPopState); },
   };
 }
 

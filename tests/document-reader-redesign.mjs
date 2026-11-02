@@ -33,10 +33,12 @@ async function test(name, fn) {
   }
 }
 
-await test("the surface is named Document Reader where people see it", () => {
-  assert.ok(appSrc.includes('["document", "Document Reader", "bookOpen"]'), "nav label not renamed");
-  assert.ok(appSrc.includes('document: "Document Reader"'), "mobile title not renamed");
-  assert.ok(appSrc.includes(">Document Reader</h1>"), "page heading not renamed");
+/* Renamed 2026-11-02 (beta update): the surface is Documents in
+   the nav, the phone title, and the page heading; one plain name. */
+await test("the surface is named Documents where people see it", () => {
+  assert.ok(appSrc.includes('["document", "Documents", "bookOpen"]'), "nav label not renamed");
+  assert.ok(appSrc.includes('document: "Documents"'), "mobile title not renamed");
+  assert.ok(appSrc.includes(">Documents</h1>"), "page heading not renamed");
 });
 
 await test("the source pane has a desk header with a read status chip", () => {

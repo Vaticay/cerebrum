@@ -562,9 +562,12 @@ await test("the desktop sidebar inbox row carries the unread badge", () => {
   // Bug 4: the badge style exists in makeStyles and the Sidebar
   // receives the threads; the row now renders the count with it.
   assert.ok(appSrc.includes("S.sidebarItemBadge"), "the sidebar badge style is not used");
-  const navAt = appSrc.indexOf("NAV_ITEMS.map");
+  /* Pin updated 2026-11-02 (beta update): the grouped sidebar
+     renders NAV_GROUPS, not a flat NAV_ITEMS map; the badge lives
+     in the same row block the groups render. */
+  const navAt = appSrc.indexOf("NAV_GROUPS.map");
   assert.ok(navAt > 0, "the sidebar nav rendering is gone");
-  const navBlock = appSrc.slice(navAt, navAt + 2600);
+  const navBlock = appSrc.slice(navAt, navAt + 3400);
   assert.ok(navBlock.includes('key === "inbox"'), "the nav rendering never special cases the inbox row");
   assert.ok(navBlock.includes("unreadCount"), "the inbox badge is not computed from the thread unread counts");
   assert.ok(navBlock.includes("sidebarItemBadge"), "the inbox badge does not use the existing badge style");

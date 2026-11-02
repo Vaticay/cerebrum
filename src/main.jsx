@@ -33,15 +33,11 @@ import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
  * boundary renders when the app itself may have failed to boot, so it
  * cannot rely on the palette module or on CSS variables having loaded.
  * These values copy PALETTES.Sage and ACCENTS.Sage in palettes.js. */
-const ERR_SAGE = {
-  bg: "#0d0f0e",
-  surface: "#151816",
-  ink: "#f4f7f4",
-  ink2: "#cbd5cd",
-  faint: "#94a397",
-  line2: "rgba(139,168,136,0.2)",
-  accent: "#8ba888",
-};
+/* Mirrors PALETTES.Sage and ACCENTS.Sage in palettes.js. Until
+   2026-11-02 this was a hand copied set of hexes that drifted
+   whenever Sage moved; it reads the palette itself now, so the
+   crash screen cannot fall out of step again. */
+const ERR_SAGE = { ...PALETTES.Sage, accent: ACCENTS.Sage };
 const ERR_FONT = "var(--cb-font, 'Inter Tight', 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif)";
 
 class ErrorBoundary extends React.Component {
@@ -96,7 +92,7 @@ class ErrorBoundary extends React.Component {
             happening, the console has the details and we would like to see them.
           </p>
           {this.state.error && (
-            <p style={{ fontSize: 13, fontWeight: 400, lineHeight: 1.55, color: ERR_SAGE.faint, margin: "0 0 18px", wordBreak: "break-word" }}>
+            <p style={{ fontSize: 14, fontWeight: 400, lineHeight: 1.55, color: ERR_SAGE.ink2, margin: "0 0 18px", wordBreak: "break-word" }}>
               {String((this.state.error && this.state.error.message) || this.state.error).slice(0, 220)}
             </p>
           )}
@@ -131,7 +127,7 @@ class ErrorBoundary extends React.Component {
               {this.state.copied === true ? "Copied ✓" : this.state.copied === "failed" ? "Copy failed" : "Copy details"}
             </button>
           </div>
-          <p style={{ fontSize: 12, fontWeight: 400, lineHeight: 1.55, color: ERR_SAGE.faint, margin: "18px 0 0" }}>
+          <p style={{ fontSize: 13, fontWeight: 400, lineHeight: 1.55, color: ERR_SAGE.faint, margin: "18px 0 0" }}>
             Copy details grabs the technical error text (it may include your search words) so you can paste it to us.
           </p>
         </div>

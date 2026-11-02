@@ -61,10 +61,14 @@ function fakeWindow() {
   const listeners = {};
   const entries = [{ state: null }];
   let idx = 0;
+  let timerSeq = 0;
+  const timers = new Map();
   const fire = (name) => { for (const fn of [...(listeners[name] || [])]) fn({ type: name }); };
   const win = {
     addEventListener: (n, fn) => { (listeners[n] = listeners[n] || []).push(fn); },
     removeEventListener: (n, fn) => { listeners[n] = (listeners[n] || []).filter((f) => f !== fn); },
+    setTimeout: (fn) => { const id = ++timerSeq; timers.set(id, fn); return id; },
+    clearTimeout: (id) => { timers.delete(id); },
     history: {
       get state() { return entries[idx].state; },
       pushState(state) { entries.splice(idx + 1); entries.push({ state }); idx++; },
@@ -74,17 +78,23 @@ function fakeWindow() {
     },
     _entries: entries,
     _idx: () => idx,
+    _flush: () => { while (timers.size) { const [id, fn] = timers.entries().next().value; timers.delete(id); fn(); } },
   };
   return win;
 }
 
 /* A fake browser history whose traversals are DEFERRED, the way a
    real browser behaves: history.back() queues a session history
-   traversal that runs as a later task, so a pushState issued in the
-   same task lands first and the traversal then steps by delta from
-   wherever the index ended up. The synchronous fake above cannot
-   express that ordering — which is exactly why the account menu bug
-   below shipped behind a green suite (2026-10-28). */
+   traversal that runs as a later task, and the traversal's target
+   entry is the entry before the current one AT QUEUE TIME. A
+   pushState issued in the same task lands after the queued call
+   but does not move the queued traversal's target. The first
+   version of this fake stepped by delta from wherever the index
+   ended up, which is not what a real browser does: the account
+   menu bug below shipped behind a green suite on 2026-10-28,
+   and a real headless browser still reverted the navigation on
+   2026-11-02. Timers share the same pending queue so the close
+   collapse in historyNav runs in task order. */
 function fakeWindowDeferred() {
   const listeners = {};
   const entries = [{ state: null }];
@@ -94,12 +104,14 @@ function fakeWindowDeferred() {
   const win = {
     addEventListener: (n, fn) => { (listeners[n] = listeners[n] || []).push(fn); },
     removeEventListener: (n, fn) => { listeners[n] = (listeners[n] || []).filter((f) => f !== fn); },
+    setTimeout: (fn) => { const token = { fn, cancelled: false }; pending.push(() => { if (!token.cancelled) token.fn(); }); return token; },
+    clearTimeout: (token) => { if (token) token.cancelled = true; },
     history: {
       get state() { return entries[idx].state; },
       pushState(state) { entries.splice(idx + 1); entries.push({ state }); idx++; },
       replaceState(state) { entries[idx].state = state; },
-      back() { pending.push(() => { if (idx > 0) { idx--; fire("popstate"); } }); },
-      forward() { pending.push(() => { if (idx < entries.length - 1) { idx++; fire("popstate"); } }); },
+      back() { const target = idx - 1; pending.push(() => { if (target >= 0 && target !== idx) { idx = target; fire("popstate"); } }); },
+      forward() { const target = idx + 1; pending.push(() => { if (target < entries.length && target !== idx) { idx = target; fire("popstate"); } }); },
     },
     _flush: () => { while (pending.length) pending.shift()(); },
     _entries: entries,
@@ -169,7 +181,12 @@ await test("pushing the same top layer twice adds no second entry", () => {
   nav.dispose();
 });
 
-await test("a programmatic close steps back once and never calls onClose", () => {
+await test("a programmatic close restamps its entry and never calls onClose", () => {
+  /* 2026-11-02 (beta update): closeLayer no longer queues a
+     history step. The layer leaves the stack at once and its
+     entry is restamped to the layer below, then a deferred
+     collapse steps the browser back one task later when nothing
+     pushed in between. */
   const win = fakeWindow();
   const nav = createHistoryNav(win);
   let closes = 0;
@@ -177,9 +194,15 @@ await test("a programmatic close steps back once and never calls onClose", () =>
   nav.pushLayer("dialog", "d1", () => { closes++; });
   const idxBefore = win._idx();
   assert.equal(nav.closeLayer("dialog", "d1"), true);
-  assert.equal(win._idx(), idxBefore - 1, "closeLayer did not step the browser back");
+  assert.equal(win._idx(), idxBefore, "closeLayer traversed synchronously");
+  assert.equal(nav.depth(), 1, "the dialog layer did not leave the stack at once");
+  assert.equal(win.history.state.cbNav.depth, 1, "the closed layer entry was not restamped to the depth below");
+  assert.equal(win.history.state.cbNav.key, "library", "the restamped entry does not describe the view below");
   assert.equal(closes, 0, "onClose fired for a programmatic close");
-  assert.equal(nav.depth(), 1, "the dialog layer was not trimmed by the pop");
+  win._flush();
+  assert.equal(win._idx(), idxBefore - 1, "the deferred collapse did not step the browser back");
+  assert.equal(closes, 0, "the collapse closed the view below");
+  assert.equal(nav.depth(), 1, "the collapse trimmed the view layer");
   win.history.back();
   assert.equal(closes, 1, "the view layer under it did not close on the next back");
   nav.dispose();
@@ -243,17 +266,20 @@ group("closes beside same task pushes, deferred traversals");
 
 await test("the account menu profile navigation survives its own menu close", () => {
   /* 2026-10-28 (the owner's photo report: tapping Your profile in
-     the account menu did nothing). The menu row runs onClose() then
-     onNavigate("profile"): setView fires at once, the Dialog unmount
-     cleanup calls closeLayer (which queues a history step back), and
-     the view effect pushes the profile layer — all in one task. In a
-     real browser the queued traversal runs after the push and steps
-     from the NEW entry, so its popstate reports the dialog's depth;
-     counted against a stack still holding the dead dialog layer,
-     that pop trimmed the profile layer and restored the old view.
-     The push now reaps a dead top layer first. This replays the exact
-     sequence with a deferred traversal; on the pre fix module the
-     view ends back at search with its layer gone. */
+     the account menu did nothing), retested 2026-11-02 in a real
+     headless browser, where it STILL reverted: the menu row runs
+     onClose() then onNavigate("profile"), the Dialog unmount
+     cleanup calls closeLayer, and the view effect pushes the
+     profile layer, all in one task. The old closeLayer queued a
+     history step whose target a real browser fixes at queue time,
+     so the step walked past the new layer's entry to the entry
+     under the menu and its popstate trimmed the profile layer.
+     The 2026-10-28 reap only worked against a fake that stepped
+     by delta at flush time; this fake now fixes targets at queue
+     time like the real browser. closeLayer now restamps and
+     leaves at once, and the push cancels its deferred collapse,
+     so no traversal exists to revert the navigation. On the pre
+     fix module this replay ends back at search. */
   const win = fakeWindowDeferred();
   const nav = createHistoryNav(win);
   let view = "search";

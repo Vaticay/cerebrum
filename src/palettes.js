@@ -45,7 +45,12 @@ const PALETTES = {
   // softened off pure white to match the other three's restraint.
   // ink2 was #a1a1aa until 2026-10-14: on raised (#3b3f46) that computed
   // to 4.13 to 1, under the 4.5 body text bar. #adaeb4 computes to 4.78.
-  Mid:   { dark: true,  bg: "#22242a", surface: "#2c2f37", raised: "#383c46", ink: "#f0efe9", ink2: "#b9bcc4", faint: "#a8acb4", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "0 24px 54px rgba(0,0,0,0.32)", shadowSm: "0 6px 18px rgba(0,0,0,0.22)", grain: 0, skel: "linear-gradient(90deg, #2c2f37 25%, #383c46 50%, #2c2f37 75%)" },
+  // faint was #a8acb4 until 2026-11-02 (beta readability): at 4.85 to 1
+  // on raised it was the tightest passing faint in the set, and caption
+  // text now sits at 13px weight 500 on it. #b4b8c0 computes to about
+  // 5.5 to 1 on raised. Light faint moved the same day, #6e6050 to
+  // #63543f, about 5.4 to about 6.5 to 1 on its ground.
+  Mid:   { dark: true,  bg: "#22242a", surface: "#2c2f37", raised: "#383c46", ink: "#f0efe9", ink2: "#b9bcc4", faint: "#b4b8c0", line: "rgba(255,255,255,0.08)", line2: "rgba(255,255,255,0.14)", shadow: "0 24px 54px rgba(0,0,0,0.32)", shadowSm: "0 6px 18px rgba(0,0,0,0.22)", grain: 0, skel: "linear-gradient(90deg, #2c2f37 25%, #383c46 50%, #2c2f37 75%)" },
   /* Light — designed as its own material, not as dark mode inverted.
      Archival paper rather than white: a warm, slightly cool-shadowed stock
      at #f1f0ec, the colour of a journal offprint. Ink is graphite (#22252a)
@@ -60,7 +65,7 @@ const PALETTES = {
   // stock to true paper (warm cream ground, near white raised) with
   // warm brown ink, matching the editorial direction. The opaque
   // search stage panel behavior is unchanged; only its colors move.
-  Light: { dark: false, bg: "#f6f1e7", surface: "#fcf8ef", raised: "#ffffff", ink: "#211c14", ink2: "#524739", faint: "#6e6050", line: "rgba(33,28,20,0.12)", line2: "rgba(33,28,20,0.20)", shadow: "0 24px 54px rgba(33,28,20,0.13)", shadowSm: "0 6px 18px rgba(33,28,20,0.07)", grain: 0.009, skel: "linear-gradient(90deg, #ece5d5 25%, #f6f1e7 50%, #ece5d5 75%)" },
+  Light: { dark: false, bg: "#f6f1e7", surface: "#fcf8ef", raised: "#ffffff", ink: "#211c14", ink2: "#524739", faint: "#63543f", line: "rgba(33,28,20,0.12)", line2: "rgba(33,28,20,0.20)", shadow: "0 24px 54px rgba(33,28,20,0.13)", shadowSm: "0 6px 18px rgba(33,28,20,0.07)", grain: 0.009, skel: "linear-gradient(90deg, #ece5d5 25%, #f6f1e7 50%, #ece5d5 75%)" },
   // Sage — "Modern Organic": near-black stone instead of neutral charcoal,
   // paired by default with the muted sage-green accent (ACCENTS.Sage)
   // instead of a neon hue. The fresh-browser default (restored Sep 2026

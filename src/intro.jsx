@@ -970,7 +970,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           in the footer, as quiet text after the links. No product
           links join them: the footers group those separately, and
           the door takes only the set that travels together.
-          Register: the card's own faint ink at caption size, no
+          Register: the card's own ink at caption size, no
           fill, no band, no rule, and the last beat of the staged
           entrance (stage 5, kept in the CSS since the title card
           and taken by nothing until now). Placement: a footer
@@ -991,7 +991,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
         display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center",
         gap: isMobile ? "2px 16px" : "4px 20px",
         padding: isMobile ? "6px 16px 16px" : "8px 24px 20px",
-        fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: faint,
+        fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: ink2,
         textAlign: "center",
       }}>
         {[
@@ -1004,12 +1004,18 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
           <a key={href} href={href}
             onClick={(e) => e.stopPropagation()}
             style={{
-              color: faint, textDecoration: "none", fontFamily: "var(--cb-font)",
+              color: ink2, textDecoration: "none", fontFamily: "var(--cb-font)",
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               minHeight: 44, padding: "0 2px", whiteSpace: "nowrap",
             }}>{label}</a>
         ))}
-        <span style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™</span>
+        {/* 2026-11-02 (beta readability): the row and its links rose
+            from the 0.55 ink step to the 0.72 step, and the notice
+            lost the extra 0.75 opacity it used to stack on top,
+            which had it at 3.6 to 1, the weakest text on the card.
+            The affordance above keeps the 0.55 step it was
+            approved at. */}
+        <span style={{ whiteSpace: "nowrap" }}>© {new Date().getFullYear()} Cerebrum™</span>
       </footer>
 
       {/* The door opening (2026-10-28): mounted only on the animated

@@ -871,8 +871,16 @@ await test("no style color property anywhere in the app is assigned a bare impor
        --cb-ask-ink is the surface ink the pill label reads, and
        the stage key reads --cb-on-acc, the ink computed on the
        gold fill by the same accentInk helper. */
+    /* Beta update (2026-11-02): that wiring was wrong in a real
+       browser. accentInk corrects an accent for use as text on
+       the plain ground and returns it unchanged on dark
+       palettes, so the stage key painted gold text on its own
+       gold fill and the word Ask measured 1 to 1, invisible.
+       --cb-on-acc is now accentText(accent), the ink chosen for
+       text on an accent fill, which is what the comment above
+       always claimed it was. */
     assert.match(appSrc, /"--cb-ask-ink": P\.ink/, "the composer does not set --cb-ask-ink from the surface ink");
-    assert.match(appSrc, /"--cb-on-acc": accentInk\(P, accent\)/, "the stage key ink is not computed on the accent");
+    assert.match(appSrc, /"--cb-on-acc": accentText\(accent\)/, "the stage key ink is not the ink for text on the accent fill");
     assert.match(appSrc, /color: var\(--cb-ask-ink, var\(--cb-ink\)\);/, "the Ask label does not read --cb-ask-ink");
   });
   // 2026-10-14, design overhaul wave 1: ACCENTS.Amber moved from #d9a441

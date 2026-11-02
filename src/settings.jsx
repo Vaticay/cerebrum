@@ -298,7 +298,7 @@ function ProAccountSection({ P, accent, at, user, proStatus, onOpenPro, Section,
               hold, not as one more preference row. */}
           <div style={{ background: withAlpha(accent, 0.07), border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, padding: "16px 18px", marginBottom: 4 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <TierBadge tier={rank} />
+              <TierBadge tier={rank} P={P} />
               <span style={{ ...TYPE.heading, color: P.ink, fontFamily: "var(--cb-font)" }}>{tierName}</span>
               {canManage && <span style={{ marginLeft: "auto" }}>{quietBtn(portalBusy ? "Opening…" : "Manage subscription", openPortal, portalBusy)}</span>}
             </div>
@@ -448,7 +448,7 @@ function ApiKeyPanel({ P, accent, at, Section, Row }) {
            them, in the Row's own padding and type. */
         <div style={{ padding: "9px 2px", minHeight: 48, borderBottom: (keys && keys.length) ? `1px solid ${P.line}` : "none" }}>
           <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>New API key</div>
-          <div style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.faint, lineHeight: 1.5, marginTop: 2 }}>Up to 5 active keys. 60 requests per minute per key.</div>
+          <div style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.ink2, lineHeight: 1.5, marginTop: 2 }}>Up to 5 active keys. 60 requests per minute per key.</div>
           <div style={{ marginTop: 10 }}>{keyNameControl}</div>
         </div>
       ) : (
@@ -3154,7 +3154,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 400, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
             Clear your conversations, saved articles, and search history, in this browser and in your account's synced copy.
           </p>
-          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.ink2, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Preferences, watched topics, collections, documents, and this device's encryption keys are kept. This can't be undone.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
@@ -3168,7 +3168,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 400, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
             Clear your conversation history, in this browser and in your account's synced copy.
           </p>
-          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.ink2, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Your saved articles, preferences, watched topics, collections, and documents are kept. This can't be undone.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
@@ -3182,7 +3182,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 400, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
             Put every preference back to its default: theme, accent, sounds, motion, answer style, notifications, everything on the Appearance, Sound & motion, and Answers tabs.
           </p>
-          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.ink2, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Your library, history and watchlist are untouched.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
@@ -3196,7 +3196,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 400, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
             Permanently delete your account and all its data: email, library, history, everything on our servers.
           </p>
-          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.faint, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
+          <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.ink2, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Immediately, and for good. If you have an active subscription,{" "}
             <button onClick={async () => { try { const r = await apiProPost("create-portal", {}); window.location.href = r.url; } catch { toast("Couldn't open billing. Try again?", { tone: "error" }); } }} style={{ background: "none", border: "none", padding: 0, color: accent, cursor: "pointer", fontSize: "inherit", fontWeight: 500, fontFamily: "var(--cb-font)", textDecoration: "underline" }}>cancel it in the billing portal</button>{" "}
             first. Deletion doesn't stop billing.

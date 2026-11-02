@@ -46,10 +46,15 @@ await test("the edition can be searched and sorted", () => {
   // The surface is called what it is, everywhere it is named: the
   // daily edition of new science. One name in the nav, the page
   // heading, the phone title, and the tab title.
-  assert.ok(appSrc.includes('["trending", "Today in Science", "chart"]'), "sidebar does not carry the new name");
-  assert.ok(appSrc.includes(">Today in Science</h1>"), "page heading is not the new name");
-  assert.ok(appSrc.includes('t = "Today in Science · Cerebrum"'), "tab title is not the new name");
-  assert.ok(appSrc.includes('trending: "Today in Science"'), "phone title is not the new name");
+  // Pin updated 2026-11-02 (beta update): the navigation name is
+  // now the plain one, Science news, in the sidebar and the phone
+  // header. The page keeps its edition masthead and the tab title
+  // keeps the edition name; those are the publication's name for
+  // itself, not navigation labels.
+  assert.ok(appSrc.includes('["trending", "Science news", "chart"]'), "sidebar does not carry the plain name");
+  assert.ok(appSrc.includes(">Today in Science</h1>"), "page heading is not the edition name");
+  assert.ok(appSrc.includes('t = "Today in Science · Cerebrum"'), "tab title is not the edition name");
+  assert.ok(appSrc.includes('trending: "Science news"'), "phone title is not the plain name");
   assert.ok(!appSrc.includes("Trending in Science</h1>"), "the old name still heads the page");
 });
 

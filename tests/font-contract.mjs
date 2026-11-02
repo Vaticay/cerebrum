@@ -225,7 +225,9 @@ await test("the stage column fits the space beside the sidebar at laptop widths"
   const sidebar = layoutValue("sidebar");
   const sidebarCollapsed = layoutValue("sidebarCollapsed");
   assert.equal(answer, 1080);
-  assert.equal(sidebar, 216);
+  /* 2026-11-02 (beta update): the labelled sidebar came back at
+     248, wide enough for the longest label; collapsed stays 68. */
+  assert.equal(sidebar, 248);
   assert.equal(sidebarCollapsed, 68);
   const padMatch = appSrc.match(/const pad = isMobile \? 20 : (\d+);/);
   assert.ok(padMatch, "the container pad constant was not found");

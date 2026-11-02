@@ -38,6 +38,7 @@
    double bubble next to the pop line. */
 import React, { useEffect, useRef, useState } from "react";
 import { cbMotionOff } from "./flowcharts.jsx";
+import { LAYOUT } from "./designSystem.jsx";
 import { loadNovaQuirks, saveNovaQuirks } from "./LearnView.jsx";
 import { NovaRive } from "./NovaRive.jsx";
 import { NovaBubble, speechDurationFor, speechPlanFor, SPEECH_TAIL_MS } from "./NovaSpeech.jsx";
@@ -369,7 +370,7 @@ export default function NovaSidebarPop({ searchRunning = false, inCall = false, 
   if (!pop) return null;
   const showBubble = pop.phase === "enter" || pop.phase === "hold";
   const size = isMobile ? FIG_SIZE_MOBILE : FIG_SIZE_DESKTOP;
-  const railW = railCollapsed ? 68 : 216;
+  const railW = railCollapsed ? LAYOUT.sidebarCollapsed : LAYOUT.sidebar;
   /* Desktop geometry: the wrap rests with about a third of her
      width tucked past the sidebar right edge, and the slide
      runs from eighty percent hidden to that rest position. At

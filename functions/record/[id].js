@@ -78,13 +78,13 @@ function pageShell(title, bodyHtml) {
     + "h2{font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:#c89a3a;margin:30px 0 8px;font-family:ui-monospace,Menlo,Consolas,monospace;}"
     + "p,li{font-size:16px;line-height:1.6;}"
     + "ul,ol{padding-left:22px;margin:6px 0;}"
-    + ".meta{color:rgba(243,243,241,0.55);font-size:14px;overflow-wrap:anywhere;}"
+    + ".meta{color:rgba(243,243,241,0.72);font-size:14px;overflow-wrap:anywhere;}"
     + ".note{border:1px solid rgba(243,243,241,0.14);border-left:4px solid #c89a3a;background:#101013;padding:10px 14px;}"
     + ".src{margin-bottom:8px;}"
-    + ".tag{color:rgba(243,243,241,0.55);font-size:14px;}"
+    + ".tag{color:rgba(243,243,241,0.72);font-size:14px;}"
     + "a{color:#e0bd68;}"
     + ".rerun{display:inline-block;margin-top:10px;padding:10px 18px;border:1px solid #c89a3a;border-radius:6px;background:#c89a3a;color:#060606;text-decoration:none;font-size:16px;}"
-    + ".foot{margin-top:44px;border-top:1px solid rgba(243,243,241,0.14);padding-top:14px;color:rgba(243,243,241,0.55);font-size:14px;line-height:1.6;}"
+    + ".foot{margin-top:44px;border-top:1px solid rgba(243,243,241,0.14);padding-top:14px;color:rgba(243,243,241,0.72);font-size:14px;line-height:1.6;}"
     + "</style>\n</head>\n<body>\n<main>\n"
     + bodyHtml
     + "\n</main>\n</body>\n</html>";

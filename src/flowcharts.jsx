@@ -80,8 +80,10 @@ export function Dialog({
        The cleanup below closes the layer on unmount: when the
        close came from a pop, the layer is already gone and the
        close is a no op; when it came from the app, closeLayer
-       steps the browser back once and the dead layer makes the
-       resulting pop a no op too, so neither path can loop. */
+       removes the layer and restamps its entry in place (see
+       historyNav.js, 2026-11-02), so a navigation issued by the
+       same click that closed the dialog can never be reverted
+       by the close itself, and neither path can loop. */
     if (dismissable) {
       historyNav.pushLayer("dialog", id, () => { onCloseRef.current(); });
     }

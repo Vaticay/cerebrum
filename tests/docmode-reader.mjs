@@ -604,7 +604,7 @@ group("investigations — New search is always one tap away");
 
 await test("header New search renders with records present", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-  const headAt = src.indexOf('title="Investigations" count={history.length}');
+  const headAt = src.indexOf('title="Answers" count={history.length}');
   const headBlock = src.slice(headAt, headAt + 1200);
   assert.match(headBlock, />New search</, "header New search button missing");
   // It must not be gated on history length — the old defect was that the
@@ -620,16 +620,19 @@ await test("sidebar carries a labeled New search action row", async () => {
   // Reader feedback (2026-10-13): starting a new search was
   // undiscoverable, so the fresh start is a labeled sidebar row now,
   // named New search like everywhere else the action appears.
-  const navAt = src.indexOf('["investigations", "Investigations", "history"');
-  assert.ok(navAt > 0, "Investigations nav item missing");
-  const navBlock = src.slice(src.indexOf("const NAV_ITEMS"), src.indexOf("const NAV_ITEMS") + 900);
-  assert.ok(navBlock.includes('["new", "New search", "plus"]'), "flat nav must carry the New search row");
+  const navAt = src.indexOf('["investigations", "Answers", "trail"');
+  assert.ok(navAt > 0, "Answers nav item missing");
+  const navBlock = src.slice(src.indexOf("const NAV_GROUPS"), src.indexOf("const NAV_GROUPS") + 1700);
+  assert.ok(navBlock.includes('["new", "New search", "plus"]'), "grouped nav must carry the New search row");
   /* Pin updated 2026-10-22 (simplify audit SH1): the standalone
      Search row is merged away on purpose; it duplicated New search
      and differed only by the reset, which the New search row runs. */
   assert.ok(!navBlock.includes('["search", "Search"'), "the duplicate standalone Search row came back");
-  for (const item of ['["document", "Document Reader"', '["library", "Library"', '["learn", "Nova"']) {
-    assert.ok(navBlock.includes(item), `flat nav missing ${item}`);
+  /* Pin updated 2026-11-02 (beta update): the nav is grouped again
+     (NAV_GROUPS) and the rows carry the plain names: Documents,
+     Answers, Science news, People, Plan. */
+  for (const item of ['["document", "Documents"', '["library", "Library"', '["learn", "Nova"']) {
+    assert.ok(navBlock.includes(item), `grouped nav missing ${item}`);
   }
   // All nav rows get 44px targets via S.sidebarItem (no per-row override needed).
   assert.match(src, /sidebarItem: \{[^}]*minHeight: 44/, "sidebar rows missing 44px target");

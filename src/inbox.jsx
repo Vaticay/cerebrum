@@ -2615,7 +2615,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                             <audio controls src={m.attachmentData} style={{ height: 32, maxWidth: 210 }} />
                           </div>
                           {m.attachmentMeta && m.attachmentMeta.transcript && (
-                            <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, lineHeight: 1.55, color: m.mine ? at : P.ink2, opacity: 0.92 }}>
+                            <div style={{ marginTop: 8, fontSize: FONT_SIZES.caption, lineHeight: 1.55, color: m.mine ? at : P.ink2 }}>
                               “{m.attachmentMeta.transcript}”
                             </div>
                           )}

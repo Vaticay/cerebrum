@@ -758,7 +758,14 @@ await test("(c) the composer send action is the filled Ask pill, word kept, on e
   assert.ok(composer.includes('className="cb-ask-go"'), "the send button class changed shape");
   assert.ok(composer.includes(': "Ask"}'), "the send action does not render the word Ask");
   assert.ok(composer.includes('aria-label={busy ? "Searching" : "Ask"}'), "the send action label changed");
-  assert.ok(composer.includes('"--cb-on-acc": accentInk(P, accent)'), "the solid key ink is not computed on the accent");
+  /* Pin updated 2026-11-02 (beta update): --cb-on-acc was wired
+     to accentInk(P, accent), which returns the accent unchanged
+     on dark palettes, so the filled stage key painted gold text
+     on its own gold fill and the word measured 1 to 1 in a real
+     browser, invisible. accentText(accent) is the helper that
+     picks an ink for text sitting on the accent fill; that is
+     what the key reads now. */
+  assert.ok(composer.includes('"--cb-on-acc": accentText(accent)'), "the solid key ink is not the ink for text on the accent fill");
   assert.ok(composer.includes('"--cb-acc": accent'), "the composer does not carry its surface accent into the fill");
 });
 
