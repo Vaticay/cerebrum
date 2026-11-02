@@ -47,8 +47,8 @@ export function QuotaCalculator({ P, accent, isMobile }) {
       </div>
       <div aria-live="polite" style={{
         marginTop: 14, padding: "14px 16px", borderRadius: RADIUS.md,
-        background: covers ? "rgba(16,185,129,0.08)" : "rgba(217,165,32,0.08)",
-        border: `1px solid ${covers ? "rgba(16,185,129,0.35)" : "rgba(217,165,32,0.4)"}`,
+        background: P.raised,
+        border: `1px solid ${covers ? P.line : accent}`,
       }}>
         {covers ? (
           <>

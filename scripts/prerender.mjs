@@ -76,7 +76,7 @@ function renderPage(slug, data, shell) {
    * under one h2, and the whole set is also emitted as FAQPage structured
    * data, the format search engines and AI answer products lift most. */
   const faqHtml = Array.isArray(data.faq) && data.faq.length
-    ? `<hr style="border:0;border-top:1px solid #e0ddd8;margin:2.5rem 0 1.5rem" />\n` +
+    ? `<hr style="border:0;border-top:1px solid rgba(243,243,241,0.14);margin:2.5rem 0 1.5rem" />\n` +
       `<div id="frequently-asked-questions">\n<h2>Frequently asked questions</h2>\n` +
       data.faq.map((item) =>
         `<h3 style="font-size:1.05rem;margin:1.4rem 0 .4rem">${esc(item.q)}</h3>\n<p>${esc(item.a)}</p>`
@@ -119,18 +119,18 @@ function renderPage(slug, data, shell) {
    * HTML with real citation links, so crawlers and readers without
    * JavaScript see the product proof too. */
   const demoHtml = (slug === "about" || slug === "features") && Array.isArray(DEMO_QUESTIONS) && DEMO_QUESTIONS.length
-    ? `<hr style="border:0;border-top:1px solid #e0ddd8;margin:2.5rem 0 1.5rem" />\n` +
+    ? `<hr style="border:0;border-top:1px solid rgba(243,243,241,0.14);margin:2.5rem 0 1.5rem" />\n` +
       `<div>\n<h2>See what an answer looks like</h2>\n` +
       demoForPage(slug).map((d) =>
         `<h3 style="font-size:1.05rem;margin:1.4rem 0 .4rem">${esc(d.q)}</h3>\n` +
         d.paragraphs.map((para) =>
           `<p>${esc(para.text)}${(para.cites || []).map((n) => ` [${n}]`).join("")}</p>`
         ).join("\n") + `\n` +
-        `<ol style="font-size:.9rem;color:#555">` +
+        `<ol style="font-size:.9rem;color:rgba(243,243,241,0.72)">` +
         d.sources.map((s) =>
-          `<li><a href="${esc(s.url)}" style="color:#555">${esc(s.title)}</a> ${esc(s.venue)}, ${esc(s.year)}</li>`
+          `<li><a href="${esc(s.url)}" style="color:rgba(243,243,241,0.72)">${esc(s.title)}</a> ${esc(s.venue)}, ${esc(s.year)}</li>`
         ).join("") + `</ol>`
-      ).join("\n") + `\n<p style="font-size:.9rem;color:#6b6b6b">A cached sample, not a live search. Every citation above is a real paper you can open.</p>\n</div>`
+      ).join("\n") + `\n<p style="font-size:.9rem;color:rgba(243,243,241,0.55)">A cached sample, not a live search. Every citation above is a real paper you can open.</p>\n</div>`
     : "";
 
   const head = `
@@ -150,36 +150,37 @@ function renderPage(slug, data, shell) {
     <meta name="twitter:title" content="${esc(title)}" />
     <meta name="twitter:description" content="${esc(description)}" />
     <meta name="twitter:image" content="${ORIGIN}/og-image.png?v=20261015b" />
-    <meta name="robots" content="index, follow" />${faqJsonLd}${softwareJsonLd}`;
+    <meta name="robots" content="index, follow" />
+    <style>html,body{background:#060606}</style>${faqJsonLd}${softwareJsonLd}`;
 
   /* The prerendered content sits inside the SPA's mount point. React replaces
    * it on hydration, so a normal visitor sees the application and never this
    * markup; a crawler or a reader without JavaScript sees the document. */
   const noscriptDoc = `
-    <main class="cb-prerender" style="max-width:44rem;margin:0 auto;padding:3rem 1.25rem;font:16px/1.7 Georgia,'Times New Roman',serif;color:#1a1a1a;background:#fafaf9">
+    <main class="cb-prerender" style="max-width:44rem;margin:0 auto;padding:3rem 1.25rem;font:16px/1.7 Georgia,'Times New Roman',serif;color:#f3f3f1;background:radial-gradient(ellipse 80% 58% at 50% 40%, rgba(198,204,212,0.13), rgba(198,204,212,0) 66%),radial-gradient(ellipse 120% 90% at 50% 112%, rgba(64,68,74,0.16), rgba(64,68,74,0) 62%),#060606">
       <nav style="margin-bottom:2.5rem;font:600 14px/1.5 system-ui,sans-serif">
-        <a href="/" style="color:#1a1a1a;text-decoration:none">&#8592; Cerebrum</a>
+        <a href="/" style="color:#f3f3f1;text-decoration:none">&#8592; Cerebrum</a>
       </nav>
-      <p style="font:600 12px/1.4 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#6b6b6b;margin:0 0 .5rem">${esc(data.eyebrow || "")}</p>
+      <p style="font:600 12px/1.4 system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#c89a3a;margin:0 0 .5rem">${esc(data.eyebrow || "")}</p>
       <h1 style="font-size:2rem;line-height:1.2;margin:0 0 1rem">${esc(data.title)}</h1>
-      <p style="font-size:1.05rem;color:#444">${esc(data.lede || "")}</p>
-      ${data.updated ? `<p style="font:500 13px/1.5 system-ui,sans-serif;color:#6b6b6b">${esc(data.updated)}</p>` : ""}
-      <hr style="border:0;border-top:1px solid #e0ddd8;margin:2rem 0" />
+      <p style="font-size:1.05rem;color:rgba(243,243,241,0.72)">${esc(data.lede || "")}</p>
+      ${data.updated ? `<p style="font:500 13px/1.5 system-ui,sans-serif;color:rgba(243,243,241,0.55)">${esc(data.updated)}</p>` : ""}
+      <hr style="border:0;border-top:1px solid rgba(243,243,241,0.14);margin:2rem 0" />
       ${body}
       ${demoHtml}
       ${faqHtml}
-      <hr style="border:0;border-top:1px solid #e0ddd8;margin:2.5rem 0 1.5rem" />
-      <p style="font:400 13px/1.6 system-ui,sans-serif;color:#6b6b6b">
-        <a href="/about" style="color:#6b6b6b">About</a> &middot;
-        <a href="/features" style="color:#6b6b6b">Features</a> &middot;
-        <a href="/pricing" style="color:#6b6b6b">Pricing</a> &middot;
-        <a href="/document-mode" style="color:#6b6b6b">Document Mode</a> &middot;
-        <a href="/diagram-studio" style="color:#6b6b6b">Diagram Studio</a> &middot;
-        <a href="/investigations" style="color:#6b6b6b">Investigations</a> &middot;
-        <a href="/privacy" style="color:#6b6b6b">Privacy</a> &middot;
-        <a href="/terms" style="color:#6b6b6b">Terms</a> &middot;
-        <a href="/disclosures" style="color:#6b6b6b">Disclosures</a> &middot;
-        <a href="/contact" style="color:#6b6b6b">Contact</a>
+      <hr style="border:0;border-top:1px solid rgba(243,243,241,0.14);margin:2.5rem 0 1.5rem" />
+      <p style="font:400 13px/1.6 system-ui,sans-serif;color:rgba(243,243,241,0.55)">
+        <a href="/about" style="color:rgba(243,243,241,0.55)">About</a> &middot;
+        <a href="/features" style="color:rgba(243,243,241,0.55)">Features</a> &middot;
+        <a href="/pricing" style="color:rgba(243,243,241,0.55)">Pricing</a> &middot;
+        <a href="/document-mode" style="color:rgba(243,243,241,0.55)">Document Mode</a> &middot;
+        <a href="/diagram-studio" style="color:rgba(243,243,241,0.55)">Diagram Studio</a> &middot;
+        <a href="/investigations" style="color:rgba(243,243,241,0.55)">Investigations</a> &middot;
+        <a href="/privacy" style="color:rgba(243,243,241,0.55)">Privacy</a> &middot;
+        <a href="/terms" style="color:rgba(243,243,241,0.55)">Terms</a> &middot;
+        <a href="/disclosures" style="color:rgba(243,243,241,0.55)">Disclosures</a> &middot;
+        <a href="/contact" style="color:rgba(243,243,241,0.55)">Contact</a>
       </p>
     </main>`;
 
@@ -209,6 +210,14 @@ function renderPage(slug, data, shell) {
   // only existed to keep that fallback from adding a second <h1>; with
   // the fallback gone there is nothing left to demote.
   html = html.replace(/<noscript>[\s\S]*?<\/noscript>/, "");
+  /* Matching pass (2026-11-02): the slug documents stand on the
+   * register now, so their light scheme browser chrome matches
+   * the door's rewrite below instead of flashing pale around a
+   * dark page. */
+  html = html.replace(
+    'content="#fafaf9" media="(prefers-color-scheme: light)"',
+    'content="#060606" media="(prefers-color-scheme: light)"'
+  );
 
   return html;
 }
@@ -298,9 +307,10 @@ doorHtml = doorHtml.replace(/<noscript>[\s\S]*?<\/noscript>/, "");
 /* 2026-10-28 (round 4): the door route presents dark browser chrome
  * in both OS schemes. The shell's light scheme theme color is
  * #fafaf9, which flashed pale around the dark door on a phone in
- * light OS mode; only the door document rewrites it, to the door
- * ground. The slug pages keep the shell's pair: their documents
- * are light. */
+ * light OS mode; the door document rewrites it, to the door
+ * ground. Since the 2026-11-02 matching pass the slug documents
+ * stand on the register too, and renderPage rewrites theirs the
+ * same way. */
 doorHtml = doorHtml.replace(
   'content="#fafaf9" media="(prefers-color-scheme: light)"',
   'content="#060606" media="(prefers-color-scheme: light)"'

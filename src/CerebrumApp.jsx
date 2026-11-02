@@ -134,7 +134,7 @@ import {
   Intro, Mark, MarkBreathe,
   plateHead,
 } from "./intro.jsx";
-import { REGISTER_GOLD, REGISTER_GOLD_ON_LIGHT, REGISTER_GROUND, REGISTER_INK, REGISTER_LINE, SURFACE_CLASSES, resolveSurface } from "./registerTokens.js";
+import { REGISTER_GOLD, REGISTER_GOLD_ON_LIGHT, REGISTER_GROUND, REGISTER_INK, REGISTER_LINE, REGISTER_LINE_STRONG, REGISTER_POOL_CSS, REGISTER_RAISED, REGISTER_SURFACE, SURFACE_CLASSES, resolveSurface } from "./registerTokens.js";
 
 import { IntroAtmosphere } from "./introAtmosphere.jsx";
 
@@ -6261,30 +6261,30 @@ function LegalProgress({ accent }) {
 }
 
 function InfoPage({ page }) {
-  /* 2026-10-19 (S7b, M60): the default is Sage, the same palette the app
-     opens in, not Dark. A saved palette cookie still wins. */
-  const paletteName = (() => { try { return getCookie("cb_pal") || "Sage"; } catch { return "Sage"; } })();
-  // The Pro palette is a members-only entitlement resolved from the signed-in
-  // account inside App(). This standalone route has no account context, so a
-  // stale cb_palette cookie (set while Pro, kept after logout/revocation)
-  // must fall back to Dark — never render member-only chrome to a stranger.
-  const P = PALETTES[isProPalette(paletteName) ? "Dark" : paletteName] || PALETTES.Sage;
-  // ACCENTS was collapsed to a single { Mono } entry when the app moved to
-  // its current monochrome accent direction (App()'s own accentName state,
-  // a few thousand lines down, already defaults to "Mono" to match) — this
-  // page kept the old pre-redesign default of "Emerald", a key that no
-  // longer exists on ACCENTS. ACCENTS["Emerald"] came back undefined, and
-  // so did the "|| ACCENTS.Emerald" fallback right after it, so `accent`
-  // itself was undefined for every visitor who'd never explicitly set a
-  // cb_accent cookie — which then crashed withAlpha() (called straight
-  // below, and again in typeColor() elsewhere) the instant it tried
-  // `undefined.slice(...)`, taking the whole page to a blank white screen
-  // with no error boundary to catch it. This is what was actually behind
-  // "the about and contact pages are just white" — a real render crash,
-  // not only the separate _redirects/routing issue fixed alongside this.
-  const accentName = (() => { try { return getCookie("cb_accent") || "Mono"; } catch { return "Mono"; } })();
-  const customAccent = (() => { try { return getCookie("cb_accentCustom") || ""; } catch { return ""; } })();
-  const accent = customAccent || ACCENTS[accentName] || ACCENTS.Mono;
+  /* Matching pass (2026-11-02): a public page is an arrival
+     surface, so it stands in the same register as the search
+     home instead of resolving a visitor palette of its own: the
+     register ground and ink, the register surface steps, and
+     the one gold. The accent is a token constant here, never a
+     cookie lookup: the 2026-10-19 crash on this page came from
+     an accent cookie naming a retired accent and resolving to
+     undefined, and a constant cannot do that. */
+  const P = {
+    dark: true,
+    bg: REGISTER_GROUND,
+    surface: REGISTER_SURFACE,
+    raised: REGISTER_RAISED,
+    ink: REGISTER_INK.ink,
+    ink2: REGISTER_INK.ink72,
+    faint: REGISTER_INK.ink55,
+    line: REGISTER_LINE,
+    line2: REGISTER_LINE_STRONG,
+    shadow: "none",
+    shadowSm: "none",
+    grain: 0,
+    skel: `linear-gradient(90deg, ${REGISTER_SURFACE} 25%, ${REGISTER_RAISED} 50%, ${REGISTER_SURFACE} 75%)`,
+  };
+  const accent = REGISTER_GOLD;
   const at = accentText(accent);
   const isMobile = useIsMobile();
   // v6.8: this page runs as its own standalone route, outside App()'s tree,
@@ -6329,13 +6329,13 @@ function InfoPage({ page }) {
      below both render this one list. */
   const NAV = [["about", "About"], ["features", "Features"], ["pricing", "Pricing"], ["document-mode", "Document Mode"], ["diagram-studio", "Diagram Studio"], ["investigations", "Investigations"], ["privacy", "Privacy"], ["terms", "Terms"], ["disclosures", "Disclosures"], ["contact", "Contact"]];
   return (
-    <div style={{ minHeight: "100dvh", background: P.bg, color: P.ink, fontFamily: "var(--cb-font)", position: "relative", display: "flex", flexDirection: "column", overflowX: "clip" }}>
+    <div style={{ minHeight: "100dvh", background: REGISTER_POOL_CSS, color: P.ink, fontFamily: "var(--cb-font)", position: "relative", display: "flex", flexDirection: "column", overflowX: "clip" }}>
       <style>{`
         .cb-info-block:hover .cb-anchor, .cb-info-block:focus-within .cb-anchor, .cb-anchor:focus-visible { opacity: 1; }
         @media (hover: none) { .cb-info-block .cb-anchor { opacity: 1; } }
         .cb-toc-link:hover { color: ${accentInk(P, accent)}; }
         .cb-legal-progress { position: fixed; top: 0; left: 0; width: 100%; height: 2px; background: ${accent}; z-index: ${Z.dropdown}; transform-origin: left; }
-        .cb-info-block h2 { font-size: ${FONT_SIZES.section}px; font-weight: 500; letter-spacing: 0; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-font); }
+        .cb-info-block h2 { font-size: ${FONT_SIZES.section}px; font-weight: 500; letter-spacing: 0; margin: 0 0 12px; color: ${P.ink}; font-family: var(--cb-serif); }
         .cb-info-block p { font-size: ${FONT_SIZES.body}px; line-height: 1.55; color: ${P.ink2}; margin: 0; }
         .cb-info-block ul { margin: 0; padding: 0; list-style: none; }
         .cb-info-block li { font-size: ${FONT_SIZES.body}px; line-height: 1.55; color: ${P.ink2}; padding: 10px 0 10px 24px; position: relative; border-bottom: 1px solid ${P.line}; }
@@ -6362,7 +6362,7 @@ function InfoPage({ page }) {
             with the hairline border. */}
         <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: Z.behind, pointerEvents: "none", background: P.bg, borderBottom: `1px solid ${P.line}` }} />
         <div style={{ maxWidth: 1080, margin: "0 auto", padding: isMobile ? "calc(14px + env(safe-area-inset-top, 0px)) 20px 14px" : "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px 16px", flexWrap: "wrap" }}>
-          <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 500, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-font)", letterSpacing: TYPE.heading.letterSpacing, padding: "0 4px", minHeight: 48 }}>
+          <button onClick={goHome} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 500, color: P.ink, fontSize: FONT_SIZES.subhead, background: "none", border: "none", cursor: "pointer", fontFamily: "var(--cb-serif)", letterSpacing: TYPE.heading.letterSpacing, padding: "0 4px", minHeight: 48 }}>
             <Mark size={18} accent={accent} /> Cerebrum
           </button>
           <nav aria-label="Public pages" style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: isMobile ? "flex-start" : "flex-end" }}>
@@ -6378,7 +6378,7 @@ function InfoPage({ page }) {
         <div style={{ maxWidth: 720, margin: "0 auto", padding: isMobile ? "72px 20px 64px" : "72px 28px 80px" }}>
           <div className="cb-fadein" style={{ animationDelay: "0ms" }}>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, letterSpacing: TRACKING.tight, color: accentInk(P, accent), fontFamily: "var(--cb-font)" }}>{data.eyebrow}</span>
-            <h1 style={{ fontSize: isMobile ? 34 : FONT_SIZES.display, fontWeight: TYPE.display.fontWeight, letterSpacing: TYPE.display.letterSpacing, lineHeight: TYPE.display.lineHeight, color: P.ink, margin: "12px 0 16px", fontFamily: "var(--cb-font)" }}>{data.title}</h1>
+            <h1 style={{ fontSize: isMobile ? 34 : FONT_SIZES.display, fontWeight: TYPE.display.fontWeight, letterSpacing: TYPE.display.letterSpacing, lineHeight: TYPE.display.lineHeight, color: P.ink, margin: "12px 0 16px", fontFamily: "var(--cb-serif)" }}>{data.title}</h1>
             <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.65, color: P.ink2, marginBottom: 8 }}>{data.lede}</p>
             {data.updated && <div style={{ fontSize: FONT_SIZES.label, color: P.faint, marginBottom: 0, fontFamily: "var(--cb-font)" }}>{data.updated}</div>}
           </div>
@@ -6468,7 +6468,7 @@ function InfoPage({ page }) {
                cannot drift. The id matches the #frequently-asked-questions
                anchor published in public/llms.txt. */
             <div id="frequently-asked-questions" className="cb-fadein" style={{ marginTop: 56, scrollMarginTop: 90 }}>
-              <h2 style={{ fontSize: FONT_SIZES.section, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, margin: "0 0 8px", color: P.ink, fontFamily: "var(--cb-font)" }}>Frequently asked questions</h2>
+              <h2 style={{ fontSize: FONT_SIZES.section, fontWeight: 500, letterSpacing: TYPE.heading.letterSpacing, margin: "0 0 8px", color: P.ink, fontFamily: "var(--cb-serif)" }}>Frequently asked questions</h2>
               <div style={{ display: "flex", flexDirection: "column", gap: 28, marginTop: 20 }}>
                 {data.faq.map((item, i) => (
                   <div key={i} className="cb-info-block">
@@ -13922,7 +13922,7 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
           {/* The nameplate. The surface is called what it is: a daily
               edition of new science. There is no Nova figure here;
               the masthead is a newspaper block and reads as one. */}
-          <h1 style={{ margin: 0, fontSize: isMobile ? 34 : FONT_SIZES.display, fontWeight: TYPE.display.fontWeight, letterSpacing: TYPE.display.letterSpacing, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: TYPE.display.lineHeight }}>Today in Science</h1>
+          <h1 style={{ margin: 0, fontSize: isMobile ? 34 : FONT_SIZES.display, fontWeight: TYPE.display.fontWeight, letterSpacing: TYPE.display.letterSpacing, color: P.ink, fontFamily: "var(--cb-serif)", lineHeight: TYPE.display.lineHeight }}>Today in Science</h1>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.tight }}>
               {dateline}{dateline ? "  ·  " : ""}New stories are gathered every hour
@@ -22894,7 +22894,34 @@ function App({ profileHandle = null } = {}) {
     // Pro account (signed out, expired, revoked) falls back to Dark rather
     // than seeing the members' theme.
     const name = isProPalette(paletteName) && !(user && user.isPro) ? "Dark" : paletteName;
-    return PALETTES[name] || PALETTES.Dark;
+    const base = PALETTES[name] || PALETTES.Dark;
+    /* Matching pass (2026-11-02): the owner ruled the search home
+       the standard for the whole product, so the palette the app
+       hands to every surface is now built from the register: the
+       register ground and ink family, the two register surface
+       steps, and the register hairlines. The selected palette
+       still resolves first (its entitlement rule above stands,
+       and Settings keeps offering the palettes), but the values
+       the surfaces consume are the register values, so a page
+       cannot drift back to a tinted ground or a mismatched ink
+       family again. Ground and ink move together here, the F7
+       rule: no surface receives one without the other. */
+    return {
+      ...base,
+      dark: true,
+      bg: REGISTER_GROUND,
+      surface: REGISTER_SURFACE,
+      raised: REGISTER_RAISED,
+      ink: REGISTER_INK.ink,
+      ink2: REGISTER_INK.ink72,
+      faint: REGISTER_INK.ink55,
+      line: REGISTER_LINE,
+      line2: REGISTER_LINE_STRONG,
+      shadow: "none",
+      shadowSm: "none",
+      grain: 0,
+      skel: `linear-gradient(90deg, ${REGISTER_SURFACE} 25%, ${REGISTER_RAISED} 50%, ${REGISTER_SURFACE} 75%)`,
+    };
   })();
   // "Mono" isn't a real color swatch — it means "match the current palette's
   // own ink," which is why it's derived from P.dark rather than read out of
@@ -22903,11 +22930,13 @@ function App({ profileHandle = null } = {}) {
   // this used to hardcode the Mono branch unconditionally, silently ignoring
   // accentName for every non-Mono swatch (invisible while Mono was the only
   // entry in ACCENTS; became a real bug the moment a second one was added).
-  const accent = (customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent))
-    ? customAccent
-    : accentName === "Mono"
-      ? (P.dark ? "#ffffff" : "#000000")
-      : (ACCENTS[accentName] || (P.dark ? "#ffffff" : "#000000"));
+  /* Matching pass (2026-11-02): the accent the surfaces consume
+     is the register gold, the way the search home uses it: the
+     filled key, the current page rule, and small marks. The
+     accent picker state still lives in Settings, but a green or
+     white accent cannot repaint the product away from the
+     standard the owner set. */
+  const accent = REGISTER_GOLD;
   const at = accentText(accent);
   /* Live tab icon: sweeping activity arc while a search is in flight,
      inbox badge for unread threads, mark tinted with the user's accent.
@@ -24814,7 +24843,7 @@ function App({ profileHandle = null } = {}) {
          gone. Selecting text now does what selecting text does everywhere
          else; SelectionAsk offers the search as a button the reader has to
          actually press. */
-      <div style={{ ...S.scroll, background: started ? P.bg : REGISTER_GROUND }} ref={threadRef} className="cb-shell-view-in">
+      <div style={{ ...S.scroll, background: started ? REGISTER_POOL_CSS : REGISTER_GROUND }} ref={threadRef} className="cb-shell-view-in">
         <SelectionAsk onAsk={(q) => ask(q)} P={P} accent={accent} containerRef={threadRef} />
         <div style={view === "search" ? { ...S.container, maxWidth: 1760 } : S.container}>
           {!started ? (

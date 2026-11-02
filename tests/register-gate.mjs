@@ -777,7 +777,9 @@ await test("(3b)+(3c) correct fix: the account tile carries the user's identity 
 await test("(e) every register token has a consumer, or an expiry on the allowlist", () => {
   const EXPIRY = {
     INSTRUMENT_GROUND: "retired by the correct fix (2026-11-02): null marker only, Instrument resolves with its palette",
-    REGISTER_LINE_STRONG: "retired with the Wave 2 ledger (correct fix, 2026-11-02): no consumer remains",
+    /* REGISTER_LINE_STRONG left this list in the matching pass
+       (2026-11-02): the register palette the app hands to every
+       surface consumes it as line2. */
     READING_MEASURE: "Reader and answer measure pass, Wave 4",
     NOTEBOOK_MEASURE: "Nova notebook measure, Wave 5",
   };

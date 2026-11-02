@@ -31,6 +31,15 @@
 /* The ground every register surface sits on. */
 export const REGISTER_GROUND = "#060606";
 
+/* The register steps above the ground (matching pass, 2026-11-02):
+   the search home's panels sit flat on the ground, but the card
+   heavy surfaces that now match it need two quiet neutral steps
+   for their panels and raised controls. These are the ground
+   lifted in even steps, no hue of their own, so a Library panel
+   and a home panel read as the same room at different depths. */
+export const REGISTER_SURFACE = "#101013";
+export const REGISTER_RAISED = "#17171b";
+
 /* The editorial serif, the same custom property the reading
    roles in designSystem.jsx already use. */
 export const REGISTER_SERIF = "var(--cb-serif)";
