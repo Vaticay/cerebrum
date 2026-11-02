@@ -49,9 +49,17 @@ group("resolver swap spots — one named ground expression per surface");
 
 await test("the three Instrument grounds are the register ground today", () => {
   assert.equal(tokens.REGISTER_GROUND, "#060606");
-  assert.ok(appSrc.includes("const LIBRARY_SURFACE_GROUND = REGISTER_GROUND;"), "Library ground expression missing");
-  assert.ok(settingsSrc.includes("export const SETTINGS_SURFACE_GROUND = REGISTER_GROUND;"), "Settings ground expression missing");
-  assert.ok(inboxSrc.includes("export const INBOX_SURFACE_GROUND = REGISTER_GROUND;"), "Inbox ground expression missing");
+  // Coordinator merge note (2026-11-02): the lane specified the
+  // resolver swap at merge time, so the three expressions now read
+  // through the Wave 0 resolver, which is the stronger form of the
+  // same pin: one named expression per surface, resolving to the
+  // register ground because all three views are Instrument class.
+  assert.ok(appSrc.includes("const LIBRARY_SURFACE_GROUND = resolveSurface(\"library\").ground;"), "Library ground expression missing");
+  assert.ok(settingsSrc.includes("export const SETTINGS_SURFACE_GROUND = resolveSurface(\"settings\").ground;"), "Settings ground expression missing");
+  assert.ok(inboxSrc.includes("export const INBOX_SURFACE_GROUND = resolveSurface(\"inbox\").ground;"), "Inbox ground expression missing");
+  assert.equal(tokens.resolveSurface("library").ground, tokens.REGISTER_GROUND);
+  assert.equal(tokens.resolveSurface("settings").ground, tokens.REGISTER_GROUND);
+  assert.equal(tokens.resolveSurface("inbox").ground, tokens.REGISTER_GROUND);
   assert.ok(appSrc.includes("background: LIBRARY_SURFACE_GROUND"), "the Library does not render on its ground expression");
   assert.ok(settingsSrc.includes("background: SETTINGS_SURFACE_GROUND"), "Settings does not render on its ground expression");
   assert.ok(inboxSrc.includes("background: INBOX_SURFACE_GROUND"), "the Inbox does not render on its ground expression");

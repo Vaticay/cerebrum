@@ -13,11 +13,13 @@
    resolver can be swapped in at merge time in exactly one place per
    surface. */
 import React from "react";
-import { REGISTER_GOLD, REGISTER_INK, REGISTER_SERIF } from "./registerTokens.js";
+import { REGISTER_GOLD, REGISTER_INK, REGISTER_LINE, REGISTER_LINE_STRONG, REGISTER_SERIF } from "./registerTokens.js";
 
-/* The hairline: the register ink at rule strength. */
-export const LEDGER_LINE = "rgba(243,243,241,0.14)";
-export const LEDGER_LINE_STRONG = "rgba(243,243,241,0.28)";
+/* The hairline: the register ink at rule strength, consumed from
+   the token file (merge fix, 2026-11-02: the literals that stood
+   here failed the register gate the same morning). */
+export const LEDGER_LINE = REGISTER_LINE;
+export const LEDGER_LINE_STRONG = REGISTER_LINE_STRONG;
 
 /* The ledger head: the surface word in the serif at 26, the count
    as a display size serif numeral, and its label in mono under it. */

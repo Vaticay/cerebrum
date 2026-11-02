@@ -139,7 +139,13 @@ export const NOTEBOOK_MEASURE = "680px";
 
 /* The hairline the Register and Instrument classes rule
    with: the full ink at low alpha, no palette line. */
-const REGISTER_LINE = "rgba(243,243,241,0.14)";
+export const REGISTER_LINE = "rgba(243,243,241,0.14)";
+
+/* The strong hairline: the same ink at section rule strength.
+   Added at the Waves 0 to 2 merge (2026-11-02) so the Wave 2
+   ledger components consume the token instead of carrying the
+   literal the register gate forbids outside this file. */
+export const REGISTER_LINE_STRONG = "rgba(243,243,241,0.28)";
 
 export const SURFACE_CLASSES = {
   door: "Register",
