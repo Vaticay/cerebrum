@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { buildSearchRecord, buildCoverage, buildCachedServeTrust, mintSearchRecordId, storeSearchRecord, applyRecordStoreOutcome, buildCanonicalCounts, buildCoverageNote, deriveFactCheckStageOutcome, factCheckTraceAllFailed } = await import(join(root, "functions/api/search.js"));
+const { buildSearchRecord, buildCoverage, buildCachedServeTrust, mintSearchRecordId, storeSearchRecord, applyRecordStoreOutcome, buildCanonicalCounts, buildCoverageNote, deriveFactCheckStageOutcome, factCheckTraceAllFailed, databaseFailureState } = await import(join(root, "functions/api/search.js"));
 const recordRoute = await import(join(root, "functions/record/[id].js"));
 const searchSrc = readFileSync(join(root, "functions/api/search.js"), "utf8");
 const appSrc = readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8");
@@ -1771,6 +1771,64 @@ await test("D6: an all failed trace gives tiers-failed, and a landed nothing to 
     "the fact check card does not let a trace proven failure outrank the empty state");
   assert.match(appSrc, /factCheckTraceAllFailed\(t\._record\.factCheckTrace\)/,
     "the fact check card does not read the trace from the record");
+});
+
+await test("D8 correct fix F8: mixed rung states and budget stops label honestly on every surface", () => {
+  const mixed = { source: "crossref", ok: false, count: 0, attempts: 2, notSearched: 1, error: "HTTP 500" };
+  assert.equal(databaseFailureState(mixed), "did-not-respond", "a source attempted on one rung and skipped on another is a non response, not never searched");
+  const budgetMixed = { source: "CORE", ok: false, count: 0, attempts: 1, notSearched: 2, budgetStopped: true };
+  assert.equal(databaseFailureState(budgetMixed), "budget-stopped", "a budget stop outranks both attempts and skips");
+  assert.equal(databaseFailureState({ source: "pmc", ok: false, count: 0, notSearched: 2 }), "not-searched");
+  assert.equal(databaseFailureState({ source: "x", ok: false, count: 0, error: "HTTP 429" }), "did-not-respond");
+  const note = buildCoverageNote([mixed, budgetMixed,
+    { source: "europePMC", ok: true, count: 5 }]);
+  assert.ok(note.includes("1 of 3 databases didn't respond (crossref)"), "note groups the mixed rung source wrong: " + note);
+  assert.ok(note.includes("1 of 3 databases stopped on the retrieval budget (CORE)"), "note groups the budget stop wrong: " + note);
+  const rec = buildSearchRecord({
+    ...FEVER_INPUT,
+    databases: [mixed, budgetMixed],
+  });
+  const cross = rec.databases.find((d) => d.source === "crossref");
+  assert.equal(cross.attempts, 2, "the record drops the attempts count");
+  const core = rec.databases.find((d) => d.source === "CORE");
+  assert.equal(core.budgetStopped, true, "the record drops the budgetStopped flag");
+  const stateRec = { ...ROUTE_RECORD, databases: rec.databases, counts: FEVER_COUNTS };
+  return routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(stateRec) }) })
+    .then((res) => res.text())
+    .then((html) => {
+      assert.ok(html.includes("crossref: did not respond"), "page mislabels the mixed rung source");
+      assert.ok(html.includes("CORE: stopped on the retrieval budget"), "page mislabels the budget stopped source");
+    });
+});
+
+await test("D9 correct fix F9: non attempts never read as tier failures, and cache serves keep the stored outcome", () => {
+  assert.equal(factCheckTraceAllFailed([{ tier: "stage", outcome: "off" }]), false, "a stage off sentinel is not a tier failure");
+  assert.equal(factCheckTraceAllFailed([{ tier: "stage", outcome: "no-time" }]), false);
+  assert.equal(factCheckTraceAllFailed([{ tier: "stage", outcome: "budget" }]), false);
+  assert.equal(factCheckTraceAllFailed([
+    { tier: "gemini", outcome: "no-key" }, { tier: "workers-ai", outcome: "no-binding" },
+    { tier: "openrouter", outcome: "excluded" },
+  ]), false, "nothing attempted is not everything failed");
+  assert.equal(factCheckTraceAllFailed([
+    { tier: "gemini", outcome: "no-key" }, { tier: "openrouter", outcome: "timeout" },
+  ]), false, "one real failure beside non attempts is not every tier failed");
+  assert.equal(factCheckTraceAllFailed([
+    { tier: "gemini", outcome: "timeout" }, { tier: "openrouter", outcome: "http-429" },
+  ]), true, "real failures on every attempted tier still prove tiers failed");
+  const offOutcome = deriveFactCheckStageOutcome({
+    settingOff: true, attempted: false, ranCheck: false, countable: 0,
+    tiersAllFailed: factCheckTraceAllFailed([{ tier: "stage", outcome: "off" }]),
+  });
+  assert.equal(offOutcome, "off");
+  const trust = buildCachedServeTrust({
+    answer: "A stored answer with enough length to stand as a cached serve body for the trust builder.",
+    sources: [{ title: "Paper one", authors: "A", journal: "J", year: 2024, abstract: "x" }],
+    question: "q",
+    factCheck: { overall: "traced", claims: [{ claim: "c", status: "supported" }], stageOutcome: "ran-with-verdicts" },
+  });
+  assert.equal(trust.record.factCheckStageOutcome, "ran-with-verdicts",
+    "a cache serve record loses the stored fact check outcome");
+  assert.match(appSrc, /FACT_CHECK_NON_FAILURE_OUTCOMES/, "the client trace helper does not share the non failure set");
 });
 
 await test("D7: the panel and the Markdown carry the full readable contract", () => {

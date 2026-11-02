@@ -20973,10 +20973,15 @@ export const FACT_CHECK_STAGE_OUTCOMES = [
  * outcomes that mean a tier actually completed a check ("ok" or
  * "nothing-to-verify"). A trace proves every tier failed when it
  * exists, is non empty, and every entry is a failure outcome. */
+const FACT_CHECK_NON_FAILURE_OUTCOMES = new Set([
+  "ok", "nothing-to-verify",
+  "off", "no-time", "budget", "budget-spent",
+  "excluded", "no-key", "no-binding",
+]);
 export function factCheckTraceEntryFailed(entry) {
   if (!entry || typeof entry !== "object") return false;
   const outcome = String(entry.outcome || "");
-  return outcome !== "" && outcome !== "ok" && outcome !== "nothing-to-verify";
+  return outcome !== "" && !FACT_CHECK_NON_FAILURE_OUTCOMES.has(outcome);
 }
 
 export function factCheckTraceAllFailed(trace) {
@@ -22489,11 +22494,13 @@ export async function logConfidenceTelemetry(env, entry, ledger = null) {
  * split into not searched versus did not respond. */
 export function databaseFailureState(entry) {
   if (!entry || typeof entry !== "object" || entry.ok) return null;
-  const notSearched = Number(entry.notSearched);
-  if (Number.isFinite(notSearched) && notSearched > 0) return "not-searched";
   if (entry.budgetStopped === true) return "budget-stopped";
   const error = typeof entry.error === "string" ? entry.error : "";
   if (/subrequest|budget/i.test(error)) return "budget-stopped";
+  const attempts = Number(entry.attempts);
+  if (Number.isFinite(attempts) && attempts > 0) return "did-not-respond";
+  const notSearched = Number(entry.notSearched);
+  if (Number.isFinite(notSearched) && notSearched > 0) return "not-searched";
   return "did-not-respond";
 }
 
@@ -22621,6 +22628,9 @@ function recordDatabasesOf(raw) {
     // byte identical.
     const notSearched = Number(o.notSearched);
     if (Number.isFinite(notSearched) && notSearched > 0) entry.notSearched = Math.floor(notSearched);
+    const attempts = Number(o.attempts);
+    if (Number.isFinite(attempts) && attempts > 0) entry.attempts = Math.floor(attempts);
+    if (o.budgetStopped === true) entry.budgetStopped = true;
     // Yield and corpus (2026-10-23, logic audit L2-1): the count
     // is named for what it counts, the papers this slot
     // contributed across the run's attempts, and the corpus
@@ -24156,6 +24166,8 @@ export function buildCachedServeTrust(input) {
     // the row this serve came from was written at this depth.
     answerLength: input && input.answerLength,
     cachedServe: true,
+    factCheckStageOutcome: correctedFactCheck && typeof correctedFactCheck.stageOutcome === "string"
+      ? correctedFactCheck.stageOutcome : null,
   });
   // correctedFactCheck was computed at the top of this builder
   // (see the parity note there): the corrected object is what
@@ -32996,6 +33008,8 @@ async function runSearchPipeline(pctx) {
             // the run left this source unsearched, so the public
             // record can tell "never asked" from "answered zero".
             ...(o.notSearched > 0 ? { notSearched: o.notSearched } : {}),
+            ...(o.attempts > 0 ? { attempts: o.attempts } : {}),
+            ...(o.budgetStopped === true ? { budgetStopped: true } : {}),
             // Wave 1B (lane 2 D3): a boolean only, never the
             // fetcher's error text, so the coverage note and the
             // diagnostics row can name a budget stopped source
@@ -39681,6 +39695,37 @@ async function runSearchPipeline(pctx) {
      * disease" is nearly as revealing as the question and would be served to
      * the next person who asked something similar. The payload's trust
      * block travels under the same gate for the same reason. */
+    // CORRECT FIX F9 (2026-11-02): the fact check outcome is settled
+    // HERE, after the last serve rule that can replace the check
+    // object (the zero support degrade and the subject serve both
+    // rebuild it without an outcome), and before the cache write,
+    // the response, and the record consume it. A surviving object
+    // keeps its own outcome; a rebuilt object gets one derived from
+    // the same inputs the stage record used; no object at all still
+    // yields the honest enum (off, budget-spent, no-time,
+    // tiers-failed) instead of null, so the stored record can say
+    // why no check verdict stands.
+    let finalFactCheckStageOutcome = null;
+    if (factCheckResult && typeof factCheckResult.stageOutcome === "string" && factCheckResult.stageOutcome) {
+      finalFactCheckStageOutcome = factCheckResult.stageOutcome;
+    } else {
+      const fcFinalCountable = factCheckResult ? (factCheckCounts(factCheckResult) || { checked: 0 }).checked : 0;
+      const fcFinalRan = factCheckResult
+        ? (!!(Array.isArray(factCheckResult.claims) && factCheckResult.claims.length > 0)
+          || factCheckTrace.some((t) => t && (t.outcome === "ok" || t.outcome === "nothing-to-verify")))
+        : false;
+      finalFactCheckStageOutcome = deriveFactCheckStageOutcome({
+        settingOff: !settings.factCheck,
+        budgetSkipped: factCheckBudgetSkipped,
+        attempted: factCheckAttempted || (factCheckResult ? factCheckActuallyChecked(factCheckResult) : false),
+        ranCheck: fcFinalRan,
+        countable: fcFinalCountable,
+        tiersAllFailed: factCheckTraceAllFailed(factCheckTrace),
+      });
+      if (factCheckResult) {
+        try { factCheckResult = { ...factCheckResult, stageOutcome: finalFactCheckStageOutcome }; } catch { /* the outcome must never break the serve */ }
+      }
+    }
     if (env.DB && aiOK && cacheKey && privacy.cacheable && sourceList.length > 0 && answer.length > 50 && ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
       // v37: this was a plain `await` — meaning every single non-cached
       // response paid for a full D1 round-trip AFTER the answer was already
@@ -40230,8 +40275,7 @@ async function runSearchPipeline(pctx) {
       // Wave 1B (lane 2 D6): the fact check stage outcome the
       // response ships on its fact check object, stored in the
       // record so the answer's wording is auditable afterwards.
-      factCheckStageOutcome: factCheckResult && typeof factCheckResult.stageOutcome === "string"
-        ? factCheckResult.stageOutcome : null,
+      factCheckStageOutcome: finalFactCheckStageOutcome,
       synthesisModel: synthWinner ? String(synthWinner.model) : null,
       // The depth this answer was produced at (v31), so the record
       // can be checked against the reader's setting.

@@ -236,8 +236,9 @@ function recordPage(record, url) {
       // by that budget; neither is a source that did not respond.
       const state = entry.ok
         ? esc(entry.count) + " paper" + (entry.count === 1 ? "" : "s") + " returned"
+        : (entry.budgetStopped === true || (typeof entry.error === "string" && /subrequest|budget/i.test(entry.error))) ? "stopped on the retrieval budget"
+        : Number(entry.attempts) > 0 ? "did not respond"
         : Number(entry.notSearched) > 0 ? "not searched"
-        : (typeof entry.error === "string" && /subrequest|budget/i.test(entry.error)) ? "stopped on the retrieval budget"
         : "did not respond";
       return "<li>" + esc(entry.source || "") + ": " + state + "</li>";
     });
