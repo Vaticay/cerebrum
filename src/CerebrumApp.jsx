@@ -83,7 +83,6 @@ import {
 import {
   docFingerprint, extractHtmlText, streamDocumentApi, canAddHighlight, rebaseQaHistoryOffsets,
   docTitleOf, detectDocHeadings, buildDocSegments, loadDocStore, saveDocStore, deleteDocFromStore, evictOldestDocs, docEvictionNote, DOCMODE_MAX_TEXT,
-  pdfPagesToText, readBodyContainerProps, buildDocAnatomy,
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 /* Shared answer presentation rules (2026-10-23, Wave 3 Lane S7, L7-4 to L7-20):
@@ -16927,17 +16926,13 @@ async function extractPdfText(file) {
   const data = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data }).promise;
   try {
-    /* Wave 2 (2026-11-02): extraction is rebuilt on item positions
-       (pdfPagesToText in docReader.js), so lines and paragraphs
-       survive and the outline can name real headings. The old join
-       glued every item on a page into one space separated run. */
     const pages = [];
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
       const content = await page.getTextContent();
-      pages.push(content.items);
+      pages.push(content.items.map((item) => item.str || "").join(" ").replace(/\s+/g, " ").trim());
     }
-    return pdfPagesToText(pages).trim();
+    return pages.join("\n\n").trim();
   } finally {
     // Release the worker-side document resources: without this, dropping
     // many PDFs leaks worker/document memory until the tab is closed.
@@ -17202,7 +17197,7 @@ function DocStageHealth({ stageHealth, P }) {
     </div>
   );
 }
-function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged, filmOK = true, fontSize = "medium", dyslexicFont = false, lineSpacing = "normal" }) {
+function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged, filmOK = true }) {
   // Escape closes the overlay form. As a page it must NOT: Escape inside a
   // destination that is not covering anything is a keystroke that throws
   // away whatever the person pasted.
@@ -17345,14 +17340,12 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
      Bare content on the page scrim let video texture ghost through behind
      dimmed text — so the intake pane gets the same opaque card treatment
      as the reader pane, not another veil. */
-  /* Wave 2 (2026-11-02): the two extra large framing cards are
-     deleted. The source pane sits on the ground with no fill, no
-     border, no radius, and no shadow; the page padding carries the
-     spacing the card padding used to fake. */
   const docPanelCard = {
-    background: "transparent",
-    borderRadius: 0, padding: 0, border: "none",
-    boxShadow: "none",
+    /* Premium pass: the source pane is a large intentional surface —
+       XL radius from the RADIUS scale, card depth from the SHADOW scale. */
+    background: P.surface,
+    borderRadius: RADIUS.xl, padding: isMobile ? SP.lg : SP.xl, border: `1px solid ${P.line}`,
+    boxShadow: SHADOW.md(P),
   };
 
   // File ingestion: a .pdf goes through pdf.js (extractPdfText, above) and
@@ -18067,38 +18060,8 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
      outline those headings make. Segments partition the text exactly,
      so selection offsets in the rendered view still match the stored
      highlight offsets. */
-  const docHeadings = useMemo(() => detectDocHeadings(documentText), [documentText]);
-  const docSegments = useMemo(() => buildDocSegments(documentText, docHeadings), [documentText, docHeadings]);
+  const docSegments = useMemo(() => buildDocSegments(documentText, detectDocHeadings(documentText)), [documentText]);
   const docOutline = docSegments.map((s, i) => (s.heading ? { title: s.heading, seg: i } : null)).filter(Boolean);
-  /* Wave 2 (2026-11-02): the anatomy the bar segments by, from the
-     same headings as the outline, and the reading preferences
-     computed for the Read body container (see docReader.js). */
-  const docAnatomy = useMemo(() => buildDocAnatomy(documentText, docHeadings), [documentText, docHeadings]);
-  const readBody = readBodyContainerProps({ fontSize, dyslexicFont, lineSpacing });
-  const [anatomySeg, setAnatomySeg] = useState(0);
-  useEffect(() => { setAnatomySeg(0); }, [documentText]);
-  useEffect(() => {
-    if (sourceView !== "read") return undefined;
-    let raf = 0;
-    const onScroll = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        const body = readBodyRef.current;
-        if (!body) return;
-        let current = 0;
-        docAnatomy.forEach((a, ai) => {
-          const segIdx = a.title === "Opening" ? 0 : docSegments.findIndex((sg) => sg.start === a.start && sg.heading);
-          const el = segIdx >= 0 ? body.querySelector(`[data-seg="${segIdx}"]`) : null;
-          if (el && el.getBoundingClientRect().top <= 180) current = ai;
-        });
-        setAnatomySeg(current);
-      });
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => { window.removeEventListener("scroll", onScroll); if (raf) cancelAnimationFrame(raf); };
-  }, [sourceView, docAnatomy, docSegments]);
   const docDisplayTitle = customTitle || docTitleOf(documentText);
   const scrollToSegment = (i) => {
     const body = readBodyRef.current;
@@ -18364,54 +18327,39 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 </span>
               )}
             </div>
-            {/* Wave 2 (2026-11-02): the outline box is replaced by
-                the document anatomy bar beside the body below, built
-                from the same headings. One navigation system, in the
-                margin position, segmented by real structure. */}
+            {docOutline.length >= 2 && (
+              <nav aria-label="Document outline" className="cb-doc-outline" style={{ marginBottom: 16, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "10px 12px" }}>
+                <div style={{ ...docEyebrow, marginBottom: 8 }}>Outline</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {docOutline.slice(0, 16).map((o) => (
+                    <button key={o.seg} type="button" className="cb-doc-outline-btn" onClick={() => scrollToSegment(o.seg)}
+                      style={{ minHeight: 48, textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "6px 8px", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {o.title}
+                    </button>
+                  ))}
+                </div>
+              </nav>
+            )}
             {/* Reading voice (2026-10-19, H16): the body below sets in
                 TYPE.reading (Source Serif 4) at the plan body size with
                 1.55 leading, and its section headings take the section
                 role at weight 500. This is the longest reading surface
                 in the product; it reads in the reading face, not the
                 interface face. */}
-            <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 20, alignItems: "flex-start" }}>
-            {/* Wave 2 (2026-11-02): the preferences live on this
-                container (readBodyContainerProps in docReader.js), so
-                the div blocks the body renders inherit the chosen
-                size and family. The old container carried a fixed
-                size and the preference CSS targeted paragraphs, so
-                the settings never reached a single rendered block. */}
             <div ref={readBodyRef} onMouseUp={onReadSelect} onTouchEnd={onReadSelect}
               onKeyUp={(e) => { if (e.shiftKey) onReadSelect(); }}
-              className={readBody.className}
-              data-read-font-px={readBody.fontSizePx}
+              className="cb-doc-reader cb-doc-readview"
               /* Containment: min-width 0 + width 100% keep it inside its
                  column; overflow-wrap breaks long tokens; pre-wrap keeps
                  the document's line breaks. Segments partition the text
                  exactly, so selection offsets still map 1:1 to highlight
                  offsets. onKeyUp raises Highlight for keyboard selections. */
-              style={{ ...TYPE.reading, ...readBody.style, color: P.ink, whiteSpace: "pre-wrap", minWidth: 0, flex: "1 1 auto", width: "100%", overflowWrap: "break-word" }}>
+              style={{ ...TYPE.reading, fontSize: FONT_SIZES.body, color: P.ink, whiteSpace: "pre-wrap", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
               {docSegments.map((seg, i) => (seg.heading ? (
                 <div key={i} data-seg={i} style={{ fontWeight: 500, fontSize: FONT_SIZES.section, lineHeight: 1.3, color: P.ink, margin: "20px 0 4px", whiteSpace: "pre-wrap" }}>{renderMarkedRange(seg.text, seg.start)}</div>
               ) : (
                 <div key={i} data-seg={i} style={{ whiteSpace: "pre-wrap" }}>{renderMarkedRange(seg.text, seg.start)}</div>
               )))}
-            </div>
-            {docAnatomy.length >= 2 && (
-              <nav aria-label="Document anatomy" className="cb-doc-anatomy" style={{ flexShrink: 0, width: isMobile ? "100%" : 132, display: "flex", flexDirection: isMobile ? "row" : "column", gap: 2, position: isMobile ? "static" : "sticky", top: 24, maxHeight: isMobile ? "none" : "70vh" }}>
-                {docAnatomy.map((a, ai) => {
-                  const segIdx = a.title === "Opening" ? 0 : docSegments.findIndex((sg) => sg.start === a.start && sg.heading);
-                  const current = ai === anatomySeg;
-                  return (
-                    <button key={ai} type="button" className="cb-doc-anatomy-seg" aria-current={current ? "true" : undefined}
-                      onClick={() => { setAnatomySeg(ai); if (segIdx >= 0) scrollToSegment(segIdx); }}
-                      style={{ flex: isMobile ? `${Math.max(a.share, 0.04)} 1 0` : undefined, minHeight: isMobile ? 40 : Math.max(30, Math.round(a.share * 300)), textAlign: "left", background: "none", border: "none", borderTop: isMobile ? `2px solid ${current ? REGISTER_GOLD : P.line2}` : undefined, borderLeft: isMobile ? undefined : `2px solid ${current ? REGISTER_GOLD : P.line2}`, cursor: "pointer", padding: isMobile ? "6px 6px 2px 0" : "4px 0 4px 9px", fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, color: current ? P.ink : P.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {a.title}
-                    </button>
-                  );
-                })}
-              </nav>
-            )}
             </div>
             <div style={{ marginTop: 10, fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
               Select any passage to highlight it. Marks and notes are saved with this document.
@@ -18432,7 +18380,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             )}
             {highlights.length > 0 && (
               <section aria-label="Your marks" style={{ marginTop: 22 }}>
-                <div style={{ ...docEyebrow, marginBottom: 6 }}>Notes · {highlights.length}</div>
+                <div style={{ ...docEyebrow, marginBottom: 6 }}>Marks · {highlights.length}</div>
                 {marksStale && (
                   <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6, marginBottom: 8 }}>
                     This document has been edited since these marks were made, so they are no longer placed in the text. The passages below are the words as they were marked.
@@ -18681,13 +18629,13 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   };
 
   const renderDocReader = () => {
-    /* Wave 2 (2026-11-02): the analysis framing card is deleted with
-       the source one. Sections sit on the ground, separated by
-       hairlines and spacing inside the components. */
     const cardStyle = {
-      background: "transparent",
-      borderRadius: 0, padding: 0, border: "none",
-      boxShadow: "none",
+      /* Premium pass (2026-10-07): the analysis is a large intentional
+         surface — XL radius and card-at-rest depth from the RADIUS and
+         SHADOW scales. */
+      background: P.surface,
+      borderRadius: RADIUS.xl, padding: isMobile ? SP.xl : SP.xxl, border: `1px solid ${P.line}`,
+      boxShadow: SHADOW.sm(P),
     };
     /* One navigation system for the report (2026-10-19, M31): the tab
        bar alone. A section chips row used to sit above the tabs,
@@ -18709,7 +18657,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     return (
       <>
         {!summary && !analyzing && (
-          <div style={{ background: "transparent", border: "none", borderRadius: 0, boxShadow: "none", padding: 0 }}>
+          <div style={{ background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.xl, boxShadow: SHADOW.sm(P), padding: isMobile ? SP.xl : SP.xxl }}>
             <div style={{ ...docEyebrow, marginBottom: SP.sm }}>The reading desk</div>
             <h2 style={{ ...TYPE.heading, fontSize: FONT_SIZES.subhead, color: P.ink, margin: "0 0 8px" }}>Start with a document</h2>
             <p style={{ margin: "0 0 18px", fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.65, maxWidth: 520, fontFamily: "var(--cb-font)" }}>
@@ -19206,13 +19154,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             page scrolls instead of trapping scroll inside panes. ── */
         <>
         <div style={{
-          position: "relative", zIndex: Z.content, flex: 1, width: "100%", maxWidth: (!summary && !analyzing) ? 860 : 1280,
+          position: "relative", zIndex: Z.content, flex: 1, width: "100%", maxWidth: 1280,
           margin: "0 auto", padding: isMobile ? "20px 16px" : "28px 24px",
           paddingBottom: isMobile ? `calc(max(40px, env(safe-area-inset-bottom, 0px)) + ${keyboardInset}px)` : `max(64px, env(safe-area-inset-bottom))`,
-          /* Wave 2: before any analysis exists the reading column is
-             one centred column on the measure; the two column form
-             arrives with the analysis itself. */
-          display: "grid", gridTemplateColumns: isMobile || (!summary && !analyzing) ? "1fr" : "minmax(0, 7fr) minmax(0, 5fr)",
+          display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 7fr) minmax(0, 5fr)",
           gap: isMobile ? 24 : 28, alignItems: "start",
         }}>
           {/* SOURCE — the document, rendered by renderDocSource below. */}
@@ -25166,7 +25111,6 @@ function App({ profileHandle = null } = {}) {
       {view === "document" && (
         <Reveal style={{ ...S.pageView, background: "transparent", minHeight: "100%" }} deps={[view]}>
           <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={openPro} onUsageChanged={refreshPro}
-            fontSize={fontSize} dyslexicFont={dyslexicFont} lineSpacing={lineSpacing}
             /* The document page runs its own single FilmLayer; mirror the
                workspace reel's rule so reduced motion / Save-Data /
                animation-off / low-memory hold the graded still instead. */

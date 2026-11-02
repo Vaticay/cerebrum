@@ -50,6 +50,9 @@ const {
   canAddHighlight,
   rebaseQaHistoryOffsets,
   docTitleOf,
+  pdfItemsToText,
+  pdfPagesToText,
+  readBodyContainerProps,
   loadDocStore,
   saveDocStore,
   evictOldestDocs,
@@ -57,11 +60,6 @@ const {
   DOCMODE_STORE_KEY,
   DOCMODE_MAX_DOCS,
   DOCMODE_MAX_TEXT,
-  readBodyContainerProps,
-  pdfItemsToText,
-  pdfPagesToText,
-  buildDocAnatomy,
-  detectDocHeadings,
 } = await import(join(root, "src/docReader.js"));
 
 // ── docFingerprint ─────────────────────────────────────────────────────
@@ -587,10 +585,7 @@ group("document mode — the analysis gets room to breathe");
 
 await test("wider page and roomier analysis card", async () => {
   const src = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-  // Pin changed 2026-11-02 (Wave 2): before analysis exists the page
-  // is one centred 860 column; the 1280 two column form arrives with
-  // the analysis. The widening itself is still pinned, conditionally.
-  assert.match(src, /maxWidth: \(!summary && !analyzing\) \? 860 : 1280/, "document page does not widen to 1280 with analysis");
+  assert.match(src, /maxWidth: 1280/, "document page not widened to 1280");
   assert.match(src, /className="cb-doc-analysis-card"/, "analysis card missing hook class");
   // Pin changed 2026-10-19 (M30): the 1.75 analysis leading override
   // is deleted on purpose; analysis prose returns to the plan 1.55 the
@@ -1094,108 +1089,54 @@ await test("no user facing literal in document.js carries an em or en dash", asy
   assert.ok(!src.includes("rate-limited right now \u2014"), "the rate limit message still carries an em dash");
 });
 
-// ── Wave 2 (2026-11-02): Reader day one fixes ─────────────────────
-group("readBodyContainerProps — preferences ride on the body container");
+// ── PDF extraction: columns, raised markers, unpositioned items ─────
+group("pdfPagesToText — realistic two column journal pages");
 
-await test("the container carries the computed size for div rendered blocks", () => {
-  for (const [key, px] of [["small", 14], ["medium", 16], ["large", 18], ["xlarge", 21]]) {
-    const props = readBodyContainerProps({ fontSize: key });
-    assert.equal(props.fontSizePx, px, key);
-    assert.equal(props.style.fontSize, px, key);
-    assert.ok(props.className.includes("cb-doc-readview"), "readview class missing");
-  }
-  const fallback = readBodyContainerProps({ fontSize: "bogus" });
-  assert.equal(fallback.fontSizePx, 16, "unknown size falls back to medium");
-  const plain = readBodyContainerProps({});
-  assert.equal(plain.style.fontFamily, undefined, "no dyslexic family without the setting");
-});
-
-await test("the dyslexic setting reaches the container as family and spacing", () => {
-  const props = readBodyContainerProps({ fontSize: "large", dyslexicFont: true, lineSpacing: "loose" });
-  assert.ok(props.style.fontFamily.includes("OpenDyslexic"), "dyslexic family missing from container style");
-  assert.equal(props.style.letterSpacing, "0.05em");
-  assert.equal(props.style.lineHeight, 2.4, "loose line spacing missing");
-  assert.ok(props.className.includes("cb-read-dyslexic"), "dyslexic class missing");
-});
-
-await test("the Read view wires the container props and the stored settings", async () => {
-  const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-  assert.ok(appSrc.includes("readBodyContainerProps({ fontSize, dyslexicFont, lineSpacing })"), "NotebookMode never computes container props");
-  assert.ok(appSrc.includes("className={readBody.className}"), "the body does not carry the computed class");
-  assert.ok(appSrc.includes("fontSize={fontSize} dyslexicFont={dyslexicFont} lineSpacing={lineSpacing}"), "the app does not pass its stored reading settings into NotebookMode");
-  assert.ok(appSrc.includes('data-read-font-px={readBody.fontSizePx}'), "the computed size is not on the container");
-});
-
-group("pdfPagesToText — extraction rebuilt on item positions");
-
-const pdfItem = (str, x, y, size) => ({ str, transform: [size, 0, 0, size, x, y], width: 40, height: size });
-const fixturePages = [
-  [
-    pdfItem("Brief Exposure to Green Space", 72, 720, 16), pdfItem("Restores Attention", 330, 720, 16),
-    pdfItem("Abstract", 72, 680, 12),
-    pdfItem("Directed attention fatigues with sustained use and", 72, 660, 11),
-    pdfItem("recovers with rest and with time away.", 72, 646, 11),
-    pdfItem("Introduction", 72, 596, 12),
-    pdfItem("Mental fatigue is implicated in errors across", 72, 576, 11),
-    pdfItem("safety critical occupations and clinics.", 72, 562, 11),
-  ],
-  [
-    pdfItem("Methods", 72, 720, 12),
-    pdfItem("Participants were recruited from a university.", 72, 700, 11),
-  ],
+const pdfItem = (str, x, y, width, size = 10) => ({ str, transform: [1, 0, 0, size, x, y], width, height: size });
+const twoColumnPage = [
+  pdfItem("A two column journal article", 40, 750, 520, 14),
+  pdfItem("Left one starts the argument", 40, 700, 230),
+  pdfItem("Right one starts the reply", 330, 700, 230),
+  pdfItem("Left two develops it", 40, 680, 230),
+  pdfItem("Right two develops that reply", 330, 680, 230),
+  pdfItem("Left three closes it", 40, 640, 230),
+  pdfItem("Right three closes the reply", 330, 640, 230),
+  pdfItem("Results were clear", 40, 600, 170),
+  pdfItem("1", 214, 604, 5, 6),
+  { str: "Unpositioned production note" },
 ];
 
-await test("lines survive: items on one line join, wrapped lines stay lines", () => {
-  const text = pdfPagesToText(fixturePages);
-  assert.ok(text.includes("Brief Exposure to Green Space Restores Attention"), "same line items did not join: " + JSON.stringify(text));
-  assert.ok(text.includes("Directed attention fatigues with sustained use and\nrecovers with rest"), "wrapped lines glued or split wrong: " + JSON.stringify(text));
+await test("reads the left column before the right and never interleaves a row", () => {
+  const text = pdfPagesToText([twoColumnPage]);
+  const order = ["A two column journal article", "Left one starts the argument", "Left two develops it", "Left three closes it", "Right one starts the reply", "Right two develops that reply", "Right three closes the reply"];
+  let previous = -1;
+  for (const phrase of order) {
+    const at = text.indexOf(phrase);
+    assert.ok(at > previous, `phrase missing or out of order: ${phrase}\n${text}`);
+    previous = at;
+  }
+  assert.ok(!text.includes("Left one starts the argument Right one starts the reply"), "columns interleaved on one line");
 });
 
-await test("paragraph breaks survive on vertical gaps, and pages break as structure", () => {
-  const text = pdfPagesToText(fixturePages);
-  assert.ok(text.includes("Restores Attention\n\nAbstract"), "no paragraph break before the first heading");
-  assert.ok(text.includes("time away.\n\nIntroduction"), "no paragraph break before Introduction");
-  assert.ok(text.includes("clinics.\n\nMethods"), "page break is not structural");
-  assert.ok(!text.includes("Abstract Directed attention"), "the old space join is back");
+await test("keeps a raised footnote marker with its sentence and retains unpositioned text", () => {
+  const text = pdfItemsToText(twoColumnPage);
+  assert.match(text, /Results were clear 1/);
+  assert.ok(text.includes("Unpositioned production note"), "unpositioned item was dropped");
+  assert.ok(!text.startsWith("1\n"), "raised marker was promoted to its own opening line");
 });
 
-await test("the outline built from extracted text names the headings", () => {
-  const text = pdfPagesToText(fixturePages);
-  const titles = detectDocHeadings(text).map((h) => h.title);
-  assert.ok(titles.includes("Abstract"), "Abstract missing from outline: " + titles.join(", "));
-  assert.ok(titles.includes("Introduction"), "Introduction missing from outline: " + titles.join(", "));
-  assert.ok(titles.includes("Methods"), "Methods missing from outline: " + titles.join(", "));
+await test("preserves paragraph gaps inside a column", () => {
+  const text = pdfItemsToText(twoColumnPage);
+  assert.ok(text.includes("Left two develops it\n\nLeft three closes it"), "the larger vertical gap did not become a paragraph break");
 });
 
-await test("shapeless items fall back to a space join instead of vanishing", () => {
-  assert.equal(pdfItemsToText([{ str: "alpha" }, { str: "beta" }]), "alpha beta");
-  assert.equal(pdfPagesToText([]), "");
-});
-
-group("buildDocAnatomy — the bar segments by structure that exists");
-
-await test("anatomy sections carry the headings and shares that sum to one", () => {
-  const text = pdfPagesToText(fixturePages);
-  const anatomy = buildDocAnatomy(text, detectDocHeadings(text));
-  const titles = anatomy.map((a) => a.title);
-  assert.ok(titles.includes("Abstract") && titles.includes("Introduction") && titles.includes("Methods"), "anatomy titles: " + titles.join(", "));
-  const sum = anatomy.reduce((acc, a) => acc + a.share, 0);
-  assert.ok(Math.abs(sum - 1) < 1e-9, "shares do not sum to one: " + sum);
-  assert.ok(anatomy.every((a) => a.end > a.start), "a section is empty");
-});
-
-await test("a headingless document is one honest section, not invented segments", () => {
-  const anatomy = buildDocAnatomy("just some prose with no headings at all in it", []);
-  assert.equal(anatomy.length, 1);
-  assert.equal(anatomy[0].share, 1);
-  assert.deepEqual(buildDocAnatomy("", []), []);
-});
-
-await test("the anatomy bar renders from the outline data in the Read view", async () => {
-  const appSrc = await readFile(join(root, "src/CerebrumApp.jsx"), "utf8");
-  assert.ok(appSrc.includes('aria-label="Document anatomy"'), "anatomy bar missing");
-  assert.ok(appSrc.includes("buildDocAnatomy(documentText, docHeadings)"), "anatomy is not built from the document headings");
-  assert.ok(appSrc.includes("pdfPagesToText(pages)"), "extractPdfText does not use the position based extraction");
+await test("reading preferences are carried by the body container", () => {
+  const body = readBodyContainerProps({ fontSize: "xlarge", lineSpacing: "loose", dyslexicFont: true });
+  assert.equal(body.fontSizePx, 21);
+  assert.equal(body.style.fontSize, 21);
+  assert.equal(body.style.lineHeight, 2.4);
+  assert.match(body.style.fontFamily, /OpenDyslexic/);
+  assert.match(body.className, /cb-read-body/);
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

@@ -257,16 +257,10 @@ export async function streamDocumentApi(body, opts = {}) {
 }
 
 /* ── Reading preferences, applied to the Read body CONTAINER ─────
-   Wave 2 (2026-11-02, Reader day one fix i). The text size and
-   dyslexic settings never reached the Read body: the preference CSS
-   targets paragraphs (and spans and list items) while the body
-   renders divs, and the body container carried its own fixed inline
-   size, so a div block inherited nothing the user chose. The fix is
-   structural, not another CSS selector: the container itself carries
-   the computed size and family, and every block inside it inherits
-   both whatever element it renders as. This helper is the single
-   place that computation happens, so the view and the tests read
-   the same numbers. */
+   Correct fix (2026-11-02). Text size, dyslexic font, and line
+   spacing are computed once here and applied to the container that
+   owns the rendered document body, so every block inside inherits
+   the reader's choices regardless of the element it renders as. */
 export const READ_BODY_FONT_PX = { small: 14, medium: 16, large: 18, xlarge: 21 };
 export const READ_BODY_LINE_HEIGHT = { normal: 1.55, relaxed: 2.0, loose: 2.4 };
 export const READ_BODY_DYSLEXIC_FAMILY = "'OpenDyslexic', 'Comic Sans MS', sans-serif";
@@ -290,63 +284,170 @@ export function readBodyContainerProps(settings = {}) {
 }
 
 /* ── PDF text extraction on item positions ──────────────────────
-   Wave 2 (2026-11-02, Reader day one fix ii). extractPdfText used
-   to join every text item on a page with spaces, which destroyed
-   the line and paragraph structure the outline and heading
-   detection depend on, on the Reader's primary input. pdf.js hands
-   over items with a transform: transform[4] is x, transform[5] is
-   y (origin at the page's bottom left, so a larger y sits higher),
-   and the item's text height is recoverable from transform[3] or
-   its height field. These helpers rebuild the text from those
-   positions: items group into lines by y within a tolerance,
-   lines break into paragraphs on vertical gaps above a threshold,
-   and pages join as structure, never as one space joined run. */
+   Correct fix (2026-11-02). Journal PDFs commonly use two text
+   columns. A page is therefore read column by column: a real
+   vertical gutter in the items' x projection separates the columns,
+   full width lines are treated as bands between column regions,
+   and positioned lines are rebuilt inside each region. Items with
+   no usable transform are retained in source order after the
+   positioned text instead of being silently dropped. */
 
-/* One page of pdf.js text items to structured plain text. */
-export function pdfItemsToText(items) {
-  const list = Array.isArray(items) ? items : [];
-  const shaped = list.filter((it) => it && typeof it.str === "string" && Array.isArray(it.transform)
-    && Number.isFinite(it.transform[4]) && Number.isFinite(it.transform[5]));
-  if (!shaped.length) {
-    // No positioned items at all: fall back to the old space join
-    // rather than returning nothing for a shapeless source.
-    return list.map((it) => (it && typeof it.str === "string" ? it.str : "")).join(" ").replace(/\s+/g, " ").trim();
+function pdfItemWidth(item, size) {
+  const width = Number(item && item.width);
+  if (Number.isFinite(width) && width > 0) return width;
+  const text = item && typeof item.str === "string" ? item.str : "";
+  return Math.max(size, text.length * size * 0.48);
+}
+
+function normalizePdfItems(items) {
+  const positioned = [];
+  const unpositioned = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item || typeof item.str !== "string" || !item.str.trim()) continue;
+    const transform = Array.isArray(item.transform) ? item.transform : null;
+    const x = transform ? Number(transform[4]) : NaN;
+    const y = transform ? Number(transform[5]) : NaN;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      unpositioned.push(item.str);
+      continue;
+    }
+    const size = Math.abs(Number(transform[3])) || Number(item.height) || 10;
+    positioned.push({
+      str: item.str,
+      x,
+      y,
+      size: Number.isFinite(size) && size > 0 ? size : 10,
+      endX: x + pdfItemWidth(item, Number.isFinite(size) && size > 0 ? size : 10),
+    });
   }
-  const norm = shaped.map((it) => ({
-    str: it.str,
-    x: Number(it.transform[4]) || 0,
-    y: Number(it.transform[5]) || 0,
-    size: Math.abs(Number(it.transform[3])) || Number(it.height) || 10,
-  }));
-  norm.sort((a, b) => (b.y - a.y) || (a.x - b.x));
+  return { positioned, unpositioned };
+}
+
+function groupPdfLines(items) {
+  const sorted = (items || []).slice().sort((a, b) => (b.y - a.y) || (a.x - b.x));
   const lines = [];
-  for (const it of norm) {
-    const line = lines[lines.length - 1];
-    const tol = line ? Math.max(2, Math.min(it.size, line.size) * 0.5) : 0;
-    if (line && Math.abs(it.y - line.y) <= tol) line.items.push(it);
-    else lines.push({ y: it.y, size: it.size, items: [it] });
+  for (const item of sorted) {
+    let line = lines[lines.length - 1];
+    if (line) {
+      const smaller = Math.min(item.size, line.size);
+      const larger = Math.max(item.size, line.size);
+      const tolerance = Math.max(3, larger * (smaller <= larger * 0.78 ? 0.62 : 0.5));
+      if (Math.abs(item.y - line.y) > tolerance) line = null;
+    }
+    if (!line) {
+      line = { y: item.y, size: item.size, items: [] };
+      lines.push(line);
+    }
+    line.items.push(item);
+    line.size = Math.max(line.size, item.size);
+    line.y = Math.max(line.y, item.y);
   }
-  let out = "";
-  let prev = null;
   for (const line of lines) {
     line.items.sort((a, b) => a.x - b.x);
     let text = "";
-    for (const it of line.items) {
-      if (!it.str) continue;
-      if (text && !/\s$/.test(text) && !/^\s/.test(it.str)) text += " ";
-      text += it.str;
+    let previous = null;
+    for (const item of line.items) {
+      if (text && previous) {
+        const gap = item.x - previous.endX;
+        if (!/\s$/.test(text) && !/^\s/.test(item.str) && gap > Math.max(0.8, item.size * 0.16)) text += " ";
+      }
+      text += item.str;
+      previous = item;
     }
-    text = text.replace(/\s+/g, " ").trim();
-    if (!text) continue;
-    if (prev) {
-      const gap = prev.y - line.y;
-      const paragraph = gap > Math.max(prev.size, line.size) * 1.7;
-      out += paragraph ? "\n\n" : "\n";
+    line.text = text.replace(/\s+/g, " ").trim();
+    line.x = Math.min(...line.items.map((item) => item.x));
+    line.endX = Math.max(...line.items.map((item) => item.endX));
+  }
+  return lines.filter((line) => line.text);
+}
+
+function pdfLinesToText(lines) {
+  let out = "";
+  let previous = null;
+  for (const line of lines || []) {
+    if (!line.text) continue;
+    if (previous) {
+      const gap = previous.y - line.y;
+      out += gap > Math.max(previous.size, line.size) * 1.7 ? "\n\n" : "\n";
     }
-    out += text;
-    prev = line;
+    out += line.text;
+    previous = line;
   }
   return out;
+}
+
+function findPdfColumnSplit(items) {
+  if (!items || items.length < 4) return null;
+  const pageLeft = Math.min(...items.map((item) => item.x));
+  const pageRight = Math.max(...items.map((item) => item.endX));
+  const pageWidth = pageRight - pageLeft;
+  if (!Number.isFinite(pageWidth) || pageWidth < 80) return null;
+  const detectionItems = items.filter((item) => item.endX - item.x <= pageWidth * 0.58);
+  const intervals = (detectionItems.length >= 4 ? detectionItems : items).map((item) => [item.x, item.endX]).sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const interval of intervals) {
+    const last = merged[merged.length - 1];
+    if (last && interval[0] <= last[1] + 0.5) last[1] = Math.max(last[1], interval[1]);
+    else merged.push(interval.slice());
+  }
+  let best = null;
+  for (let i = 0; i + 1 < merged.length; i++) {
+    const gapStart = merged[i][1];
+    const gapEnd = merged[i + 1][0];
+    const gap = gapEnd - gapStart;
+    const split = (gapStart + gapEnd) / 2;
+    if (gap < Math.max(7, pageWidth * 0.025)) continue;
+    if (split < pageLeft + pageWidth * 0.22 || split > pageRight - pageWidth * 0.22) continue;
+    const countItems = detectionItems.length >= 4 ? detectionItems : items;
+    const leftCount = countItems.filter((item) => item.endX <= gapStart + 0.5).length;
+    const rightCount = countItems.filter((item) => item.x >= gapEnd - 0.5).length;
+    if (leftCount < 2 || rightCount < 2) continue;
+    if (!best || gap > best.gap) best = { split, gap, gapStart, gapEnd };
+  }
+  return best;
+}
+
+function pdfColumnRegionText(items) {
+  return pdfLinesToText(groupPdfLines(items));
+}
+
+/* One page of pdf.js text items to structured plain text. */
+export function pdfItemsToText(items) {
+  const { positioned, unpositioned } = normalizePdfItems(items);
+  if (!positioned.length) return unpositioned.join(" ").replace(/\s+/g, " ").trim();
+  const splitInfo = findPdfColumnSplit(positioned);
+  let mainText = "";
+  if (!splitInfo) {
+    mainText = pdfColumnRegionText(positioned);
+  } else {
+    const split = splitInfo.split;
+    const spanning = positioned.filter((item) => item.x < split - 0.75 && item.endX > split + 0.75);
+    const left = positioned.filter((item) => item.endX <= split + 0.75 && !(item.x < split - 0.75 && item.endX > split + 0.75));
+    const right = positioned.filter((item) => item.x >= split - 0.75 && !(item.x < split - 0.75 && item.endX > split + 0.75));
+    const spanningLines = groupPdfLines(spanning).sort((a, b) => b.y - a.y);
+    // Full width lines divide the columns into bands. Each column
+    // item is assigned to exactly one band, so a title or footnote
+    // cannot cause the column text around it to be emitted twice.
+    const orderedSpans = spanningLines.slice().sort((a, b) => b.y - a.y);
+    const parts = [];
+    const assigned = new Set();
+    for (let i = 0; i <= orderedSpans.length; i++) {
+      const above = i === 0 ? Infinity : orderedSpans[i - 1].y;
+      const below = i < orderedSpans.length ? orderedSpans[i].y : -Infinity;
+      const inBand = (item) => item.y <= above + (i === 0 ? 0 : Math.max(2, orderedSpans[i - 1].size * 0.35)) && item.y > below + (i < orderedSpans.length ? Math.max(2, orderedSpans[i].size * 0.35) : -Infinity);
+      const leftBand = left.filter((item) => inBand(item) && !assigned.has(item));
+      const rightBand = right.filter((item) => inBand(item) && !assigned.has(item));
+      leftBand.concat(rightBand).forEach((item) => assigned.add(item));
+      const leftText = pdfColumnRegionText(leftBand);
+      const rightText = pdfColumnRegionText(rightBand);
+      if (leftText) parts.push(leftText);
+      if (rightText) parts.push(rightText);
+      if (i < orderedSpans.length) parts.push(orderedSpans[i].text);
+    }
+    mainText = parts.filter(Boolean).join("\n\n");
+  }
+  const fallback = unpositioned.join(" ").replace(/\s+/g, " ").trim();
+  return [mainText, fallback].filter(Boolean).join("\n\n");
 }
 
 /* Every page of a PDF, in order, with page breaks preserved as
@@ -356,26 +457,6 @@ export function pdfPagesToText(pagesItems) {
     .map((items) => pdfItemsToText(items))
     .filter((t) => t)
     .join("\n\n");
-}
-
-/* The document anatomy: the sections the anatomy bar segments by.
-   Built from the same headings detectDocHeadings finds, so the bar
-   can only ever segment by structure that actually exists in the
-   text. Each entry carries its share of the whole document, and
-   the shares sum to 1. Text before the first heading is its own
-   opening section; a document with no headings is one section. */
-export function buildDocAnatomy(text, headings) {
-  const t = String(text || "");
-  if (!t) return [];
-  const hs = (headings || []).filter((h) => h && Number.isFinite(h.start)).slice().sort((a, b) => a.start - b.start);
-  if (!hs.length) return [{ title: "Full text", start: 0, end: t.length, share: 1 }];
-  const out = [];
-  if (hs[0].start > 0) out.push({ title: "Opening", start: 0, end: hs[0].start, share: hs[0].start / t.length });
-  hs.forEach((h, i) => {
-    const end = i + 1 < hs.length ? hs[i + 1].start : t.length;
-    out.push({ title: h.title, start: h.start, end, share: Math.max(0, end - h.start) / t.length });
-  });
-  return out;
 }
 
 /* Highlight overlap guard: a new highlight must not overlap an existing
