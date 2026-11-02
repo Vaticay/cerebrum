@@ -354,6 +354,13 @@ function toneIndex(seed) {
   return h % TONES.length;
 }
 
+/* Wave Zero (2026-11-02): avatarSkin is a surface identity
+   skin, not chrome. The rail, the header, and the account
+   affordance must not use it: chrome carries the account
+   initial in REGISTER_GOLD on REGISTER_GROUND instead (see
+   Sidebar and AccountMenu in CerebrumApp.jsx). This helper
+   survives for the Profile and People surfaces and the
+   Inbox thread tiles, which later waves own. */
 function avatarSkin(seed) {
   const t = TONES[toneIndex(seed)];
   return {

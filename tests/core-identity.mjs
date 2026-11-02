@@ -740,8 +740,21 @@ await test("the intro's text panels follow the palette and its film credits stay
   assert.ok(!introSrc.includes("HowItWorksDialog"), "the deleted How it works dialog came back to the door");
   assert.match(appSrc, /<SourcesDialog P=\{P\} accent=\{accent\}/, "the app's Sources dialog does not receive the palette");
 });
-await test("the New Search FAB icon takes accentText(accent), a colour, not a function", () => {
-  assert.match(appSrc, /background: accent, color: accentText\(accent\),/, "the FAB span does not colour its icon with accentText(accent)");
+await test("the mobile centre tab carries no filled FAB object (Wave Zero)", () => {
+  /* Pin rewritten 2026-11-02 (Wave Zero, accent ban in chrome):
+     the filled gold centre object this test pinned the icon
+     colour of is deleted. The centre tab is a text word with a
+     2px gold rule marker, and the pin now guards the removal:
+     no cb-shell-fab class survives anywhere, and the tab bar
+     carries the gold rule instead of a filled circle. The bug
+     class the old pin guarded (a bare function assigned as a
+     colour) stays covered by the AST scan directly below. */
+  assert.ok(!appSrc.includes("cb-shell-fab"), "the filled centre tab object came back");
+  const tabbarAt = appSrc.indexOf('<nav aria-label="Primary" className="cb-shell-tabbar-in"');
+  assert.ok(tabbarAt > 0, "the mobile tab bar is missing");
+  const tabbar = appSrc.slice(tabbarAt, appSrc.indexOf('{view === "search" && (', tabbarAt));
+  assert.ok(!tabbar.includes("background: accent"), "the tab bar carries a filled accent object again");
+  assert.ok(tabbar.includes("background: REGISTER_GOLD"), "the centre tab marker is not the gold rule");
 });
 await test("no style color property anywhere in the app is assigned a bare imported function", async () => {
   // The FAB bug's class, pinned precisely: a style object's color
@@ -839,7 +852,16 @@ await test("no style color property anywhere in the app is assigned a bare impor
   await test("the Ask ink is wired: helper exists, composer sets --cb-ask-ink, the label reads it", () => {
     assert.match(appUtilsSrc, /function accentInkOn\(P, accent, ground\)/, "accentInkOn is missing from appUtils.js");
     assert.match(appUtilsSrc, /export \{[^}]*accentInk, accentInkOn,[^}]*\}/, "accentInkOn is not exported");
-    assert.match(appSrc, /"--cb-ask-ink": accentInkOn\(P, accent, mixHex\(P\.bg, accent, 0\.22\)\)/, "the composer does not set --cb-ask-ink from the hover ground");
+    /* Pin updated 2026-11-02 (Wave Zero, accent ban): the
+       composer no longer calibrates a tint of the palette
+       accent for the Ask word. The send action is a gold text
+       word, so --cb-ask-ink is the gold role itself,
+       REGISTER_GOLD, or REGISTER_GOLD_ON_LIGHT on a light
+       ground, and the arithmetic below stands as the record
+       of the defect the tinted system carried. The label read
+       is unchanged. */
+    assert.match(appSrc, /"--cb-ask-ink": askGold/, "the composer does not set --cb-ask-ink from the gold role");
+    assert.match(appSrc, /P && P\.dark === false \? REGISTER_GOLD_ON_LIGHT : REGISTER_GOLD/, "the gold role does not switch on light grounds");
     assert.match(appSrc, /color: var\(--cb-ask-ink, var\(--cb-accent-ink, var\(--cb-acc\)\)\);/, "the Ask label does not read --cb-ask-ink");
   });
   // 2026-10-14, design overhaul wave 1: ACCENTS.Amber moved from #d9a441

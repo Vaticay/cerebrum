@@ -396,8 +396,12 @@ await test("the door mounts the new atmosphere; the reel and its grade are gone"
   assert.ok(!introFn.includes("intensity={0.3}"), "the old film dim is back on the door");
   /* Ground value updated 2026-10-28 (the title card): the card's
      neutral ground is #060606, the same value the split leaves
-     and the static pre boot layer carry. */
-  assert.ok(introFn.includes('background: "#060606"'), "the door ground is not the title card's neutral black");
+     and the static pre boot layer carry.
+     Pin updated 2026-11-02 (Wave Zero): the door paints the
+     ground through REGISTER_GROUND imported from
+     registerTokens.js, with no rendered change; the token's
+     value is pinned at #060606 in tests/register-gate.mjs. */
+  assert.ok(introFn.includes("background: REGISTER_GROUND"), "the door ground is not the title card's neutral black");
   assert.ok(!introFn.includes("<DotField"), "the dot field is back on the door, fighting the atmosphere");
   assert.ok(!introFn.includes("cb-intro-haze"), "the haze fields are back on the door");
   assert.ok(!introFn.includes("cb-intro-atmosphere"), "the door's old atmosphere fields are back");
@@ -492,7 +496,10 @@ await test("no caption strip and no colour block on the card; no gradients, no s
   // colour now, only the title over the neutral ground #060606.
   // The gradient and shadow bans stand exactly as before.
   assert.ok(!introFn.includes("cb-door-strip"), "the caption strip band is back on the door");
-  assert.ok(introFn.includes('background: "#060606"'), "the card is not on its neutral ground");
+  /* Pin updated 2026-11-02 (Wave Zero): the neutral ground is
+     painted through REGISTER_GROUND; its value stays #060606,
+     pinned in tests/register-gate.mjs. */
+  assert.ok(introFn.includes("background: REGISTER_GROUND"), "the card is not on its neutral ground");
   assert.ok(!introFn.includes("background: plateBg"), "the placard ground is back");
   assert.ok(!introFn.includes("cb-door-sheen"), "the plate sheen is back");
   assert.ok(!introFn.includes("radial-gradient") && !introFn.includes("linear-gradient"), "a gradient is painted on the door");
@@ -932,7 +939,7 @@ await test("the stage is Home B: the quiet column, her bust and serif greeting, 
   assert.ok(!stage.includes("Traced claim"), "the plate footer label survives");
 });
 
-await test("the stage column carries a solid backing in every palette", () => {
+await test("the stage column is transparent over the home atmosphere in every palette", () => {
   /* 2026-10-20, readability residue wave: in the Light palette the
      stage text tones are dark and sat directly over the graded calm
      film, computing to 0.98 to 3.50 to 1 against the film patches,
@@ -954,22 +961,38 @@ await test("the stage column carries a solid backing in every palette", () => {
      the owner's pick removed from the stage. The backing half
      stands unchanged: her stage still sits on the solid ground,
      and the title card's light pool paints over it, never under
-     text. */
+     text.
+     Pin updated 2026-11-02 (Wave Zero): the panel form is
+     superseded by the surface class ruling. The home is a
+     Register surface: its column is transparent in every
+     palette, the door's own atmosphere shader mounts
+     unconditionally as the ground, and the column reads its
+     tones from resolveSurface, never from the palette. The
+     readability problem the backing solved is answered by the
+     class itself: the home no longer renders in a light
+     palette at all. The register gate holds the full contract;
+     this pin now asserts the stage shape of it. */
   const stage = appSrc.slice(
     appSrc.indexOf("The home stage: the empty search home"),
     appSrc.indexOf("<div style={{ ...S.workspace,")
   );
   assert.ok(stage.length > 1000, "stage block not found");
-  assert.ok(stage.includes("...(P.dark ? {"), "stage backing lost its dark palette branch");
-  assert.ok(!stage.includes("...(P.dark ? {} : {"), "stage backing is gated away from dark palettes again");
-  assert.ok(stage.includes("background: P.bg"), "stage column carries no solid P.bg backing");
+  assert.ok(stage.includes('background: "transparent"'), "stage column is not transparent over the atmosphere");
+  assert.ok(!stage.includes("background: P.bg"), "stage column carries the retired palette panel backing");
+  assert.ok(!stage.includes("...(P.dark ? {"), "stage backing still branches on the palette");
+  assert.ok(stage.includes("<IntroAtmosphere"), "the home atmosphere shader is not mounted");
+  assert.ok(!stage.includes("{P.dark && <IntroAtmosphere"), "the atmosphere mount is gated on the palette again");
 });
 
 await test("the stage composer rotates real specimen questions", () => {
   assert.ok(appSrc.includes("STAGE_PLACEHOLDER_QUESTIONS"), "placeholder pool missing");
   assert.ok(appSrc.includes("specimenPlaceholders"), "composer never receives the pool");
   assert.ok(appSrc.includes("cb-ask--stage"), "stage composer CSS missing");
-  assert.ok(appSrc.includes("cb-ask-go--round"), "round submit key missing");
+  /* Pin updated 2026-11-02 (Wave Zero): the round filled stage
+     submit is retired by the accent ban. The stage send is the
+     same gold text word Ask as every other surface, and the
+     pin now guards the retirement. */
+  assert.ok(!appSrc.includes("cb-ask-go--round"), "the round filled stage submit came back");
 });
 
 await test("the Continue heading can never break a sentence", () => {

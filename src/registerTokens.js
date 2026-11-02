@@ -104,6 +104,137 @@ export const REGISTER_INK = {
    that adds one is out of register by definition. */
 export const REGISTER_EDGE = { border: "none", borderRadius: 0, boxShadow: "none" };
 
+/* ── Surface classes (Wave Zero, 2026-11-02) ───────────────
+   Every view the app can render belongs to exactly one of
+   three classes, and the class, not the surface, decides
+   where its ground and ink come from:
+
+   Register: the door, the search home, sign in. Ground is
+   REGISTER_GROUND under every palette, ink is REGISTER_INK,
+   gold is text and rule only.
+   Reading: the answer, the reader, Nova's page, the profile.
+   The only class a palette may move: its ground and ink come
+   from the selected palette, through the resolver.
+   Instrument: the Library, Settings, the Inbox, Diagram
+   Studio, Usage. Ground is INSTRUMENT_GROUND, fixed.
+
+   The permanent record page is the named hybrid: public
+   Reading on a Register ground. It is not a fourth class; it
+   is Reading content whose ground resolves as Register,
+   because the record page is a standalone function that
+   cannot import this module and inlines these values. */
+
+/* The Instrument ground, an alias of the Register ground on
+   purpose: tests can tell an Instrument surface that chose
+   the fixed ground from one that took a palette ground by
+   accident, because only the resolver hands this name out. */
+export const INSTRUMENT_GROUND = REGISTER_GROUND;
+
+/* The Reading measure: sustained reading columns cap at 72
+   characters, the standing Reader rule. */
+export const READING_MEASURE = "72ch";
+
+/* The Nova notebook measure: her page column is 680px. */
+export const NOTEBOOK_MEASURE = "680px";
+
+/* The hairline the Register and Instrument classes rule
+   with: the full ink at low alpha, no palette line. */
+const REGISTER_LINE = "rgba(243,243,241,0.14)";
+
+export const SURFACE_CLASSES = {
+  door: "Register",
+  search: "Register",
+  signin: "Register",
+  answer: "Reading",
+  document: "Reading",
+  learn: "Reading",
+  profile: "Reading",
+  trending: "Reading",
+  library: "Instrument",
+  settings: "Instrument",
+  inbox: "Instrument",
+  studio: "Instrument",
+  usage: "Instrument",
+  investigations: "Instrument",
+  people: "Instrument",
+  record: "RecordHybrid",
+};
+
+const CLASS_NAMES = ["Register", "Reading", "Instrument"];
+
+/* resolveSurface(view, palette): the one path from tokens to
+   a surface. `view` is a view identifier from SURFACE_CLASSES
+   or a class name itself. `palette` is a palette object from
+   palettes.js (the fields a Reading surface may read: bg,
+   ink, ink2, faint, line, line2, dark); Register and
+   Instrument resolutions ignore it entirely, which is the
+   Option B ruling in code: palettes govern Reading only.
+   An unmapped view throws, so a new view cannot silently
+   inherit a ground nobody chose for it. */
+export function resolveSurface(view, palette = null) {
+  const cls = CLASS_NAMES.includes(view) ? view : SURFACE_CLASSES[view];
+  if (!cls) throw new Error("resolveSurface: unmapped view " + String(view));
+  const base = {
+    surface: CLASS_NAMES.includes(view) ? null : view,
+    serif: REGISTER_SERIF,
+    mono: "var(--cb-mono)",
+    edge: REGISTER_EDGE,
+  };
+  if (cls === "Register") {
+    return {
+      ...base,
+      class: "Register",
+      ground: REGISTER_GROUND,
+      ink: { ...REGISTER_INK },
+      line: REGISTER_LINE,
+      gold: REGISTER_GOLD,
+      goldRole: "text, rule, and the single send word only, never a fill",
+      measure: null,
+      hybrid: null,
+    };
+  }
+  if (cls === "Instrument") {
+    return {
+      ...base,
+      class: "Instrument",
+      ground: INSTRUMENT_GROUND,
+      ink: { ...REGISTER_INK },
+      line: REGISTER_LINE,
+      gold: REGISTER_GOLD,
+      goldRole: "selection state only, as a word, a rule, or a mark, never a fill",
+      measure: null,
+      hybrid: null,
+    };
+  }
+  if (cls === "RecordHybrid") {
+    const reading = resolveSurface("answer", palette);
+    return {
+      ...reading,
+      surface: "record",
+      ground: REGISTER_GROUND,
+      hybrid: "public Reading on Register ground",
+    };
+  }
+  /* Reading: the only class a palette moves. Without a
+     palette it falls back to the Register ink family on the
+     Register ground, so a Reading surface rendered before a
+     palette resolves still sits on a named token ground. */
+  const p = palette && typeof palette === "object" ? palette : null;
+  return {
+    ...base,
+    class: "Reading",
+    ground: p ? p.bg : REGISTER_GROUND,
+    ink: p
+      ? { ink: p.ink, ink72: p.ink2, ink55: p.faint }
+      : { ...REGISTER_INK },
+    line: p ? p.line : REGISTER_LINE,
+    gold: p && !p.dark ? REGISTER_GOLD_ON_LIGHT : REGISTER_GOLD,
+    goldRole: "citation and marginal marks only, never a fill",
+    measure: view === "learn" ? NOTEBOOK_MEASURE : READING_MEASURE,
+    hybrid: null,
+  };
+}
+
 /* ── The drop's artwork values ──────────────────────────────
    Nova's settled form (the owner picked Claude's version,
    2026-10-31) is drawn from these values, transcribed from

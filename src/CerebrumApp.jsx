@@ -114,7 +114,7 @@ import { useNovaSpeech } from "./NovaSpeech.jsx";
 /* Sound effects (extracted 2026-10-07, monolith split). */
 import { Sfx } from "./sfx.js";
 import { PALETTES, isProPalette, ACCENTS } from "./palettes.js";
-import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, accentInkOn, statusBad, statusWarn, statusGood, tabListKeyDown, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, cbToastHostMount, cbToastHostUnmount, ensureDyslexicFont } from "./appUtils.js";
+import { setCookie, getCookie, relativeTime, APP_VERSION, APP_VERSION_LABEL, apiAuth, apiWhoAmI, apiProGet, apiProPost, apiDataGet, apiDataPost, apiDataAction, IS_MAC, MOD, kbdLabel, download, mixHex, contrastRatio, accentInk, statusBad, statusWarn, statusGood, tabListKeyDown, __cbMotionCache, cbMotionCacheBust, cbBlip, NOTIFY_KINDS, notifyPref, setNotifyPref, cbNotify, useIsMobile, useWindowWidth, TONES, toneIndex, avatarSkin, REPORT_REASONS, cbToastId, toast, cbToastHostMount, cbToastHostUnmount, ensureDyslexicFont } from "./appUtils.js";
 import { useKeyboardInset } from "./keyboardInset.js";
 import { historyNav } from "./historyNav.js";
 
@@ -133,7 +133,7 @@ import {
   Intro, CerebrumFieldCanvas, CinematicFilm, Mark, MarkBreathe,
   plateHead,
 } from "./intro.jsx";
-import { REGISTER_GOLD } from "./registerTokens.js";
+import { REGISTER_GOLD, REGISTER_GOLD_ON_LIGHT, REGISTER_GROUND, REGISTER_INK, SURFACE_CLASSES, resolveSurface } from "./registerTokens.js";
 import { IntroAtmosphere } from "./introAtmosphere.jsx";
 
 /* Unified scroll lock (replaces the three competing implementations). */
@@ -1989,8 +1989,11 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile, hideBlurb = fals
           // The non-default state is the one worth seeing from across the
           // room: it changes what the search will return.
           color: isDefault ? P.faint : P.ink,
-          background: isDefault ? "transparent" : withAlpha(accent, 0.12),
-          border: `1px solid ${isDefault ? "transparent" : withAlpha(accent, 0.4)}`,
+          /* Wave Zero (2026-11-02): no accent wash on the
+             composer filter. The non default state is a gold
+             1px rule around a transparent ground. */
+          background: "transparent",
+          border: `1px solid ${isDefault ? "transparent" : REGISTER_GOLD}`,
           transition: "background 280ms ease, border-color 280ms ease, color 280ms ease",
         }}
       >
@@ -2037,9 +2040,9 @@ function EvidenceFilter({ value, onChange, P, accent, isMobile, hideBlurb = fals
                     letterSpacing: "0", flexShrink: 0, whiteSpace: "nowrap",
                     padding: "6px 16px", borderRadius: RADIUS.pill, cursor: "pointer",
                     transition: "background-color 280ms ease, color 280ms ease",
-                    background: on ? withAlpha(accent, 0.24) : withAlpha(P.ink, 0.06),
+                    background: on ? "transparent" : withAlpha(P.ink, 0.06),
                     color: on ? P.ink : P.ink2,
-                    border: `1px solid ${on ? withAlpha(accent, 0.42) : P.line}`,
+                    border: `1px solid ${on ? REGISTER_GOLD : P.line}`,
                   }}
                 >{label}</UIButton>
               );
@@ -2219,6 +2222,11 @@ function SignalComposer({
   specimenPlaceholders = null,
 }) {
   const reduced = useReducedMotion();
+  /* Wave Zero (2026-11-02): the send word takes the resolver
+     gold role, never the palette accent. Dark grounds take
+     REGISTER_GOLD; a light Reading ground takes the darkened
+     gold that holds contrast there. */
+  const askGold = P && P.dark === false ? REGISTER_GOLD_ON_LIGHT : REGISTER_GOLD;
   /* The shared keyboard inset (src/keyboardInset.js): this
      composer is the search home stage composer, the one field
      the home screen exists for. Its root reserves scroll margin
@@ -2468,17 +2476,12 @@ function SignalComposer({
            4.8 to 1. The dark value already passes (about 5.2 to 1). */
         "--cb-ph": P.dark ? "rgba(242,244,242,0.52)" : "rgba(34,37,42,0.66)",
         "--cb-bg": P.bg,
-        /* The Ask label's ink, calibrated against the ground it really
-           sits on: the accent wash over the field, at the hover strength
-           (22 percent), which is always the lower contrast of the two
-           states because the wash sits closer to the accent than the
-           rest wash does. accentInk() alone corrects against the plain
-           background and landed at 4.20 to 1 (rest) and 3.99 to 1
-           (hover) for Amber on Light; accentInkOn searches against the
-           tinted ground itself, so the shipped ink clears 4.6 to 1 on
-           both. The arithmetic is pinned in tests/core-identity.mjs. */
-        "--cb-ask-ink": accentInkOn(P, accent, mixHex(P.bg, accent, 0.22)),
-        "--cb-ask-stage-ink": accentText(accent),
+        /* Wave Zero (2026-11-02): the Ask word sits on a
+           transparent ground, so its ink is the gold role
+           itself, with no wash under it to calibrate against.
+           The disabled state reads the register ink55 step. */
+        "--cb-ask-ink": askGold,
+        "--cb-ink55": REGISTER_INK.ink55,
       }}
     >
       <div className="cb-ask-field">
@@ -2557,10 +2560,10 @@ function SignalComposer({
             onClick={doAsk}
             disabled={busy}
             aria-label={busy ? "Searching" : "Ask"}
-            className={"cb-ask-go" + (variant === "stage" ? " cb-ask-go--round" : "")}
+            className="cb-ask-go"
           >{busy
             ? <span className={"cb-ask-spin" + (reduced ? " cb-ask-spin--still" : "")} aria-hidden="true" />
-            : variant === "stage" ? <span aria-hidden="true" style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1 }}>&#8593;</span> : "Ask"}</button>
+            : "Ask"}</button>
         </div>
         {showRecents && (
           <div className="cb-ask-recent" role="listbox" aria-label="Recent questions" id="cb-ask-recents">
@@ -8623,10 +8626,13 @@ function QueryRetryForm({ P, accent, onAsk, id }) {
       <button
         type="submit" disabled={!ready}
         style={{ minHeight: 44,
-          padding: "8px 16px", borderRadius: RADIUS.md, border: `1px solid ${withAlpha(accent, 0.4)}`,
-          background: withAlpha(accent, 0.1), color: accentInk(P, accent), fontSize: FONT_SIZES.caption,
+          /* Wave Zero (2026-11-02): a submit action is a gold
+             text word on a transparent ground; the disabled
+             state is the register ink55 step. */
+          padding: "8px 16px", borderRadius: RADIUS.md, border: "none",
+          background: "transparent", color: ready ? (P.dark ? REGISTER_GOLD : REGISTER_GOLD_ON_LIGHT) : REGISTER_INK.ink55, fontSize: FONT_SIZES.caption,
           fontWeight: 500, fontFamily: "var(--cb-font)", cursor: ready ? "pointer" : "default",
-          opacity: ready ? 1 : 0.45, whiteSpace: "nowrap",
+          whiteSpace: "nowrap",
         }}
       >
         Ask
@@ -19517,12 +19523,17 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
       minWidth: 0, letterSpacing: TYPE.heading.letterSpacing
     },
     searchBtn: {
+      /* Wave Zero (2026-11-02): the follow up submit is the
+         same gold text word as the composer send, on a
+         transparent ground, with no circle and no fill. Its
+         gold follows the Reading resolver: the darkened gold
+         on a light ground, REGISTER_GOLD on a dark one. */
       display: "inline-flex", alignItems: "center", justifyContent: "center",
-      width: 44, height: 44, flexShrink: 0,
-      background: P.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
-      color: P.ink,
-      border: "1px solid " + P.line,
-      borderRadius: "50%", cursor: "pointer",
+      minWidth: 44, height: 44, flexShrink: 0, padding: "0 10px",
+      background: "transparent",
+      color: P.dark ? REGISTER_GOLD : REGISTER_GOLD_ON_LIGHT,
+      border: "none",
+      borderRadius: 0, cursor: "pointer",
       transition: "transform 150ms ease, background 280ms ease",
       boxShadow: "none",
     },
@@ -20022,9 +20033,13 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
         <span aria-hidden="true" style={{
           width: 52, height: 52, borderRadius: "50%", flexShrink: 0,
           display: "inline-flex", alignItems: "center", justifyContent: "center",
-          fontSize: 20, fontWeight: 500, fontFamily: "var(--cb-font)",
+          fontSize: 20, fontWeight: 500, fontFamily: "var(--cb-serif)",
           boxShadow: rank === "pro" ? `0 0 0 2px ${PRO.identity}` : `0 0 0 1px ${P.line}`,
-          ...avatarSkin(user?.email || user?.id || "cerebrum"),
+          /* Wave Zero (2026-11-02): the account tile no longer
+             takes a hue hashed from the email. The initial
+             stands in the register gold on the register
+             ground, the token tile chrome uses everywhere. */
+          background: REGISTER_GROUND, color: REGISTER_GOLD,
         }}>{(user?.email || "?")[0].toUpperCase()}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -20060,6 +20075,40 @@ function AccountMenu({ P, accent, at, user, proStatus, onClose, onNavigate, onOp
         }}>Close</UIButton>
       </div>
     </Dialog>
+  );
+}
+
+/* ── ShellLegalRow (Wave Zero, 2026-11-02) ───────────────────
+   The one legal row the shell owns, rendered once, at the
+   rail foot inside Sidebar below. It carries the five legal
+   links and the Cerebrum notice, and nothing else in the
+   shell renders legal links or the notice: the home bottom
+   band and the search footer legal grid are deleted, and the
+   door keeps its own row outside the shell in intro.jsx,
+   untouched. Public pages outside the shell carry their own
+   template line, a different lifecycle, not a second shell
+   row. */
+function ShellLegalRow({ P }) {
+  return (
+    <div className="cb-shell-legal" style={{
+      display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 12px",
+      padding: "10px 12px 2px", fontSize: FONT_SIZES.caption, color: P.faint,
+      fontFamily: "var(--cb-font)", lineHeight: 1.6,
+    }}>
+      {[
+        ["/about", "About"],
+        ["/privacy", "Privacy"],
+        ["/terms", "Terms"],
+        ["/disclosures", "Disclosures"],
+        ["/contact", "Contact"],
+      ].map(([href, label]) => (
+        <a key={href} href={href} style={{
+          color: P.faint, textDecoration: "none", display: "inline-flex",
+          alignItems: "center", minHeight: 32, whiteSpace: "nowrap",
+        }}>{label}</a>
+      ))}
+      <span style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™</span>
+    </div>
   );
 }
 
@@ -20216,7 +20265,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             {expanded && <span>{label}</span>}
             {key === "inbox" && inboxUnread > 0 && (expanded
               ? <span className="cb-shell-badge" style={S.sidebarItemBadge}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>
-              : <span className="cb-shell-badge" aria-hidden="true" style={{ position: "absolute", top: 5, right: 5, minWidth: 16, height: 16, borderRadius: RADIUS.viewport, background: accent, color: at, fontSize: 10, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>)}
+              : <span className="cb-shell-badge" aria-hidden="true" style={{ position: "absolute", top: 5, right: 5, minWidth: 16, height: 16, borderRadius: RADIUS.viewport, background: "transparent", border: `1px solid ${REGISTER_GOLD}`, color: REGISTER_GOLD, fontSize: 10, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>)}
           </button>
           );
         })}
@@ -20294,21 +20343,23 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
               padding: expanded ? "9px 10px" : "9px 0", justifyContent: expanded ? "flex-start" : "center",
               borderRadius: RADIUS.md, cursor: "pointer",
-              border: `1px solid ${view === "profile" ? withAlpha(accent, 0.35) : P.line}`,
-              background: view === "profile" ? withAlpha(accent, 0.1) : "transparent",
+              border: `1px solid ${view === "profile" ? REGISTER_GOLD : P.line}`,
+              background: "transparent",
               transition: "background 200ms var(--cb-ease), border-color 200ms var(--cb-ease)",
             }}
           >
-            {/* The avatar tile (audit wave step 5, 2026-11-01): the
-                squared 2px tile is gone; the tile is a circle, the
-                form person avatars already take in the Inbox, and
-                it keeps its identity skin, which is the user's
-                picture rather than control chrome. */}
+            {/* The account tile (Wave Zero, 2026-11-02): the hue
+                hashed identity skin is removed from chrome. The
+                initial stands in the register gold on the
+                register ground, in the serif, the same tile the
+                account menu carries. avatarSkin survives only
+                inside the Profile and People surfaces, which a
+                later wave owns. */}
             <span aria-hidden="true" style={{
               width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
               display: "inline-flex", alignItems: "center", justifyContent: "center",
-              fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
-              ...avatarSkin(user.email || user.id || "cerebrum"),
+              fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-serif)",
+              background: REGISTER_GROUND, color: REGISTER_GOLD,
             }}>{(user.email || "?")[0].toUpperCase()}</span>
             {expanded && (
             <span style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>
@@ -20345,6 +20396,10 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
             <span>Sign in</span>
           </UIButton>
         )}
+        {/* The shell's one legal row, at the rail foot. It
+            renders only in the expanded rail; the collapsed
+            icon rail has no room for words and carries none. */}
+        {expanded && <ShellLegalRow P={P} />}
       </div>
     </nav>
   );
@@ -23972,6 +24027,22 @@ function App({ profileHandle = null } = {}) {
      than a layout column, so it stays mounted for the header's menu
      button, as everywhere. */
   const homeStage = view === "search" && !started;
+  /* Wave Zero (2026-11-02): the home is a Register surface.
+     Its ground and ink come from resolveSurface under every
+     palette, never from the palette itself: the ground is
+     REGISTER_GROUND, the ink is the register ink family, and
+     the gold is REGISTER_GOLD. registerP is the palette
+     shaped shim the stage composer and its panels consume,
+     built only from the resolution, so nothing on the home
+     stage reads a palette ground, surface, or ink field. */
+  const homeSurface = resolveSurface(SURFACE_CLASSES.search);
+  const registerP = {
+    dark: true,
+    bg: homeSurface.ground, surface: homeSurface.ground, raised: homeSurface.ground,
+    ink: homeSurface.ink.ink, ink2: homeSurface.ink.ink72, faint: homeSurface.ink.ink55,
+    line: homeSurface.line, line2: homeSurface.line,
+    shadow: "none", shadowSm: "none",
+  };
   const stageLastQ = lastInvestigationQuestion(history);
   /* Home B (2026-10-29, The Quiet Column): her greeting for
      the day, from the one greeting set, and the Last time
@@ -24460,20 +24531,17 @@ function App({ profileHandle = null } = {}) {
                         carries no rule. */}
                     {!t.fab && <span aria-hidden="true" className="cb-shell-tab-ind" />}
                     {t.fab ? (
-                      <span className="cb-shell-fab" style={{
-                        width: 48, height: 48, borderRadius: "50%", marginTop: -22,
-                        /* accentText(accent), the ink picked FOR the accent
-                           ground: this once read `color: accentInk`, the
-                           imported FUNCTION rather than a call, which is
-                           not a colour at all — the declaration was invalid,
-                           dropped, and the plus inherited P.faint on the
-                           accent ground (about 1.0 to 1.2 to 1). accentText
-                           computes about 7.9 to 1 on Amber, 6.9 on Sage. */
-                        background: accent, color: accentText(accent),
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        boxShadow: "none",
+                      /* Wave Zero (2026-11-02): the gold centre
+                         filled circle is deleted. The New search
+                         tab is a text word in the register gold
+                         over a short gold rule, the marginal mark
+                         form, with its label under it like every
+                         other tab. No filled object stands in the
+                         centre of the tab bar. */
+                      <span aria-hidden="true" style={{
+                        display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
                       }}>
-                        <Icon name="plus" size={22} />
+                        <span style={{ width: 24, height: 2, background: REGISTER_GOLD }} />
                       </span>
                     ) : (
                       <span style={{ position: "relative", display: "inline-flex" }}>
@@ -24488,7 +24556,7 @@ function App({ profileHandle = null } = {}) {
                         {t.badge > 0 && <span className="cb-shell-badge" style={{ position: "absolute", top: -4, right: -8, minWidth: 16, height: 16, borderRadius: RADIUS.md, background: "#d13438", color: "#fff", fontSize: 10, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }} aria-hidden="true">{t.badge > 9 ? "9+" : t.badge}</span>}
                       </span>
                     )}
-                    <span style={{ whiteSpace: "nowrap" }}>{t.label}</span>
+                    <span style={{ whiteSpace: "nowrap", color: t.fab ? REGISTER_GOLD : undefined }}>{t.label}</span>
                   </button>
                 );
               })}
@@ -24571,44 +24639,40 @@ function App({ profileHandle = null } = {}) {
                clear of the bar on any phone. Nothing on this
                surface is positioned over the bottom chrome. */
             <Reveal style={{ flex: 1, minWidth: 0, width: "100%", display: "flex", flexDirection: "column", alignItems: "center", padding: isMobile ? "72px 0 calc(96px + env(safe-area-inset-bottom))" : "26px 0 56px", position: "relative" }} deps={[started, deckHasContent]} y={14} stagger={0.06} duration={0.9} descend={false}>
-              {/* The home ground (audit wave step 2, 2026-11-01,
-                  HELD FOR SHIP pending a phone capture): the door's
-                  own atmosphere, mounted with the door's props, so
-                  the home sits in the same light the intro renders
-                  instead of on the flat palette ground. Dark
-                  palettes only: the shader paints the register
-                  ground, and a light palette home keeps its panel
-                  form until the palette ruling lands. Still under
-                  reduced motion or animation off, exactly as the
-                  door holds still. */}
-              {P.dark && <IntroAtmosphere animationMode={animationMode} still={stageReducedMotion || animationMode === "off"} />}
+              {/* The home ground (Wave Zero, 2026-11-02): the
+                  door's own atmosphere, mounted unconditionally
+                  with the door's props, so the home sits in the
+                  same light the intro renders under every
+                  palette. The home is a Register surface: its
+                  ground resolves to REGISTER_GROUND through
+                  resolveSurface, and no palette branch, panel
+                  form, or CSS pool stands in for the shader
+                  here. The CSS fallback survives only inside
+                  IntroAtmosphere itself. Still under reduced
+                  motion or animation off, exactly as the door
+                  holds still. */}
+              <IntroAtmosphere animationMode={animationMode} still={stageReducedMotion || animationMode === "off"} />
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               <div className="cb-homeb-column" style={{
                 width: "100%", minWidth: 0, maxWidth: LAYOUT.answer, padding: isMobile ? "0" : "0 24px",
                 display: "flex", flexDirection: "column", flex: 1, position: "relative",
-                /* The solid stage backing stood from 2026-10-28
-                   (declutter verdict, carried into Home B) until
-                   the audit wave (step 2, 2026-11-01): in dark
-                   palettes the column is now transparent and the
+                /* Wave Zero (2026-11-02): the column is
+                   transparent in every palette and the
                    atmosphere layer mounted behind it is the
-                   ground, so the home reads in the door's light
-                   rather than on a second, flatter ground with a
-                   seam where they meet. Light palettes keep the
-                   bordered panel form until the palette ruling
-                   lands. */
-                ...(P.dark ? {
-                } : {
-                  background: P.bg, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg,
-                  padding: isMobile ? "20px 16px 24px" : "20px 24px 28px",
-                }),
-                "--cb-ink": P.ink, "--cb-ink2": P.ink2, "--cb-faint": P.faint,
-                "--cb-line": P.line, "--cb-line2": P.line2, "--cb-acc": accent,
+                   ground, resolved through homeSurface above.
+                   The light palette bordered panel form and
+                   every palette ground branch are deleted: a
+                   Register surface has one ground, the
+                   register ground, and the shader paints it. */
+                background: "transparent",
+                "--cb-ink": homeSurface.ink.ink, "--cb-ink2": homeSurface.ink.ink72, "--cb-faint": homeSurface.ink.ink55,
+                "--cb-line": homeSurface.line, "--cb-line2": homeSurface.line, "--cb-acc": homeSurface.gold,
               }}>
                 {/* 1. The top line. */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-                  <span style={{ fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.section, fontWeight: 500, lineHeight: 1.2, color: P.ink }}>Cerebrum</span>
+                  <span style={{ fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.section, fontWeight: 500, lineHeight: 1.2, color: homeSurface.ink.ink }}>Cerebrum</span>
                   <button type="button" onClick={() => setView("investigations")} className="cb-stage-textbtn"
-                    style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>
+                    style={{ fontSize: FONT_SIZES.label, color: homeSurface.ink.ink72 }}>
                     History
                   </button>
                 </div>
@@ -24635,7 +24699,7 @@ function App({ profileHandle = null } = {}) {
                     gridArea: "greeting", minWidth: 0,
                     fontFamily: "var(--cb-serif)", fontWeight: 400,
                     fontSize: isMobile ? FONT_SIZES.section : 36,
-                    lineHeight: 1.22, color: P.ink,
+                    lineHeight: 1.22, color: homeSurface.ink.ink,
                   }}>
                     {stageGreeting}
                   </div>
@@ -24653,10 +24717,10 @@ function App({ profileHandle = null } = {}) {
                         padding: "6px 0", cursor: "pointer", minHeight: 48,
                       }}>
                       <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 4 }}>Last time</span>
+                        <span style={{ display: "block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: homeSurface.ink.ink55, fontFamily: "var(--cb-font)", marginBottom: 4 }}>Last time</span>
                         <span style={{
                           display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
-                          fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.subhead, lineHeight: 1.4, color: P.ink,
+                          fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.subhead, lineHeight: 1.4, color: homeSurface.ink.ink,
                         }}>{stageLastQText}</span>
                       </span>
                     </button>
@@ -24669,10 +24733,10 @@ function App({ profileHandle = null } = {}) {
                     the room the conversation grows into. */}
                 <div style={{ marginTop: "auto", paddingTop: SP.xxl }}>
                   {attachedImage && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 12px 6px 6px", background: P.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)", border: `1px solid ${P.line}`, borderRadius: RADIUS.md, maxWidth: "fit-content" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "6px 12px 6px 6px", background: "transparent", border: `1px solid ${homeSurface.line}`, borderRadius: RADIUS.md, maxWidth: "fit-content" }}>
                       <img src={attachedImage} alt="Attached" style={{ width: 32, height: 32, borderRadius: RADIUS.md, objectFit: "cover" }} />
-                      <span style={{ fontSize: FONT_SIZES.label, color: P.ink2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImageName}</span>
-                      <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ position: "relative", minWidth: 0, minHeight: 0, background: "none", border: "none", color: P.faint, cursor: "pointer", padding: 2, display: "inline-flex" }}><span aria-hidden="true" style={{ position: "absolute", inset: -17, borderRadius: "50%" }} /><Icon name="close" size={14} /></button>
+                      <span style={{ fontSize: FONT_SIZES.label, color: homeSurface.ink.ink72, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachedImageName}</span>
+                      <button onClick={() => { setAttachedImage(null); setAttachedImageName(""); }} aria-label="Remove image" style={{ position: "relative", minWidth: 0, minHeight: 0, background: "none", border: "none", color: homeSurface.ink.ink55, cursor: "pointer", padding: 2, display: "inline-flex" }}><span aria-hidden="true" style={{ position: "absolute", inset: -17, borderRadius: "50%" }} /><Icon name="close" size={14} /></button>
                     </div>
                   )}
                   <SignalComposer
@@ -24681,7 +24745,7 @@ function App({ profileHandle = null } = {}) {
                     input={input} setInput={setInput} inputRef={inputRef}
                     ask={ask} busy={busy}
                     askMode={askMode} setAskMode={setAskMode} isMobile={isMobile}
-                    accent={accent} P={P}
+                    accent={REGISTER_GOLD} P={registerP}
                     imageInputRef={imageInputRef} attachedImage={attachedImage}
                     focused={composerFocused} setFocused={setComposerFocused}
                     recentQuestions={history.slice(0, 6).map((h) => h.title || (h.turns && h.turns[0] && h.turns[0].q)).filter(Boolean)}
@@ -24790,38 +24854,30 @@ function App({ profileHandle = null } = {}) {
             </div>
           )}
           <div style={S.foot} className="cb-appfoot">
+            {/* Wave Zero (2026-11-02): this footer no longer
+                carries legal links or the Cerebrum notice. The
+                shell's one legal row lives at the rail foot
+                (ShellLegalRow, rendered by Sidebar), and the
+                home bottom legal band that stood here is
+                deleted with it. What stays is the honesty line
+                and the film attribution: the reel plays behind
+                the thread, so its CC BY credits stay reachable
+                from here, as they have since 2026-09-17. */}
             <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.55, maxWidth: 520, margin: "0 auto 10px", textAlign: "center" }}>Written by AI from real papers. Check the sources.</div>
             <div className="cb-appfoot-links" style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "center", gap: isMobile ? "2px 12px" : "8px 14px", maxWidth: 620, width: "100%", margin: "0 auto", padding: "0 12px", lineHeight: 1.6 }}>
               {[
-                /* RESTORED 2026-09-17: the reel plays behind the whole
-                   application, not just the intro, so its attribution has
-                   to be reachable from in here too — the CC BY clips are on
-                   screen either way. */
                 ["credits", "Film credits"],
-                ["/about", "About"],
-                ["/privacy", "Privacy"],
-                ["/terms", "Terms"],
-                ["/disclosures", "Disclosures"],
-                ["/contact", "Contact"],
               ].map(([href, label], i2) => {
                 const st = {
                   color: P.faint, background: "none", border: "none", padding: 0, margin: 0,
                   cursor: "pointer", font: "inherit", lineHeight: "inherit", whiteSpace: "nowrap",
-                  // The mobile tap-target rule forces min-height:44px on links
-                  // and buttons alike, but a block <a> puts its text at the top
-                  // of that box while a <button> centres it — which is why this
-                  // row used to render one link lower than its neighbours.
                   display: "inline-flex", alignItems: "center", justifyContent: "center",
                   textDecoration: "underline", textDecorationStyle: "dotted",
                   textDecorationColor: withAlpha(P.faint, 0.55), textUnderlineOffset: "3px",
                 };
-                /* 2026-10-05: the motion toggle lived here. It paused and played
-                   the workspace film reel, which no longer exists — cinema
-                   lives at the door only, so the toggle had nothing to switch. */
                 if (href === "credits") return <button key={label} type="button" onClick={() => setFilmCreditsOpen(true)} style={st}>{label}</button>;
                 return <a key={label} href={href} style={st}>{label}</a>;
               })}
-              <span className="cb-appfoot-copy" style={{ whiteSpace: "nowrap", opacity: 0.75 }}>© {new Date().getFullYear()} Cerebrum™ · {APP_VERSION_LABEL}</span>
             </div>
           </div>
         </div>
@@ -26978,7 +27034,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 
 /* ── The question field: one hairline box, no instrument ── */
 .cb-ask {
-  --cb-acc: #d9a441;
+  --cb-acc: #c89a3a;
   width: 100%; max-width: 760px; margin: 0;
   animation: cbConsoleIn 0.7s var(--cb-ease) 0.08s both;
 }
@@ -27049,7 +27105,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   color: var(--cb-ink2);
   transition: color 280ms ease, background 280ms ease;
 }
-.cb-ask-tool:hover { color: var(--cb-ink); background: color-mix(in srgb, var(--cb-acc) 8%, transparent); }
+.cb-ask-tool:hover { color: var(--cb-ink); background: transparent; }
 /* Home B (2026-10-29): the constraints toggle as one word
    inside the field. A text control, not a pill: no border, no
    fill, at the label size, with a 44px hit height. A non
@@ -27070,29 +27126,28 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   display: inline-flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-/* The Ask action: a word, not a key. */
+/* The Ask action: a word, not a key. Wave Zero (2026-11-02):
+   a gold text word on a transparent ground, no fill, no
+   border, no arrow, no icon. Its ink is the resolver gold
+   role (--cb-ask-ink, set on the composer root from
+   registerTokens.js), and the disabled state is the
+   register ink55 step. Hover underlines the word; that is
+   the whole state change. */
 .cb-ask-go {
   min-height: 44px; padding: 0 20px; margin-left: 4px;
-  border: 1px solid color-mix(in srgb, var(--cb-acc) 40%, transparent);
-  background: color-mix(in srgb, var(--cb-acc) 14%, transparent);
+  border: none;
+  background: transparent;
   border-radius: var(--cb-r-md); cursor: pointer;
-  /* The label sits on a faint accent tint over the field, so it takes
-     an ink calibrated against that tinted ground (--cb-ask-ink, set on
-     the composer root via accentInkOn), not the raw accent and not
-     the plain background correction: raw Amber on the Light palette
-     computed to 1.97 to 1, and accentInk() against the plain field
-     still landed at 4.20 to 1 at rest and 3.99 to 1 on hover, because
-     the tint pulls the ground toward the accent. */
   color: var(--cb-ask-ink, var(--cb-accent-ink, var(--cb-acc)));
   font-family: var(--cb-font); font-size: 15px; font-weight: 500;
   display: inline-flex; align-items: center; justify-content: center;
-  transition: background 280ms ease, border-color 280ms ease, opacity 280ms ease;
+  transition: color 280ms ease, opacity 280ms ease;
 }
 .cb-ask-go:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--cb-acc) 22%, transparent);
-  border-color: color-mix(in srgb, var(--cb-acc) 60%, transparent);
+  background: transparent;
+  text-decoration: underline; text-underline-offset: 4px;
 }
-.cb-ask-go:disabled { opacity: 0.45; cursor: default; color: var(--cb-faint, #888); }
+.cb-ask-go:disabled { cursor: default; color: var(--cb-ink55, var(--cb-faint)); }
 .cb-ask-spin {
   width: 16px; height: 16px; border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--cb-acc) 35%, transparent);
@@ -27133,24 +27188,9 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 .cb-ask--stage .cb-ask-tool { color: var(--cb-faint); }
 .cb-ask--stage .cb-ask-tool svg { width: 15px; height: 15px; }
 .cb-ask--stage .cb-ask-mic svg { width: 15px; height: 15px; }
-.cb-ask-go--round {
-  width: 44px; height: 44px; min-height: 44px; padding: 0; margin-left: 6px;
-  border-radius: 50%; flex-shrink: 0;
-}
-.cb-ask--stage .cb-ask-go--round {
-  /* 2026-10-16 layout fix (finding 20): 44px, matching the plain round
-     submit rule above. The 36px stage rule outranked the global tap
-     floor because its two class selector is more specific. */
-  width: 44px; height: 44px; min-height: 44px; padding: 0; margin-left: 6px;
-  border-radius: var(--cb-r-md); flex-shrink: 0;
-  background: var(--cb-acc); border: 1px solid transparent;
-  color: var(--cb-ask-stage-ink, #121110);
-  box-shadow: var(--cb-sh-sm);
-  transition: background-color 150ms ease-out, color 150ms ease-out;
-}
-.cb-ask--stage .cb-ask-go--round:hover:not(:disabled) {
-  background: var(--cb-acc); border-color: transparent; box-shadow: var(--cb-sh-sm);
-}
+/* Wave Zero (2026-11-02): the round filled stage submit key
+   is deleted. The stage send is the same gold text word as
+   every other composer: Ask, on a transparent ground. */
 
 /* ── Plate II chrome: text actions and inquiries (the stage top bar
    and its link styles went with the bar when the sidebar returned) ── */
@@ -27176,8 +27216,8 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 .cb-shape {
   display: inline-flex; align-items: center; gap: 8px;
   min-height: 44px; padding: 6px 16px 6px 14px; margin: 8px 0 0;
-  background: color-mix(in srgb, var(--cb-acc) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--cb-acc) 32%, transparent);
+  background: transparent;
+  border: 1px solid var(--cb-line2);
   border-radius: var(--cb-r-md); cursor: pointer;
   color: var(--cb-ink2); font-family: var(--cb-font);
   font-size: 13px; font-weight: 500;
@@ -27185,7 +27225,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   animation: cbPhIn 280ms ease both;
 }
 .cb-shape:hover {
-  background: color-mix(in srgb, var(--cb-acc) 17%, transparent);
+  background: transparent;
   color: var(--cb-ink);
 }
 .cb-shape:focus-visible { outline: 2px solid var(--cb-acc); outline-offset: 2px; }
@@ -27199,7 +27239,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   display: flex; align-items: center; gap: 10px;
   min-height: 44px; margin: 8px 0 0; padding: 4px 4px 4px 14px;
   border: 1px solid var(--cb-line2); border-radius: var(--cb-r-lg);
-  background: color-mix(in srgb, var(--cb-acc) 6%, transparent);
+  background: transparent;
   font-family: var(--cb-font); font-size: 13px; font-weight: 500;
   color: var(--cb-ink2);
   animation: cbPhIn 280ms ease both;
@@ -27516,7 +27556,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
    palette tokens the component root sets (2026-10-19, audit H9); the
    old dark room hexes, the traveler pulse and the snow field are gone. */
 .cb-dive {
-  --cb-acc: #d9a441;
+  --cb-acc: #c89a3a;
   position: relative;
   padding: 34px 4px 8px;
   overflow: hidden;
@@ -27603,11 +27643,11 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 }
 .cb-dive-stratum.is-active .cb-dive-node {
   border: 1px solid var(--cb-acc);
-  background: color-mix(in srgb, var(--cb-acc) 25%, transparent);
+  background: transparent;
 }
 .cb-dive-stratum.is-done .cb-dive-node {
   border: 1px solid color-mix(in srgb, var(--cb-acc) 60%, transparent);
-  background: color-mix(in srgb, var(--cb-acc) 12%, transparent);
+  background: transparent;
 }
 .cb-dive-stage { display: flex; flex-direction: column; min-width: 0; }
 .cb-dive-label {
@@ -27777,8 +27817,6 @@ body.cb-motion-off * { transition-duration: 0.01ms !important; animation-duratio
   transition: opacity 200ms var(--cb-ease), transform 280ms var(--cb-ease);
 }
 .cb-shell-tab[data-active="true"] .cb-shell-tab-ind { opacity: 1; transform: scaleX(1); }
-.cb-shell-fab { transition: transform 150ms var(--cb-ease); }
-.cb-shell-tab:active .cb-shell-fab { transform: scale(0.94); }
 .cb-tab { transition: color 200ms var(--cb-ease); }
 .cb-shell-brand { transition: opacity 200ms var(--cb-ease); }
 .cb-shell-brand:active { opacity: 0.7; }
@@ -27790,7 +27828,6 @@ body.cb-motion-off .cb-shell-badge,
 body.cb-motion-off .cb-shell-navitem::before,
 body.cb-motion-off .cb-shell-tab,
 body.cb-motion-off .cb-shell-tab-ind,
-body.cb-motion-off .cb-shell-fab,
 body.cb-motion-off .cb-tab,
 body.cb-motion-off .cb-shell-brand { animation: none !important; transition: none !important; }
 
@@ -28684,10 +28721,7 @@ button, a {
   transition: background-color 280ms var(--cb-ease), border-color 280ms var(--cb-ease), opacity 280ms var(--cb-ease), transform 280ms var(--cb-ease);
 }
 .cb-ask-go:active:not(:disabled) { transform: scale(0.96); }
-.cb-ask--stage .cb-ask-go--round {
-  transition: background-color 150ms var(--cb-ease), color 150ms var(--cb-ease), transform 280ms var(--cb-ease);
-}
-.cb-ask--stage .cb-ask-go--round:active:not(:disabled) { transform: scale(0.94); }
+.cb-ask--stage .cb-ask-go:active:not(:disabled) { transform: scale(0.96); }
 
 /* Searching state: while a search is in flight the field settles
    down 1px and its border takes the accent at rest strength, so
@@ -28744,8 +28778,6 @@ button, a {
 .cb-ask-tool { width: 48px; height: 48px; }
 .cb-ask-mic { width: 48px; height: 48px; }
 .cb-ask-go { min-height: 48px; }
-.cb-ask-go--round { width: 48px; height: 48px; min-height: 48px; }
-.cb-ask--stage .cb-ask-go--round { width: 48px; height: 48px; min-height: 48px; }
 .cb-ask-recent-item { min-height: 48px; }
 .cb-stage-textbtn { min-height: 48px; }
 .cb-starter-item { min-height: 48px; }
