@@ -4329,6 +4329,35 @@ const CONCEPT_GROUPS = [
    "infections", "infectious"],
   ["waste oil", "waste cooking oil", "used cooking oil", "cooking oil",
    "used oil"],
+  // 2026-11-02 (search fix wave, Lane A fix 1): the everyday
+  // sense bridges for the hijack specimen class. "Bug" in an
+  // illness frame resolved to nothing at all (the only table
+  // hits for the word were its software sense), so the fever
+  // question's second concept had no group, its rung carried
+  // the bare lay word, and PubMed filled the pool with insect
+  // papers that engage the word's other sense, cited at the
+  // top of the relevance range. The bridge is the puff pattern:
+  // the asker's word first, then the illness literature's
+  // vocabulary for the same thing. Bare "infection" is
+  // deliberately not a member (it is the sickness group's word
+  // and the virus group's; only its phrasal forms ride here),
+  // and "germ" is not one either (it heads its own group).
+  ["bug", "bugs", "stomach bug", "viral infection",
+   "bacterial infection", "pathogen", "pathogens", "microbe",
+   "microbes"],
+  // 2026-11-02 (search fix wave, Lane A fix 1): "wired" on
+  // energy drinks had no bridge anywhere in the pipeline, so
+  // the sleep question's stimulant concept never reached a
+  // rung, a gate group, or the scorer in the vocabulary the
+  // literature uses, and screen light papers cleared the gate
+  // unopposed. The bridge names the caffeinated and alertness
+  // vocabulary the field writes with. The bare word caffeine
+  // stays out on purpose: a hand table membership would make
+  // the deterministic fallback builder skip caffeine entirely,
+  // and its fallback bridge (caffeine to coffee, a standing
+  // panel pin) is the older contract.
+  ["wired", "caffeinated", "energy drink",
+   "energy drinks", "stimulant", "stimulants", "alertness"],
   // 2026-10-24 (citation wave, Lane 2): the burnout bridge. A
   // person asks about being "burned out"; the literature indexes
   // the same state under the single word "burnout", and no stem
@@ -6092,6 +6121,31 @@ const STRUCTURAL_OPERATIVE_NOUNS = new Set([
   "protocol", "protocols", "procedure", "procedures",
   "measurement", "measurements", "determination", "quantification",
 ]);
+/* The action verb class (2026-11-02, search fix wave, Lane A
+ * fix 3): the structural classes named the subject, the
+ * quantity, and the operative noun, but not the question's
+ * ACTION, so an everyday activity verb scored on length and
+ * table presence alone and fell under the anchor floor: "walk"
+ * scored 0.4 on the after dinner walk question, held no rung
+ * in the boolean and no slot in the fanout slices, and the
+ * scorer's core terms never contained the one word the
+ * question was about. The class is the bounded set of everyday
+ * activity verbs the specimen questions carry; membership
+ * gives a verb the same class 2 standing an operative noun
+ * holds, so the displacement passes below can seat it. */
+const STRUCTURAL_ACTION_VERBS = new Set([
+  "walk", "walks", "walked", "walking", "stroll", "strolls", "strolling",
+  "jog", "jogs", "jogging", "run", "runs", "running",
+  "swim", "swims", "swimming", "cycle", "cycles", "cycling",
+  "bike", "bikes", "biking", "exercise", "exercises", "exercising",
+  "move", "moves", "moved", "moving", "movement", "movements",
+  "climb", "climbs", "climbing", "stretch", "stretches", "stretching",
+  "hike", "hikes", "hiking", "dance", "dances", "dancing",
+]);
+
+export function structuralTermIsActionVerb(term) {
+  return STRUCTURAL_ACTION_VERBS.has(String(term || "").toLowerCase().trim());
+}
 const STRUCTURAL_NUMBER_WORDS = new Set([
   "one", "two", "three", "four", "five", "six", "seven", "eight",
   "nine", "ten", "eleven", "twelve", "dozen",
@@ -6123,6 +6177,7 @@ export function structuralTermClass(term, query) {
     }
   } catch { /* no analysis, structural classes below still apply */ }
   if (STRUCTURAL_OPERATIVE_NOUNS.has(t)) return 2;
+  if (STRUCTURAL_ACTION_VERBS.has(t)) return 2;
   if (STRUCTURAL_NUMBER_WORDS.has(t) || /\d/.test(t)) return 2;
   try { if (GATE_TIME_UNIT_TOKENS.has(t)) return 2; } catch { /* unit set unavailable */ }
   try { if (isQuantityPhraseKey(t)) return 2; } catch { /* quantity predicate unavailable */ }
@@ -6592,6 +6647,51 @@ const ORGANISM_WORDS = new Set([
   "yeast", "saccharomyces", "cerevisiae",
 ]);
 
+/* Organism slot admission (2026-11-02, search fix wave, Lane C
+ * and Lane A fix 2, one shared defect): a single token promotes
+ * to the organism slot only when it RESOLVES to a real organism:
+ * the token is itself a single word organism phrase entry, or
+ * one of its synonym expansions is a validated binomial or an
+ * organism phrase, or its concept group contains a binomial or
+ * organism phrase member. Before this, any token holding a
+ * SYNONYMS entry promoted, so "chip" (whose only expansion is
+ * chromatin immunoprecipitation, a method, not an animal)
+ * hijacked the slot on a kitchen scraps question and the
+ * organism branch returned early, never consulting the concept
+ * groups. Phrase matches keep their existing path: a multi word
+ * name the question literally speaks is an organism by
+ * construction. */
+function tokenResolvesToOrganism(t) {
+  if (ORGANISM_PHRASES.includes(t)) return true;
+  for (const s of SYNONYMS[t] || []) {
+    const sl = String(s).toLowerCase();
+    if (ORGANISM_BINOMIALS.has(sl)) return true;
+    if (ORGANISM_PHRASES.includes(sl)) return true;
+  }
+  const group = CONCEPT_LOOKUP.get(t);
+  if (group) {
+    for (const m of group) {
+      const ml = String(m).toLowerCase();
+      if (ORGANISM_BINOMIALS.has(ml) || ORGANISM_PHRASES.includes(ml)) return true;
+    }
+  }
+  return false;
+}
+
+/* Food frame demotion (2026-11-02, search fix wave, Lane C):
+ * "rice" is a validated organism (Oryza sativa) and a food. On a
+ * question carrying no plant or crop frame, the food sense is
+ * the live one and the token must not promote: the glucose
+ * monitor question prepended Oryza sativa to its first rung and
+ * floored its whole shelf on the plant's presence. The frame
+ * words are the ones a plant question actually carries. */
+const RICE_PLANT_FRAME_WORDS = new Set([
+  "plant", "plants", "crop", "crops", "field", "fields", "cultivar", "cultivars",
+  "growing", "grows", "grown", "grow", "soil", "farm", "farming", "farms",
+  "fungus", "fungal", "blast", "disease", "diseases", "pest", "pests",
+  "yield", "yields", "seed", "seeds", "grain", "grains", "paddy",
+]);
+
 function splitOrganismTopic(query) {
   const q = query.toLowerCase();
   const toks = q.split(/\s+/).filter((t) => t.length > 2);
@@ -6623,6 +6723,30 @@ function splitOrganismTopic(query) {
       for (const s of (SYNONYMS[t] || [])) orgPhrases.add(s);
     }
   }
+  // The validated subset (2026-11-02, search fix wave, Lane C):
+  // orgPhrases above keeps its historic contents, because
+  // analyzeQuery's key phrases and the gate's central concepts
+  // are built from it and re judging them was never the lane's
+  // brief. The organism SLOT — the branch, the prepend, the
+  // floor — is decided by this subset alone: every phrase match
+  // (an organism by construction), plus the single tokens that
+  // pass the admission test, with the rice food frame demotion
+  // applied. hasOrganism below reads the subset, nothing else
+  // about the historic set changes.
+  const validatedOrgPhrases = new Set();
+  for (const phrase of phraseMatches) {
+    if (!phrase.includes(" ") && claimed.has(phrase)) continue;
+    validatedOrgPhrases.add(phrase);
+    for (const s of SYNONYMS[phrase] || []) validatedOrgPhrases.add(s);
+  }
+  for (const t of toks) {
+    if (claimed.has(t)) continue;
+    if (!SYNONYMS[t] && !ORGANISM_PHRASES.includes(t)) continue;
+    if (!tokenResolvesToOrganism(t)) continue;
+    if (t === "rice" && !toks.some((w) => RICE_PLANT_FRAME_WORDS.has(w.replace(/[^\w-]/g, "")))) continue;
+    validatedOrgPhrases.add(t);
+    for (const s of (SYNONYMS[t] || [])) validatedOrgPhrases.add(s);
+  }
   // 2026-10-13: the topic side of the organism branch used to take
   // every leftover token verbatim, so "Why do grain mills grind wheat
   // berries into flour for baking?" shipped the topic list (why OR
@@ -6643,7 +6767,19 @@ function splitOrganismTopic(query) {
   for (const raw of toks) {
     const t = raw.replace(/[^\w-]/g, "");
     if (!t) continue;
-    if (ORGANISM_WORDS.has(raw) || ORGANISM_WORDS.has(t)) continue;
+    // Descriptor words are consumed only by a phrase that
+    // actually matched (2026-11-02, search fix wave, Lane C):
+    // "black" and "flies" were deleted from the topic of the
+    // compost flies question on the strength of a "black
+    // soldier fly" phrase that never matched it, so the words
+    // the question's own subject is made of vanished from both
+    // sides of the boolean. The historic drop (an organism
+    // descriptor word leaves the topic) now applies only when
+    // a matched phrase claims the word; an unclaimed
+    // descriptor word is the question's own subject matter
+    // and stays.
+    if ((ORGANISM_WORDS.has(raw) || ORGANISM_WORDS.has(t))
+        && (claimed.has(raw) || claimed.has(t))) continue;
     if (SYNONYMS[raw] || SYNONYMS[t]) continue;
     if (STOPWORDS.has(raw) || STOPWORDS.has(t)) continue;
     if (QUERY_FRAMING_WORDS.has(raw) || QUERY_FRAMING_WORDS.has(t)) continue;
@@ -6652,9 +6788,124 @@ function splitOrganismTopic(query) {
   }
   return {
     orgPhrases: [...orgPhrases],
+    validatedOrgPhrases: [...validatedOrgPhrases],
     topic,
-    hasOrganism: orgPhrases.size > 0,
+    hasOrganism: validatedOrgPhrases.size > 0,
   };
+}
+
+/* Kinship and person words (2026-11-02, search fix wave, Lane C):
+ * who keeps the animal is the asker's circumstance, never its
+ * topic. The compost flies question's recorded topic rung was
+ * headed by "cousin" because the leftover token list was the
+ * topic's only source. */
+const TOPIC_KINSHIP_WORDS = new Set([
+  "cousin", "cousins", "uncle", "aunt", "brother", "sister", "mother", "father",
+  "dad", "mom", "mum", "friend", "friends", "neighbor", "neighbors",
+  "neighbour", "neighbours", "husband", "wife", "grandma", "grandpa",
+  "grandmother", "grandfather",
+]);
+
+/* The organism branch's topic, built from what the question
+ * actually resolves (2026-11-02, search fix wave, Lane C): the
+ * split topic first — the question's own content words, in the
+ * question's own order, already filtered by the split's word
+ * sets — then the resolved concept groups (the gate's own
+ * resolution, so query and gate read the same concepts), the
+ * lookup groups whose key the question literally speaks, and
+ * the key phrases' content words. Every word passes the push
+ * filter, which drops kinship and person words, intent verbs,
+ * filler, and the organism's own descriptor words wherever
+ * they entered. A resolved phrase the framing word deletion
+ * would kill rides whole: "chicken feed" survives in a feed
+ * question because the phrase is the concept, and a bare
+ * "feed" the question speaks survives with it, since feed is
+ * the substrate role this branch exists for. */
+function organismTopicFromConcepts(query, dynLookup, fallbackTopic, anchorPhrases) {
+  const q = String(query || "").toLowerCase();
+  // The drop set is the ANCHOR family only: the anchor
+  // discipline above moves every other organism phrase the
+  // question speaks onto the topic side on purpose (the
+  // chicken in a chicken feed question), and those phrases
+  // must survive this build.
+  const orgSet = new Set((anchorPhrases || []).map((p) => String(p).toLowerCase()));
+  // "Left" out of "left over" is the leftover food phrase
+  // split in two, not a topic word (the compost flies
+  // specimen's recorded topic rung carried it as a required
+  // term). The drop is scoped to that exact two word shape,
+  // so a genuine "left" topic (left ventricle, left handed)
+  // is untouched.
+  const leftOverShape = /\bleft\s+over\b/.test(q);
+  // The anchor organism's own words are the anchor's, not the
+  // topic's. Any OTHER organism word the question names is
+  // topic: the chicken in "black soldier fly larvae replace
+  // soybean meal in chicken feed" is what the feed is for, and
+  // the wave seven pin keeps it on the topic side.
+  const anchorWords = new Set();
+  for (const p of orgSet) for (const w of p.split(/[^a-z0-9]+/)) if (w) anchorWords.add(w);
+  const out = [];
+  const seen = new Set();
+  // The spine (the split topic plus the anchor discipline's
+  // moved phrases) is the question's own words and keeps them
+  // whole: the wood frog's topic is wood and frog beside the
+  // anchor, per the 2026-10-13 content only topic pins. The
+  // ADDITION passes (concept groups, lookup groups, key phrase
+  // words) are held tighter: single words only, the anchor's
+  // own words excluded, and the split's own framing sets
+  // applied, so an addition can widen the topic's vocabulary
+  // but never reintroduce the anchor or the scaffolding.
+  const push = (raw, addition) => {
+    const t = String(raw || "").toLowerCase().trim();
+    if (!t || seen.has(t)) return;
+    if (orgSet.has(t)) return;
+    if (!t.includes(" ")) {
+      if (TOPIC_KINSHIP_WORDS.has(t)) return;
+      if (INTENT_WORDS.has(t)) return;
+      if (QUERY_FILLER_WORDS.has(t)) return;
+      if (t === "little") return;
+      if (t === "left" && leftOverShape) return;
+      if (addition) {
+        if (anchorWords.has(t)) return;
+        if (STOPWORDS.has(t)) return;
+        if (QUERY_FRAMING_WORDS.has(t)) return;
+        if (EXPANSION_FRAMING_WORDS.has(t)) return;
+      }
+    } else if (addition) return;
+    seen.add(t);
+    out.push(t);
+  };
+  for (const t of fallbackTopic || []) push(t, false);
+  try {
+    for (const g of questionConceptGroups(query, gateDynLookup(query, dynLookup))) {
+      // An organism headed group is the anchor's own
+      // vocabulary (the insect group, the BSFL group): its
+      // members name the animal, not the topic, and letting
+      // them fill the topic cap starves the substrate words
+      // the topic exists to carry.
+      const members = [...g].map((m) => String(m).toLowerCase());
+      const orgHeaded = members.some((m) => ORGANISM_BINOMIALS.has(m) || ORGANISM_PHRASES.includes(m))
+        || members.filter((m) => ORGANISM_WORDS.has(m)).length >= 3;
+      if (orgHeaded) continue;
+      for (const m of g) push(m, true);
+    }
+  } catch { /* resolved groups are a source, not a requirement */ }
+  if (dynLookup) {
+    try {
+      for (const [key, set] of dynLookup) {
+        if (!q.includes(key)) continue;
+        push(key, true);
+        if (set) for (const m of set) push(m, true);
+      }
+    } catch { /* lookup phrases likewise */ }
+  }
+  try {
+    const a = analyzeQuery(query);
+    for (const kp of (a && a.keyPhrases) || []) {
+      for (const w of String(kp).toLowerCase().split(/[^a-z0-9]+/)) push(w, true);
+    }
+  } catch { /* key phrases likewise */ }
+  if (/\bfeed(?:ing|s)?\b/.test(q) && ![...seen].some((t) => t.includes("feed"))) push("feed", false);
+  return out.slice(0, 10);
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -7011,6 +7262,11 @@ export function buildStructuredQuery(query, dynLookup) {
     } catch { /* anchors fall back to every detected phrase */ }
   }
   if (hasOrganism) {
+    // Topic from concepts (2026-11-02, search fix wave, Lane C):
+    // the topic side of the organism boolean is rebuilt from
+    // the concepts the question resolves, not from its leftover
+    // tokens (see organismTopicFromConcepts).
+    anchorTopic = organismTopicFromConcepts(query, dynLookup, anchorTopic, anchorPhrases);
     // Wave seventeen (2026-10-15, citation depth diagnosis,
     // stage 4): closed class words never ride the topic side of
     // the organism boolean. The diagnosis run's structured
@@ -7033,7 +7289,8 @@ export function buildStructuredQuery(query, dynLookup) {
     const resolvedOrg = new Set();
     for (const phrase of anchorPhrases) {
       const syns = SYNONYMS[phrase.toLowerCase()] || [];
-      const sciRaw = syns.find((s) => /^[a-z]+ [a-z]+$/i.test(s) && s.split(" ").length === 2);
+      const sciRaw = syns.find((s) => ORGANISM_BINOMIALS.has(String(s).toLowerCase()))
+        || syns.find((s) => /^[a-z]+ [a-z]+$/i.test(s) && s.split(" ").length === 2);
       if (sciRaw) {
         const parts = sciRaw.split(" ");
         resolvedOrg.add(parts[0][0].toUpperCase() + parts[0].slice(1).toLowerCase() + " " + parts[1].toLowerCase());
@@ -7397,7 +7654,12 @@ export function buildStructuredQuery(query, dynLookup) {
     for (const x of ranked) {
       if (anchoredNow.has(x.t) || coveredWords.has(x.t) || hasNegationLead(x.t)) continue;
       if (QUERY_FRAMING_WORDS.has(x.t) || isGateFunctionWord(x.t)) continue;
-      if (!structuralTermIsOperativeOrQuantity(x.t, query)) continue;
+      // The action verb step (2026-11-02, search fix wave, Lane
+      // A fix 3): the question's action verb rides the same
+      // displacement as a stated quantity, for the same reason:
+      // it can score under the anchor floor on specificity
+      // alone ("walk" at 0.4) while scene words hold its rung.
+      if (!structuralTermIsOperativeOrQuantity(x.t, query) && !structuralTermIsActionVerb(x.t)) continue;
       let victim = -1;
       for (let i = anchors.length - 1; i >= 0; i--) {
         if (subjectSet.has(anchors[i])) continue;
@@ -8437,6 +8699,30 @@ export function resolveMeasurementIntent(query) {
   }
   if (/^(?:what|which)\s+(?:check|checks)\b/.test(lc)) {
     return { measurement: true, signal: "named check" };
+  }
+  // Observation verbs and the stated quantity (2026-11-02,
+  // search fix wave, Lane E fix 1): the resolver judged the
+  // opening clause only, and its verb list held no observation
+  // verb, so the bank's fourth manganese peroxidase phrasing
+  // ("if a lab prints a number for manganese peroxidase, what
+  // did they actually watch change in the tube") resolved
+  // measurement false: the operative clause sits after an if
+  // clause, and "watch" is in no determination set. An
+  // observation verb paired with a change or reading word,
+  // anywhere in the question, is a determination ask: the
+  // asker wants to know what the lab observed. And a "how
+  // much" ask paired with a work or activity word is the same
+  // ask in the other specimen's words ("how do people tell how
+  // much work that fungus chemical is doing": "tell" needed a
+  // listed quantity word and "doing" was not one). The
+  // mechanism controls stay safe: "how does X work" carries no
+  // observation verb, no change word after one, and no how
+  // much pairing.
+  if (/\b(?:watch|observe|observes|observing|monitor|monitors|look|looks)\b[^?]*\b(?:change|changes|changed|changing|color|colour|absorbance|reading|readings|signal|drops?|rises?|turn|turns|turned)\b/.test(lc)) {
+    return { measurement: true, signal: "observation verb with change" };
+  }
+  if (/\bhow much\b[^?]*\b(?:work|activity|active|enzyme|reaction|growth|change)\b/.test(lc)) {
+    return { measurement: true, signal: "how much work or activity" };
   }
   return { measurement: false, signal: null };
 }
@@ -9882,8 +10168,14 @@ export function analyzeQuery(rawQuery) {
   try {
     const split = splitOrganismTopic(query);
     organismPhrases = split.orgPhrases || [];
-    // Prefer the two-word latin binomial as the canonical organism name.
-    organism = organismPhrases.find((s) => /^[a-z]+ [a-z]+$/i.test(s) && s.split(" ").length === 2)
+    // Prefer the validated binomial as the canonical organism
+    // name (2026-11-02, search fix wave, Lane C): a member of
+    // the validated binomial set wins outright; the bare two
+    // word shape test stands only as the fallback, since it
+    // cannot tell a scientific name from any two word phrase a
+    // synonym table expands to.
+    organism = organismPhrases.find((s) => ORGANISM_BINOMIALS.has(String(s).toLowerCase()))
+      || organismPhrases.find((s) => /^[a-z]+ [a-z]+$/i.test(s) && s.split(" ").length === 2)
       || organismPhrases[0] || null;
   } catch { /* best-effort */ }
 
@@ -19343,6 +19635,17 @@ export function paperClearsCitationGate(paper, standard) {
     // before.
     const exceptionSet = centralSet.filter((c) => c && (c.subject || (c.group && c.group.size > 0) || termSpecificity(String(c.term || "")) >= 0.5));
     const exceptionHits = exceptionSet.length > 0 ? aggregateConceptSetHits(exceptionSet, gateRecordFor) : allHits;
+    // Lane A fix 4's gate side twin was built here and
+    // reverted the same day (2026-11-02, search fix wave): it
+    // required a title exception paper's abstract to engage a
+    // further concept, and the wave eight pin ("the title
+    // exception: subject plus a second concept in the title
+    // clears without an abstract engagement", the coffee and
+    // baby cohort paper with a methods boilerplate abstract)
+    // is a standing contract for exactly that shape. The
+    // collision discount survives only on the scorer side
+    // (the floor's titleStrong), where no such contract runs.
+    // Filed in the wave report.
     if (exceptionHits.subjectInTitle && exceptionHits.inTitle >= 2) {
       verdict = true;
     } else {
@@ -20003,8 +20306,21 @@ export function buildConstraintRungs(query, ranked, opts = {}) {
   ];
   if (slotPhrases.length === 0) return null;
   const slotWords = new Set(slotPhrases.join(" ").split(/\s+/).filter(Boolean));
-  const topic = (Array.isArray(ranked) ? ranked : [])
+  let topic = (Array.isArray(ranked) ? ranked : [])
     .filter((t) => !slotWords.has(String(t).toLowerCase()));
+  // The action verb leads the topic words (2026-11-02, search
+  // fix wave, Lane A fix 3): a constraint rung was the stated
+  // slots plus the ranked head, so the after dinner walk
+  // question's widest constraint rung was a duration plus scene
+  // words ("ten minutes eat bowl couch") with the action the
+  // question asks about absent from every executed query. When
+  // the ranked list carries the question's action verb, it
+  // heads the topic side of every constraint rung.
+  const actionIdx = topic.findIndex((t) => structuralTermIsActionVerb(t));
+  if (actionIdx > 0) {
+    const [verb] = topic.splice(actionIdx, 1);
+    topic = [verb, ...topic];
+  }
   const rungs = [];
   const seen = new Set();
   for (const n of [3, 2, 1, 0]) {
@@ -22529,6 +22845,46 @@ export function buildCoverageNote(sourcesQueried) {
     "; this answer was built from the " + (total - failed.length) + " that did.";
 }
 
+/* The serve side coverage guard (2026-11-02, search fix wave,
+ * Lane D): buildCoverageNote is a pure function of the source
+ * outcomes, and its closing claim is arithmetic on them. The
+ * DRP4 specimen shipped that arithmetic as a lie of shape: the
+ * ladder funded zero sources, the raw fallback net gathered
+ * the pool the answer cited, the net wrote no outcomes, and
+ * the note read "14 of 14 databases not searched ...; this
+ * answer was built from the 0 that did" on a citing serve.
+ * The recording fix (recordRoundResults) makes the outcomes
+ * themselves true; this guard is the assembly backstop: a
+ * serve that gathered or cited papers must never ship a note
+ * claiming it was built from zero sources. When the outcomes
+ * still claim zero while the pool is non empty, the closing
+ * claim is replaced with the rounds the diag records as having
+ * run, so the note names where the papers came from instead. */
+export function coverageNoteForServe(sourcesQueried, diag, pool) {
+  const note = buildCoverageNote(sourcesQueried);
+  if (!note) return note;
+  const answered = (sourcesQueried || []).filter((s) => s && s.ok).length;
+  if (answered > 0) return note;
+  const gathered = pool && typeof pool.gathered === "number" ? pool.gathered : 0;
+  const cited = pool && typeof pool.cited === "number" ? pool.cited : 0;
+  if (gathered <= 0 && cited <= 0) return note;
+  if (!/built from the 0 that did\./.test(note)) return note;
+  const rounds = [];
+  if (diag && diag.rawFallback) rounds.push("the raw fallback net");
+  if (diag && diag.conceptExpanded) rounds.push("the concept expanded fallback");
+  if (diag && diag.broadTermsRung) rounds.push("the broad terms rung");
+  if (diag && diag.topicMemoryRecall) rounds.push("topic memory recall");
+  if (diag && diag.nlFallback) rounds.push("the natural language fallback");
+  if (diag && diag.relaxedBoolean) rounds.push("the relaxed boolean fallback");
+  if (diag && diag.foundationalLane) rounds.push("the foundational lane");
+  if (diag && Array.isArray(diag.questionDecomposition) && diag.questionDecomposition.length) rounds.push("question decomposition");
+  if (diag && Array.isArray(diag.secondaryOrganismQueries) && diag.secondaryOrganismQueries.length) rounds.push("the secondary organism pass");
+  if (diag && Array.isArray(diag.clauseQueries) && diag.clauseQueries.length) rounds.push("the clause fanout");
+  const supplier = rounds.length > 0 ? rounds.join(", ") : "the fallback rounds";
+  return note.replace(/built from the 0 that did\./,
+    "built from papers gathered by " + supplier + ", which ran after the main search rounds.");
+}
+
 // ── Search record + coverage disclosure (trust release, 2026-10-13) ─
 // No AI literature tool ships a stable, exportable, re runnable record
 // of a search, and the published critiques of every major tool fault
@@ -22881,6 +23237,19 @@ function recordFunnelOf(raw, diag, sourceCount) {
     excludedRetracted: n(f.excludedRetracted), cited,
     counts,
     ...(funnelStages ? { stages: funnelStages } : {}),
+    // The passes emptied failure state (2026-11-02, search fix
+    // wave, Lane B Group B): present only when the programmatic
+    // passes emptied a literature bearing shelf, so a reader of
+    // the record can tell a retrieval failure from a true no
+    // literature state at a glance.
+    ...(diag && diag.passesEmptiedShelf ? { passesEmptiedShelf: true } : {}),
+    // The method failure state (2026-11-02, search fix wave,
+    // Lane E): present only on a detected method question whose
+    // lane never ran or whose subject reached no executed
+    // query, named so the record shows the failure instead of
+    // an ordinary absence.
+    ...(diag && typeof diag.methodFailureState === "string" && diag.methodFailureState
+      ? { methodFailureState: String(diag.methodFailureState).slice(0, 80) } : {}),
     ...(foundationalLane ? { foundationalLane } : {}),
     ...(foundationalFates ? { foundationalFates } : {}),
     ...(foundationalNearMisses ? { foundationalNearMisses } : {}),
@@ -23757,6 +24126,12 @@ export function buildSearchRecord(input) {
           // outcomes of the same test.
           ...(ss.rebuilt ? { rebuilt: true } : {}),
           ...(typeof ss.rebuiltOver === "number" ? { rebuiltOver: ss.rebuiltOver } : {}),
+          // Search fix wave (2026-11-02, Lane B Group C): a
+          // rebuild over the subject engaging pool and a thin
+          // serve over the originally cited papers are
+          // different outcomes of the serve, and the record
+          // must say which one shipped.
+          ...(ss.thinServe ? { thinServe: true } : {}),
         };
       }
     } catch { recordSubjectServe = null; }
@@ -27695,6 +28070,24 @@ async function gatherPapersBody(rawQuery, opts) {
       }
     }
   } catch { /* keep specificity order */ }
+  // Action verb seat (2026-11-02, search fix wave, Lane A fix
+  // 3): the fanout rungs are slices of this list, and the
+  // question's action verb can sit below every slice on
+  // specificity alone ("walk" at 0.4, in no rung and in none of
+  // the scorer's core terms). When no action verb holds a seat
+  // in the first slice and one exists further down, it swaps
+  // with the slice's last term: one swap, so the verb reaches
+  // at least one executed query.
+  try {
+    const firstSlice = ranked.slice(0, 4);
+    if (!firstSlice.some((t) => structuralTermIsActionVerb(t))) {
+      const verbIdx = ranked.findIndex((t) => structuralTermIsActionVerb(t));
+      if (verbIdx >= 4) {
+        const [verb] = ranked.splice(verbIdx, 1);
+        ranked.splice(3, 0, verb);
+      }
+    }
+  } catch { /* specificity order stands */ }
 
   // ── MODEL-PROPOSED CONCEPT GROUPS (2026-10-13) ──
   // If any specific ranked term is covered by NEITHER the hand written
@@ -27867,7 +28260,14 @@ async function gatherPapersBody(rawQuery, opts) {
     // is undefined, since it's only ever a dictionary VALUE, never a KEY . so
     // a query that names the scientific name directly, alongside some OTHER
     // organism's common name, could resolve to the wrong organism entirely.
-    const expanded = orgInfo.orgPhrases.flatMap((p) =>
+    // The pick runs over the validated phrases (2026-11-02,
+    // search fix wave, Lane C): orgPhrases keeps every
+    // SYNONYMS bearing token's family for the analysis, but
+    // the organism term retrieval anchors on must be an
+    // organism the slot actually admitted.
+    const slotPhrases = (orgInfo.validatedOrgPhrases && orgInfo.validatedOrgPhrases.length)
+      ? orgInfo.validatedOrgPhrases : orgInfo.orgPhrases;
+    const expanded = slotPhrases.flatMap((p) =>
       ORGANISM_BINOMIALS.has(p.toLowerCase()) ? [p] : (SYNONYMS[p.toLowerCase()] || [])
     );
     // Case-INSENSITIVE binomial detection, then capitalize properly.
@@ -27884,7 +28284,12 @@ async function gatherPapersBody(rawQuery, opts) {
     } catch { /* the race below stands */ }
     const sciRaw = (analysisOrganism
       ? expanded.find((e) => e.toLowerCase() === analysisOrganism)
-      : null) || expanded.find((e) => /^[a-z]+ [a-z]+$/i.test(e) && e.split(" ").length === 2);
+      : null)
+      // Validated binomials win over the bare shape test
+      // (2026-11-02, search fix wave, Lane C), the same
+      // preference analyzeQuery's primary pick now makes.
+      || expanded.find((e) => ORGANISM_BINOMIALS.has(e.toLowerCase()))
+      || expanded.find((e) => /^[a-z]+ [a-z]+$/i.test(e) && e.split(" ").length === 2);
     if (sciRaw) {
       // Proper binomial capitalization: "Hermetia illucens"
       const parts = sciRaw.split(" ");
@@ -27895,7 +28300,7 @@ async function gatherPapersBody(rawQuery, opts) {
       organismTerm = '"' + expanded[0] + '"';
     } else {
       // Last resort: quote the detected phrase itself
-      organismTerm = '"' + orgInfo.orgPhrases[0] + '"';
+      organismTerm = '"' + slotPhrases[0] + '"';
     }
   }
 
@@ -27916,7 +28321,9 @@ async function gatherPapersBody(rawQuery, opts) {
     // regex here would fire a bogus supplementary search for "Gene editing"
     // as if it were a second organism whenever a query mentioned CRISPR
     // alongside a real species.
-    const raw = orgInfo.orgPhrases.flatMap((p) => {
+    const slotPhrasesForSecondary = (orgInfo.validatedOrgPhrases && orgInfo.validatedOrgPhrases.length)
+      ? orgInfo.validatedOrgPhrases : orgInfo.orgPhrases;
+    const raw = slotPhrasesForSecondary.flatMap((p) => {
       if (ORGANISM_BINOMIALS.has(p.toLowerCase())) return [p];
       return (SYNONYMS[p.toLowerCase()] || []).filter((e) => ORGANISM_BINOMIALS.has(e.toLowerCase()));
     });
@@ -27994,6 +28401,30 @@ async function gatherPapersBody(rawQuery, opts) {
     // which meant "black" (in "black soldier fly") counted as "organism
     // present" → injection was skipped → search ran without the species.
     rungs = rungs.map((rung) => [organismTerm, ...rung]);
+  }
+
+  // Method subject survival (2026-11-02, search fix wave, Lane
+  // E fix 2): on a measurement intent question, the named
+  // subject phrase must survive into at least one executed
+  // rung. The MNP1 specimen's expansion produced a single group
+  // ("activity") and every executed query was that one word:
+  // manganese and peroxidase appeared in no query retrieval
+  // ran, so no method paper for the named enzyme could ever
+  // arrive. When no rung (and no organism term) carries the
+  // subject's head word, a subject rung in the method leg's own
+  // form leads the ladder.
+  if (detectMeasurementIntent(rawQuery)) {
+    try {
+      const subjectPhrase = methodSubjectPhrase(rawQuery);
+      if (subjectPhrase) {
+        const head = subjectPhrase.split(/\s+/)[0];
+        const carried = rungs.some((rung) => rung.some((t) => String(t).toLowerCase().includes(head)))
+          || (organismTerm && organismTerm.toLowerCase().includes(head));
+        if (!carried) {
+          rungs.unshift([...subjectPhrase.split(/\s+/), "determination", "assay"]);
+        }
+      }
+    } catch { /* the rungs stand as built */ }
   }
 
   // The fanout sends the RIGHT syntax to EACH engine. This is the most
@@ -28424,35 +28855,40 @@ async function gatherPapersBody(rawQuery, opts) {
   // continuation below share (diag.rungs, source totals, the
   // Dive's progress callback), so the two can never drift.
   let ladderRungsExecuted = 0;
-  const recordRungResults = (i, rungResults, rungNames, continuation) => {
-    // Not searched is a distinct recorded state (2026-10-22,
-    // L2-2): a source the rung's funding plan never fired carries
-    // the "not_searched" status from runFanoutPairs. It is not ok,
-    // it adds no count, and it does not count as an attempt in the
-    // source totals below; the per rung entry names it
-    // (notSearched: true) and the totals carry a notSearched count,
-    // so the coverage record says the source was never asked
-    // rather than that it answered with zero.
-    // Answered only on a real response (2026-10-23, L2-1): a
-    // fulfilled result carrying the fetchError mark (fetchFailed)
-    // is a fetcher that swallowed its own error, not a source
-    // that answered with zero. It records as status "error" with
-    // ok false, the same standing a rejected promise gets, so no
-    // surface downstream can count it as answered.
-    const perSource = rungResults.map((r, idx) => {
-      const fetchError = r.status === "fulfilled" && Array.isArray(r.value) && !!r.value.fetchError;
-      return {
-        source: rungNames[idx] || sourceNames[idx],
-        status: fetchError ? "error" : r.status,
-        notSearched: r.status === "not_searched",
-        count: r.status === "fulfilled" && !fetchError ? (r.value || []).length : 0,
-        error: r.status === "rejected"
-          ? String(r.reason && r.reason.message || r.reason).slice(0, 120)
-          : fetchError ? String(r.value.fetchError).slice(0, 120) : null,
-      };
-    });
-    const got = perSource.reduce((n, x) => n + x.count, 0);
-    diag.rungs.push(continuation ? { terms: rungs[i], got, perSource, continuation: true } : { terms: rungs[i], got, perSource });
+  // The per source outcome computation every recording path
+  // shares (2026-11-02, search fix wave, Lane D): one settled
+  // result becomes one outcome entry, with the not searched and
+  // fetchError standings recordRungResults has always applied.
+  // Not searched is a distinct recorded state (2026-10-22,
+  // L2-2): a source the funding plan never fired carries the
+  // "not_searched" status from runFanoutPairs. It is not ok, it
+  // adds no count, and it does not count as an attempt in the
+  // source totals below. Answered only on a real response
+  // (2026-10-23, L2-1): a fulfilled result carrying the
+  // fetchError mark (fetchFailed) is a fetcher that swallowed
+  // its own error, not a source that answered with zero; it
+  // records as status "error" with ok false, the same standing
+  // a rejected promise gets.
+  const perSourceOf = (settled, names) => (settled || []).map((r, idx) => {
+    const fetchError = r.status === "fulfilled" && Array.isArray(r.value) && !!r.value.fetchError;
+    return {
+      source: names[idx] || sourceNames[idx],
+      status: fetchError ? "error" : r.status,
+      notSearched: r.status === "not_searched",
+      count: r.status === "fulfilled" && !fetchError ? (r.value || []).length : 0,
+      error: r.status === "rejected"
+        ? String(r.reason && r.reason.message || r.reason).slice(0, 120)
+        : fetchError ? String(r.value.fetchError).slice(0, 120) : null,
+    };
+  });
+
+  // The source totals fold every recording path shares: totals
+  // accumulate across every recorded attempt, the openAlexCommon
+  // slot folds into openAlex, and the Dive progress callback
+  // fires with the answered count. Extracted from
+  // recordRungResults so the post ladder rounds below record
+  // through the same accounting instead of bypassing it.
+  const foldSourceOutcomes = (perSource) => {
     /* Accumulate across rungs rather than overwriting.
      *
      * This was `diag.sourceOutcomes = perSource`, so after a search that
@@ -28518,7 +28954,70 @@ async function gatherPapersBody(rawQuery, opts) {
         opts.onDbProgress({ answered, total: sourceNames.length });
       }
     } catch (cbErr) { console.error("[Cerebrum] search.js onDbProgress:", cbErr); }
+  };
+  const recordRungResults = (i, rungResults, rungNames, continuation) => {
+    const perSource = perSourceOf(rungResults, rungNames);
+    const got = perSource.reduce((n, x) => n + x.count, 0);
+    diag.rungs.push(continuation ? { terms: rungs[i], got, perSource, continuation: true } : { terms: rungs[i], got, perSource });
+    foldSourceOutcomes(perSource);
     return got;
+  };
+  /* Recording for the post ladder rounds (2026-11-02, search
+   * fix wave, Lane D): recordRungResults used to be the ONLY
+   * writer of the coverage accounting, and it runs only for the
+   * ladder and its continuation. Every later round — the raw
+   * fallback net, the concept expansion, the broad terms rung,
+   * topic memory, the natural language net, the relaxed boolean
+   * net, the foundational lane, decomposition, the secondary
+   * organism pass, the clause fanouts — concatenated its papers
+   * into the pool and wrote nothing, so when the ladder itself
+   * was budget starved to zero funded sources, the record
+   * marked all 14 databases not searched on a run that served
+   * cited papers those rounds gathered (the DRP4 specimen:
+   * gathered 22, cited 3, databasesAnswered 0, and a coverage
+   * note claiming the answer was built from the 0 that did).
+   * This writer stamps each fulfilled paper's provenance
+   * (the _fromSource stamp runFanoutPairs applies to its own
+   * rounds) and folds the round's per source outcomes through
+   * the same totals, so the coverage record names every round
+   * that actually ran. It writes no rung entry: the rounds are
+   * not ladder rungs, and the record's rung list stays the
+   * ladder's own. */
+  const recordRoundResults = (settled, names) => {
+    try {
+      for (let idx = 0; idx < (settled || []).length; idx++) {
+        const r = settled[idx];
+        if (r && r.status === "fulfilled" && Array.isArray(r.value)) {
+          for (const paper of r.value) {
+            try {
+              if (paper && typeof paper === "object" && !paper._fromSource) paper._fromSource = names[idx];
+            } catch { /* the stamp is best effort */ }
+          }
+        }
+      }
+      // The count rule (2026-11-02, Lane D, reconciled with
+      // the wave eight r3 pin): a post ladder round's paper
+      // count folds into the totals only for a source the
+      // recorded attempts so far have counted no papers for.
+      // The ladder's own counts are the record's per source
+      // paper counts, and a fallback net returning another
+      // batch from a source that already answered must not
+      // inflate them (the r3 parity scenario: three recorded
+      // nets at three papers each read as nine from a fetcher
+      // that returned three). The DRP4 shape is the opposite
+      // pole and the reason the fold exists at all: the ladder
+      // counted zero everywhere, so the fallback's counts DO
+      // land, and the source stands answered with its papers
+      // accounted. Status, attempts, and errors fold
+      // unconditionally either way.
+      const outcomes = perSourceOf(settled, names).map((o) => {
+        const key = o.source === "openAlexCommon" ? "openAlex" : o.source;
+        const prev = diag.sourceTotals ? diag.sourceTotals.get(key) : null;
+        if (prev && prev.count > 0 && o.count > 0) return { ...o, count: 0 };
+        return o;
+      });
+      foldSourceOutcomes(outcomes);
+    } catch { /* recording must never break retrieval */ }
   };
   for (let i = 0; i < rungs.length && i < MAX_LADDER_RUNGS; i++) {
     // Subrequest ledger gate (2026-10-13): the primary rung always
@@ -28613,6 +29112,7 @@ async function gatherPapersBody(rawQuery, opts) {
       source: ["europePMC","semanticScholar","openAlex"][i],
       count: r.status === "fulfilled" ? (r.value || []).length : 0,
     }));
+    recordRoundResults(rawFallback, ["europePMC", "semanticScholar", "openAlex"]);
   }
   endCascadeYield(yieldRaw);
 
@@ -28751,6 +29251,7 @@ async function gatherPapersBody(rawQuery, opts) {
         ])
       );
       results = results.concat(expandedResults);
+      recordRoundResults(expandedResults, expandedArr.flatMap(() => ["europePMC", "semanticScholar", "openAlex"]));
       diag.conceptExpanded = expandedArr;
       diag.conceptExpandedCount = expandedResults.reduce(
         (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
@@ -28786,6 +29287,7 @@ async function gatherPapersBody(rawQuery, opts) {
       openAlex(broadQuery, 10, openAlexKey, ledger),
     ]);
     results = results.concat(broadResults);
+    recordRoundResults(broadResults, ["europePMC", "semanticScholar", "openAlex"]);
     diag.broadTermsRung = {
       terms: stillUncoveredTerms.slice(),
       query: broadQuery,
@@ -28822,6 +29324,7 @@ async function gatherPapersBody(rawQuery, opts) {
         ])
       );
       results = results.concat(memResults);
+      recordRoundResults(memResults, recalledQueries.flatMap(() => ["europePMC", "semanticScholar"]));
       diag.topicMemoryRecall = recalledQueries;
       diag.topicMemoryCount = memResults.reduce(
         (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
@@ -28871,6 +29374,7 @@ async function gatherPapersBody(rawQuery, opts) {
       }
     }
     results = results.concat(nlFallback);
+    recordRoundResults(nlFallback, ["semanticScholar", "europePMC", "openAlex"]);
     diag.nlFallback = nlFallback.reduce(
       (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
     );
@@ -28918,6 +29422,7 @@ async function gatherPapersBody(rawQuery, opts) {
         pubmed(relaxedNaturalQ, 12, ncbiKey, ledger, { structuredQuery: relaxedBoolQ }),
       ]);
       results = results.concat(relaxedResults);
+      recordRoundResults(relaxedResults, ["europePMC", "pubmed"]);
       diag.relaxedBoolean = { query: relaxedBoolQ, count: relaxedResults.reduce(
         (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0) };
     }
@@ -29093,6 +29598,13 @@ async function gatherPapersBody(rawQuery, opts) {
           openAlex(laneQuery, 12, openAlexKey, ledger, { sort: "cited_by_count:desc" }),
           semanticScholar(laneQuery, 10, s2Key, ledger, { sort: "citationCount:desc" }),
         ];
+        // The lane's source names, built alongside the calls
+        // (2026-11-02, search fix wave, Lane D) so the recording
+        // below can never drift from the composition: the
+        // optional legs append in the same order the calls do.
+        const laneNames = exposureShape && exposureBoolean
+          ? ["europePMC", "pubmed", "openAlex"]
+          : ["europePMC", "openAlex", "semanticScholar"];
         if (methodShape) {
           // 2026-10-21 (search diagnosis): the method leg. The
           // dedicated method literature for the lane's founding
@@ -29123,12 +29635,14 @@ async function gatherPapersBody(rawQuery, opts) {
             ? subjectPhrase + " determination assay activity measurement"
             : laneQuery;
           laneCalls.push(crossref(methodQuery, 12, ledger));
+          laneNames.push("crossref");
         }
         if (foundingForm) {
           laneCalls.push(
             europePMC(foundingForm, 12, ledger, { sort: "CITED desc" }),
             openAlex(foundingForm, 12, openAlexKey, ledger, { sort: "cited_by_count:desc" }),
           );
+          laneNames.push("europePMC", "openAlex");
         }
         const laneResults = await _settle(laneCalls);
         // Tag the lane's papers: the record of which papers the
@@ -29144,6 +29658,7 @@ async function gatherPapersBody(rawQuery, opts) {
           }
         }
         results = results.concat(laneResults);
+        recordRoundResults(laneResults, laneNames);
         diag.foundationalLane = {
           query: laneQuery,
           foundingQuery: foundingForm || null,
@@ -29155,6 +29670,15 @@ async function gatherPapersBody(rawQuery, opts) {
       }
       endCascadeYield(yieldLane);
     }
+  }
+  // Method lane outcome (2026-11-02, search fix wave, Lane E
+  // fix 2): a detected method question whose foundational lane
+  // never ran — no lane query could be built, or the budget
+  // refused it — is a named failure state in the record, not a
+  // silent absence. MNP1's record held no lane entry at all and
+  // nothing anywhere said the lane had been owed.
+  if (methodShape && !diag.foundationalLane && !diag.methodFailureState) {
+    diag.methodFailureState = "method-lane-not-run";
   }
 
   // Add results for each sub-question of a compound query. Not gated on
@@ -29182,8 +29706,10 @@ async function gatherPapersBody(rawQuery, opts) {
         // every clause fanout's results were silently dropped
         // (2026-10-14, wave eight round three). The paired
         // runner settles the clause's fetchers for real.
-        const subRes = await runFanoutPairs(fanout(sub, false));
+        const clauseFanout = fanout(sub, false);
+        const subRes = await runFanoutPairs(clauseFanout);
         results = results.concat(subRes);
+        recordRoundResults(subRes, clauseFanout.pairs.map((p) => p.name));
         // The executed term list as a list, for the search record;
         // the keyed count below stays for the funnel diagnostics.
         (diag.clauseQueries || (diag.clauseQueries = [])).push(sub.join(" "));
@@ -29226,6 +29752,7 @@ async function gatherPapersBody(rawQuery, opts) {
             openAlex(sq, 6, openAlexKey, ledger),
           ]);
           results = results.concat(decompRes);
+          recordRoundResults(decompRes, ["europePMC", "semanticScholar", "openAlex"]);
           (diag.questionDecomposition || (diag.questionDecomposition = []))
             .push({ aspect: decomp.aspects[qi].aspect, query: decomp.aspects[qi].query });
           diag["decomp:" + sq.slice(0, 40)] = decompRes.reduce(
@@ -29273,6 +29800,7 @@ async function gatherPapersBody(rawQuery, opts) {
           biorxiv(sciName + " " + topicStr2, 6, ledger),
         ]);
         results = results.concat(secResults);
+        recordRoundResults(secResults, ["europePMC", "pubmed", "openAlex", "crossref", "semanticScholar", "doaj", "biorxiv"]);
         // The executed query (plain form; boolean engines receive
         // the same terms in their dialect), for the search record.
         (diag.secondaryOrganismQueries || (diag.secondaryOrganismQueries = [])).push(sciName + " " + topicStr2);
@@ -29742,6 +30270,24 @@ async function gatherPapersBody(rawQuery, opts) {
       // as properties on the returned paper object.
       const gateCoreHits = gateTerms.filter(has).length;
       const gateCoreTitleHits = gateTerms.filter(hasTitle).length;
+      // Title collision profile (2026-11-02, search fix wave,
+      // Lane A fix 4): how many gate terms the ABSTRACT engages
+      // that the title did not already hit, and whether an
+      // abstract exists to judge at all. The floor's title
+      // strength rescue below reads these: two title hits on
+      // the ambiguous words themselves, with no other central
+      // concept engaged in the abstract, is the collision
+      // signature (the "Eat a Bowl of Tea" literary papers on
+      // the after dinner walk question), and it must rescue
+      // nothing. Abstractless papers keep the exemption the
+      // title phrase carry rule already carries: a paper with
+      // no abstract cannot be judged by its abstract.
+      const gateTitleHitSet = new Set(gateTerms.filter(hasTitle));
+      const abstractHayForTitle = abstract.toLowerCase();
+      const gateAbstractOtherHits = gateTerms.filter(
+        (t) => !gateTitleHitSet.has(t) && matcherFor(t).test(abstractHayForTitle)
+      ).length;
+      const gateHasAbstract = abstract.length > 0;
 
       const contentHits = contentTerms.filter(has).length;
       const titleContentHits = contentTerms.filter(hasTitle).length;
@@ -30097,6 +30643,8 @@ async function gatherPapersBody(rawQuery, opts) {
         contentCoverage,
         organismPresent,
         gateCoreHits,             // used by the downstream .filter()
+        gateAbstractOtherHits,    // Lane A fix 4: abstract engagement outside the title hit terms
+        gateHasAbstract,          // Lane A fix 4: the abstractless exemption input
         gateCoreTitleHits,
         nlGroupHits,              // NL net papers only; 0 for the rest
       };
@@ -30189,7 +30737,15 @@ async function gatherPapersBody(rawQuery, opts) {
         else if (gateTerms.length <= 4) required = 2;
         else if (gateTerms.length <= 6) required = 2;
         else required = 3;
-        const titleStrong = coreTitleHits >= 2;
+        // Title strength with the collision discount
+        // (2026-11-02, search fix wave, Lane A fix 4): the
+        // rescue stands only when the paper's abstract engages
+        // at least one core term beyond the ones its title hit,
+        // or the paper has no abstract to judge (the carry
+        // rule's exemption). Two title hits on the ambiguous
+        // words with nothing else engaged admit nothing.
+        const titleStrong = coreTitleHits >= 2
+          && (p.gateHasAbstract === false || (p.gateAbstractOtherHits || 0) >= 1);
         // REVIEW SUBJECT FLOOR PASS (2026-10-23, see the helper
         // above; generalized 2026-10-24, Lane 2): a review that
         // engages a central concept in title and abstract, or
@@ -30993,6 +31549,33 @@ async function gatherPapersBody(rawQuery, opts) {
       });
     } catch { /* the diagnostic must never break retrieval */ }
   }
+  // Method subject outcome (2026-11-02, search fix wave, Lane
+  // E fix 2): after every round has run, a detected method
+  // question whose executed queries still hold no subject term
+  // is the second named failure state. The survival guard above
+  // seats the subject in a rung before the ladder fires, so
+  // this stamp means the subject was lost anyway (a rebuilt
+  // boolean, a continuation that re-ran without it) and the
+  // record must say so rather than let the serve look like an
+  // ordinary thin draw.
+  if (detectMeasurementIntent(rawQuery) && !diag.methodFailureState) {
+    try {
+      const subjectPhrase = methodSubjectPhrase(rawQuery);
+      if (subjectPhrase) {
+        const head = subjectPhrase.split(/\s+/)[0];
+        const executed = [];
+        for (const r of diag.rungs || []) executed.push((r.terms || []).join(" "));
+        if (diag.rawFallbackQuery) executed.push(diag.rawFallbackQuery);
+        if (Array.isArray(diag.clauseQueries)) executed.push(...diag.clauseQueries);
+        if (Array.isArray(diag.secondaryOrganismQueries)) executed.push(...diag.secondaryOrganismQueries);
+        if (diag.foundationalLane && diag.foundationalLane.query) executed.push(diag.foundationalLane.query);
+        if (booleanQuery) executed.push(booleanQuery);
+        if (!executed.some((q) => String(q).toLowerCase().includes(head))) {
+          diag.methodFailureState = "method-subject-not-in-any-executed-query";
+        }
+      }
+    } catch { /* the check is diagnostic, never a requirement */ }
+  }
   diag.funnel = funnel;
   if (ledger) diag.subrequests = ledger.snapshot();
   return { papers: rerankedFinal, _diag: diag };
@@ -31674,6 +32257,60 @@ async function evidenceStructure(papers, ledger = null) {
   } catch { return null; }
 }
 
+/* Venting routing (2026-11-02, search fix wave, Lane D): the
+ * bare "i feel" entry in the handler's conversational list
+ * routed ANY "i feel" opening to the persona responder,
+ * including symptom questions carrying clinical content — the
+ * FEV3 specimen ("I feel freezing and shivering even though my
+ * forehead is hot, why is my body doing that on purpose")
+ * never reached search at all. "I feel" now routes
+ * conversational only when an emotion or state word follows
+ * it, the shape the sibling "im (sad|happy|...)" entry already
+ * uses; the other venting openers (i think im, i need to vent,
+ * i just wanted to talk) stand as they were. And a symptom
+ * question carrying a why, how, or what gets a research
+ * override ahead of the venting test: an emotion word beside
+ * body content and a real question ("i feel bad and my
+ * forehead is hot, why") is a symptom ask, not venting. The
+ * symptom list is the bounded vocabulary of body reports:
+ * what a person says they feel in their body, as opposed to
+ * the emotion words above. */
+const VENTING_EMOTION_WORDS = [
+  "sad", "happy", "bored", "tired", "lonely", "angry", "scared",
+  "stressed", "depressed", "anxious", "bad", "good", "great",
+  "awful", "terrible", "down", "upset", "overwhelmed",
+  "exhausted", "sleepy", "worried", "nervous", "guilty",
+  "frustrated", "annoyed", "restless", "uneasy", "calm", "fine",
+  "okay", "ok", "better", "worse", "stuck", "lost", "empty",
+  "hopeless", "drained",
+];
+const VENTING_SYMPTOM_WORDS = new Set([
+  "freezing", "shivering", "shivers", "chills", "fever", "feverish",
+  "temperature", "forehead", "sweating", "sweats", "dizzy",
+  "dizziness", "nauseous", "nausea", "vomiting", "cough", "coughing",
+  "rash", "pain", "ache", "aches", "aching", "swollen", "swelling",
+  "breath", "breathing", "pulse", "heartbeat", "faint", "weak",
+  "numb", "tingling", "headache", "migraine", "cramps", "bleeding",
+  "bruise", "sore", "hurts", "hurt", "burning", "itching", "itchy",
+  "hot", "cold", "stiff", "trembling", "shaking",
+]);
+const VENTING_EMOTION_RE = new RegExp(
+  "^i feel (" + VENTING_EMOTION_WORDS.join("|") + ")\\b"
+);
+export function isVentingConversational(small) {
+  const s = String(small || "");
+  const venting = VENTING_EMOTION_RE.test(s)
+    || /^i think im\b/.test(s)
+    || /^i need to vent\b/.test(s)
+    || /^i just wanted to talk\b/.test(s);
+  if (!venting) return false;
+  if (/\b(why|how|what)\b/.test(s)) {
+    const toks = s.split(/[^a-z0-9]+/).filter(Boolean);
+    if (toks.some((t) => VENTING_SYMPTOM_WORDS.has(t))) return false;
+  }
+  return true;
+}
+
 export async function onRequest(context) {
   // The subrequest ledger for this invocation is created HERE, not
   // in the pipeline: the rate limit checks and the retention sweep
@@ -32152,9 +32789,14 @@ async function runSearchPipeline(pctx) {
       // Conversational fillers
       /^(ok|okay|k|sure|alright|got it|i see|makes sense|hm|hmm|huh|lol|lmao|haha|omg)\s*$/,
       /^(yes|no|yeah|yep|nope|nah|yea|ya)\s*$/,
-      // Emotional venting (not scientific)
+      // Emotional venting (not scientific). The bare "i feel"
+      // opener that used to sit here is gone (2026-11-02,
+      // search fix wave, Lane D): it routed symptom questions
+      // to the persona responder before search. Venting is
+      // judged by isVentingConversational below, which requires
+      // an emotion word after "i feel" and yields to a symptom
+      // question carrying a why, how, or what.
       /^(im (sad|happy|bored|tired|lonely|angry|scared|stressed|depressed|anxious))\b/,
-      /^(i feel|i think im|i need to vent|i just wanted to talk)\b/,
       // Commit 62 . additions from real usage. Each of these previously fell
       // through to a literature search and came back as a failed paper hunt.
       /^(how (are|r) (you|u|ya)|hows it going|how you doing|you good|you there|u there)\b/,
@@ -32168,7 +32810,8 @@ async function runSearchPipeline(pctx) {
       /^(who|what) (is|are) (your|ur) (creator|maker|owner|dev|developer)\b/,
     ];
 
-    const isConversational = CONVERSATIONAL_PATTERNS.some(p => p.test(small));
+    const isConversational = CONVERSATIONAL_PATTERNS.some(p => p.test(small))
+      || isVentingConversational(small);
 
     if (isConversational) {
       // Commit 62 . the persona responder moved to a module-level function
@@ -33941,6 +34584,19 @@ async function runSearchPipeline(pctx) {
     if (!isNameSearch && papers.length > 0) {
       papers = programmaticValidationPasses(query, papers, _dynForValidation);
       if (papers.length === 0) passesEmptiedShelf = true;
+      // Retrieval failure accounting (2026-11-02, search fix
+      // wave, Lane B Group B): a shelf the passes emptied was
+      // literature bearing by construction (this block only
+      // runs on a non empty shelf), so the state is stamped on
+      // the diag for the record to carry as a named retrieval
+      // failure, distinct from a true no literature state
+      // (gathered zero). The passes' per paper verdicts are
+      // untouched: the same rule that empties these shelves
+      // correctly drops the invented term probes' collision
+      // pools, and loosening it would readmit them.
+      if (passesEmptiedShelf && gResult && gResult._diag) {
+        try { gResult._diag.passesEmptiedShelf = true; } catch { /* accounting never breaks the serve */ }
+      }
       programmaticShelf = papers.slice();
       if (foundationalFates) {
         advanceFoundationalFates(foundationalFates, "passes", programmaticShelf);
@@ -34048,6 +34704,25 @@ async function runSearchPipeline(pctx) {
         // with the same predicate and reaches the same verdict.
         for (const p of citablePapers) {
           if (p && (paperGateScore(p) ?? 99) < TOPICAL_GATE_FLOOR) { try { p._subjectRescued = true; } catch { /* tagging is best effort */ } }
+        }
+        // Method tier binding (2026-11-02, search fix wave,
+        // Lane E fix 3): on a measurement intent question, the
+        // method machinery only ever REORDERED the citable set;
+        // citability never tested method tier, so a set holding
+        // zero method papers served anyway and the gap verdict
+        // ("No measurement method paper was found among the
+        // sources") merely annotated a serve it should have
+        // bound. The MNP3 specimen cited a tier 0 substrate
+        // paper at relevance 78 on a question asking how the
+        // enzyme's activity is measured. Now the verdict binds:
+        // a citable set with no paper above tier 0 on a
+        // measurement question is no evidence for that question,
+        // and the run takes the honest no results state (whose
+        // gap line names the missing method paper) instead of
+        // serving a production paper as the method answer.
+        if (measurementIntent && citablePapers.length > 0
+            && citablePapers.every((p) => paperMethodTier(p) === 0)) {
+          citablePapers = [];
         }
         serveGateNoEvidence = citablePapers.length === 0;
       } catch {
@@ -39328,6 +40003,115 @@ async function runSearchPipeline(pctx) {
                 }
               }
             } catch { /* a failed rebuild falls through to the refusal below */ }
+            // The thin serve fallback (2026-11-02, search fix
+            // wave, Lane B Group C): when the subject rebuild
+            // pool is empty, the refusal below used to stand
+            // even when the answer's OWN cited papers were
+            // citable — the all or nothing consequence the
+            // diagnosis measured on four literature bearing
+            // specimens whose resolved subject was a side word
+            // ("drown" beside a drip irrigation set, "boiling"
+            // beside a treeline set), each bounced with
+            // citableBefore of 1 to 10 and a cited set inside
+            // citable. The serve consequence is now graded, but
+            // only where the diagnosis's own condition holds:
+            // the resolved subject is a side word, which the
+            // serve can recognize by two marks together. Its
+            // concept group is BARE — no member beyond the term
+            // and its own inflections, so the word never
+            // resolved into the field's vocabulary. And the
+            // question does not name it as its grammatical
+            // subject: no causative frame opens the question
+            // (the frame route is how a true subject resolves —
+            // "does the powder guys take for muscles make your
+            // hair fall out" names powder, and its refusal is a
+            // true refusal that stands untouched, as the wave
+            // seventeen pin requires), and no organism subject
+            // resolves either. The four specimens fail both
+            // marks the other way: side words lifted from lead
+            // key phrases ("drown", "boiling", "builders",
+            // "cousin"), each with an inflection only group.
+            // And the refusal also stands when the thin pool is
+            // empty: the grocery shape (whose pool the citation
+            // gate empties, so nothing cited is citable) never
+            // reaches a thin serve at all.
+            let subjectBareWord = false;
+            try {
+              const serveStd = citationGateStandard(query, _dynForValidation);
+              const subjC = gateJudgedConcepts(serveStd).find((c) => c && c.subject);
+              const qLowServe = String(query || "").toLowerCase().replace(/\s+/g, " ").trim();
+              let organismSubject = false;
+              try {
+                const serveAnalysis = analyzeQuery(query);
+                organismSubject = !!(serveAnalysis && serveAnalysis.organism);
+              } catch { organismSubject = false; }
+              if (subjC && !SUBJECT_CAUSATIVE_FRAME.test(qLowServe) && !organismSubject) {
+                const members = subjC.group
+                  ? [...subjC.group].map((m) => String(m).toLowerCase())
+                  : [];
+                subjectBareWord = !members.some(
+                  (m) => m !== subjC.term && !sameInflection(m, subjC.term)
+                );
+              }
+            } catch { subjectBareWord = false; }
+            if (!rebuiltOverSubject && subjectBareWord) {
+              try {
+                const citableSetThin = new Set(citablePapers);
+                const citedPapersThin = [...citedIdxServe]
+                  .map((i) => evidencePapers[i - 1])
+                  .filter((p) => p && citableSetThin.has(p));
+                if (citedPapersThin.length > 0) {
+                  let gateDynThin = null;
+                  try {
+                    const baseGroupsThin = (gResult && gResult._diag && Array.isArray(gResult._diag.llmExpanded)) ? gResult._diag.llmExpanded : [];
+                    gateDynThin = buildDynLookup([...baseGroupsThin, ...buildDeterministicFallbackGroups(query, centralContentTerms(query))]);
+                  } catch { gateDynThin = null; }
+                  const prunedThin = pruneExtractiveEvidence(citedPapersThin, query, gateDynThin);
+                  const thinPool = citedPapersThin.filter((p) => p && (p._gateAuditAdmitted || prunedThin.papers.includes(p)));
+                  if (thinPool.length > 0) {
+                    const extThinClaims = remapBriefClaimsToPool(briefClaims, evidencePapers, thinPool);
+                    evidencePapers = thinPool;
+                    sourceList = evidencePapers.map(toSourceEntry);
+                    const extThin = buildExtractiveSynthesis(thinPool, extThinClaims, {
+                      query: searchQuery, queryAnalysis: analyzeQuery(searchQuery), answerLength,
+                      dynLookup: gateDynThin, isNameSearch, isFollowupMode,
+                      sourcesQueried: publicSourcesQueried(), relevanceGatedOut, ambiguity,
+                      aiGateReason: null,
+                    });
+                    if (extThin) {
+                      answer = extThin;
+                      answerTier = getLastExtractiveTier();
+                      extractiveOK = true;
+                      aiOK = false;
+                      factCheckResult = null;
+                      try {
+                        if (ledger.remaining() > SUBREQUEST_TAIL_RESERVE) {
+                          const alignThin = verifyExtractiveAlignment(answer, evidencePapers);
+                          if (alignThin && alignThin.checked) factCheckResult = alignThin;
+                        }
+                      } catch { /* the thin serve ships without the trace rather than not at all */ }
+                      unsupportedStripped = [];
+                      conceptDemoted = [];
+                      try {
+                        const synthEntry = stageHealth.find((s) => s && s.name === "synthesis");
+                        if (synthEntry) {
+                          synthEntry.ok = false;
+                          synthEntry.winner = null;
+                          synthEntry.skipReason = "the cited set did not engage the question's resolved subject and no subject engaging citable paper exists; the answer was rebuilt thin over the papers it already cited";
+                        }
+                      } catch { /* diagnostics never break the serve */ }
+                      subjectServeDiag = {
+                        fired: true, rebuilt: true, thinServe: true,
+                        cited: citedIdxServe.size,
+                        subject: subjServe.subjectTerm || null,
+                        rebuiltOver: thinPool.length,
+                      };
+                      rebuiltOverSubject = true;
+                    }
+                  }
+                }
+              } catch { /* a failed thin serve falls through to the refusal below */ }
+            }
             if (!rebuiltOverSubject) {
             subjectServeDiag = {
               fired: true,
@@ -40042,7 +40826,14 @@ async function runSearchPipeline(pctx) {
         }
       } catch { /* the recompute must never break the serve; the first computation stands */ }
     }
-    const coverageNote = buildCoverageNote(publicSourcesQueried());
+    const coverageNote = coverageNoteForServe(
+      publicSourcesQueried(),
+      gResult && gResult._diag ? gResult._diag : null,
+      {
+        gathered: gResult && Array.isArray(gResult.papers) ? gResult.papers.length : 0,
+        cited: Array.isArray(sourceList) ? sourceList.length : 0,
+      }
+    );
 
     /* Computed, not generated. Runs only when there is enough to compare and
        never blocks the answer for more than its own deadline.
