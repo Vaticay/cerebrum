@@ -17,6 +17,7 @@ import { cbDialogLockScroll, cbDialogUnlockScroll } from "./scrollLock.js";
 import { historyNav } from "./historyNav.js";
 import { fcExtractSteps, fcCompressStep, fcLabelFromSentence, fcWrapBounded, fcCoerceStepType, fcStepFromNode, fcStepsFromChart, fcChartSources, fcHasLabelledStep, fcMoveStep, fcChartNeedsConversion, fcSplitSentences, fcBuildChain, FC_LABEL_MAX } from "./fcLabel.js";
 import { safeHref } from "./textUtils.js";
+import { REGISTER_GOLD, REGISTER_GROUND, REGISTER_INK } from "./registerTokens.js";
 
 
 export function cbMotionOff() {
@@ -462,23 +463,26 @@ function fcBounds(nodes, pad = 60) {
 }
 /* Standalone file default only: an exported SVG that leaves the app
    cannot read a live palette, so fcSvgString keeps these literal
-   values as its fallback. Every in app export passes palette colors
-   instead (fcPaletteColors, M38, 2026-10-19). */
+   values as its fallback. Every in app export passes the one shared
+   register export palette instead (diagramExportColors, Wave 2). */
 const FC_EXPORT_COLORS = {
   bg: "#ffffff", fill: "#f6f7f6", stroke: "#232723", text: "#161916",
   accent: "#2e7d52", accentText: "#ffffff", edge: "#232723", decisionFill: "#eef4ef",
   shadow: "#232723",
 };
-/* The live palette as export colors, built from tokens only. The
-   drafting register (composition wave, 2026-10-26): the paper tone
-   fill is the raised surface, the edge color carries the ink weight
-   the canvas uses, and the shadow color backs the offset copy of
-   every node shape. */
-function fcPaletteColors(P, accent, at) {
+/* THE one export colour path (Wave 2, 2026-11-02). The plan found
+   two export colour systems, the Studio's palette derived set and a
+   duplicate renderer with its own green accent living in the
+   Library view. Both are gone: every export, from the Studio and
+   from the Library alike, renders through fcSvgString with these
+   register values, so an exported diagram looks the same whichever
+   door it left by. Gold is the only accent, the ground is the
+   register ground, and the ink is the register ink family. */
+export function diagramExportColors() {
   return {
-    bg: P.bg, fill: P.raised, stroke: P.ink2, text: P.ink,
-    accent, accentText: at, edge: P.ink2, decisionFill: withAlpha(accent, 0.14),
-    shadow: P.ink,
+    bg: REGISTER_GROUND, fill: REGISTER_GROUND, stroke: REGISTER_INK.ink55, text: REGISTER_INK.ink,
+    accent: REGISTER_GOLD, accentText: REGISTER_GROUND, edge: REGISTER_INK.ink72, decisionFill: REGISTER_GROUND,
+    shadow: REGISTER_INK.ink55,
   };
 }
 function fcNodeSvg(n, colors, index) {
@@ -1025,7 +1029,9 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
     }
   };
 
-  const exportColors = () => fcPaletteColors(P, accent, at);
+  /* Wave 2: the Studio exports through the shared register palette,
+     the same path the Library uses. */
+  const exportColors = () => diagramExportColors();
 
   const guardExport = () => {
     if (fcHasLabelledStep(steps)) return true;

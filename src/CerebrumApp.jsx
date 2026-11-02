@@ -102,7 +102,7 @@ import {FONT_SIZES, STATUS, PRO, COLOR, LAYOUT, accentText, relLuminance, withAl
 import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography, extractQueryTerms, highlightKeywords } from "./textUtils.js";
 
 /* Flowchart/diagram components (extracted 2026-10-07, monolith split). */
-import {DiagramStudio, Dialog, cbMotionOff, ChromeHeader, ModalChrome } from "./flowcharts.jsx";
+import {DiagramStudio, Dialog, cbMotionOff, ChromeHeader, ModalChrome, fcSvgString as sharedFcSvgString, diagramExportColors } from "./flowcharts.jsx";
 import { InboxView, ReportConductModal, PaperSharePicker, paperAttachmentFromSource } from "./inbox.jsx";
 import { SettingsView } from "./settings.jsx";
 import LearnView from "./LearnView.jsx";
@@ -134,7 +134,16 @@ import {
   Intro, CerebrumFieldCanvas, CinematicFilm, Mark, MarkBreathe,
   plateHead,
 } from "./intro.jsx";
-import { REGISTER_GOLD } from "./registerTokens.js";
+import { REGISTER_GOLD, REGISTER_GROUND, REGISTER_INK } from "./registerTokens.js";
+import { LedgerHead, LedgerSection, LedgerRow, LedgerSearch, LedgerWordAction } from "./ledger.jsx";
+
+/* Wave 2 (2026-11-02): the Library's one surface ground expression.
+   The Library is an Instrument surface, so its ground is the fixed
+   register ground and never a palette value. When the Wave 0
+   resolver lands, the coordinator swaps this one line to
+   resolveSurface("instrument") and nothing else in the Library
+   changes. */
+const LIBRARY_SURFACE_GROUND = REGISTER_GROUND;
 import { IntroAtmosphere } from "./introAtmosphere.jsx";
 
 /* Unified scroll lock (replaces the three competing implementations). */
@@ -14258,48 +14267,11 @@ function fcBounds(nodes, pad = 60) {
   }
   return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + pad * 2, h: y1 - y0 + pad * 2 };
 }
-const FC_EXPORT_COLORS = {
-  bg: "#ffffff", fill: "#f6f7f6", stroke: "#232723", text: "#161916",
-  accent: "#2e7d52", accentText: "#ffffff", edge: "#5b625b", decisionFill: "#eef4ef",
-};
-function fcNodeSvg(n) {
-  const C = FC_EXPORT_COLORS;
-  const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
-  const lines = fcWrap(n.label, Math.max(8, Math.floor((n.w - 30) / 7)));
-  const lh = 16;
-  const ty = cy - ((lines.length - 1) * lh) / 2 + 5;
-  const isAccent = n.type === "start" || n.type === "end";
-  const textFill = isAccent ? C.accentText : C.text;
-  const text = lines.map((ln, i) => `<text x="${cx}" y="${(ty + i * lh).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="${textFill}">${fcEsc(ln)}</text>`).join("");
-  let shape = "";
-  if (n.type === "start" || n.type === "end") {
-    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${n.h / 2}" fill="${C.accent}"/>`;
-  } else if (n.type === "decision") {
-    shape = `<polygon points="${cx},${n.y} ${n.x + n.w},${cy} ${cx},${n.y + n.h} ${n.x},${cy}" fill="${C.decisionFill}" stroke="${C.accent}" stroke-width="1.6"/>`;
-  } else if (n.type === "io") {
-    const s = 22;
-    shape = `<polygon points="${n.x + s},${n.y} ${n.x + n.w},${n.y} ${n.x + n.w - s},${n.y + n.h} ${n.x},${n.y + n.h}" fill="${C.fill}" stroke="${C.stroke}" stroke-width="1.5"/>`;
-  } else if (n.type === "evidence") {
-    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10" fill="${C.fill}" stroke="${C.accent}" stroke-width="1.6"/><rect x="${n.x}" y="${n.y}" width="5" height="${n.h}" rx="2.5" fill="${C.accent}"/>`;
-  } else {
-    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10" fill="${C.fill}" stroke="${C.stroke}" stroke-width="1.5"/>`;
-  }
-  return `<g>${shape}${text}</g>`;
-}
-function fcSvgString(nodes, edges, title) {
-  const C = FC_EXPORT_COLORS;
-  const b = fcBounds(nodes);
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const edgeSvg = edges.map((e) => {
-    const a = byId.get(e.from), bb = byId.get(e.to);
-    if (!a || !bb) return "";
-    const g = fcEdgeGeom(a, bb);
-    const lbl = e.label ? `<text x="${g.mx}" y="${(g.my - 7).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-style="italic" fill="${C.edge}">${fcEsc(e.label)}</text>` : "";
-    return `<path d="${g.d}" fill="none" stroke="${C.edge}" stroke-width="1.6" marker-end="url(#fcArrow)"/>${lbl}`;
-  }).join("");
-  const nodeSvg = nodes.map(fcNodeSvg).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(b.w)}" height="${Math.ceil(b.h)}" viewBox="${b.x} ${b.y} ${b.w} ${b.h}"><title>${fcEsc(title || "Flowchart")}</title><defs><marker id="fcArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="${C.edge}"/></marker></defs><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${C.bg}"/>${edgeSvg}${nodeSvg}</svg>`;
-}
+/* Wave 2 (2026-11-02): the duplicate export renderer that lived
+   here (its own colour set, its own green accent) is deleted. The
+   Library now exports through the one shared path in
+   flowcharts.jsx: fcSvgString with diagramExportColors, the same
+   renderer and the same register values the Studio uses. */
 function fcToMarkdown(nodes, edges, title) {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const out = new Map(nodes.map((n) => [n.id, []]));
@@ -14332,30 +14304,6 @@ function fcToMarkdown(nodes, edges, title) {
    frame owns the clipping, so the svg carries no radius of its
    own (it wore RADIUS.md when the frame was a small button whose
    corners it had to match from inside). */
-function FcThumb({ chart, accent }) {
-  const nodes = chart.nodes || [];
-  if (!nodes.length) return null;
-  const b = fcBounds(nodes, 30);
-  const scale = Math.min(1, 280 / b.w, 120 / b.h);
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  return (
-    <svg viewBox={`${b.x} ${b.y} ${b.w} ${b.h}`} style={{ width: "100%", height: "100%", display: "block", background: "rgba(127,140,127,0.06)" }}>
-      {(chart.edges || []).map((e) => {
-        const a = byId.get(e.from), bb = byId.get(e.to);
-        if (!a || !bb) return null;
-        const g = fcEdgeGeom(a, bb);
-        return <path key={e.id} d={g.d} fill="none" stroke={accent} strokeWidth={3} opacity={0.45} />;
-      })}
-      {nodes.map((n) => {
-        const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
-        const fill = n.type === "start" || n.type === "end" ? accent : n.type === "decision" ? withAlpha(accent, 0.35) : withAlpha(accent, 0.14);
-        if (n.type === "decision") return <polygon key={n.id} points={`${cx},${n.y} ${n.x + n.w},${cy} ${cx},${n.y + n.h} ${n.x},${cy}`} fill={fill} />;
-        if (n.type === "io") { const s = 22; return <polygon key={n.id} points={`${n.x + s},${n.y} ${n.x + n.w},${n.y} ${n.x + n.w - s},${n.y + n.h} ${n.x},${n.y + n.h}`} fill={fill} />; }
-        return <rect key={n.id} x={n.x} y={n.y} width={n.w} height={n.h} rx={n.type === "start" || n.type === "end" ? n.h / 2 : 10} fill={fill} />;
-      })}
-    </svg>
-  );
-}
 
 /* Small palette button showing the node shape. */
 function FcPaletteBtn({ type, P, accent, selected, onClick, isMobile }) {
@@ -22337,7 +22285,14 @@ function App({ profileHandle = null } = {}) {
       list = saved.slice();
     } else {
       const ql = q.toLowerCase();
-      const legacyMatch = (sv) => [sv.title, sv.authors, sv.journal].filter(Boolean).join(" ").toLowerCase().includes(ql);
+      /* Wave 2: the one Library search matches titles, abstracts,
+         collections, years, and DOIs together, the fields the plan
+         names, not titles and authors alone. */
+      const legacyMatch = (sv) => {
+        const key = sv.id || sourceKey(sv);
+        const collName = (collections || []).find((c) => (c.paperIds || []).includes(key))?.name || "";
+        return [sv.title, sv.authors, sv.journal, sv.abstract, collName, sv.year, sv.doi].filter(Boolean).join(" ").toLowerCase().includes(ql);
+      };
       const ids = zkQueryIds(q);
       list = ids
         ? saved.filter((sv) => (sv.zkId ? ids.has(sv.zkId) : legacyMatch(sv)))
@@ -22349,7 +22304,7 @@ function App({ profileHandle = null } = {}) {
     // predating that falls back to createdAt so old libraries still order.
     return list.sort((x, y) => (y.savedAt || y.createdAt || 0) - (x.savedAt || x.createdAt || 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saved, libraryQuery, librarySort, zkIndexReady]);
+  }, [saved, libraryQuery, librarySort, zkIndexReady, collections]);
 
   /* 2026-10-20, tail item 6: prune the bulk selection to the visible
      list whenever that list changes shape, whether from the saved
@@ -24956,11 +24911,18 @@ function App({ profileHandle = null } = {}) {
           exports are this browser's export receipts. ── */}
       {view === "library" && (
         <Reveal style={S.pageView} deps={[view]}>
-          <WorkspacePage
-            P={P} accent={accent} isMobile={isMobile} wide
-            title="Your library" count={saved.length + history.length + flowcharts.length}
-            description="Everything you have saved, in one place: papers, answers, and Diagram Studio diagrams. The number at the top is all of those added together. Collections are folders you can put papers in, and the Collections tab number is how many folders you have."
-            actions={saved.length > 0 ? (
+          {/* Wave 2 (2026-11-02): the Library is a bound ledger on the
+              fixed Instrument ground. The WorkspacePage shell, its
+              filled tab bar, and the prose count description are
+              deleted: the head is the word Library in the serif, the
+              saved works count as a display size numeral, and one
+              ruled search field for the whole Library. Every section
+              lives on this one page. */}
+          <div style={{ flex: 1, minHeight: "100%", position: "relative", background: LIBRARY_SURFACE_GROUND }}>
+            <div style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: isMobile ? "64px 18px 56px" : "58px 32px 70px", boxSizing: "border-box" }}>
+              <LedgerHead word="Library" count={saved.length + history.length + flowcharts.length} countLabel="works saved" />
+              {saved.length > 0 && (
+                <div style={{ marginBottom: 26 }}>saved.length > 0 ? (
               <div style={{ display: "flex", gap: SP.sm, flexWrap: "wrap", maxWidth: "100%" }}>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); libDownload("RIS", "cerebrum-saved.ris", toRIS(saved)); }}>Download citations as RIS</UIButton>
                 <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { sfx(); libDownload("BibTeX", "cerebrum-saved.bib", toBibTeX(saved)); }}>Download citations as BibTeX</UIButton>
@@ -24980,39 +24942,9 @@ function App({ profileHandle = null } = {}) {
                   <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => setConfirmClearSaved(true)}>Remove all papers</UIButton>
                 )}
               </div>
-            ) : null}
-          >
-            {/* One Library, three tabs. The counts are the same
-                accounting as the header: papers plus answers plus
-                diagrams is the header total, and each tab counts its
-                own kind, labeled in plain words. Exports are not a
-                tab or a category; export receipts are recent
-                activity at the foot of the Papers tab. */}
-            <div role="tablist" aria-label="Library sections" className="cb-lib-tabs" style={{ display: "flex", flexWrap: "wrap", border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, marginBottom: SP.xl, overflow: "hidden" }}>
-              {[
-                { key: "papers", label: "Papers and answers", count: saved.length + history.length },
-                { key: "maps", label: "Diagram Studio", count: flowcharts.length },
-                { key: "collections", label: "Collections", count: collections.length },
-              ].map((c, i) => {
-                const on = libraryTab === c.key;
-                return (
-                  <button key={c.key} role="tab" aria-selected={on} data-on={on ? "true" : "false"} className="cb-lib-tab" onClick={() => setLibraryTab(c.key)}
-                    style={{
-                      flex: "1 1 130px", minWidth: 0, border: "none",
-                      borderLeft: i ? `1px solid ${P.line}` : "none",
-                      background: on ? withAlpha(accent, 0.08) : "none",
-                      padding: "16px 16px", textAlign: "left", cursor: "pointer", fontFamily: "var(--cb-font)",
-                      minHeight: 48,
-                    }}>
-                    <div className="cb-mono" style={{ fontSize: 20, fontWeight: 500, color: P.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{c.count}</div>
-                    <div style={{ fontSize: FONT_SIZES.caption, color: on ? P.ink : P.faint, marginTop: 3 }}>{c.label}</div>
-                  </button>
-                );
-              })}
-            </div>
-            {/* The undo window for Library deletes: a removal parks
-                here for a few seconds with an Undo that restores the
-                record, instead of only a confirm before the fact. */}
+            ) : null}</div>
+              )}
+              <LedgerSearch value={libraryQuery} onChange={setLibraryQuery} placeholder="Search titles, abstracts, collections, years, DOIs" ariaLabel="Search your library" />
             {libUndo && (
               <div role="status" className="cb-lib-panel" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: SP.md, padding: "12px 16px", borderRadius: RADIUS.md, border: `1px solid ${accent}`, background: withAlpha(accent, 0.07) }}>
                 <span style={{ fontSize: FONT_SIZES.label, color: P.ink, fontFamily: "var(--cb-font)", flex: "1 1 220px" }}>{libUndo.text}</span>
@@ -25020,39 +24952,31 @@ function App({ profileHandle = null } = {}) {
                 <button type="button" onClick={() => { clearTimeout(libUndoTimer.current); setLibUndo(null); }} style={{ background: "none", border: "none", color: P.faint, cursor: "pointer", fontSize: FONT_SIZES.caption, fontFamily: "var(--cb-font)", minHeight: 44, padding: "0 8px" }}>Dismiss</button>
               </div>
             )}
-            {libraryTab === "papers" && (
-            <div key="papers" id="lib-papers" className="cb-lib-panel" style={{ scrollMarginTop: 80 }}>
+            {(<div key="papers" id="lib-papers" className="cb-lib-panel" style={{ scrollMarginTop: 80 }}>
             {saved.length === 0 && history.length === 0 ? (
-              <WorkspaceEmpty P={P} accent={accent} icon="bookmark" className="cb-lib-empty"
-                title="You have not saved anything yet"
-                body="When you read an answer, press Save on a paper you want to keep. It will show up here with its authors, journal, and year, ready to use in your own writing."
-                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Ask a question</UIButton>} />
+              /* Wave 2: an empty Library is the numeral 0 in the head
+                 and this plain text. No illustration, no card. */
+              <p style={{ margin: "8px 0 0", maxWidth: 560, fontSize: FONT_SIZES.body, color: REGISTER_INK.ink72, lineHeight: 1.65, fontFamily: "var(--cb-font)" }}>
+                Nothing saved yet. When you read an answer, press Save on a paper you want to keep. It will show up here with its authors, journal, and year, ready to use in your own writing.{" "}
+                <button type="button" onClick={() => setView("search")} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: REGISTER_GOLD, fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", fontWeight: 500 }}>Ask a question</button>
+              </p>
             ) : (
               <>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
-                  <div style={{ flex: "1 1 240px", minWidth: 0 }}>
-                    <UIField P={P} accent={accent} value={libraryQuery} onChange={setLibraryQuery}
-                      placeholder="Search by title, author, or journal" aria-label="Search your library" />
-                  </div>
-                  {/* A library sorts by when you saved it or by how old the
-                      work is — two genuinely different questions, and the
-                      modal could answer neither. */}
+                {/* Wave 2: the per section search field is deleted;
+                    the one ruled search field under the head serves
+                    the whole Library. The kind filter is deleted with
+                    the tab bar: every section shows on one page now.
+                    Sort stays, as words on the rule. */}
+                <LedgerSection title="Papers" />
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "14px 0 18px", alignItems: "center" }}>
                   <SegControl small value={librarySort} onChange={setLibrarySort} P={P} accent={accent} ariaLabel="Sort library"
                     options={[{ id: "recent", label: "Recently saved" }, { id: "year", label: "Newest research" }, { id: "title", label: "A to Z" }]} />
                 </div>
-                {/* Record type filter: papers and answers are both
-                    Library records. Answers read the investigations
-                    store as records, with title, date, and cited
-                    paper count, and open back into the investigation. */}
-                <div style={{ marginBottom: 18 }}>
-                  <SegControl small value={libraryKind} onChange={setLibraryKind} P={P} accent={accent} ariaLabel="What to show"
-                    options={[{ id: "all", label: "Everything" }, { id: "papers", label: `Papers (${saved.length})` }, { id: "answers", label: `Answers (${history.length})` }]} />
-                </div>
-                {libraryKind !== "answers" && visibleSaved.length === 0 && saved.length > 0 ? (
-                  <WorkspaceEmpty P={P} accent={accent} icon="search" className="cb-lib-empty"
-                    title="No matches"
-                    body={`Nothing in your library matches "${libraryQuery}". Try part of a title, an author last name, or part of a journal name.`}
-                    action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setLibraryQuery("")}>Clear the search</UIButton>} />
+                {visibleSaved.length === 0 && saved.length > 0 ? (
+                  <p style={{ margin: "8px 0 0", maxWidth: 560, fontSize: FONT_SIZES.body, color: REGISTER_INK.ink72, lineHeight: 1.65, fontFamily: "var(--cb-font)" }}>
+                    Nothing in your library matches &ldquo;{libraryQuery}&rdquo;. Try part of a title, an author last name, a collection name, a year, or a DOI.{" "}
+                    <button type="button" onClick={() => setLibraryQuery("")} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: REGISTER_GOLD, fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", fontWeight: 500 }}>Clear the search</button>
+                  </p>
                 ) : (
                   <>
                     {/* Bulk bar: appears the moment anything is selected. Export,
@@ -25084,20 +25008,17 @@ function App({ profileHandle = null } = {}) {
                         and spacing on the page ground now. The ground
                         colour under the Library is not changed here;
                         that choice waits on the palette ruling. */}
-                    {visibleSaved.length > 0 && (<div role="list" aria-label="Saved papers" style={{ borderTop: `1px solid ${P.line}`, overflowX: "auto" }}>
-                      {!isMobile && (
-                        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${P.line}`, minWidth: 780 }}>
-                          <DrawnCheckbox P={P} label={visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`)) ? "Deselect all papers" : "Select all papers"}
-                            checked={visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`))}
-                            onChange={() => { setSelectedSavedKeys(visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`)) ? new Set() : new Set(visibleSaved.map((s, i) => sourceKey(s) || `idx-${i}`))); }} />
-                          <span style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TITLE</span>
-                          <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>TYPE</span>
-                          <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>JOURNAL OR SOURCE</span>
-                          <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>SAVED</span>
-                          <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)", letterSpacing: TRACKING.labelTight }}>Used in</span>
-                          <span style={{ width: 76, flexShrink: 0 }} />
-                        </div>
-                      )}
+                    {visibleSaved.length > 0 && (<div role="list" aria-label="Saved papers" style={{ borderTop: `1px solid ${P.line}` }}>
+                      {/* Wave 2: the table header row is deleted. A
+                          ledger needs no column names; the title is
+                          the row, the byline carries the rest. The
+                          select all control survives as a plain word. */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0" }}>
+                        <DrawnCheckbox P={P} label={visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`)) ? "Deselect all papers" : "Select all papers"}
+                          checked={visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`))}
+                          onChange={() => { setSelectedSavedKeys(visibleSaved.length > 0 && visibleSaved.every((s, i) => selectedSavedKeys.has(sourceKey(s) || `idx-${i}`)) ? new Set() : new Set(visibleSaved.map((s, i) => sourceKey(s) || `idx-${i}`))); }} />
+                        <span style={{ fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink55, fontFamily: "var(--cb-mono)" }}>Select all papers</span>
+                      </div>
                       {visibleSaved.map((sv, i) => {
                         const key = sourceKey(sv) || `idx-${i}`;
                         const checked = selectedSavedKeys.has(key);
@@ -25121,7 +25042,7 @@ function App({ profileHandle = null } = {}) {
                         return (
                           <div key={key} role="listitem" className="cb-lib-item"
                             onClick={() => { if (selectedSavedKeys.size > 0) toggleSavedKey(key); else setPeekSavedKey(key); }}
-                            style={{ display: "flex", alignItems: isMobile ? "flex-start" : "center", gap: 12, padding: "16px", borderTop: i ? `1px solid ${P.line}` : "none", minWidth: isMobile ? 0 : 780, cursor: "pointer", "--cb-lib-i": Math.min(i, 8) }}>
+                            style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "15px 0", borderTop: `1px solid ${P.line}`, cursor: "pointer", "--cb-lib-i": Math.min(i, 8) }}>
                             {/* The checkbox visual stays small, but its
                                 tap target is a full 44 square: the bare
                                 18 square was the whole target on a phone,
@@ -25135,11 +25056,11 @@ function App({ profileHandle = null } = {}) {
                             <span style={{ flex: 1, minWidth: 0 }}>
                               {hasUrl ? (
                                 <a href={safeHref(sv.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-                                  style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, textDecoration: "none", lineHeight: 1.4, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>
+                                  style={{ display: "block", fontSize: 18, fontWeight: 500, color: REGISTER_INK.ink, textDecoration: "none", lineHeight: 1.35, fontFamily: "var(--cb-serif, Georgia, serif)" }}>
                                   {titleText}
                                 </a>
                               ) : (
-                                <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, letterSpacing: TYPE.heading.letterSpacing, fontFamily: "var(--cb-font)" }}>
+                                <span style={{ display: "block", fontSize: 18, fontWeight: 500, color: REGISTER_INK.ink, lineHeight: 1.35, fontFamily: "var(--cb-serif, Georgia, serif)" }}>
                                   {titleText}
                                 </span>
                               )}
@@ -25149,14 +25070,14 @@ function App({ profileHandle = null } = {}) {
                                   paper is judged by who wrote it and
                                   where, and that line has to be legible
                                   at ledger distance. */}
-                              <span style={{ display: "block", fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>
+                              <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink72, marginTop: 5, lineHeight: 1.6, fontFamily: "var(--cb-mono)" }}>
                                 {[sv.authors, formatJournalName(sv.journal)].filter(Boolean).join(" · ")}
                                 {sv.year ? ` · ${sv.year}` : ""}
                                 {(() => { const c = formatCitationCount(sv.citations, sv.year, "citation"); return c ? ` · ${c}` : ""; })()}
                                 {collName ? ` · ${collName}` : ""}
-                                {isMobile && typeLabel ? ` · ${typeLabel}` : ""}
-                                {isMobile && savedDate ? ` · ${new Date(savedDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""}
-                                {isMobile && usedIn.length > 0 ? ` · ${usedIn.length} investigation${usedIn.length === 1 ? "" : "s"}` : ""}
+                                {typeLabel ? ` · ${typeLabel}` : ""}
+                                {savedDate ? ` · saved ${new Date(savedDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""}
+                                {usedIn.length > 0 ? ` · ${usedIn.length} investigation${usedIn.length === 1 ? "" : "s"}` : ""}
                               </span>
                               {/* Honest legacy label: this paper lived on the
                                   server in readable form before Private Vault.
@@ -25187,35 +25108,6 @@ function App({ profileHandle = null } = {}) {
                                 </span>
                               )}
                             </span>
-                            {!isMobile && (
-                              <>
-                                <span style={{ width: 88, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={sv.type || undefined}>{typeLabel}</span>
-                                <span style={{ width: 150, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={journalLabel || undefined}>{journalLabel}</span>
-                                <span style={{ width: 92, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
-                                  {savedDate ? new Date(savedDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : ""}
-                                </span>
-                                <span style={{ width: 110, flexShrink: 0, fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)" }}
-                                  title={usedIn.length ? usedIn.map((h) => h.title).join("\n") : undefined}>
-                                  {usedIn.length ? `${usedIn.length} investigation${usedIn.length === 1 ? "" : "s"}` : ""}
-                                </span>
-                                <span style={{ width: 76, flexShrink: 0, display: "inline-flex", gap: 4, justifyContent: "flex-end", alignItems: "center" }}>
-                                  {sv.authors && (
-                                    <button onClick={(e) => { e.stopPropagation(); setView("search"); ask(`papers by ${(sv.authors || "").replace(" et al.", "")}`); }} title="More by these authors" aria-label={`More papers by ${sv.authors}`}
-                                      style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: RADIUS.md }}>
-                                      <Icon name="search" size={15} />
-                                    </button>
-                                  )}
-                                  <button onClick={(e) => { e.stopPropagation(); if (!user) { stableOnRequireAuth(); return; } setSharePaper(paperAttachmentFromSource(sv)); }} title="Send this paper into a conversation" aria-label={`Share ${sv.title || "paper"} in a conversation`}
-                                    style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: RADIUS.md }}>
-                                    <Icon name="send" size={15} />
-                                  </button>
-                                  <button onClick={(e) => { e.stopPropagation(); setSaved((prev) => prev.filter((x) => sourceKey(x) !== key)); parkLibUndo({ papers: [sv], text: `Removed "${sv.title || "a paper"}" from your library.` }); sfx(); }} title="Remove from library" aria-label={`Remove ${sv.title || "paper"} from library`}
-                                    style={{ minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: P.faint, cursor: "pointer", borderRadius: RADIUS.md }}>
-                                    <Icon name="close" size={15} />
-                                  </button>
-                                </span>
-                              </>
-                            )}
                           </div>
                         );
                       })}
@@ -25227,51 +25119,45 @@ function App({ profileHandle = null } = {}) {
             {/* Answers as Library records: the investigations store
                 read as records, not a second save model. Title, date,
                 cited paper count, open, and remove. */}
-            {libraryKind !== "papers" && history.length > 0 && (
-              <div style={{ marginTop: saved.length > 0 && libraryKind === "all" ? 28 : 0 }}>
-                {libraryKind === "all" && (
-                  <h3 style={{ margin: "0 0 10px", fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>Answers</h3>
-                )}
-                <div role="list" aria-label="Saved answers" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, overflow: "hidden" }}>
+            {history.length > 0 && (
+              /* Wave 2: the Answers list panel is deleted. Answers are
+                 ledger rows under their own serif section heading. */
+              <LedgerSection title="Answers">
+                <div role="list" aria-label="Saved answers">
                   {history
                     .filter((h) => { const q = libraryQuery.trim().toLowerCase(); return !q || String(h.title || "").toLowerCase().includes(q); })
-                    .map((h, i) => (
-                      <div key={h.id} role="listitem" className="cb-lib-item" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "14px 16px", borderTop: i ? `1px solid ${P.line}` : "none", "--cb-lib-i": Math.min(i, 8) }}>
-                        <span style={{ flex: "1 1 220px", minWidth: 0 }}>
-                          <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{h.title || "Untitled answer"}</span>
-                          <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)" }}>
-                            {h.ts ? `${new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · ` : ""}{(h.allSources || []).length} cited paper{(h.allSources || []).length === 1 ? "" : "s"}
-                          </span>
-                        </span>
-                        <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); openHistoryItem(h); }}>Open</UIButton>
-                        <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); parkLibUndo({ historyItem: h, text: `Removed the answer "${h.title || "Untitled answer"}" from your library.` }); sfx(); }}>Remove</UIButton>
-                      </div>
+                    .map((h) => (
+                      <LedgerRow key={h.id}
+                        title={h.title || "Untitled answer"}
+                        meta={`${h.ts ? `${new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · ` : ""}${(h.allSources || []).length} cited paper${(h.allSources || []).length === 1 ? "" : "s"}`}
+                        onClick={() => { sfx(); openHistoryItem(h); }}
+                        ariaLabel={`Open answer ${h.title || "Untitled answer"}`}>
+                        <LedgerWordAction onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); parkLibUndo({ historyItem: h, text: `Removed the answer "${h.title || "Untitled answer"}" from your library.` }); sfx(); }}>Remove</LedgerWordAction>
+                      </LedgerRow>
                     ))}
                 </div>
-              </div>
+              </LedgerSection>
             )}
             {/* Recent activity: the export receipts, demoted from a
                 top level category to a short list at the foot of the
                 Papers tab. Receipts live in this browser only. On a
                 phone the file name leads and the fixed date span
                 drops, so the name is never squeezed to nothing. */}
-            <div style={{ marginTop: 44 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-                <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Your downloads and imports</h2>
-                {exportLog.length > 0 && (
-                  <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.ink2, background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, padding: "4px 11px", borderRadius: RADIUS.pill, fontVariantNumeric: "tabular-nums" }}>{exportLog.length}</span>
-                )}
-              </div>
-              <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>A short list of the files this browser has made for you, and any citation files you brought in. Each line gives the file name, what kind of file it is, and when it happened. This list lives in this browser only. It does not follow your account.</p>
+            <div>
+              {/* Wave 2: the downloads list panel and its count pill
+                  are deleted. Downloads and imports are a ledger
+                  section like every other section on this page. */}
+              <LedgerSection title="Downloads and imports" />
+              <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>The files this browser has made for you, and any citation files you brought in. This list lives in this browser only. It does not follow your account.</p>
               {exportLog.length === 0 ? (
                 <p style={{ margin: 0, fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>You have not downloaded or imported anything in this browser yet. When you download your saved papers, an answer, or a Diagram Studio diagram, a line about it will appear here.</p>
               ) : (
-                <div role="list" aria-label="Your downloads and imports" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, overflow: "hidden" }}>
+                <div role="list" aria-label="Your downloads and imports">
                   {exportLog.slice(0, 8).map((r, i) => (
                     <div key={`${r.at ?? r.ts}-${i}`} role="listitem" className="cb-lib-item"
-                      style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none", "--cb-lib-i": Math.min(i, 8) }}>
-                      <span className="cb-mono" style={{ flex: "1 1 160px", minWidth: 0, fontSize: FONT_SIZES.label, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.filename}>{r.filename}</span>
-                      <span className="cb-pill" style={{ display: "inline-block", fontSize: FONT_SIZES.caption, fontWeight: 500, color: accent, border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: RADIUS.viewport, padding: "3px 12px", fontFamily: "var(--cb-font)", lineHeight: 1.4 }}>{r.kind}</span>
+                      style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 0", borderTop: `1px solid ${P.line}`, "--cb-lib-i": Math.min(i, 8) }}>
+                      <span className="cb-mono" style={{ flex: "1 1 160px", minWidth: 0, fontSize: FONT_SIZES.label, color: REGISTER_INK.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.filename}>{r.filename}</span>
+                      <span style={{ fontSize: FONT_SIZES.caption, color: REGISTER_INK.ink72, fontFamily: "var(--cb-mono)", lineHeight: 1.4 }}>{r.kind}</span>
                       {!isMobile && (
                         <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", fontVariantNumeric: "tabular-nums" }}>
                           {new Date(r.at ?? r.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · {new Date(r.at ?? r.ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
@@ -25291,78 +25177,39 @@ function App({ profileHandle = null } = {}) {
               inside the one Library page below, not page shells of their
               own. The whole view now mounts one WorkspacePage, one resident
               Nova, and one top level heading. */}
-          {libraryTab === "maps" && (
-          <div key="maps" id="lib-maps" className="cb-lib-panel" style={{ scrollMarginTop: 80 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-              <h2 style={{ margin: 0, fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)", lineHeight: 1.3 }}>Diagram Studio</h2>
-              {flowcharts.length > 0 && (
-                <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.ink2, background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, padding: "4px 11px", borderRadius: RADIUS.pill, fontVariantNumeric: "tabular-nums" }}>{flowcharts.length}</span>
-              )}
-              <div style={{ marginLeft: isMobile ? 0 : "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <UIButton P={P} accent={accent} at={at} size="sm" icon="plus" variant="primary" onClick={() => { sfx(); setView("studio"); }}>Make a diagram in Diagram Studio</UIButton>
-              </div>
-            </div>
-            <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>Things you have built in Diagram Studio, from answers, from papers, and from steps you wrote yourself. When you are signed in they are saved to your account too. When you are not, they stay in this browser.</p>
+          {(<div key="maps" id="lib-maps" className="cb-lib-panel" style={{ scrollMarginTop: 80 }}>
+            <LedgerSection title="Diagrams" action={<LedgerWordAction onClick={() => { sfx(); setView("studio"); }}>Make a diagram</LedgerWordAction>} />
+            <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>Things you have built in Diagram Studio, from answers, from papers, and from steps you wrote yourself. When you are signed in they are saved to your account too. When you are not, they stay in this browser.</p>
             {flowcharts.length === 0 ? (
-              <WorkspaceEmpty P={P} accent={accent} icon="flowchart" className="cb-lib-empty"
-                title="No Diagram Studio diagrams yet"
-                body="Build a picture of a process, a method, or a decision, as a list of steps in order. You can start from an answer, or write the steps yourself."
-                action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => { sfx(); setView("studio"); }}>Make a diagram in Diagram Studio</UIButton>} />
+              <p style={{ margin: "8px 0 0", maxWidth: 560, fontSize: FONT_SIZES.body, color: REGISTER_INK.ink72, lineHeight: 1.65, fontFamily: "var(--cb-font)" }}>
+                No diagrams yet. Build a picture of a process, a method, or a decision, as a list of steps in order. You can start from an answer, or write the steps yourself.{" "}
+                <button type="button" onClick={() => { sfx(); setView("studio"); }} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: REGISTER_GOLD, fontSize: FONT_SIZES.body, fontFamily: "var(--cb-font)", fontWeight: 500 }}>Make a diagram</button>
+              </p>
             ) : (
-              <div role="list" aria-label="Diagram Studio diagrams you have saved" style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
-                {/* Depth wave, 2026-10-26: the diagrams are a card
-                    grid now, the Library's grid side composed to the
-                    register the list side set. Each diagram is a
-                    card on the surface ground with the hairline and
-                    the extra small lift; its preview is the card's
-                    cover, full width at 150 tall on the raised
-                    ground with a hairline under it, so the picture
-                    leads and carries enough of the diagram to judge
-                    it by. Under the cover, in order: the title, the
-                    counts and date line, and the actions in the
-                    card foot, aligned across a row of cards by the
-                    auto top margin. The handlers are the row's
-                    handlers, unchanged: the cover and Open open
-                    the diagram, SVG file downloads it, Remove
-                    parks an undo. */}
-                {flowcharts.map((fc, i) => (
-                  <div key={fc.id} role="listitem" className="cb-lib-item cb-lib-card" style={{ display: "flex", flexDirection: "column", background: P.surface, border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, boxShadow: SHADOW.xs(P), overflow: "hidden", "--cb-lib-i": Math.min(i, 8) }}>
-                    <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }} aria-label={`Open ${fc.title || "untitled diagram"}`}
-                      style={{ width: "100%", height: 150, flexShrink: 0, padding: 0, border: "none", borderBottom: `1px solid ${P.line}`, background: P.raised, cursor: "pointer", overflow: "hidden", display: "block" }}>
-                      <FcThumb chart={fc} accent={accent} />
-                    </button>
-                    {/* The title holds the whole card width under
-                        the cover: nothing shares its line, so it
-                        cannot be crushed to a sliver the way the old
-                        row's title could before the row wrapped. */}
-                    <span style={{ flex: "1 1 auto", minWidth: 0, padding: "14px 16px 0" }}>
-                      <button type="button" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }}
-                        style={{ display: "block", width: "100%", padding: 0, border: "none", background: "none", cursor: "pointer", textAlign: "left", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>
-                        {fc.title || "Untitled diagram"}
-                      </button>
-                      <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)" }}>
-                        {(fc.nodes || []).filter((n) => n.type !== "start" && n.type !== "end").length} step{(fc.nodes || []).filter((n) => n.type !== "start" && n.type !== "end").length === 1 ? "" : "s"} · {(fc.edges || []).length} arrow{(fc.edges || []).length === 1 ? "" : "s"}
-                        {fc.updatedAt ? ` · ${new Date(fc.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}
-                      </span>
-                    </span>
-                    <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", padding: "10px 12px 12px", marginTop: "auto" }}>
-                      <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }}>Open</UIButton>
-                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", fcSvgString(fc.nodes || [], fc.edges || [], fc.title)); }}>SVG file</UIButton>
-                      {/* Delete is one press with the undo window as
-                          the safety net. The old armed pair was wider
-                          than the row on a phone and clipped outside
-                          it; nothing here can render wider than the
-                          row now, because the row wraps. */}
-                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); setFlowcharts((prev) => prev.filter((c) => c.id !== fc.id)); parkLibUndo({ maps: [fc], text: `Removed "${fc.title || "Untitled diagram"}" from Diagram Studio.` }); }}>Remove</UIButton>
-                    </span>
-                  </div>
-                ))}
+              <div role="list" aria-label="Diagram Studio diagrams you have saved">
+                {/* Wave 2: the card grid and its shape covers are
+                    deleted. A diagram row carries a cover made of its
+                    own step labels as words, and its SVG leaves
+                    through the one shared export path. */}
+                {flowcharts.map((fc) => {
+                  const stepWords = (fc.nodes || []).filter((n) => n.type !== "start" && n.type !== "end").map((n) => String(n.label || "").trim()).filter(Boolean);
+                  return (
+                    <LedgerRow key={fc.id}
+                      title={fc.title || "Untitled diagram"}
+                      meta={`${stepWords.length} step${stepWords.length === 1 ? "" : "s"} · ${(fc.edges || []).length} arrow${(fc.edges || []).length === 1 ? "" : "s"}${fc.updatedAt ? ` · ${new Date(fc.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : ""}`}
+                      detail={stepWords.length ? stepWords.join(" · ") : undefined}
+                      onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }}
+                      ariaLabel={`Open ${fc.title || "untitled diagram"}`}>
+                      <LedgerWordAction onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", sharedFcSvgString(fc.nodes || [], fc.edges || [], fc.title, diagramExportColors())); }}>SVG file</LedgerWordAction>
+                      <LedgerWordAction onClick={() => { sfx(); setFlowcharts((prev) => prev.filter((c) => c.id !== fc.id)); parkLibUndo({ maps: [fc], text: `Removed "${fc.title || "Untitled diagram"}" from Diagram Studio.` }); }}>Remove</LedgerWordAction>
+                    </LedgerRow>
+                  );
+                })}
               </div>
             )}
           </div>
           )}
-          {libraryTab === "collections" && (
-            <div key="collections" className="cb-lib-panel">
+          {(<div key="collections" className="cb-lib-panel">
             <CollectionsModal
               page narrow={isMobile}
               P={P} accent={accent} at={at} S={S} saved={saved} collections={collections}
@@ -25372,7 +25219,25 @@ function App({ profileHandle = null } = {}) {
             />
             </div>
           )}
-          </WorkspacePage>
+            {/* Investigations, folded in as a named ledger section:
+                the same questions the standalone view lists, in the
+                same row format. Opening one opens the record in the
+                investigations view. */}
+            {investigations.length > 0 && (
+              <LedgerSection title="Investigations">
+                <div role="list" aria-label="Investigations">
+                  {investigations.map((inv) => (
+                    <LedgerRow key={inv.id}
+                      title={inv.question || inv.title || "Untitled investigation"}
+                      meta={[inv.ts ? new Date(inv.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "", `${(inv.steps || []).length} step${(inv.steps || []).length === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
+                      onClick={() => { sfx(); openRecord(inv.id); setView("investigations"); }}
+                      ariaLabel={`Open investigation ${inv.question || inv.title || ""}`} />
+                  ))}
+                </div>
+              </LedgerSection>
+            )}
+            </div>
+          </div>
         </Reveal>
       )}
       {/* The paper peek: one saved paper opened in the app. Source
