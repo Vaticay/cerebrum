@@ -8,26 +8,20 @@
  */
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { apiDataAction, toast, REPORT_REASONS, apiDataGet, cbNotify, cbBlip, avatarSkin, relativeTime, statusBad, statusGood } from "./appUtils.js";
+import { apiDataAction, toast, REPORT_REASONS, apiDataGet, cbNotify, cbBlip, avatarSkin, relativeTime, statusBad, statusGood, accentInk } from "./appUtils.js";
 import { useKeyboardInset } from "./keyboardInset.js";
 import { historyNav } from "./historyNav.js";
 import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, TYPE, Z, SHADOW, SP, Icon, UIButton } from "./designSystem.jsx";
 import { ensureE2EEDevice, decryptThreadMessages, encryptMessage, upgradeThread, getSafetyNumber, markSafetyNumberVerified, getRecoveryPhrase, isRecoveryPhraseConfirmed, confirmRecoveryPhrase, getBackupInfo } from "./e2ee/messaging.js";
-import { REGISTER_GOLD, REGISTER_GROUND, REGISTER_INK, REGISTER_SERIF, resolveSurface } from "./registerTokens.js";
+import { REGISTER_GOLD } from "./registerTokens.js";
 
-/* Wave 2 (2026-11-02): the Inbox's one surface ground expression.
-   The Inbox is an Instrument surface: its ground is the fixed
-   register ground, never a palette value. When the Wave 0 resolver
-   lands, the coordinator swaps this one line to
-   resolveSurface("instrument") and nothing else here changes. */
-export const INBOX_SURFACE_GROUND = resolveSurface("inbox").ground;
-
-/* The trust word action: gold as a word, never a fill. Shared by the
-   letterhead and the trust sheets. */
-function TrustWordAction({ children, onClick, disabled }) {
+/* The trust action sits inside the restored Inbox panels, so it
+   takes the active surface's accessible action color rather than
+   imposing a ground or ink from another surface system. */
+function TrustWordAction({ children, onClick, disabled, color }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled}
-      style={{ background: "none", border: "none", padding: "8px 0", minHeight: 44, cursor: disabled ? "default" : "pointer", color: REGISTER_GOLD, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, opacity: disabled ? 0.55 : 1 }}>
+      style={{ background: "none", border: "none", padding: "8px 0", minHeight: 44, cursor: disabled ? "default" : "pointer", color: color || REGISTER_GOLD, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, opacity: disabled ? 0.55 : 1 }}>
       {children}
     </button>
   );
@@ -517,6 +511,19 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [msgResults, setMsgResults] = useState([]);
   const [msgSearchState, setMsgSearchState] = useState("idle");
   const [encryptedExcluded, setEncryptedExcluded] = useState(0);
+  /* Correct fix trust state: the safety number record for the open
+     encrypted DM ({ number, deviceCount, verified, changed } from
+     getSafetyNumber, null while it loads or when it cannot be
+     computed), whether the Verify sheet is open, whether an upgrade
+     is in flight, the recovery phrase an upgrade just created and
+     the reader has not confirmed yet, and this device's backup
+     record, from which the recovery not set state is derived. */
+  const [safety, setSafety] = useState(null);
+  const [verifyOpen, setVerifyOpen] = useState(false);
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
+  const [recoveryDue, setRecoveryDue] = useState(null);
+  const [backupInfo, setBackupInfo] = useState(null);
+  const [safetyLoadFailed, setSafetyLoadFailed] = useState(false);
   // Message search landing: the message a result points at, and the
   // brief highlight that marks it once it is on screen.
   const [targetMessageId, setTargetMessageId] = useState(null);
@@ -1727,6 +1734,76 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
     }
   };
 
+  /* Correct fix: the trust facts load with the thread. Only an
+     encrypted one to one conversation has a safety number; groups
+     have no fingerprint to print and say so instead. */
+  useEffect(() => {
+    let live = true;
+    setSafety(null);
+    setSafetyLoadFailed(false);
+    setVerifyOpen(false);
+    if (activeThread && activeThread.kind === "dm" && activeThread.encrypted && activeThread.otherId) {
+      getSafetyNumber(apiDataAction, activeThread.otherId)
+        .then((sn) => { if (live) setSafety(sn); })
+        .catch(() => { if (live) { setSafety(null); setSafetyLoadFailed(true); } });
+      getBackupInfo()
+        .then((bi) => { if (live) setBackupInfo(bi); })
+        .catch(() => { if (live) setBackupInfo(null); });
+    } else {
+      setBackupInfo(null);
+    }
+    return () => { live = false; };
+  }, [activeId, activeThread?.encrypted, activeThread?.kind]);
+
+  /* Upgrade this conversation: the real action behind the
+     letterhead word. upgradeThread used to have zero call sites.
+     Its ensureE2EEDevice step can create this device's recovery
+     phrase; the phrase used to be discarded at exactly this point,
+     so it is read back here and shown while it is still
+     unconfirmed, with the confirm action the store defines. */
+  const doUpgradeConversation = async () => {
+    if (!activeThread || upgradeBusy) return;
+    setUpgradeBusy(true);
+    try {
+      await upgradeThread(apiDataAction, activeThread.id);
+      let phrase = null;
+      let confirmed = true;
+      try { phrase = await getRecoveryPhrase(); } catch { phrase = null; }
+      try { confirmed = await isRecoveryPhraseConfirmed(); } catch { confirmed = false; }
+      if (phrase && !confirmed) setRecoveryDue(phrase);
+      setActiveThread((t) => (t ? { ...t, encrypted: true } : t));
+      setThreads((prev) => prev.map((t) => (t.id === activeId ? { ...t, encrypted: true } : t)));
+      toast("This conversation is now encrypted.");
+    } catch (e) {
+      toast(e.message || "Couldn't upgrade this conversation.", { tone: "error" });
+    } finally {
+      setUpgradeBusy(false);
+    }
+  };
+
+  /* Mark the safety number verified, backed by the local
+     verification store getSafetyNumber reads. Completing this is
+     the only thing that clears a key changed line: the stored
+     digest then matches the current one again. */
+  const doMarkVerified = async () => {
+    if (!activeThread || !activeThread.otherId) return;
+    try {
+      await markSafetyNumberVerified(apiDataAction, activeThread.otherId);
+      const sn = await getSafetyNumber(apiDataAction, activeThread.otherId).catch(() => null);
+      if (sn) setSafety(sn);
+      setVerifyOpen(false);
+      toast("Verified. If the key ever changes, this panel will say so.");
+    } catch (e) {
+      toast(e.message || "Couldn't save that verification.", { tone: "error" });
+    }
+  };
+
+  const doConfirmRecovery = async () => {
+    try { await confirmRecoveryPhrase(); } catch { /* the sheet closes either way; the phrase stays readable on this device */ }
+    setRecoveryDue(null);
+    toast("Noted. Keep the phrase somewhere safe.");
+  };
+
   const subtitle = activeThread
     ? (activeThread.kind === "group"
       // Group subtitle: member names, truncated. The full roster is one
@@ -2329,6 +2406,50 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 keeps a short thread resting on the composer, exactly as it
                 does everywhere else, and has no effect once the thread is
                 long enough to scroll. */}
+            {/* Correct fix: the trust wiring lives in a compact strip
+                inside the restored thread panel. It uses the panel's
+                own palette ground and ink together, prints the safety
+                number in mono when there is one, and gives upgrade and
+                verification real actions without replacing the
+                conversation layout. */}
+            <div className="cb-inbox-thread-in" style={{ borderBottom: `1px solid ${P.line}`, padding: `${SP.md}px ${SP.xl}px`, background: P.surface, color: P.ink2, fontFamily: "var(--cb-font)", animationDelay: "80ms" }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <Icon name="lock" size={15} style={{ color: activeThread.encrypted ? statusGood(P) : P.faint, flexShrink: 0, marginTop: 2 }} />
+                <div style={{ flex: 1, minWidth: 0, fontSize: FONT_SIZES.label, lineHeight: 1.55 }}>
+                  {activeThread.kind === "group" ? (
+                    <div>Group messages are not locked the way one to one encrypted messages are, so the server can read them.</div>
+                  ) : !activeThread.encrypted ? (
+                    <div>This conversation is not encrypted. The server can read these messages.</div>
+                  ) : safetyLoadFailed ? (
+                    <div>The key fingerprint could not be loaded on this device. Verification is unavailable until it loads.</div>
+                  ) : !safety ? (
+                    <div>Checking the key fingerprint for this conversation.</div>
+                  ) : safety.changed ? (
+                    <div role="alert" style={{ color: P.ink }}>The key for this conversation changed since you verified it. Compare the safety number with {activeThread.name || "them"} over a channel you already trust, then mark it verified. Only that clears this line.</div>
+                  ) : safety.verified ? (
+                    <div>You verified this key. If it ever changes, a warning will stand here in its place.</div>
+                  ) : (
+                    <div>This conversation is encrypted, but you have not verified the key yet. Verifying proves the messages reach {activeThread.name || "the person you mean"} and no one else.</div>
+                  )}
+                  {activeThread.kind === "dm" && activeThread.encrypted && safety && safety.number && (
+                    <div style={{ fontFamily: "var(--cb-mono)", fontSize: 13, letterSpacing: "0.05em", color: P.ink, marginTop: 7, lineHeight: 1.8, wordBreak: "break-all" }}>{safety.number}</div>
+                  )}
+                  {activeThread.kind === "dm" && activeThread.encrypted && backupInfo && !backupInfo.at && (
+                    <div style={{ marginTop: 4 }}>Recovery is not set up on this device. If you lose this device, your encrypted messages cannot be restored. You can set up a recovery phrase in Settings, under Privacy.</div>
+                  )}
+                </div>
+                {activeThread.kind === "dm" && !activeThread.encrypted && (
+                  <TrustWordAction color={accentInk(P, accent)} onClick={doUpgradeConversation} disabled={upgradeBusy}>
+                    {upgradeBusy ? "Upgrading…" : "Upgrade this conversation"}
+                  </TrustWordAction>
+                )}
+                {activeThread.kind === "dm" && activeThread.encrypted && safety && safety.number && (
+                  <TrustWordAction color={accentInk(P, accent)} onClick={() => setVerifyOpen(true)}>
+                    {safety.verified ? "See the safety number" : "Verify the safety number"}
+                  </TrustWordAction>
+                )}
+              </div>
+            </div>
             <div ref={msgPaneRef} onScroll={handleMsgScroll} className="cb-inbox-thread-in" style={{ flex: 1, overflowY: "auto", padding: isMobile ? `${SP.lg}px ${SP.md}px` : `${SP.xl}px ${SP.xl}px`, display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: SP.md, minHeight: 0, background: P.bg, animationDelay: "90ms" }}>
               {(activeThread.messages || []).length === 0 && (
                 <div style={{ textAlign: "center", color: P.faint, fontSize: FONT_SIZES.label, marginTop: 20, lineHeight: 1.6 }}>No messages yet. Write the first one below.</div>
@@ -2761,6 +2882,43 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
         <img src={lightbox} alt="Attached" role="button" tabIndex={0} aria-label="Attached image. Activate to close." className="cb-inbox-pop-in"
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLightbox(null); } }}
           style={{ maxWidth: "100%", maxHeight: "100%", borderRadius: RADIUS.lg, objectFit: "contain" }} onClick={() => setLightbox(null)} />
+      </Dialog>
+    )}
+    {verifyOpen && activeThread && safety && safety.number && (
+      <Dialog label="Safety number" onClose={() => setVerifyOpen(false)} zIndex={260}
+        panelStyle={{ background: P.surface, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, padding: "26px", outline: "none", fontFamily: "var(--cb-font)", boxShadow: SHADOW.xl(P) }}>
+        <div style={{ padding: "6px 2px", maxWidth: 460 }}>
+          <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink }}>{activeThread.name || "Safety number"}</div>
+          <div style={{ fontFamily: "var(--cb-mono)", fontSize: 15, letterSpacing: "0.05em", color: P.ink, marginTop: 12, lineHeight: 2, wordBreak: "break-all" }}>{safety.number}</div>
+          <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, marginTop: 12 }}>
+            This number fingerprints the device keys of both of you, yours and theirs together. Read it with {activeThread.name || "them"} over a channel you already trust, like a voice call. If every group matches the number on their device, mark it verified.
+          </p>
+          {safety.changed && (
+            <p role="alert" style={{ fontSize: FONT_SIZES.label, color: P.ink, lineHeight: 1.6, marginTop: 8 }}>
+              This number changed since you last verified it. A new device is the usual reason. Treat it as unverified until the comparison above is done.
+            </p>
+          )}
+          <div style={{ display: "flex", gap: 18, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+            {!safety.verified && <TrustWordAction color={accentInk(P, accent)} onClick={doMarkVerified}>Mark as verified</TrustWordAction>}
+            {safety.verified && <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>Verified on this device.</span>}
+            <TrustWordAction color={accentInk(P, accent)} onClick={() => setVerifyOpen(false)}>Close</TrustWordAction>
+          </div>
+        </div>
+      </Dialog>
+    )}
+    {recoveryDue && (
+      <Dialog label="Your recovery phrase" onClose={() => setRecoveryDue(null)} zIndex={270}
+        panelStyle={{ background: P.surface, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, padding: "26px", outline: "none", fontFamily: "var(--cb-font)", boxShadow: SHADOW.xl(P) }}>
+        <div style={{ padding: "6px 2px", maxWidth: 460 }}>
+          <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink }}>Your recovery phrase</div>
+          <p style={{ fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, marginTop: 10 }}>
+            Upgrading created a recovery phrase for your encrypted messages on this device. If you lose this device, the phrase is the only way back into them. Write it down and keep it somewhere safe. Anyone who has it can restore your encrypted messages, so treat it like a key.
+          </p>
+          <div style={{ fontFamily: "var(--cb-mono)", fontSize: 15, letterSpacing: "0.04em", color: P.ink, marginTop: 12, lineHeight: 2, wordBreak: "break-word", borderTop: `1px solid ${P.line}`, borderBottom: `1px solid ${P.line}`, padding: "10px 0" }}>{recoveryDue}</div>
+          <div style={{ display: "flex", gap: 18, alignItems: "center", marginTop: 10 }}>
+            <TrustWordAction color={accentInk(P, accent)} onClick={doConfirmRecovery}>I wrote it down</TrustWordAction>
+          </div>
+        </div>
       </Dialog>
     )}
     {reportModal && activeThread && (

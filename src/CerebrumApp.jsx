@@ -83,6 +83,7 @@ import {
 import {
   docFingerprint, extractHtmlText, streamDocumentApi, canAddHighlight, rebaseQaHistoryOffsets,
   docTitleOf, detectDocHeadings, buildDocSegments, loadDocStore, saveDocStore, deleteDocFromStore, evictOldestDocs, docEvictionNote, DOCMODE_MAX_TEXT,
+  pdfPagesToText, readBodyContainerProps,
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
 /* Shared answer presentation rules (2026-10-23, Wave 3 Lane S7, L7-4 to L7-20):
@@ -9254,10 +9255,15 @@ function recordFactCheckTraceLine(record) {
 /* True when a fact check trace proves every tier failed: the
    trace exists and every entry's outcome is a failure outcome,
    with no ok and no nothing to verify entry (lane 2 D6). */
+const FACT_CHECK_NON_FAILURE_OUTCOMES = new Set([
+  "ok", "nothing-to-verify",
+  "off", "no-time", "budget", "budget-spent",
+  "excluded", "no-key", "no-binding",
+]);
 function factCheckTraceAllFailed(trace) {
   if (!Array.isArray(trace) || trace.length === 0) return false;
   return trace.every((x) => x && typeof x.outcome === "string" && x.outcome !== ""
-    && x.outcome !== "ok" && x.outcome !== "nothing-to-verify");
+    && !FACT_CHECK_NON_FAILURE_OUTCOMES.has(x.outcome));
 }
 
 /* The health note, mirroring the permanent page's
@@ -9285,8 +9291,9 @@ function recordHealthLine(record) {
 function databaseOutcomeLabel(d) {
   if (!d || typeof d !== "object") return "";
   if (d.ok) return String(d.count != null ? d.count : 0);
-  if (Number(d.notSearched) > 0) return "not searched";
   if (d.budgetStopped === true || (typeof d.error === "string" && /subrequest|budget/i.test(d.error))) return "budget stopped";
+  if (Number(d.attempts) > 0) return "no response";
+  if (Number(d.notSearched) > 0) return "not searched";
   return "no response";
 }
 
@@ -16930,9 +16937,9 @@ async function extractPdfText(file) {
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
       const content = await page.getTextContent();
-      pages.push(content.items.map((item) => item.str || "").join(" ").replace(/\s+/g, " ").trim());
+      pages.push(content.items);
     }
-    return pages.join("\n\n").trim();
+    return pdfPagesToText(pages).trim();
   } finally {
     // Release the worker-side document resources: without this, dropping
     // many PDFs leaks worker/document memory until the tab is closed.
@@ -17197,7 +17204,7 @@ function DocStageHealth({ stageHealth, P }) {
     </div>
   );
 }
-function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged, filmOK = true }) {
+function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, onOpenAuth, onOpenPro, onUsageChanged, filmOK = true, fontSize = "medium", dyslexicFont = false, lineSpacing = "normal" }) {
   // Escape closes the overlay form. As a page it must NOT: Escape inside a
   // destination that is not covering anything is a keystroke that throws
   // away whatever the person pasted.
@@ -18062,6 +18069,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
      highlight offsets. */
   const docSegments = useMemo(() => buildDocSegments(documentText, detectDocHeadings(documentText)), [documentText]);
   const docOutline = docSegments.map((s, i) => (s.heading ? { title: s.heading, seg: i } : null)).filter(Boolean);
+  const readBody = readBodyContainerProps({ fontSize, dyslexicFont, lineSpacing });
   const docDisplayTitle = customTitle || docTitleOf(documentText);
   const scrollToSegment = (i) => {
     const body = readBodyRef.current;
@@ -18348,13 +18356,14 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
                 interface face. */}
             <div ref={readBodyRef} onMouseUp={onReadSelect} onTouchEnd={onReadSelect}
               onKeyUp={(e) => { if (e.shiftKey) onReadSelect(); }}
-              className="cb-doc-reader cb-doc-readview"
+              className={readBody.className}
+              data-read-font-px={readBody.fontSizePx}
               /* Containment: min-width 0 + width 100% keep it inside its
                  column; overflow-wrap breaks long tokens; pre-wrap keeps
                  the document's line breaks. Segments partition the text
                  exactly, so selection offsets still map 1:1 to highlight
                  offsets. onKeyUp raises Highlight for keyboard selections. */
-              style={{ ...TYPE.reading, fontSize: FONT_SIZES.body, color: P.ink, whiteSpace: "pre-wrap", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
+              style={{ ...TYPE.reading, ...readBody.style, color: P.ink, whiteSpace: "pre-wrap", minWidth: 0, width: "100%", overflowWrap: "break-word" }}>
               {docSegments.map((seg, i) => (seg.heading ? (
                 <div key={i} data-seg={i} style={{ fontWeight: 500, fontSize: FONT_SIZES.section, lineHeight: 1.3, color: P.ink, margin: "20px 0 4px", whiteSpace: "pre-wrap" }}>{renderMarkedRange(seg.text, seg.start)}</div>
               ) : (
@@ -22509,10 +22518,14 @@ function App({ profileHandle = null } = {}) {
       list = saved.slice();
     } else {
       const ql = q.toLowerCase();
-      const legacyMatch = (sv) => [sv.title, sv.authors, sv.journal].filter(Boolean).join(" ").toLowerCase().includes(ql);
+      const legacyMatch = (sv) => {
+        const collectionName = sv.collectionId ? (collections.find((c) => c.id === sv.collectionId)?.name || "") : "";
+        return [sv.title, sv.authors, sv.journal, sv.abstract, sv.doi, sv.year, collectionName]
+          .filter(Boolean).join(" ").toLowerCase().includes(ql);
+      };
       const ids = zkQueryIds(q);
       list = ids
-        ? saved.filter((sv) => (sv.zkId ? ids.has(sv.zkId) : legacyMatch(sv)))
+        ? saved.filter((sv) => (sv.zkId && ids.has(sv.zkId)) || legacyMatch(sv))
         : saved.filter(legacyMatch);
     }
     if (librarySort === "title") return list.sort((x, y) => String(x.title || "").localeCompare(String(y.title || "")));
@@ -22521,7 +22534,7 @@ function App({ profileHandle = null } = {}) {
     // predating that falls back to createdAt so old libraries still order.
     return list.sort((x, y) => (y.savedAt || y.createdAt || 0) - (x.savedAt || x.createdAt || 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saved, libraryQuery, librarySort, zkIndexReady]);
+  }, [saved, libraryQuery, librarySort, zkIndexReady, collections]);
 
   /* 2026-10-20, tail item 6: prune the bulk selection to the visible
      list whenever that list changes shape, whether from the saved
@@ -25111,6 +25124,7 @@ function App({ profileHandle = null } = {}) {
       {view === "document" && (
         <Reveal style={{ ...S.pageView, background: "transparent", minHeight: "100%" }} deps={[view]}>
           <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={openPro} onUsageChanged={refreshPro}
+            fontSize={fontSize} dyslexicFont={dyslexicFont} lineSpacing={lineSpacing}
             /* The document page runs its own single FilmLayer; mirror the
                workspace reel's rule so reduced motion / Save-Data /
                animation-off / low-memory hold the graded still instead. */
@@ -25210,7 +25224,7 @@ function App({ profileHandle = null } = {}) {
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" }}>
                   <div style={{ flex: "1 1 240px", minWidth: 0 }}>
                     <UIField P={P} accent={accent} value={libraryQuery} onChange={setLibraryQuery}
-                      placeholder="Search by title, author, or journal" aria-label="Search your library" />
+                      placeholder="Search by title, author, journal, or collection" aria-label="Search your library" />
                   </div>
                   {/* A library sorts by when you saved it or by how old the
                       work is — two genuinely different questions, and the
@@ -25229,7 +25243,7 @@ function App({ profileHandle = null } = {}) {
                 {libraryKind !== "answers" && visibleSaved.length === 0 && saved.length > 0 ? (
                   <WorkspaceEmpty P={P} accent={accent} icon="search" className="cb-lib-empty"
                     title="No matches"
-                    body={`Nothing in your library matches "${libraryQuery}". Try part of a title, an author last name, or part of a journal name.`}
+                    body={`Nothing in your library matches "${libraryQuery}". Try part of a title, an author last name, a journal name, or a collection name.`}
                     action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setLibraryQuery("")}>Clear the search</UIButton>} />
                 ) : (
                   <>
@@ -26025,7 +26039,7 @@ function App({ profileHandle = null } = {}) {
         </Reveal>
       )}
       {view === "inbox" && (
-        <Reveal style={S.pageView} deps={[view]}>
+        <Reveal style={{ ...S.pageView, display: "flex", flexDirection: "column", height: "100dvh", minHeight: 0 }} deps={[view]}>
           <InboxView
             P={P} accent={accent} at={at} isMobile={isMobile}
             threads={threads} setThreads={setThreads}
