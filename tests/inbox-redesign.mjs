@@ -586,10 +586,14 @@ await test("papers can be shared into a conversation from answers and saved sour
   assert.ok(appSrc.includes("setSharePaper(paperAttachmentFromSource(sv))"), "saved sources have no Share action");
 });
 
-await test("the redo removals hold: no Nova in messaging, no safety ceremony, no voice recording", () => {
+await test("the redo removals hold: no Nova in messaging, no voice recording", () => {
   assert.ok(!inboxSrc.includes("NovaLive"), "the Nova figure is back in the messaging header");
-  assert.ok(!inboxSrc.includes("getSafetyNumber"), "the safety number ceremony is back in the thread view");
-  assert.ok(!inboxSrc.includes("upgradeThread("), "the encryption upgrade banner flow is back");
+  // Pin changed 2026-11-02 (Wave 2): the safety number and upgrade
+  // removals are reversed on purpose by the fix program's trust
+  // build. The letterhead wires getSafetyNumber and upgradeThread
+  // for real; the e2ee suite pins those call sites. What stays
+  // removed is the ceremony form: there is still no "Verify
+  // encryption" menu item, and no banner flow.
   assert.ok(!inboxSrc.includes("Verify encryption"), "the verify encryption menu item is back");
   assert.ok(!inboxSrc.includes("MediaRecorder"), "voice note recording is back in the composer");
   assert.ok(!inboxSrc.includes("startRecording"), "the record control is back");

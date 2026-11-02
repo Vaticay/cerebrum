@@ -924,6 +924,41 @@ await test("simultaneous first messages converge", async () => {
   assert.ok(gotI2.some((m) => m.e2ee && m.e2ee.ok && m.e2ee.text === "judy second"), "converged: judy's second decrypts");
 });
 
+// ── Wave 2 (2026-11-02): the Inbox trust call sites ─────────────────
+// The trust build's contract: the functions this suite exercises
+// against the real module (upgradeThread, the safety number pair,
+// the recovery phrase store) must be reachable from the Inbox
+// components, not merely exported. These pins read the Inbox source
+// and require the import, the call sites, and the letterhead states.
+await test("the Inbox wires the trust functions at reachable call sites", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../src/inbox.jsx", import.meta.url), "utf8");
+  for (const name of ["upgradeThread", "getSafetyNumber", "markSafetyNumberVerified", "getRecoveryPhrase", "isRecoveryPhraseConfirmed", "confirmRecoveryPhrase", "getBackupInfo"]) {
+    assert.ok(src.includes(name), "inbox.jsx does not reference " + name);
+  }
+  assert.ok(src.includes("upgradeThread(apiDataAction, activeThread.id)"), "the upgrade action does not call upgradeThread with the thread id");
+  assert.ok(src.includes("getSafetyNumber(apiDataAction, activeThread.otherId)"), "the letterhead never loads the safety number");
+  assert.ok(src.includes("markSafetyNumberVerified(apiDataAction, activeThread.otherId)"), "the Verify sheet never marks verified");
+  assert.ok(src.includes("cb-inbox-letterhead"), "the letterhead block is missing");
+  assert.ok(src.includes("Upgrade this conversation"), "the upgrade word action is missing");
+  assert.ok(src.includes("Mark as verified"), "the mark verified word action is missing");
+  assert.ok(src.includes("I wrote it down"), "the recovery confirm action is missing");
+  assert.ok(src.includes("confirmRecoveryPhrase()"), "the recovery sheet never confirms the phrase");
+  // The six honest states, worded in the letterhead.
+  for (const line of [
+    "This conversation is not encrypted.",
+    "you have not verified the key yet",
+    "You verified this key.",
+    "The key for this conversation changed since you verified it.",
+    "Group messages are not locked the way one to one encrypted messages are, so the server can read them.",
+    "Recovery is not set up on this device.",
+  ]) {
+    assert.ok(src.includes(line), "letterhead state line missing: " + line);
+  }
+  // The group disclosure also renders where people type.
+  assert.ok(src.split("Group messages are not locked").length >= 3, "the group disclosure does not render at the composer as well as the letterhead");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   for (const f of failures) console.error(`\n${f.name}\n  ${f.err.stack}`);
