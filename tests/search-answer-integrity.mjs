@@ -38,6 +38,7 @@ const {
   evidenceClassOfPaper, bestEvidenceClass,
   factCheckActuallyChecked, factCheckSupport,
   FACT_CHECK_RESERVE_MS, FACT_CHECK_TIER_CAP_MS, FACT_CHECK_DID_NOT_RUN_STATEMENT,
+  factCheckTierBudgetMs,
   synthesisDeadlineFor, deepFactCheck, createSubrequestLedger,
   planDelayedRescue, resetLegHealth, recordLegOutcome,
   splitShippedSources, remapCitationMarkers, remapFactCheckIndices,
@@ -207,8 +208,16 @@ await test("a slow first deep tier cannot burn the whole stage: the light tiers 
     assert.ok(trace.some((t) => t.tier === "gemini" && t.outcome === "timeout"), "the hung tier is not traced as a timeout: " + JSON.stringify(trace));
     assert.ok(trace.some((t) => t.tier === "openrouter" && t.outcome === "ok"), "the last tier never fired inside the budget: " + JSON.stringify(trace));
     assert.ok(elapsed < FACT_CHECK_RESERVE_MS, "the stage outlived its own budget: " + elapsed + " ms");
-    assert.ok(FACT_CHECK_TIER_CAP_MS * 3 <= FACT_CHECK_RESERVE_MS,
-      "three tier slices no longer fit inside the stage budget");
+    // PIN UPDATED (2026-11-02, Wave 1A, F1): the tier cap
+    // rose 2,500 to 4,000, so cap * 3 <= reserve no longer
+    // holds as an identity. The property this pin guards is
+    // that slices cannot stack past the reserve: slices are
+    // fractions of the shrinking remainder, and four
+    // successive slices at the raised cap sum to exactly
+    // the reserve, never past it.
+    const slice = (rem, tiers) => factCheckTierBudgetMs(rem, tiers, FACT_CHECK_TIER_CAP_MS);
+    assert.ok(slice(8000, 4) + slice(6000, 3) + slice(4000, 2) + slice(2000, 1) <= FACT_CHECK_RESERVE_MS,
+      "successive tier slices stack past the stage budget");
   } finally {
     globalThis.fetch = realFetch;
   }

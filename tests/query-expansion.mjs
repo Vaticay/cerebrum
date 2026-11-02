@@ -841,7 +841,11 @@ await test("the probe question's structured query has no bare has or anyone rung
 
 await test("short questions cannot spend anchor slots on has or anyone", () => {
   const out1 = buildStructuredQuery("has anyone assayed frogs");
-  assert.equal(out1, "frogs AND assayed");
+  // Wave 1A (2026-11-02, fever cluster D1): neither anchor
+  // resolves a concept group, so the degraded case now ORs the
+  // bare terms instead of ANDing them. This pin's subject is
+  // the framing words, which still hold no slot either way.
+  assert.equal(out1, "frogs OR assayed");
   const out2 = buildStructuredQuery("has anyone assayed digestive enzymes");
   const rungs2 = out2.split(" AND ").map((r) => r.trim());
   assert.ok(!rungs2.includes("has"), `bare has rung in: ${out2}`);
@@ -950,8 +954,12 @@ group("buildStructuredQuery — subject representation in the anchor race (resco
 
 // A rung's head is its anchor: the bare term, or the first member of
 // its OR group (the anchor renders first by construction).
+// Wave 1A (2026-11-02, fever cluster D1): a degraded query (no
+// anchor resolves a concept group) joins its bare rungs with OR
+// at the top level, so a parenthesis free OR query's rungs are
+// its bare terms themselves.
 const rungHeads = (out) =>
-  out.split(" AND ").map((r) => {
+  out.split(" AND ").flatMap((r) => (r.includes("(") ? [r] : r.split(" OR "))).map((r) => {
     let s = r.trim();
     if (s.startsWith("(")) s = s.slice(1);
     if (s.startsWith('"')) return s.slice(1).split('"')[0];
@@ -1039,9 +1047,13 @@ await test("whole cannot lead the snake question while snakes stands outside", (
 });
 
 await test("frog controls stay clean under the new race", () => {
-  // Frog C is byte identical to its pre fix form.
+  // Frog C's rung SET is unchanged; its join is not. Wave 1A
+  // (2026-11-02, fever cluster D1): no anchor resolves a concept
+  // group, so the degraded case ORs the bare terms instead of
+  // ANDing them — the pre fix byte identical form below is
+  // superseded by that ordered change.
   const c = buildStructuredQuery("Why doesn't freezing kill some frogs in the winter?".toLowerCase());
-  assert.equal(c, "frogs AND freezing AND kill AND winter");
+  assert.equal(c, "frogs OR freezing OR kill OR winter");
   // Frog B keeps every content word it shipped before and gains
   // "winter": the negation led "not" used to win a race slot that
   // the token filter then discarded, shipping only three rungs; the

@@ -218,7 +218,10 @@ group("L5-9 — one deadline, per tier fractions of what remains");
 await test("tier budgets are fractions of the remainder under the one reserve", () => {
   assert.equal(FACT_CHECK_RESERVE_MS, 8000);
   assert.equal(factCheckTierBudgetMs(8000, 4, 3000), 2000);
-  assert.equal(factCheckTierBudgetMs(6000, 2, 4000), 2500);
+  // PIN UPDATED (2026-11-02, Wave 1A, F1): the global tier
+  // cap rose 2,500 to 4,000, so this slice is the raw
+  // fraction 3,000, no longer clipped to the old cap.
+  assert.equal(factCheckTierBudgetMs(6000, 2, 4000), 3000);
   assert.equal(factCheckTierBudgetMs(100, 1, 4000), 100);
   assert.equal(factCheckTierBudgetMs(null, 4, 3000), 3000);
   assert.ok(factCheckTierBudgetMs(8000, 4, 3000) + factCheckTierBudgetMs(6000, 3, 3500) +

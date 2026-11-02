@@ -926,9 +926,17 @@ await test("a Gemini 429 falls through to the shared quota tiers in their establ
   // The shared quota tiers follow in their established order:
   // Workers AI (here without a binding, so it notes and makes
   // no fetch) and then OpenRouter, which lands.
-  assert.equal(trace[1].tier, "workers-ai", "the trace order is not quota diverse first: " + JSON.stringify(trace));
-  assert.equal(trace[2].tier, "openrouter");
-  assert.equal(trace[2].outcome, "ok");
+  // PIN UPDATED (2026-11-02, Wave 1A, F1): an unconfigured
+  // tier now leaves a no-key trace note (mirroring the
+  // OpenRouter tier's existing practice), so the second
+  // Gemini tier's note sits between the Gemini attempt and
+  // the Workers AI note. The attempted tiers' order is
+  // unchanged.
+  assert.equal(trace[1].tier, "gemini2");
+  assert.equal(trace[1].outcome, "no-key");
+  assert.equal(trace[2].tier, "workers-ai", "the trace order is not quota diverse first: " + JSON.stringify(trace));
+  assert.equal(trace[3].tier, "openrouter");
+  assert.equal(trace[3].outcome, "ok");
   assert.ok(calls[0].includes("generativelanguage.googleapis.com") && calls[1].includes("openrouter.ai"));
 });
 
@@ -939,8 +947,18 @@ await test("without a Gemini key the tier is absent, not a failed attempt", asyn
   assert.ok(claims && claims.length === 2);
   assert.ok(!calls.some((u) => u.includes("generativelanguage.googleapis.com")),
     "a Gemini fetch fired without a key");
-  assert.ok(!trace.some((t) => t.tier === "gemini"), "the absent tier left a trace entry");
-  assert.equal(trace[0].tier, "workers-ai", "the established order shifted: " + JSON.stringify(trace));
+  // PIN UPDATED (2026-11-02, Wave 1A, F1): an unconfigured
+  // tier now leaves a no-key trace note rather than silence
+  // (mirroring the OpenRouter tier's existing practice).
+  // This pin's original intent stands: the absent tier is
+  // not ATTEMPTED (no fetch above, no attempt outcome
+  // here), and the firing tiers keep their established
+  // order once the no-key notes are set aside.
+  assert.ok(!trace.some((t) => t.tier === "gemini" && t.outcome !== "no-key"),
+    "the absent tier was attempted: " + JSON.stringify(trace));
+  assert.ok(trace.some((t) => t.tier === "gemini" && t.outcome === "no-key"),
+    "the absent tier left no no-key note: " + JSON.stringify(trace));
+  assert.equal(trace.filter((t) => t.outcome !== "no-key")[0].tier, "workers-ai", "the established order shifted: " + JSON.stringify(trace));
 });
 
 await test("an expired stage deadline skips every deep check tier without firing (2026-10-16, finding 11)", async () => {

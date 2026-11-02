@@ -507,13 +507,20 @@ export const FACT_CHECK_RESERVE_MS = 8000;
  * ended "nothing to verify" after the early deep tiers timed
  * out and the last tier was skipped as no-time without ever
  * firing. When the caller hands the stage a deadline (the
- * production path), each tier is capped at this slice: three
- * slices (2,500 ms each) fit inside the 8,000 ms stage budget
- * with room to spare, so every tier gets a real attempt
- * inside the budget instead of the first slow tier deciding
- * the stage. Direct calls without a stage deadline keep the
- * tiers' own larger caps. */
-export const FACT_CHECK_TIER_CAP_MS = 2500;
+ * production path), each tier is capped at this slice. Direct
+ * calls without a stage deadline keep the tiers' own larger
+ * caps.
+ * Raised 2,500 to 4,000 (2026-11-02, Wave 1A, fact check
+ * smalls): the fever record's four tier failures were one
+ * arithmetic failure — the shared 2,500 cap, divided again by
+ * tiers remaining in factCheckTierBudgetMs, cut the first tier
+ * to about 2,000 ms for a job carrying up to 4,000 chars of
+ * answer plus up to 20 abstracts. 4,000 is the largest tier's
+ * own documented cap (the OpenRouter tiers), so the shared cap
+ * no longer silently overrides every tier's stated cap; the
+ * stage deadline and the per tier fraction of what remains
+ * still bound the stage as a whole. */
+export const FACT_CHECK_TIER_CAP_MS = 4000;
 
 /* ONE DEADLINE, PER TIER FRACTIONS (2026-10-23, logic audit
  * L5-9): the reserve above is the stage's one budget and its
@@ -4289,6 +4296,37 @@ const CONCEPT_GROUPS = [
    "short sleep", "sleep deprived"],
   ["cold", "common cold", "rhinovirus", "upper respiratory infection",
    "upper respiratory tract infection", "respiratory infection"],
+  // 2026-11-02 (Wave 1A, fever cluster D2): the fever and
+  // sickness bridges. The shipped fever specimen ("Why do we
+  // get a fever when we are sick?") resolved NO group for
+  // either of its two central concepts: no group contained
+  // fever or febrile, and none covered sick or illness, so the
+  // citation gate judged on the asker's two bare words and the
+  // field's own vocabulary (febrile, pyrexia, illness,
+  // infection) engaged nothing at any stage. These groups are
+  // written in the neighbouring clinical groups' style: the
+  // asker's word first, then the literature's forms for the
+  // same concept. Groups, not SYNONYMS entries, for the wave
+  // seventeen reason above: every judging consumer (the scorer
+  // in processGathered, citationGateStandard via
+  // questionCentralConcepts, countOnTopicPapers via the gate
+  // context, and topicOverlapFilter's accept sets) reads
+  // CONCEPT_GROUPS through conceptSetFor, so one authoring
+  // bridges all four stages at once (verified in code for this
+  // wave: conceptSetFor call sites in the scorer, the gate's
+  // groupFor, and the filter; the counter reads the gate
+  // context, which is built from the same standard). Bare
+  // "temperature" is deliberately NOT a member: it is the
+  // climate group's word, and only the phrase "body
+  // temperature" belongs to this concept. "infection" is a
+  // member here and also of the virus group below;
+  // CONCEPT_LOOKUP's later entry wins for the bare term, and
+  // this group is reached through its own head words, exactly
+  // as the cold group beside it reaches its infection phrases.
+  ["fever", "fevers", "febrile", "pyrexia", "pyrogen", "pyrogens",
+   "antipyretic", "antipyretics", "body temperature", "set point"],
+  ["sick", "sickness", "ill", "illness", "unwell", "infection",
+   "infections", "infectious"],
   ["waste oil", "waste cooking oil", "used cooking oil", "cooking oil",
    "used oil"],
   // 2026-10-24 (citation wave, Lane 2): the burnout bridge. A
@@ -7462,7 +7500,22 @@ export function buildStructuredQuery(query, dynLookup) {
     const members = [t, ...ordered].slice(0, 7);
     return "(" + members.map((m) => (m.includes(" ") ? '"' + m + '"' : m)).join(" OR ") + ")";
   });
-  return groups.join(" AND ");
+  // Degraded case (2026-11-02, Wave 1A, fever cluster D1): when
+  // NO anchor resolves a concept group at all — no phrase anchor
+  // and every token anchor bare, the tables knowing none of the
+  // question's central words — ANDing the bare terms glues them
+  // into a must satisfy all constraint the literature cannot
+  // meet (the fever specimen shipped "fever AND sick": a fever
+  // paper that never says "sick" was out of the structured legs
+  // before scoring). In that case only, the bare terms are ORed
+  // instead, mirroring the relaxed boolean fallback's loosening
+  // later in the ladder. Gathering only: the citation gate still
+  // decides what may be cited. A single resolved group anywhere
+  // keeps the AND form exactly as before.
+  const degradedBare = usablePhraseAnchors.length === 0
+    && tokenAnchors.length >= 2
+    && tokenAnchors.every((t) => !conceptSetFor(t, dynLookup));
+  return groups.join(degradedBare ? " OR " : " AND ");
 }
 
 const STOPWORDS = new Set([
@@ -8522,12 +8575,42 @@ const MECHANISM_PROCESS_VERB_RE =
 // does a western blot detect proteins" is a mechanism question
 // (detect is a process verb) and a measurement question, and
 // neither detector suppresses the other.
+// The bodily process words a why question may name beside a
+// clinical shape word (2026-11-02, Wave 1A, fever cluster D4):
+// the two process families the diagnosis named that the
+// clinical set does not carry — a temperature rising and
+// shivering are bodily processes a person asks "why" about,
+// and neither word sits in CLINICAL_SHAPE_WORDS. The list is
+// closed and small on purpose: it is a gate, not a vocabulary.
+const WHY_MECHANISM_PROCESS_WORDS = new Set([
+  "temperature", "shiver", "shivers", "shivering", "shivered",
+]);
+
 export function isMechanismShapeQuery(query) {
   const lc = String(query || "").toLowerCase().replace(/\s+/g, " ").trim();
   if (!lc) return false;
   if (new RegExp("\\bhow\\b[^?]*\\b(?:" + MECHANISM_PROCESS_VERB_RE + ")\\b").test(lc)) return true;
   if (/\bmechanism of\b/.test(lc)) return true;
   if (/^(?:how|what|why)\b/.test(lc) && /\bmechanism\b/.test(lc)) return true;
+  // Why form (2026-11-02, Wave 1A, fever cluster D4): a question
+  // STARTING with "why" that names a clinical shape word
+  // (CLINICAL_SHAPE_WORDS, read at call time like the other
+  // late bound tables in this file) or a bodily process word
+  // from the small set above is a mechanism question in plain
+  // words: "why do we get a fever when we are sick" asks for the
+  // fever mechanism exactly as "how does a fever develop" does,
+  // and the shipped detector's how plus process verb requirement
+  // left every why form physiology question without the
+  // foundational lane, the tail discipline, or the mechanism
+  // first synthesis contract. The gate is tight by construction:
+  // a why question naming no clinical or process word ("why is
+  // the sky blue", "why did the council decide") does not fire.
+  if (/^why\b/.test(lc)) {
+    const toks = lc.split(/[^a-z0-9]+/).filter(Boolean);
+    let clinical = false;
+    try { clinical = toks.some((t) => CLINICAL_SHAPE_WORDS.has(t)); } catch { clinical = false; }
+    if (clinical || toks.some((t) => WHY_MECHANISM_PROCESS_WORDS.has(t))) return true;
+  }
   return false;
 }
 
@@ -11778,22 +11861,89 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
     const sig = [...s].map((x) => String(x).toLowerCase()).sort().join("\u0000");
     if (!seenSetSigs.has(sig)) { seenSetSigs.add(sig); acceptSets.push(s); }
   }
+  const setSig = (s) => [...s].map((x) => String(x).toLowerCase()).sort().join("\u0000");
+
+  // Subject exemption (2026-11-02, Wave 1A, waste oil W2): the
+  // grouped path above carries a subject rule (a touch of the
+  // subject group survives on its own); this singleton path had
+  // none, so its majority rule below weighed the outcome
+  // clauses of a compound question (grow fine, safe to use) as
+  // heavily as its subject clause, and adjacent subject
+  // literature — the literature the concept round exists to
+  // retrieve — systematically failed it (the constructed
+  // biodiesel record engaging the substrate clause in full
+  // touched 2 of 6 sets and was removed). The exemption in this
+  // path's own terms: the resolved subject is the question's
+  // organism (through its concept group or the SYNONYMS
+  // bridge), a subject flagged central concept's group, the
+  // subject group the gate itself resolves, or — the singleton
+  // path's own subject signal — the lead key phrase's head
+  // term when that head is one of the question's central
+  // concepts, read as its accept set. A paper engaging that
+  // subject PLUS at least one further accept set survives
+  // regardless of the majority count. A paper engaging no
+  // subject faces the majority rule unchanged, and a paper
+  // engaging the subject alone still dies: the maize insect
+  // resistance collision the majority rule was built for
+  // engages a subject word and nothing else of the question.
+  const subjectSets = [];
+  const addSubjectSet = (set) => {
+    if (!set || typeof set.has !== "function" || set.size === 0) return;
+    const sig = setSig(set);
+    if (!subjectSets.some((s) => setSig(s) === sig)) subjectSets.push(set);
+  };
+  try {
+    const sg = subjectConceptGroup(rawQuery, resolvedGroups, dynLookup);
+    if (sg) addSubjectSet(sg);
+  } catch { /* no subject group, the routes below still apply */ }
+  try {
+    for (const c of questionCentralConcepts(rawQuery, dynLookup)) {
+      if (c && c.subject && c.group) addSubjectSet(c.group);
+    }
+  } catch { /* as above */ }
+  try {
+    for (const name of resolveQueryOrganism(rawQuery).names) {
+      const n = String(name || "").toLowerCase();
+      if (!n) continue;
+      const set = conceptSetFor(n, dynLookup);
+      if (set) addSubjectSet(set);
+      const syns = SYNONYMS[n];
+      if (Array.isArray(syns) && syns.length > 0) {
+        addSubjectSet(new Set([n, ...syns.map((x) => String(x).toLowerCase())]));
+      }
+      addSubjectSet(new Set([n]));
+    }
+  } catch { /* as above */ }
+  try {
+    const analysis = analyzeQuery(rawQuery);
+    const kp = analysis && analysis.keyPhrases && analysis.keyPhrases[0];
+    const head = kp ? keyPhraseHeadTerm(kp) : null;
+    if (head && coreQTerms.includes(head)
+        && questionCentralConcepts(rawQuery, dynLookup).some((c) => c && c.term === head)) {
+      addSubjectSet(acceptSetsRaw[coreQTerms.indexOf(head)]);
+    }
+  } catch { /* as above */ }
+  const setTouches = (hay, set) => {
+    for (const term of set) {
+      if (hay.includes(term)) return true;
+      // WAVE EIGHT (2026-10-14, Job 1): a stem variant of the
+      // set's term is the same touch (the "sprain" paper on the
+      // "sprained" question), counted the way the citation
+      // standard counts concept engagement. Substring matching
+      // alone could never see it.
+      if (termStemHitInText(hay, term)) return true;
+    }
+    return false;
+  };
 
   const survivors = papers.filter((p) => {
     const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
-    const hitCount = acceptSets.filter((set) => {
-      for (const term of set) {
-        if (hay.includes(term)) return true;
-        // WAVE EIGHT (2026-10-14, Job 1): a stem variant of the
-        // set's term is the same touch (the "sprain" paper on the
-        // "sprained" question), counted the way the citation
-        // standard counts concept engagement. Substring matching
-        // alone could never see it.
-        if (termStemHitInText(hay, term)) return true;
-      }
-      return false;
-    }).length;
-    if (hitCount === 0) {
+    const hitIdx = acceptSets
+      .map((set, i) => (setTouches(hay, set) ? i : -1))
+      .filter((i) => i >= 0);
+    const hitCount = hitIdx.length;
+    const subjectHit = subjectSets.some((set) => setTouches(hay, set));
+    if (hitCount === 0 && !subjectHit) {
       p._filteredReason = "Paper shares none of the query's core topic terms . likely a different research field entirely";
       return false;
     }
@@ -11812,7 +11962,18 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
     // is actually asking about, not just coincidentally share a couple of
     // common words from a totally different field.
     const required = acceptSets.length >= 2 ? Math.max(2, Math.ceil(acceptSets.length / 2)) : 1;
-    if (hitCount < required) {
+    // Subject exemption (2026-11-02, Wave 1A, W2, see the
+    // subjectSets block above): subject engagement plus at
+    // least one further accept set survives regardless of the
+    // majority count. "Further" means a hit accept set that is
+    // not itself a subject set: the subject's own group and
+    // its head word set are one concept, not two engagements
+    // (the first cut of this exemption counted them as two
+    // and let a subject only paper through; the wave two
+    // rotation pin caught it the same day).
+    const subjectSigs = new Set(subjectSets.map((s) => setSig(s)));
+    const furtherHit = hitIdx.some((i) => !subjectSigs.has(setSig(acceptSets[i])));
+    if (hitCount < required && !(subjectHit && furtherHit)) {
       p._filteredReason = `Paper only shares ${hitCount} of the query's ${acceptSets.length} distinct core topic concepts (needs ${required}) . likely coincidental keyword overlap from a different research field`;
       return false;
     }
@@ -12728,6 +12889,12 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
         if (tg) clearTimeout(tg);
       }
     }
+  } else {
+    // No key trace entry (2026-11-02, Wave 1A, fact check
+    // smalls): a tier whose key is not configured records the
+    // fact, mirroring the OpenRouter tier's "no-key" entry
+    // below, so the trace can tell "no key" from "excluded".
+    note("gemini", "no-key", "no Gemini key is configured");
   }
 
   // Tier 1b (2026-10-25, free legs wave): the second Gemini key,
@@ -12741,12 +12908,22 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   // OpenRouter pool) whose saturation is what closes this stage
   // on a bad day. Same model, same prompt, same verdict
   // contract, same 3,000 ms cap and ledger gate as tier 1; the
-  // tier exists only when the key is configured, and the winner
+  // tier fires only when the key is configured (an unconfigured
+  // key now leaves a "no-key" trace entry, 2026-11-02 Wave 1A),
+  // and the winner
   // family exclusion applies to it exactly as to tier 1 (same
   // family — an excluded tier 1 means an excluded tier 1b, noted
   // once on tier 1, so this tier then leaves no trace entry,
   // the absent leg convention).
   const gemini2Key = env ? (env.GEMINI_KEY_2 || "") : "";
+  if (!factCheckTierExcluded(GEMINI_CHECK_MODEL, synthesisModel) && !gemini2Key) {
+    // No key trace entry (2026-11-02, Wave 1A, fact check
+    // smalls): as for tier 1 above, an unconfigured second key
+    // is a recorded fact, not an ambiguity in the trace. An
+    // EXCLUDED tier 1b still leaves no entry: the exclusion is
+    // already noted once on tier 1, as the comment above says.
+    note("gemini2", "no-key", "no second Gemini key is configured");
+  }
   if (!factCheckTierExcluded(GEMINI_CHECK_MODEL, synthesisModel) && gemini2Key) {
     if (ledger && ledger.remaining() <= 0) {
       note("gemini2", "budget", "the subrequest ledger was spent before this tier");
@@ -12902,7 +13079,11 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   // Tier 4 (wave thirteen, brief item 3): the cheapest reliable
   // tier instead of nothing. Fires ONLY on the fleet saturation
   // signature — the OpenRouter tier answered HTTP 429, that
-  // model's free quota spent — and only while the ledger has
+  // model's free quota spent — and, since 2026-11-02 (Wave 1A,
+  // fact check smalls), on an OpenRouter timeout as well: a
+  // timeout is the same fleet distress in a different shape,
+  // and the shipped fever trace showed it arming nothing while
+  // the 429 beside it armed this tier. Fires only while the ledger has
   // room, under the same gate that tier itself uses: the spend below is refused
   // by the ledger ahead of the call if the invocation total
   // would pass its cap, and this point in the handler is past
@@ -12916,10 +13097,10 @@ export async function deepFactCheck(answer, papers, env, ledger = null, trace = 
   // a partial check (two or more usable claims of the three to
   // five asked) is labeled by its actual counts downstream, and
   // anything under two usable claims is no check, as before.
-  if (orTierOutcome === "http-429" && factCheckTierExcluded(OR_VALIDATE_FALLBACK, synthesisModel)) {
+  if ((orTierOutcome === "http-429" || orTierOutcome === "timeout") && factCheckTierExcluded(OR_VALIDATE_FALLBACK, synthesisModel)) {
     note("openrouter-fallback", "excluded", "this tier is the synthesis winner or its family, so it may not check its own answer (2026-10-23, L5-6)");
   }
-  if (orTierOutcome === "http-429" && openRouterKey(env) &&
+  if ((orTierOutcome === "http-429" || orTierOutcome === "timeout") && openRouterKey(env) &&
       !factCheckTierExcluded(OR_VALIDATE_FALLBACK, synthesisModel) &&
       !(ledger && ledger.remaining() <= 0) && !stageExpired("openrouter-fallback")) {
     const c3 = new AbortController();
@@ -18594,6 +18775,17 @@ const CLINICAL_SHAPE_WORDS = new Set([
   "fracture", "healing", "virus", "viral", "bacterial", "bacteria", "fungal",
   "depression", "anxiety", "stroke", "hypertension", "obesity", "anemia", "vitamin", "vitamins",
 ]);
+/* Generic state words (2026-11-02, Wave 1A, fever cluster D3):
+ * the closed class of everyday words for simply being unwell.
+ * They name a state, never a concept the literature indexes: a
+ * question's OTHER central concept being one of these ("sick"
+ * beside "fever") is filler completion, not a second subject.
+ * Pinned as a closed class here, beside the clinical set it is
+ * read against in paperClearsCitationGate. */
+const GENERIC_STATE_WORDS = new Set([
+  "sick", "ill", "unwell", "poorly", "bad",
+]);
+
 export function isClinicalShapeQuery(query) {
   const q = String(query || "").toLowerCase();
   if (nutrientUnitsInQuestion(q).length > 0) return true;
@@ -19174,11 +19366,40 @@ export function paperClearsCitationGate(paper, standard) {
       // concept alone: the diagnosis's measured cost of the
       // union (topical papers demoted while filler completed
       // junk citations elsewhere) is the worse failure, and
-      // the surviving guards stay — relevance still floors at
-      // 50 before citable, engagement must reach the abstract,
+      // the surviving guards stay — the topical floor still
+      // binds before citable (paperGateScore >= 25, L3-3),
+      // engagement must reach the abstract,
       // and the subject serve still judges the shipped set.
       const backed = judged.filter((c) => c && (c.subject || (c.group && c.group.size > 0)));
-      const useSet = backed.length > 0 ? backed : judged;
+      let useSet = backed.length > 0 ? backed : judged;
+      // Wave 1A degradation (2026-11-02, fever cluster D3): one
+      // step past wave seventeen. When the judged set is ONE
+      // symptom or condition concept (its term in
+      // CLINICAL_SHAPE_WORDS) plus only generic state words
+      // (GENERIC_STATE_WORDS: sick, ill, unwell, poorly, bad),
+      // the state words are filler completion, not a second
+      // concept: judging on the pair demands a paper engage the
+      // asker's state word beside the symptom, which is the
+      // fever specimen's exact failure (the guideline, the
+      // prostaglandin paper, and the pathophysiology record
+      // each engage fever and fail on "sick"). Judge on the
+      // symptom concept alone under the single concept rule
+      // below. The degradation fires whether or not the symptom
+      // concept is backed — with the D2 fever group authored,
+      // both concepts resolve backed, so a zero backed trigger
+      // would never reach the specimen it was written for; the
+      // tightness lives in the closed state class, not in the
+      // backing. Any other second concept (a population, a
+      // substance, an outcome) leaves the standard untouched.
+      if (judged.length >= 2) {
+        const termOf = (c) => String((c && c.term) || "").toLowerCase();
+        const symptoms = judged.filter((c) => CLINICAL_SHAPE_WORDS.has(termOf(c)));
+        const rest = judged.filter((c) => !CLINICAL_SHAPE_WORDS.has(termOf(c)));
+        if (symptoms.length === 1 && rest.length >= 1
+            && rest.every((c) => GENERIC_STATE_WORDS.has(termOf(c)))) {
+          useSet = symptoms;
+        }
+      }
       const hits = aggregateConceptSetHits(useSet, gateRecordFor);
       // Diagnosis amendment (2026-10-21, search diagnosis): the
       // abstract engagement requirement below cannot be judged
@@ -19390,8 +19611,13 @@ export function applyConceptCoverageGate(answer, papers, query, dynLookup) {
 // scores of 10, 24, 26, and 45 against the floor of 50.
 //
 // The binding: a paper is CITABLE only when it individually
-// clears BOTH halves of the standard — the relevance floor
-// (paperRelevance >= RELEVANCE_FLOOR) and, when the question
+// clears BOTH halves of the standard — the topical floor
+// (paperGateScore, the score's topical component, >=
+// TOPICAL_GATE_FLOOR 25; corrected 2026-11-02, Wave 1A, D5:
+// this comment long described the binding as the blended
+// paperRelevance >= RELEVANCE_FLOOR 50, which the code has
+// not read since L3-3 — the blended floor governs the further
+// reading tail, not citation) and, when the question
 // yields a gate standard at all, the citation gate standard
 // itself (subject aware, with the anchor and existence
 // exemptions the gate has always carried). No flag exempts a
@@ -19599,8 +19825,13 @@ export const RETRIEVAL_CITABLE_FLOOR = SHELF_FLOOR_MINIMUM;
  * no gate standard at all (no groups, no central terms, no
  * central concepts), topicality cannot be judged and the count is
  * the distinct raw count, so unjudgeable questions keep the old
- * raw count behavior instead of a fabricated zero. */
-export function countOnTopicPapers(papers, query, dynLookup) {
+ * raw count behavior instead of a fabricated zero. The optional
+ * opts argument carries one switch, clauseContexts: pass
+ * { clauseContexts: false } to count under the full question
+ * standard only, with no per clause credit (see the clause
+ * block below for why the cascade yield's starved signal reads
+ * that count and no other). */
+export function countOnTopicPapers(papers, query, dynLookup, opts) {
   const list = Array.isArray(papers) ? papers : [];
   const seenKeys = new Set();
   const distinct = [];
@@ -19632,9 +19863,21 @@ export function countOnTopicPapers(papers, query, dynLookup) {
    * for the question, the same split the clause fanout below
    * searches by, so each clause gets its own gate context here
    * and a paper counts when it keeps under the full standard or
-   * any clause's. */
+   * any clause's.
+   * Clause contexts can be disabled by the caller
+   * (opts.clauseContexts === false, 2026-11-02, Wave 1A, waste
+   * oil W1): the count then reads the full question standard
+   * only. The cascade yield's starved signal is the one reader
+   * that must NOT see clause credit: on the waste oil draws a
+   * collision pool (a wound care paper, a biodiesel paper)
+   * counted as on topic through partial credit while neither
+   * paper answers the feeding question, and the yield — the
+   * one funded rescue round — arms only on a count of exactly
+   * zero, so the credit disarmed the rescue while the retrieval
+   * ceiling was already spent. Every other reader keeps the
+   * clause credit it was built for. */
   const clauseCtxs = [];
-  try {
+  if (!(opts && opts.clauseContexts === false)) try {
     const clauses = String(query || "")
       .split(/\s*(?:,\s*)?\band\b\s+(?=how|what|why|when|where|which|do|does|can|is|are)|\s*[;?]\s*/i)
       .map((c) => c.trim())
@@ -27968,7 +28211,7 @@ async function gatherPapersBody(rawQuery, opts) {
   // its own on shape), not a continuation decision, so a pool of
   // off topic volume spends its nets inside the room gate and
   // never consumes the yield the lane may need.
-  const onTopicOf = (settled) => {
+  const onTopicOf = (settled, countOpts) => {
     const flat = [];
     for (const r of settled || []) {
       if (r && r.status === "fulfilled" && Array.isArray(r.value)) {
@@ -27976,7 +28219,7 @@ async function gatherPapersBody(rawQuery, opts) {
       }
     }
     try {
-      return countOnTopicPapers(flat, rawQuery, dynLookup);
+      return countOnTopicPapers(flat, rawQuery, dynLookup, countOpts);
     } catch {
       return flat.length;
     }
@@ -28243,6 +28486,15 @@ async function gatherPapersBody(rawQuery, opts) {
     (n, r) => n + (r.status === "fulfilled" ? (r.value || []).length : 0), 0
   );
   const onTopicAfterRaw = onTopicOf(results);
+  // The starved signal for the yield below reads the FULL
+  // question standard only (2026-11-02, Wave 1A, waste oil
+  // W1): the clause credit count above (onTopicAfterRaw) still
+  // governs the continuation decisions it was built for, but a
+  // collision pool can earn clause credit without holding one
+  // paper that answers the whole question, and that credit
+  // must not disarm the one funded rescue round. Only this
+  // second count reaches the yield's starved parameter.
+  const onTopicAfterRawFullStandard = onTopicOf(results, { clauseContexts: false });
   // The foundational lane below holds its own claim on the
   // one yield for the shapes it serves (mechanism, method,
   // famous health, paired omics comparison, restriction
@@ -28252,7 +28504,7 @@ async function gatherPapersBody(rawQuery, opts) {
   const laneShapeAhead = isMechanismShapeQuery(rawQuery) || detectMeasurementIntent(rawQuery)
     || isFamousHealthShapeQuery(rawQuery) || !!pairedOmicsComparison(rawQuery)
     || isRestrictionExposureShape(rawQuery, dynLookup);
-  const yieldConcept = beginCascadeYield(totalAfterRaw, SUBREQUEST_RUNG_COST, onTopicAfterRaw === 0 && !laneShapeAhead);
+  const yieldConcept = beginCascadeYield(totalAfterRaw, SUBREQUEST_RUNG_COST, onTopicAfterRawFullStandard === 0 && !laneShapeAhead);
   if (onTopicAfterRaw < RETRIEVAL_CITABLE_FLOOR && _budgetLeft() && (yieldConcept || roomOrTrim("concept-expanded-fallback", SUBREQUEST_RUNG_COST))) {
     if (yieldConcept) diag.cascadeYield = "concept-expanded-fallback";
     // Build synonym-expanded queries from concept groups
@@ -33696,9 +33948,22 @@ async function runSearchPipeline(pctx) {
           const stdNow = citationGateStandard(query, _dynForValidation);
           const rows = papers.map((p, i) => {
             const rel = paperRelevance(p);
+            const gateRel = paperGateScore(p);
             const std = paperClearsCitationGate(p, stdNow);
             const legacy = paperClearsLegacyStandard(p, query, _dynForValidation);
             const reasons = [];
+            // Both floor readings, each against its own floor
+            // (2026-11-02, Wave 1A, waste oil W3): the audit used
+            // to report only the blended relevance against
+            // RELEVANCE_FLOOR 50, while the binding
+            // (paperIsCitable) reads the topical component
+            // against TOPICAL_GATE_FLOOR 25 — so a record could
+            // name the wrong cause for a drop, the exact stale
+            // reading D5 corrected in the binding's comment. The
+            // audit now reports the binding's reading first,
+            // then the blended one, each with its own floor.
+            // Diagnostics only; no serve behaviour changes.
+            if (gateRel !== null && gateRel !== undefined && gateRel < TOPICAL_GATE_FLOOR) reasons.push("topical gate score " + gateRel + " below the floor of " + TOPICAL_GATE_FLOOR);
             if (rel < RELEVANCE_FLOOR) reasons.push("relevance " + rel + " below the floor of " + RELEVANCE_FLOOR);
             let hitsTotal = null;
             let applicationOnly = false;
@@ -33709,7 +33974,7 @@ async function runSearchPipeline(pctx) {
               else reasons.push("engages " + hits.total + " central concept" + (hits.total === 1 ? "" : "s") + ", short of the citation standard");
               if (stdNow.mechanismShape && paperApplicationOnly(p)) { applicationOnly = true; reasons.push("application or delivery only engagement on a mechanism question"); }
             }
-            return { paper: p, rel, std, legacy, reasons, hitsTotal, applicationOnly };
+            return { paper: p, rel, gateRel, std, legacy, reasons, hitsTotal, applicationOnly };
           });
           const alreadyCitable = new Set(citablePapers);
           // The record only comparison count: how many excluded
