@@ -14,6 +14,15 @@ import { Dialog } from "./flowcharts.jsx";
 import { clearE2EEMemory, confirmRecoveryPhrase, ensureE2EEDevice, getBackupInfo, getRecoveryPhrase, listBackups, listDevices, restoreFromPhrase, revokeDevice, uploadBackupNow } from "./e2ee/messaging.js";
 import { ZkSession, isValidRecoveryPhrase, makeItemId } from "./zkData.js";
 import { normalizePhrase } from "./e2ee/recovery.js";
+import { REGISTER_GOLD, REGISTER_GROUND, REGISTER_INK, REGISTER_SERIF } from "./registerTokens.js";
+import { READ_BODY_FONT_PX } from "./docReader.js";
+
+/* Wave 2 (2026-11-02): Settings' one surface ground expression.
+   Settings is an Instrument surface: its ground is the fixed
+   register ground, never a palette value. When the Wave 0 resolver
+   lands, the coordinator swaps this one line to
+   resolveSurface("instrument") and nothing else here changes. */
+export const SETTINGS_SURFACE_GROUND = REGISTER_GROUND;
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 // Web Push VAPID public key — public by design (it goes into
@@ -2118,13 +2127,20 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
      Nothing was removed. SETTINGS_INDEX below still maps every individual
      row to its section, so search jumps to the right place.
      ══════════════════════════════════════════════════════════════ */
+  /* Wave 2 (2026-11-02): seven groups. Answers becomes Reading and
+     takes Typography, Vision, and Auto read with it; Sound & motion
+     is dissolved (Motion and Reduce transparency to Appearance,
+     Sounds to Notifications); Privacy splits its notification
+     sections out into Notifications; Membership stands alone with
+     the Pro account section; About becomes Diagnostics. */
   const TABS = [
     ["account", "Account", "user"],
-    ["answers", "Answers", "settings"],
+    ["reading", "Reading", "settings"],
     ["appearance", "Appearance", "eye"],
-    ["sound", "Sound & motion", "volumeOn"],
     ["privacy", "Privacy & data", "shield"],
-    ["about", "About", "question"],
+    ["notifications", "Notifications", "bell"],
+    ["membership", "Membership", "star"],
+    ["diagnostics", "Diagnostics", "question"],
   ];
 
   // Commit 67 — settings search.
@@ -2136,35 +2152,35 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   // the labels back out, and a hand-list is honest about the fact that a
   // new setting has to be registered here to be findable.
   const SETTINGS_INDEX = [
-    ["Answer length", "answers", "concise standard detailed response verbosity"],
-    ["Check answers against their sources", "answers", "verify verification accuracy claims fact check"],
-    ["Animated typing", "answers", "typewriter reveal progressive"],
+    ["Answer length", "reading", "concise standard detailed response verbosity"],
+    ["Check answers against their sources", "reading", "verify verification accuracy claims fact check"],
+    ["Animated typing", "reading", "typewriter reveal progressive"],
     // Commit 100 — the privacy controls are findable by the words people
     // actually search for when they go looking for them, which is rarely
     // the word on the switch.
     ["Let people find me in search", "privacy", "privacy discoverable hidden invisible directory find people search"],
     ["Show my institution on my profile", "privacy", "privacy affiliation university college hide institution"],
     ["Who can start a conversation with you", "privacy", "privacy dm direct message strangers block messages"],
-    ["Theme", "appearance", "dark light palette colour color"],
+    ["Theme", "appearance", "dark light palette colour color reading surfaces preview"],
     ["Accent color", "appearance", "colour highlight brand"],
-    ["Motion", "sound", "background animation motion particles effects reduce"],
-    ["Animation speed", "sound", "motion speed particles rate"],
-    ["Reduce transparency", "sound", "glass blur frosted solid"],
+    ["Motion", "appearance", "background animation motion particles effects reduce off subtle full cinematic"],
+    ["Animation speed", "appearance", "motion speed particles rate"],
+    ["Reduce transparency", "appearance", "glass blur frosted solid"],
     ["Data density", "appearance", "compact comfortable spacing padding layout"],
-    ["Desktop notifications", "privacy", "permission browser alerts push"],
-    ["Incoming calls", "privacy", "ring call video audio"],
-    ["Direct messages", "privacy", "inbox dm chat message"],
-    ["Watched topics", "privacy", "papers literature alerts new research"],
-    ["High contrast", "appearance", "contrast vision legibility"],
-    ["Text size", "appearance", "font size larger bigger zoom"],
-    ["Line spacing", "appearance", "leading line height readability"],
-    ["Focus indicators", "appearance", "keyboard ring outline focus"],
-    ["Dyslexia friendly font", "appearance", "opendyslexic typeface reading"],
+    ["Desktop notifications", "notifications", "permission browser alerts push"],
+    ["Incoming calls", "notifications", "ring call video audio"],
+    ["Direct messages", "notifications", "inbox dm chat message"],
+    ["Watched topics", "notifications", "papers literature alerts new research"],
+    ["High contrast", "reading", "contrast vision legibility"],
+    ["Text size", "reading", "font size larger bigger zoom small medium default large extra large"],
+    ["Line spacing", "reading", "leading line height readability"],
+    ["Focus indicators", "reading", "keyboard ring outline focus"],
+    ["Dyslexia friendly font", "reading", "opendyslexic typeface reading"],
     ["Reading profiles", "appearance", "dyslexia low vision migraine focus comfort profiles reading"],
-    ["Auto read answers", "sound", "speech tts read aloud voice"],
-    ["Sound effects", "sound", "mute clicks sfx sounds"],
-    ["Search ambience", "sound", "tone background ambient sound"],
-    ["Text to speech", "answers", "voice narration tts"],
+    ["Auto read answers", "reading", "speech tts read aloud voice"],
+    ["Sound effects", "notifications", "mute clicks sfx sounds"],
+    ["Search ambience", "notifications", "tone background ambient sound"],
+    ["Text to speech", "reading", "voice narration tts"],
     ["Saved conversations", "privacy", "history conversations clear delete"],
     // E2EE Phase 1.4 — encrypted messaging settings.
     ["Encrypted messaging", "privacy", "encryption e2ee secure devices recovery phrase"],
@@ -2176,13 +2192,13 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     ["Import workspace", "privacy", "restore upload json import"],
     ["Reset all settings", "privacy", "defaults restore factory reset"],
     ["Clear all data", "privacy", "erase wipe delete everything storage"],
-    ["Keyboard shortcuts", "about", "hotkeys keys shortcuts"],
-    ["System status", "about", "health uptime api diagnostics"],
-    ["Configuration", "about", "env environment variables cloudflare"],
-    ["Version", "about", "build number release"],
+    ["Keyboard shortcuts", "diagnostics", "hotkeys keys shortcuts"],
+    ["System status", "diagnostics", "health uptime api diagnostics"],
+    ["Configuration", "diagnostics", "env environment variables cloudflare"],
+    ["Version", "diagnostics", "build number release"],
     ["Sign out", "account", "logout leave session"],
     ["Delete account", "account", "remove erase danger"],
-    ["Membership", "account", "pro lite free subscription billing quota usage"],
+    ["Membership", "membership", "pro lite free subscription billing quota usage plan tier"],
   ];
   const searchHits = query.trim().length < 2 ? [] : (() => {
     const q = query.trim().toLowerCase();
@@ -2211,6 +2227,13 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     setHighlight(hit.label);
     if (highlightTimer.current) clearTimeout(highlightTimer.current);
     highlightTimer.current = setTimeout(() => setHighlight(""), 2400);
+    /* Wave 2: the jump lands on the row itself, not just its tab.
+       The row mounts with the tab switch, so the scroll waits a
+       tick, then centres the gold marked row. */
+    setTimeout(() => {
+      const el = document.getElementById("cb-settings-row-" + String(hit.label).toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+      if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 80);
   };
 
   /* ── Building blocks. Pass 4 — Settings is a sober preference table,
@@ -2235,7 +2258,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
       marginBottom: 40, paddingTop: 28,
       borderTop: `1px solid ${P.line}`,
     }}>
-      {title && <div style={{ ...TYPE.subhead, color: tone === "danger" ? statusBad(P) : P.ink, marginBottom: SP.md, fontFamily: "var(--cb-font)" }}>{title}</div>}
+      {/* Wave 2: section titles set in the serif at 26 on the rule,
+          the ledger section form the Library set. */}
+      {title && <div style={{ fontSize: 26, fontWeight: 500, lineHeight: 1.25, color: tone === "danger" ? statusBad(P) : REGISTER_INK.ink, marginBottom: SP.md, fontFamily: REGISTER_SERIF }}>{title}</div>}
       <div>{children}</div>
       {footer && <div style={{ fontSize: FONT_SIZES.label, color: P.faint, marginTop: 8, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>{footer}</div>}
     </div>
@@ -2252,38 +2277,56 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     // string comparison can never match it. searchKey gives such rows a
     // stable string the settings-search highlight can find.
     const lit = highlight && (highlight === label || (searchKey && highlight === searchKey));
+    /* Wave 2: the chevron is deleted. A row that opens something
+       carries the gold word Open instead, and the search jump mark
+       is a gold rule on the row, not an accent wash. The wrapper
+       carries the id jumpTo scrolls to. */
+    const rowId = "cb-settings-row-" + String(searchKey || (typeof label === "string" ? label : "row")).toLowerCase().replace(/[^a-z0-9]+/g, "-");
     return (
-      <UIRow
-        P={P} accent={accent} label={label} desc={desc} last={last} paletteName={paletteName}
-        onClick={onClick} tone={destructive ? "bad" : undefined}
-        control={control || (onClick ? <span style={{ color: P.faint, fontSize: FONT_SIZES.subhead }}>›</span> : null)}
-        style={{
-          /* Pass 4 — compact preference-table rows: tighter padding and
-             no side gutters, so the rows read as one ledger. */
-          padding: "9px 2px", minHeight: 48,
-          ...(lit ? {
-            background: withAlpha(accent, 0.16),
-            boxShadow: `none`,
-            transition: "background-color 350ms var(--cb-ease)",
-          } : { transition: "background-color 350ms var(--cb-ease)" }),
-        }}
-      />
+      <div id={rowId} style={lit ? { borderTop: `2px solid ${REGISTER_GOLD}` } : undefined}>
+        <UIRow
+          P={P} accent={accent} label={label} desc={desc} last={last} paletteName={paletteName}
+          onClick={onClick} tone={destructive ? "bad" : undefined}
+          control={control || (onClick ? <span style={{ color: REGISTER_GOLD, fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)" }}>Open</span> : null)}
+          style={{ padding: "9px 2px", minHeight: 48 }}
+        />
+      </div>
     );
   };
 
+  /* Wave 2: the switch is drawn in ink and line tokens only, never
+     a user accent. A square track on a hairline, a square ink thumb,
+     and gold appears only as the on state inside the control. */
   const Switch = ({ on, onChange, label }) => (
     <button role="switch" aria-checked={on} aria-label={label} onClick={() => { sfx(); onChange(!on); }}
       style={{ width: 52, height: 48, background: "transparent", border: "none", cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-      <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: RADIUS.viewport, position: "relative", flexShrink: 0, display: "block", background: on ? accent : P.dark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.14)", transition: "background 280ms var(--cb-ease)" }}>
-        <span style={{ position: "absolute", top: 2, left: 2, width: 22, height: 22, borderRadius: "50%", background: "#fff", transform: on ? "translateX(18px)" : "translateX(0)", transition: "transform 280ms var(--cb-ease)", boxShadow: "none" }} />
+      <span aria-hidden="true" style={{ width: 44, height: 26, borderRadius: 0, position: "relative", flexShrink: 0, display: "block", background: "transparent", border: `1px solid ${REGISTER_INK.ink55}`, transition: "border-color 280ms var(--cb-ease)" }}>
+        <span style={{ position: "absolute", top: 3, left: 3, width: 18, height: 18, borderRadius: 0, background: on ? REGISTER_GOLD : REGISTER_INK.ink55, transform: on ? "translateX(20px)" : "translateX(0)", transition: "transform 280ms var(--cb-ease), background 280ms var(--cb-ease)", boxShadow: "none" }} />
       </span>
     </button>
   );
 
-  const Picker = ({ value, options, onChange, ariaLabel }) => (
-    <UISelect P={P} accent={accent} value={value} options={options}
-      onChange={(v) => { sfx(); onChange(v); }} ariaLabel={ariaLabel} style={{ fontSize: 16 }} />
-  );
+  /* Wave 2: dropdowns and select boxes are replaced by inline
+     choice lines. The options are words in a row; the chosen word
+     is full ink and underlined in gold. Options arrive as value and
+     label pairs or as objects; both shapes normalise here. */
+  const Picker = ({ value, options, onChange, ariaLabel }) => {
+    const norm = (options || []).map((o) => (Array.isArray(o) ? { value: o[0], label: o[1] } : o));
+    return (
+      <span role="radiogroup" aria-label={ariaLabel} style={{ display: "inline-flex", gap: 16, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        {norm.map((o) => {
+          const chosen = o.value === value;
+          return (
+            <button key={String(o.value)} type="button" role="radio" aria-checked={chosen}
+              onClick={() => { sfx(); onChange(o.value); }}
+              style={{ background: "none", border: "none", padding: "10px 0", minHeight: 44, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: chosen ? 500 : 400, color: chosen ? REGISTER_INK.ink : REGISTER_INK.ink55, textDecoration: chosen ? "underline" : "none", textDecorationColor: REGISTER_GOLD, textUnderlineOffset: 6 }}>
+              {o.label}
+            </button>
+          );
+        })}
+      </span>
+    );
+  };
 
   /* ── Reading Profiles: apply + match + preview ── */
   const currentSettingsSnapshot = () => ({ dyslexicFont, lineSpacing, fontSize, paletteName, dataDensity, focusHighlight, highContrast, reducedTransparency, animationMode, soundMode, muted, typewriter });
@@ -2371,7 +2414,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
     // (makeStyles) for why a plain static box never wins a stacking fight
     // against LivingBackground's absolutely-positioned canvas, opaque
     // background or not, past the first screenful of scroll.
-    <div role="region" aria-label="Settings" style={{ flex: 1, minHeight: "100%", background: P.bg, display: "flex", flexDirection: "column", overflowY: "auto", position: "relative", zIndex: Z.content }}>
+    <div role="region" aria-label="Settings" style={{ flex: 1, minHeight: "100%", background: SETTINGS_SURFACE_GROUND, display: "flex", flexDirection: "column", overflowY: "auto", position: "relative", zIndex: Z.content }}>
       {/* 62px of top padding on mobile clears the fixed menu button — see
           pageViewInner's comment; Settings sets its own padding and so
           needed the same correction independently. */}
@@ -2402,9 +2445,8 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
 
             {/* Commit 67 — search. See SETTINGS_INDEX. */}
             <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 1 320px", minWidth: 200 }}>
-              <span aria-hidden="true" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: P.faint, display: "inline-flex", pointerEvents: "none" }}>
-                <Icon name="search" size={15} />
-              </span>
+              {/* Wave 2: the search field is a ruled line, no pill
+                  and no icon inside the field. */}
               <input
                 value={query} onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
@@ -2414,9 +2456,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 placeholder="Search settings"
                 aria-label="Search settings"
                 style={{
-                  width: "100%", padding: "9px 12px 9px 34px", minHeight: 48, borderRadius: RADIUS.viewport,
-                  background: P.surface,
-                  border: `1px solid ${P.line}`, color: P.ink, outline: "none",
+                  width: "100%", padding: "9px 2px", minHeight: 48, borderRadius: 0,
+                  background: "transparent",
+                  border: "none", borderBottom: `1px solid ${REGISTER_INK.ink55}`, color: REGISTER_INK.ink, outline: "none", fontFamily: "var(--cb-serif)", fontSize: 16,
                   fontSize: 16, fontFamily: "var(--cb-font)",
                   transition: "border-color 150ms var(--cb-ease)",
                 }}
@@ -2483,13 +2525,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     textAlign: "left", fontFamily: "var(--cb-font)",
                     fontSize: FONT_SIZES.label, fontWeight: 500,
                     letterSpacing: TYPE.heading.letterSpacing,
-                    background: tab === id ? withAlpha(accent, 0.11) : "transparent",
-                    color: tab === id ? P.ink : P.ink2,
-                    transition: "background-color 200ms var(--cb-ease), color 200ms var(--cb-ease)",
+                    background: "transparent",
+                    borderLeft: tab === id ? `2px solid ${REGISTER_GOLD}` : "2px solid transparent",
+                    color: tab === id ? REGISTER_INK.ink : REGISTER_INK.ink72,
+                    transition: "color 200ms var(--cb-ease)",
                   }}>
-                  <span style={{ display: "inline-flex", color: tab === id ? accent : P.faint, flexShrink: 0 }}>
-                    <Icon name={icon} size={16} />
-                  </span>
                   {label}
                 </button>
               ))}
@@ -2500,7 +2540,9 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             remounts this stack under the tab key and the cb-set-panel
             class moves it in as one region on the one curve, where
             the old cb-fade only cross faded it in place. */}
-        <div key={tab} className="cb-set-panel" style={{ flex: 1, minWidth: 0, padding: isMobile ? "0 0 16px" : "0 0 16px", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
+        {/* Wave 2: rows read on the 760 measure, label left and
+            control hard right, the plan's Settings measure. */}
+        <div key={tab} className="cb-set-panel" style={{ flex: 1, minWidth: 0, maxWidth: 760, padding: isMobile ? "0 0 16px" : "0 0 16px", overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
 
           {tab === "account" && (<>
             {!user ? (
@@ -2510,15 +2552,12 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                   <button onClick={() => onOpenAuth("login")} style={{ minHeight: 48, padding: "8px 16px", fontSize: FONT_SIZES.label, fontWeight: 500, background: accent, color: at, border: "none", borderRadius: RADIUS.md, cursor: "pointer" }}>Sign in</button>
                 } last />
               </Section>
-              <ProAccountSection P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={onOpenPro} Section={Section} Row={Row} />
               </>
             ) : (<>
               <Section title="Account">
                 <Row label={user.email} desc="Signed in" last />
               </Section>
               <PasskeyPanel P={P} accent={accent} at={at} Section={Section} Row={Row} sfx={sfx} onRegisterPasskey={onRegisterPasskey} />
-              {/* Pro membership: status, usage meter, upgrade/manage. */}
-              <ProAccountSection P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={onOpenPro} Section={Section} Row={Row} />
               {/* Pro API keys. Rendered for Pro members; the server re-checks
                   the Pro gate on every key action, so this is courtesy. */}
               {(proStatus?.tier === "pro" || !!user?.isPro) && (
@@ -2615,7 +2654,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
             </>)}
           </>)}
 
-          {tab === "answers" && (<>
+          {tab === "reading" && (<>
             <Section title="Responses">
               <Row label="Answer length" control={
                 <Picker value={answerLength} options={[["short", "Concise"], ["medium", "Standard"], ["long", "Detailed"]]} onChange={setAnswerLength} ariaLabel="Answer length" />
@@ -2635,6 +2674,39 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               <TtsVoiceSetting P={P} accent={accent} at={at} S={S} sfx={sfx} />
             </Section>
 
+                      {/* Typography and Vision used to live on a separate
+                "Accessibility" tab. The split between "appearance" and
+                "accessibility" was ours, not the user's: someone turning
+                up contrast is doing the same job as someone picking a
+                theme. */}
+            <Section title="Typography" footer="All changes apply immediately and persist across sessions.">
+              <Row label="Text size" control={
+                <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={(v) => { sfx(); setFontSize(v); }} ariaLabel="Text size" />
+              } />
+              {/* Wave 2: the row demonstrates itself. This sample is
+                  set at the size you picked, the same numbers the
+                  Reader body uses. */}
+              <div aria-hidden="true" style={{ padding: "0 2px 12px", fontFamily: "var(--cb-serif)", fontSize: READ_BODY_FONT_PX[fontSize] || 16, color: REGISTER_INK.ink72, lineHeight: 1.5 }}>
+                Answers from published research, set at the size you picked.
+              </div>
+              <Row label="Dyslexia friendly font" desc="OpenDyslexic, designed for easier reading with dyslexia" control={<Switch on={dyslexicFont} onChange={(v) => { sfx(); if (v) ensureDyslexicFont(); setDyslexicFont(v); }} label="Dyslexic font" />} />
+              {/* Wave 2: the sample below wears the font when it is on. */}
+              <div aria-hidden="true" style={{ padding: "0 2px 12px", fontSize: FONT_SIZES.label, lineHeight: 1.6, color: REGISTER_INK.ink72, fontFamily: dyslexicFont ? "'OpenDyslexic', 'Comic Sans MS', sans-serif" : "var(--cb-serif)", letterSpacing: dyslexicFont ? "0.05em" : "normal" }}>
+                This line is set in the dyslexia friendly font when the switch is on.
+              </div>
+              <Row label="Line spacing" desc="Increases space between lines of text" control={
+                <Picker value={lineSpacing} options={[["normal", "Normal"], ["relaxed", "Relaxed"], ["loose", "Loose"]]} onChange={(v) => { sfx(); setLineSpacing(v); }} ariaLabel="Line spacing" />
+              } last />
+            </Section>
+
+            <Section title="Vision">
+              <Row label="High contrast" desc="Maximum contrast between text and background" control={<Switch on={highContrast} onChange={(v) => { sfx(); setHighContrast(v); }} label="High contrast" />} />
+              <Row label="Focus indicators" desc="Shows a visible ring around the focused element" control={<Switch on={focusHighlight} onChange={(v) => { sfx(); setFocusHighlight(v); }} label="Focus indicators" />} last />
+            </Section>
+
+            <Section title="Auto read" footer="Voice selection is in Read aloud, on this tab.">
+              <Row label="Auto read answers" desc="Reads new answers aloud automatically" control={<Switch on={autoplay} onChange={(v) => { sfx(); setAutoplay(v); }} label="Auto read" />} last />
+            </Section>
           </>)}
 
           {tab === "appearance" && (<>
@@ -2722,6 +2794,23 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               )}
             </Section>
 
+            {/* Wave 2: the palette row demonstrates itself with a
+                Reading preview, and says plainly what a palette
+                changes under the adopted Option B ruling. */}
+            {PALETTES[paletteName] && (
+              <div style={{ padding: "2px 12px 16px" }}>
+                <div style={{ fontFamily: "var(--cb-mono)", fontSize: FONT_SIZES.caption, letterSpacing: "0.08em", textTransform: "uppercase", color: REGISTER_INK.ink55, marginBottom: 8 }}>Reading preview</div>
+                <div style={{ border: `1px solid ${REGISTER_INK.ink55}`, background: PALETTES[paletteName].bg, padding: "16px 18px" }}>
+                  <p style={{ margin: 0, fontFamily: "var(--cb-serif)", fontSize: 16, lineHeight: 1.6, color: PALETTES[paletteName].ink }}>
+                    Answers from published research. Every claim carries the paper it came from, so you can check the source yourself before you trust the sentence.
+                  </p>
+                </div>
+                <p style={{ margin: "10px 0 0", fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>
+                  Palettes change reading surfaces: answers, the document reader, and profiles. The Library, Settings, and Inbox stay on the fixed register ground either way.
+                </p>
+              </div>
+            )}
+
             {/* Wave 3 — the Pro reel lives under Sound & motion with the
                 rest of the backdrop controls, not beside the palette. */}
             <Section title="Accent color">
@@ -2742,41 +2831,49 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               </div>
             </Section>
 
-            {/* Typography and Vision used to live on a separate
-                "Accessibility" tab. The split between "appearance" and
-                "accessibility" was ours, not the user's: someone turning
-                up contrast is doing the same job as someone picking a
-                theme. */}
-            <Section title="Typography" footer="All changes apply immediately and persist across sessions.">
-              <Row label="Text size" control={
-                <Picker value={fontSize} options={[["small", "Small"], ["medium", "Default"], ["large", "Large"], ["xlarge", "Extra Large"]]} onChange={(v) => { sfx(); setFontSize(v); }} ariaLabel="Text size" />
-              } />
-              <Row label="Dyslexia friendly font" desc="OpenDyslexic, designed for easier reading with dyslexia" control={<Switch on={dyslexicFont} onChange={(v) => { sfx(); if (v) ensureDyslexicFont(); setDyslexicFont(v); }} label="Dyslexic font" />} />
-              <Row label="Line spacing" desc="Increases space between lines of text" control={
-                <Picker value={lineSpacing} options={[["normal", "Normal"], ["relaxed", "Relaxed"], ["loose", "Loose"]]} onChange={(v) => { sfx(); setLineSpacing(v); }} ariaLabel="Line spacing" />
-              } last />
-            </Section>
-
-            <Section title="Vision">
-              <Row label="High contrast" desc="Maximum contrast between text and background" control={<Switch on={highContrast} onChange={(v) => { sfx(); setHighContrast(v); }} label="High contrast" />} />
-              <Row label="Focus indicators" desc="Shows a visible ring around the focused element" control={<Switch on={focusHighlight} onChange={(v) => { sfx(); setFocusHighlight(v); }} label="Focus indicators" />} last />
-            </Section>
-
             <Section title="Layout density" footer="Tighter spacing. Good for long source lists.">
               <Row label="Data density" control={
                 <Picker value={dataDensity} options={[["comfortable", "Comfortable"], ["compact", "Compact"]]} onChange={(v) => { sfx(); setDataDensity(v); }} ariaLabel="Data density" />
               } last />
             </Section>
+                      {/* Motion lives here, once — it used to also have a duplicate
+                on/off toggle over on the Accessibility tab that read a ref
+                (`lastAnimModeRef`) never passed into this component, which
+                threw a ReferenceError the instant anyone touched it. One
+                control, one place, no crash. */}
+            <Section title="Motion" footer="Off quiets every animated surface: backgrounds, the search instrument, video crossfades, entrance effects. Your device's Reduce Motion setting is honored automatically either way.">
+              <Row label="Motion" desc="Backgrounds, the search instrument, and entrance effects" control={
+                <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} ariaLabel="Motion" />
+              } last={animationMode === "off" && !(user && user.isPro)} />
+              {/* Wave 2: the motion row demonstrates itself. The line
+                  breathes at the chosen setting and stays still when
+                  motion is off. */}
+              <div aria-hidden="true" style={{ padding: "0 2px 10px", fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.label, color: REGISTER_INK.ink72 }}>
+                <style>{`@keyframes cbSetPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }`}</style>
+                <span style={animationMode === "off" ? undefined : { animation: `cbSetPulse ${animationMode === "cinematic" ? "2.2s" : "4s"} ease-in-out infinite` }}>
+                  {animationMode === "off" ? "Motion is off, so this line stays still." : "This line moves the way the app moves at this setting."}
+                </span>
+              </div>
+              {/* 2026-10-05: the members-only footage toggle lived here. The
+                  workspace no longer plays film behind it (cinema lives at
+                  the door only), so the toggle had nothing to switch. */}
+              {/* v6.9: was cookie-persisted and threaded all the way down into
+                  LivingBackground already, but had no control anywhere to
+                  actually change it from its default — this is the first real
+                  UI for it, reusing LocalSlider. Hidden when the background
+                  is off entirely, since a speed has nothing to apply to at
+                  that point. */}
+              {animationMode !== "off" && (
+                <div style={{ padding: "12px 0 4px" }}>
+                  <LocalSlider label="Animation speed" value={animSpeed} min={0.25} max={2} step={0.25}
+                    format={(v) => `${v}×`} onCommit={(v) => { sfx(); setAnimSpeed(v); }} accent={accent} P={P} />
+                </div>
+              )}
+              <Row label="Reduce transparency" desc="Makes panels solid instead of frosted glass" control={<Switch on={reducedTransparency} onChange={(v) => { sfx(); setReducedTransparency(v); }} label="Reduce transparency" />} last />
+            </Section>
           </>)}
 
-          {tab === "privacy" && (<>
-            {/* Commit 100 — the privacy controls used to sit on the Account
-                tab, directly under the identity they govern. They move here
-                because "who can see me" and "where does my data live" are
-                one question, and the notifications that touch that data are
-                part of the same answer. */}
-            <PrivacySettings P={P} accent={accent} at={at} sfx={sfx} Section={Section} Row={Row} Switch={Switch} Picker={Picker} user={user} />
-
+          {tab === "notifications" && (<>
             {/* Commit 67. Cerebrum was raising three kinds of desktop
                 notification with no way to turn any of them off short of
                 revoking the browser permission for all three — see
@@ -2898,6 +2995,27 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 />
               </Section>
             )}
+            <Section title="Sounds">
+              <Row label="Sound effects" desc="Click sounds and ambient tones while searching" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
+              <Row label="Search ambience" desc="Background tone while a search runs" control={
+                <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Sfx.preview(v); }} ariaLabel="Search ambience" />
+              } last />
+            </Section>
+          </>)}
+
+          {tab === "membership" && (<>
+            {/* Wave 2: membership stands alone. The Pro account
+                section renders here, out of the Account group. */}
+            <ProAccountSection P={P} accent={accent} at={at} user={user} proStatus={proStatus} onOpenPro={onOpenPro} Section={Section} Row={Row} />
+          </>)}
+
+          {tab === "privacy" && (<>
+            {/* Commit 100 — the privacy controls used to sit on the Account
+                tab, directly under the identity they govern. They move here
+                because "who can see me" and "where does my data live" are
+                one question, and the notifications that touch that data are
+                part of the same answer. */}
+            <PrivacySettings P={P} accent={accent} at={at} sfx={sfx} Section={Section} Row={Row} Switch={Switch} Picker={Picker} user={user} />
 
             {/* E2EE Phase 1.4 — encrypted messaging: recovery phrase, devices,
                 backups. Lives on Privacy & data because "who can read my
@@ -2911,57 +3029,6 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               collections={collections} setCollections={setCollections} vaultCtl={vaultCtl} />
           </>)}
 
-          {/* Wave 3 — the contents of this old block were split where they
-              belong: Vision and Reading live in the Appearance tab now,
-              and Auto-read answers moved to Sound & motion. Nothing was
-              removed; the rows are just addressed differently. */}
-
-          {/* Commit 88 — folded into Answers: how an answer is spoken is part
-              of what an answer is. */}
-          {tab === "sound" && (<>
-            <Section title="Sounds">
-              <Row label="Sound effects" desc="Click sounds and ambient tones while searching" control={<Switch on={!muted} onChange={(v) => setMuted(!v)} label="Sound effects" />} />
-              <Row label="Search ambience" desc="Background tone while a search runs" control={
-                <Picker value={soundMode} options={[["pulse", "Pulse"], ["shimmer", "Shimmer"], ["warm", "Warm"], ["minimal", "Minimal"]]} onChange={(v) => { setSoundMode(v); Sfx.preview(v); }} ariaLabel="Search ambience" />
-              } last />
-            </Section>
-
-            {/* Motion lives here, once — it used to also have a duplicate
-                on/off toggle over on the Accessibility tab that read a ref
-                (`lastAnimModeRef`) never passed into this component, which
-                threw a ReferenceError the instant anyone touched it. One
-                control, one place, no crash. */}
-            <Section title="Motion" footer="Off quiets every animated surface: backgrounds, the search instrument, video crossfades, entrance effects. Your device's Reduce Motion setting is honored automatically either way.">
-              <Row label="Motion" desc="Backgrounds, the search instrument, and entrance effects" control={
-                <Picker value={animationMode} options={[["off", "Off"], ["subtle", "Subtle"], ["cinematic", "Full"]]} onChange={setAnimationMode} ariaLabel="Motion" />
-              } last={animationMode === "off" && !(user && user.isPro)} />
-              {/* 2026-10-05: the members-only footage toggle lived here. The
-                  workspace no longer plays film behind it (cinema lives at
-                  the door only), so the toggle had nothing to switch. */}
-              {/* v6.9: was cookie-persisted and threaded all the way down into
-                  LivingBackground already, but had no control anywhere to
-                  actually change it from its default — this is the first real
-                  UI for it, reusing LocalSlider. Hidden when the background
-                  is off entirely, since a speed has nothing to apply to at
-                  that point. */}
-              {animationMode !== "off" && (
-                <div style={{ padding: "12px 0 4px" }}>
-                  <LocalSlider label="Animation speed" value={animSpeed} min={0.25} max={2} step={0.25}
-                    format={(v) => `${v}×`} onCommit={(v) => { sfx(); setAnimSpeed(v); }} accent={accent} P={P} />
-                </div>
-              )}
-              <Row label="Reduce transparency" desc="Makes panels solid instead of frosted glass" control={<Switch on={reducedTransparency} onChange={(v) => { sfx(); setReducedTransparency(v); }} label="Reduce transparency" />} last />
-            </Section>
-
-            <Section title="Auto read" footer="Voice selection is on the Answers tab.">
-              <Row label="Auto read answers" desc="Reads new answers aloud automatically" control={<Switch on={autoplay} onChange={(v) => { sfx(); setAutoplay(v); }} label="Auto read" />} last />
-            </Section>
-          </>)}
-
-          {/* Continues Privacy & data: history, library, watchlist,
-              workspace and the two destructive confirmations. A second
-              conditional block under the same tab id is deliberate — it
-              keeps each block short enough to read at a glance. */}
           {tab === "privacy" && (<>
             <Section title="History & storage" footer={user
               ? "Kept in this browser and synced to your account, so your work follows you to other devices. Erase removes both copies. Queries go to our server to run the search: details in Privacy, above."
@@ -3110,7 +3177,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
           {/* Wave 3 — diagnostics and credits are no longer filed next to
               library management. About is where you look when something
               feels wrong or you want to know what you're running. */}
-          {tab === "about" && (<>
+          {tab === "diagnostics" && (<>
             <Section title="Keyboard shortcuts">
               <div style={{ padding: "4px 0" }}>
                 {[[kbdLabel("K"), "Search"], [kbdLabel("J"), "New investigation"], [kbdLabel("B"), "Saved articles"], [kbdLabel("/"), "Settings"], [kbdLabel("D"), "Toggle light / dark"], ["Esc", "Back to search"]].map(([key, desc], i, arr) => (

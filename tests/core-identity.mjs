@@ -142,7 +142,8 @@ await test("new turns are marked fresh so typing runs once", () => {
 await test("Settings exposes the Animated typing row", () => {
   // Settings UI lives in src/settings.jsx after the monolith split.
   assert.match(settingsSrc, /label="Animated typing"/, "Animated typing settings row missing");
-  assert.match(settingsSrc, /\["Animated typing", "answers", "typewriter reveal progressive"\]/, "settings-search index entry missing");
+  // Tab id changed 2026-11-02 (Wave 2): the Answers group is Reading now.
+  assert.match(settingsSrc, /\["Animated typing", "reading", "typewriter reveal progressive"\]/, "settings-search index entry missing");
 });
 
 group("Particle atmosphere");
