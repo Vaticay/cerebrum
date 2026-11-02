@@ -20968,12 +20968,32 @@ export const FACT_CHECK_STAGE_OUTCOMES = [
   "off", "no-time", "budget-spent", "tiers-failed", "ran-no-countable", "ran-with-verdicts",
 ];
 
+/* Trace aware outcome inputs (Wave 1B, 2026-11-02, lane 2 D6): a
+ * trace entry outcome is a failure when it is not one of the two
+ * outcomes that mean a tier actually completed a check ("ok" or
+ * "nothing-to-verify"). A trace proves every tier failed when it
+ * exists, is non empty, and every entry is a failure outcome. */
+export function factCheckTraceEntryFailed(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  const outcome = String(entry.outcome || "");
+  return outcome !== "" && outcome !== "ok" && outcome !== "nothing-to-verify";
+}
+
+export function factCheckTraceAllFailed(trace) {
+  if (!Array.isArray(trace) || trace.length === 0) return false;
+  return trace.every((t) => factCheckTraceEntryFailed(t));
+}
+
 export function deriveFactCheckStageOutcome(state = {}) {
   if (state.settingOff) return "off";
   if (state.budgetSkipped) return "budget-spent";
   const countable = typeof state.countable === "number" ? state.countable : 0;
   if (state.attempted && countable > 0) return "ran-with-verdicts";
   if (!state.attempted) return "no-time";
+  // A trace that proves every tier failed outranks the ran check
+  // flag: a check whose tiers all failed never completed, so it
+  // can never be described as ran and found nothing countable.
+  if (state.tiersAllFailed) return "tiers-failed";
   if (state.ranCheck) return "ran-no-countable";
   return "tiers-failed";
 }
@@ -22458,14 +22478,47 @@ export async function logConfidenceTelemetry(env, entry, ledger = null) {
 }
 
 // ── Coverage note (computed from the retrieval record) ──────────
+/* The honest failure state of one database outcome (Wave 1B,
+ * 2026-11-02, lane 2 D3). A source the run never asked is not a
+ * source that did not respond, and a source the retrieval phase
+ * budget stopped is not one either: the record already carries
+ * the distinction (the notSearched flag, and the fetcher error
+ * strings on the record's database entries), so every surface
+ * names the state the data supports. Entries without an error
+ * string (the public sourcesQueried shape carries none) can only
+ * split into not searched versus did not respond. */
+export function databaseFailureState(entry) {
+  if (!entry || typeof entry !== "object" || entry.ok) return null;
+  const notSearched = Number(entry.notSearched);
+  if (Number.isFinite(notSearched) && notSearched > 0) return "not-searched";
+  if (entry.budgetStopped === true) return "budget-stopped";
+  const error = typeof entry.error === "string" ? entry.error : "";
+  if (/subrequest|budget/i.test(error)) return "budget-stopped";
+  return "did-not-respond";
+}
+
 export function buildCoverageNote(sourcesQueried) {
   if (!Array.isArray(sourcesQueried) || sourcesQueried.length === 0) return null;
   const failed = sourcesQueried.filter((s) => !s.ok);
   if (failed.length === 0) return null;
   const total = sourcesQueried.length;
-  const names = failed.map((s) => s.source).filter(Boolean).slice(0, 5).join(", ");
-  return failed.length + " of " + total + " databases didn't respond" +
-    (names ? " (" + names + ")" : "") +
+  // Wave 1B (lane 2 D3): every failed source is named, grouped by
+  // its honest state. The old note computed the full failed count
+  // and then capped the names at five, so a sentence could state
+  // eight failures and name only five of them.
+  const groups = [
+    ["did-not-respond", "didn't respond"],
+    ["budget-stopped", "stopped on the retrieval budget"],
+    ["not-searched", "not searched because the budget ran out"],
+  ];
+  const parts = [];
+  for (const [state, label] of groups) {
+    const names = failed.filter((s) => databaseFailureState(s) === state)
+      .map((s) => s.source).filter(Boolean);
+    if (names.length) parts.push(names.length + " of " + total + " databases " + label + " (" + names.join(", ") + ")");
+  }
+  if (!parts.length) return null;
+  return parts.join("; ") +
     "; this answer was built from the " + (total - failed.length) + " that did.";
 }
 
@@ -22825,6 +22878,53 @@ function recordFunnelOf(raw, diag, sourceCount) {
   };
 }
 
+/* buildCanonicalCounts(funnel, sources, databases): the ONE counts
+ * object for a response (Wave 1B, 2026-11-02, lane 2 D1). Computed
+ * once from the normalized funnel, the labeled source list, and the
+ * normalized database outcomes; buildCoverage, buildSearchRecord,
+ * and the response itself all read these figures and no surface
+ * re derives them from a list it happens to hold. Cited follows
+ * buildSearchRecord's existing rule, the one single source rule
+ * that already existed: when a source list exists, cited is the
+ * count of its cited flags (recordCitedFlags over the same list
+ * and answer), never an upstream funnel number. Fields the run
+ * did not produce are null, never a guess. The funnel argument
+ * here is the NORMALIZED funnel (recordFunnelOf's output, whose
+ * counts.shelf already names the shelf), so shelf is read from it
+ * rather than recomputed. */
+export function buildCanonicalCounts(funnel, sources, databases, answer) {
+  const n = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : null);
+  const f = funnel && typeof funnel === "object" ? funnel : null;
+  const list = Array.isArray(sources) ? sources : null;
+  const dbs = Array.isArray(databases) ? databases : null;
+  let cited = null;
+  let furtherReading = null;
+  if (list) {
+    const flags = recordCitedFlags(list, answer);
+    cited = flags.filter(Boolean).length;
+    furtherReading = list.length - cited;
+  } else if (f) {
+    cited = n(f.cited);
+  }
+  const gathered = f ? n(f.gathered) : null;
+  const deduped = f ? n(f.deduped) : null;
+  const excludedWeak = f ? n(f.excludedWeak) : null;
+  return {
+    gathered,
+    deduped,
+    excludedWeak,
+    excludedNonEnglish: f ? n(f.excludedNonEnglish) : null,
+    excludedRetracted: f ? n(f.excludedRetracted) : null,
+    shelf: f && f.counts && typeof f.counts === "object" ? n(f.counts.shelf)
+      : (deduped !== null && excludedWeak !== null ? Math.max(0, deduped - excludedWeak) : null),
+    finalList: list ? list.length : null,
+    cited,
+    furtherReading,
+    databasesAttempted: dbs ? dbs.length : null,
+    databasesAnswered: dbs ? dbs.filter((d) => d && d.ok).length : null,
+  };
+}
+
 /* The author string for a record entry, in the shape the response's
  * own sources carry it: a plain string on most producers, an array of
  * names or name objects on a few. Joined with commas and capped, or
@@ -22927,7 +23027,29 @@ function recordPartsOf(input) {
   const databases = recordDatabasesOf(
     input.databases || input.sourcesQueried || (diag && diag.sourceOutcomes) || null
   );
-  return { diag, sources, funnel, databases };
+  // Wave 1B (lane 2 D1): the canonical counts for this input,
+  // computed once here so buildCoverage and buildSearchRecord,
+  // which both start from these parts, can never disagree. A
+  // caller supplied counts object (the response assembly path
+  // builds one from publicFunnel and passes it in) wins over the
+  // derivation, because the assembly object is the shipped one.
+  const counts = input.counts && typeof input.counts === "object"
+    ? (() => {
+        const num = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : null);
+        const c = input.counts;
+        return {
+          gathered: num(c.gathered), deduped: num(c.deduped),
+          excludedWeak: num(c.excludedWeak),
+          excludedNonEnglish: num(c.excludedNonEnglish),
+          excludedRetracted: num(c.excludedRetracted),
+          shelf: num(c.shelf), finalList: num(c.finalList),
+          cited: num(c.cited), furtherReading: num(c.furtherReading),
+          databasesAttempted: num(c.databasesAttempted),
+          databasesAnswered: num(c.databasesAnswered),
+        };
+      })()
+    : buildCanonicalCounts(funnel, sources, databases, input.answer);
+  return { diag, sources, funnel, databases, counts };
 }
 
 /* The canonical origin a record permalink is built on. The public
@@ -23096,7 +23218,7 @@ export function applyRecordStoreOutcome(record, stored) {
 export function buildSearchRecord(input) {
   try {
     if (!input || typeof input !== "object") return null;
-    const { diag, sources, funnel, databases } = recordPartsOf(input);
+    const { diag, sources, funnel, databases, counts } = recordPartsOf(input);
     // A cache serve (input.cachedServe) is the one exception to the
     // funnel-or-databases gate: its search ran in an earlier request
     // whose diag is gone, but the stored source list is itself the
@@ -23651,6 +23773,18 @@ export function buildSearchRecord(input) {
       ...(recordResolvedQuery ? { resolvedQuery: recordResolvedQuery } : {}),
       databases,
       funnel: recordFunnel,
+      // Wave 1B (lane 2 D1): the canonical counts this record was
+      // built beside, stored additively so any future split
+      // between the response figures and the record figures is
+      // provable from the record alone.
+      counts,
+      // Wave 1B (lane 2 D6): the fact check stage outcome the
+      // response shipped, stored additively so the answer's fact
+      // check wording is auditable against the record after the
+      // fact. Present only when the caller passed the shipped
+      // object's outcome in.
+      ...(typeof input.factCheckStageOutcome === "string" && input.factCheckStageOutcome
+        ? { factCheckStageOutcome: input.factCheckStageOutcome.slice(0, 40) } : {}),
       synthesisModel,
       answerLength,
       ledger,
@@ -23685,13 +23819,15 @@ export function buildSearchRecord(input) {
 export function buildCoverage(input) {
   try {
     if (!input || typeof input !== "object") return null;
-    const { sources, funnel, databases } = recordPartsOf(input);
+    const { sources, funnel, databases, counts } = recordPartsOf(input);
     if (!funnel && !sources && !databases) return null;
     const flags = recordCitedFlags(sources || [], input.answer);
-    let cited = 0;
-    let furtherReading = 0;
-    for (const f of flags) { if (f) cited++; else furtherReading++; }
-    if (!sources && funnel) cited = funnel.cited;
+    // Wave 1B (lane 2 D1): cited, further reading, gathered,
+    // deduped, and the database figures come from the canonical
+    // counts object only. The flags below are still computed for
+    // the year span, which is a different derivation.
+    let cited = counts.cited != null ? counts.cited : 0;
+    let furtherReading = counts.furtherReading != null ? counts.furtherReading : 0;
     // One denominator rule (honesty pass): every number describing the
     // answer is computed from the cited set, so the year span comes
     // from the cited sources, never widened by an uncited outlier the
@@ -23706,12 +23842,12 @@ export function buildCoverage(input) {
       ? yearsOf(list.filter((s, i) => flags[i]))
       : yearsOf(list);
     return {
-      gathered: funnel ? funnel.gathered : null,
-      deduped: funnel ? funnel.deduped : null,
+      gathered: counts.gathered,
+      deduped: counts.deduped,
       cited,
       furtherReading,
-      databasesAnswered: databases ? databases.filter((d) => d.ok).length : null,
-      databasesTotal: databases ? databases.length : null,
+      databasesAnswered: counts.databasesAnswered,
+      databasesTotal: counts.databasesAttempted,
       earliestYear: years.length ? Math.min(...years) : null,
       latestYear: years.length ? Math.max(...years) : null,
     };
@@ -24000,25 +24136,25 @@ export function buildCachedServeTrust(input) {
     // shape and the same duplication exposure).
     try { servedAnswer = dedupeRepeatedSentences(servedAnswer); } catch { /* never break the serve */ }
   }
-  const coverage = buildCoverage({
+  // Wave 1B (lane 2 D1): coverage and record for a cache serve
+  // are built from ONE shared parts object, so the pair can never
+  // be built from two different funnels or source lists.
+  const trustParts = {
     funnel: input && input.funnel ? input.funnel : null,
     sources: labeledSources,
     databases: (input && input.databases) || null,
     diag: (input && input.diag) || null,
     answer: servedAnswer,
-  });
+  };
+  const coverage = buildCoverage(trustParts);
   const record = buildSearchRecord({
+    ...trustParts,
     question: input && input.question,
     askedAt: input && input.askedAt,
-    diag: (input && input.diag) || null,
-    funnel: input && input.funnel ? input.funnel : null,
-    databases: (input && input.databases) || null,
     synthesisModel: null,
     // The requesting depth (v31): the cache key is depth aware, so
     // the row this serve came from was written at this depth.
     answerLength: input && input.answerLength,
-    sources: labeledSources,
-    answer: servedAnswer,
     cachedServe: true,
   });
   // correctedFactCheck was computed at the top of this builder
@@ -32486,6 +32622,7 @@ async function runSearchPipeline(pctx) {
               _ledger: publicLedgerSnapshot(ledger),
               _coverage: earlyTrust.coverage,
               _record: earlyTrust.record,
+              _counts: earlyTrust.record ? earlyTrust.record.counts : null,
               confidence: publicConfidence(earlyTrust.confidence),
               degraded: false,
               stageHealth: [{ name: "cache", ok: true, ms: Math.max(0, Date.now() - (requestT0 || Date.now())) }],
@@ -32859,6 +32996,12 @@ async function runSearchPipeline(pctx) {
             // the run left this source unsearched, so the public
             // record can tell "never asked" from "answered zero".
             ...(o.notSearched > 0 ? { notSearched: o.notSearched } : {}),
+            // Wave 1B (lane 2 D3): a boolean only, never the
+            // fetcher's error text, so the coverage note and the
+            // diagnostics row can name a budget stopped source
+            // without the public shape carrying error strings.
+            ...(typeof o.error === "string" && /subrequest|budget/i.test(o.error)
+              ? { budgetStopped: true } : {}),
           }))
         : null
     );
@@ -35403,6 +35546,7 @@ async function runSearchPipeline(pctx) {
           _ledger: publicLedgerSnapshot(ledger),
           _coverage: laterTrust.coverage,
           _record: laterTrust.record,
+          _counts: laterTrust.record ? laterTrust.record.counts : null,
           confidence: publicConfidence(laterTrust.confidence),
           degraded: stageHealthDegraded(stageHealth),
           stageHealth: publicStageHealth(stageHealth),
@@ -38900,6 +39044,7 @@ async function runSearchPipeline(pctx) {
         attempted: factCheckAttempted,
         ranCheck: factCheckStageRanCheck,
         countable: factCheckStageCountable,
+        tiersAllFailed: factCheckTraceAllFailed(factCheckTrace),
       });
       if (factCheckResult) {
         try { factCheckResult.stageOutcome = factCheckStageOutcome; } catch { /* the record must never break the serve */ }
@@ -38943,14 +39088,24 @@ async function runSearchPipeline(pctx) {
         };
       }
       if (!factCheckResult.stageOutcome) {
+        // Wave 1B (lane 2 D6): no hardcoded ranCheck here. The
+        // real ran check state is recomputed from the same inputs
+        // the stage record used (a produced panel, or a trace
+        // entry where a tier completed a check), and the trace
+        // aware flag lets an all failed trace name itself
+        // tiers-failed instead of ran-no-countable.
+        const secondRanCheck = !!(
+          factCheckResult && Array.isArray(factCheckResult.claims) && factCheckResult.claims.length > 0
+        ) || factCheckTrace.some((t) => t && (t.outcome === "ok" || t.outcome === "nothing-to-verify"));
         factCheckResult = {
           ...factCheckResult,
           stageOutcome: deriveFactCheckStageOutcome({
             settingOff: !settings.factCheck,
             budgetSkipped: factCheckBudgetSkipped,
             attempted: factCheckAttempted || factCheckActuallyChecked(factCheckResult),
-            ranCheck: true,
+            ranCheck: secondRanCheck,
             countable: (factCheckCounts(factCheckResult) || { checked: 0 }).checked,
+            tiersAllFailed: factCheckTraceAllFailed(factCheckTrace),
           }),
         };
       }
@@ -39986,11 +40141,26 @@ async function runSearchPipeline(pctx) {
         cited: labeledSources.filter((s) => s && !s.uncited).length,
       };
     })();
+    /* Wave 1B (lane 2 D1): ONE canonical counts object for this
+     * response, built once here from publicFunnel, the labeled
+     * source list, and the public database outcomes, normalized
+     * through recordFunnelOf and recordDatabasesOf so it carries
+     * exactly the figures the record will carry. buildCoverage
+     * and buildSearchRecord both consume it as their only source
+     * for these figures, it ships on the response as _counts, and
+     * buildSearchRecord stores it inside the record. */
+    const canonicalCounts = buildCanonicalCounts(
+      recordFunnelOf(publicFunnel, gResult && gResult._diag, labeledSources.length),
+      labeledSources,
+      recordDatabasesOf(publicSourcesQueried()),
+      answer
+    );
     const coverageDisclosure = buildCoverage({
       funnel: publicFunnel,
       sources: labeledSources,
       databases: publicSourcesQueried(),
       answer,
+      counts: canonicalCounts,
     });
     /* The record gets its permanent id here, at the one assembly
      * point both the AI and the extractive paths ship from, and is
@@ -40056,6 +40226,12 @@ async function runSearchPipeline(pctx) {
       resolvedProposal,
       diag: gResult && gResult._diag,
       funnel: publicFunnel,
+      counts: canonicalCounts,
+      // Wave 1B (lane 2 D6): the fact check stage outcome the
+      // response ships on its fact check object, stored in the
+      // record so the answer's wording is auditable afterwards.
+      factCheckStageOutcome: factCheckResult && typeof factCheckResult.stageOutcome === "string"
+        ? factCheckResult.stageOutcome : null,
       synthesisModel: synthWinner ? String(synthWinner.model) : null,
       // The depth this answer was produced at (v31), so the record
       // can be checked against the reader's setting.
@@ -40378,6 +40554,9 @@ async function runSearchPipeline(pctx) {
          * needs to re run the search and judge its coverage. */
         _coverage: coverageDisclosure,
         _record: searchRecord,
+        /* Wave 1B (lane 2 D1): the canonical counts object, the
+         * same object coverage and the record were built from. */
+        _counts: canonicalCounts,
 
         /* SECURITY: `_aiAttempts` and the raw `_diag` shipped on EVERY
          * successful response, and both carry upstream error text .

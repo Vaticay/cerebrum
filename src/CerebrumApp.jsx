@@ -9037,7 +9037,14 @@ function coverageSentence(coverage) {
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
   const cited = num(coverage.cited);
   const further = num(coverage.furtherReading) || 0;
-  const gathered = num(coverage.gathered);
+  // Wave 1B (lane 2 D1): gathered comes from the canonical counts
+  // object the response shipped (the panel carries it on the
+  // coverage object as `counts`), so the sentence can never
+  // print a figure the record disagrees with. Older turns without
+  // counts fall back to the coverage figure itself.
+  const counts = coverage.counts && typeof coverage.counts === "object" ? coverage.counts : null;
+  const gathered = counts && num(counts.gathered) !== null
+    ? num(counts.gathered) : num(coverage.gathered);
   const dbCount = num(coverage.databasesAnswered) != null ? num(coverage.databasesAnswered) : num(coverage.databasesTotal);
   const ey = num(coverage.earliestYear);
   const ly = num(coverage.latestYear);
@@ -9183,6 +9190,105 @@ function diffSearchRecords(baseline, fresh) {
   };
 }
 
+/* Wave 1B (lane 2, D2, D4, D7): the record's readable helpers,
+   shared by the in page panel and the Markdown export so the two
+   can never drift from each other or from the permanent record
+   page, whose renderers (functions/record/[id].js) these mirror. */
+
+/* The one funnel list, eight labelled figures, in the permanent
+   page's order. The shelf reads the stored canonical counts when
+   the record carries them, else the funnel's own arithmetic. */
+function recordFunnelEntries(record) {
+  const f = record && record.funnel && typeof record.funnel === "object" ? record.funnel : null;
+  if (!f) return null;
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : "not recorded");
+  const counts = record.counts && typeof record.counts === "object" ? record.counts : null;
+  const shelf = counts && typeof counts.shelf === "number" ? counts.shelf
+    : (typeof f.deduped === "number" && typeof f.excludedWeak === "number" ? f.deduped - f.excludedWeak : null);
+  return [
+    ["Gathered", num(f.gathered)],
+    ["Deduped", num(f.deduped)],
+    ["Excluded as weak matches", num(f.excludedWeak)],
+    ["Excluded as non English", num(f.excludedNonEnglish)],
+    ["Excluded as retracted", num(f.excludedRetracted)],
+    ["Kept by the relevance floor (the shelf)", num(shelf)],
+    ["In the final source list", num(Array.isArray(record.sources) ? record.sources.length : null)],
+    ["Cited in the answer", num(f.cited)],
+  ];
+}
+
+/* The budget line, replicating the permanent page's
+   recordBudgetSection phrasing rules exactly: total used of
+   limit, the five largest stage spends by name, and the refusal
+   sentence only when refused is above zero. The ledger's single
+   source is the record's own ledger (t._record.ledger). */
+function recordBudgetLine(record) {
+  const L = record && typeof record === "object" ? record.ledger : null;
+  if (!L || typeof L !== "object" || !Number.isFinite(L.used) || !Number.isFinite(L.limit)) return null;
+  const stages = Object.entries(L.byStage && typeof L.byStage === "object" ? L.byStage : {})
+    .filter(([, v]) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  let line = "Subrequests: " + L.used + " used of a limit of " + L.limit + ".";
+  if (stages.length) {
+    line += " Largest spends: " + stages.map(([k, v]) => k + " " + v).join(", ") + ".";
+  }
+  if (Number.isFinite(L.refused) && L.refused > 0) {
+    line += " " + L.refused + " grant" + (L.refused === 1 ? " was" : "s were") + " refused at the budget ceiling.";
+  }
+  return line;
+}
+
+/* The fact check trace as one compressed line, each tier named
+   with its outcome, the way the permanent page prints it. */
+function recordFactCheckTraceLine(record) {
+  const trace = record && Array.isArray(record.factCheckTrace) ? record.factCheckTrace : null;
+  if (!trace || !trace.length) return null;
+  const parts = trace
+    .filter((x) => x && typeof x === "object" && (x.tier || x.outcome))
+    .map((x) => String(x.tier || "") + ": " + String(x.outcome || "") + (x.detail ? " (" + String(x.detail) + ")" : ""));
+  return parts.length ? parts.join(", ") : null;
+}
+
+/* True when a fact check trace proves every tier failed: the
+   trace exists and every entry's outcome is a failure outcome,
+   with no ok and no nothing to verify entry (lane 2 D6). */
+function factCheckTraceAllFailed(trace) {
+  if (!Array.isArray(trace) || trace.length === 0) return false;
+  return trace.every((x) => x && typeof x.outcome === "string" && x.outcome !== ""
+    && x.outcome !== "ok" && x.outcome !== "nothing-to-verify");
+}
+
+/* The health note, mirroring the permanent page's
+   recordHealthNote wording. Null for a healthy record. */
+function recordHealthLine(record) {
+  if (!record || typeof record !== "object") return null;
+  if (record.degraded === true) {
+    const stages = Array.isArray(record.failedStages)
+      ? record.failedStages.filter((s) => typeof s === "string" && s) : [];
+    return "This search ran degraded: part of the pipeline did not complete"
+      + (stages.length ? " (failed stages: " + stages.join(", ") + ")" : "")
+      + ". The record below is still the complete record of the run.";
+  }
+  if (typeof record.degraded !== "boolean" && !record.synthesisModel) {
+    const hasSources = Array.isArray(record.sources) && record.sources.length > 0;
+    return "No AI synthesis model ran for this answer"
+      + (hasSources ? ": it was assembled from source excerpts" : "")
+      + ". This record predates run health recording, so no fuller health verdict was stored for it.";
+  }
+  return null;
+}
+
+/* One database outcome's short label: its paper count when it
+   answered, else its honest failure state (lane 2 D3). */
+function databaseOutcomeLabel(d) {
+  if (!d || typeof d !== "object") return "";
+  if (d.ok) return String(d.count != null ? d.count : 0);
+  if (Number(d.notSearched) > 0) return "not searched";
+  if (d.budgetStopped === true || (typeof d.error === "string" && /subrequest|budget/i.test(d.error))) return "budget stopped";
+  return "no response";
+}
+
 /* The record as Markdown, built client side from _record so the user
    can paste it into a methods section or a lab notebook and anyone can
    re run the same search. Ends with the record itself as JSON, so the
@@ -9241,28 +9347,47 @@ function searchRecordMarkdown(record) {
   lines.push("## Databases");
   if (Array.isArray(record.databases) && record.databases.length) {
     record.databases.forEach((d, i) => {
-      lines.push(`${i + 1}. ${d.source}: ` + (d.ok ? `${d.count} paper${d.count === 1 ? "" : "s"} returned` : "did not respond"));
+      // Wave 1B (lane 2 D3): a source that was never searched or
+      // was stopped by the budget is labelled as what it was,
+      // never as one that did not respond.
+      const state = d.ok ? `${d.count} paper${d.count === 1 ? "" : "s"} returned`
+        : Number(d.notSearched) > 0 ? "not searched"
+        : (typeof d.error === "string" && /subrequest|budget/i.test(d.error)) ? "stopped on the retrieval budget"
+        : "did not respond";
+      lines.push(`${i + 1}. ${d.source}: ` + state);
     });
   } else {
     lines.push("Per database outcomes were not recorded for this search.");
   }
   lines.push("");
   lines.push("## Funnel");
-  if (record.funnel && typeof record.funnel === "object") {
-    const f = record.funnel;
-    lines.push("Gathered: " + f.gathered);
-    lines.push("Deduped: " + f.deduped);
-    lines.push("Excluded as weak matches: " + f.excludedWeak);
-    lines.push("Excluded as non English: " + f.excludedNonEnglish);
-    lines.push("Excluded as retracted: " + f.excludedRetracted);
-    // The label names the final source list, so the number is that
-    // list's length, counted from the list itself . f.cited is the
-    // smaller set the answer actually cited (2026-10-14).
-    lines.push("In the final source list: " + (Array.isArray(record.sources) ? record.sources.length : "not recorded"));
+  const funnelEntries = recordFunnelEntries(record);
+  if (funnelEntries) {
+    for (const [label, value] of funnelEntries) lines.push(label + ": " + value);
   } else {
     lines.push("Funnel counts were not recorded for this search.");
   }
   lines.push("");
+  // Wave 1B (lane 2 D4 and D7): the readable half carries the
+  // budget and the fact check trace too, above the JSON dump,
+  // with the permanent page's own phrasing.
+  lines.push("## Budget");
+  lines.push(recordBudgetLine(record) || "Budget counts were not recorded for this search.");
+  lines.push("");
+  lines.push("## Fact check");
+  const fcTraceLine = recordFactCheckTraceLine(record);
+  if (fcTraceLine) {
+    for (const part of fcTraceLine.split(", ")) lines.push(part);
+  } else {
+    lines.push("Fact check attempts were not recorded for this search.");
+  }
+  lines.push("");
+  const healthLine = recordHealthLine(record);
+  if (healthLine) {
+    lines.push("## Health");
+    lines.push(healthLine);
+    lines.push("");
+  }
   lines.push("## Model");
   lines.push(record.synthesisModel ? String(record.synthesisModel) : "No AI synthesis model ran for this answer.");
   lines.push("");
@@ -9297,8 +9422,13 @@ function searchRecordMarkdown(record) {
    _coverage nor _record (older cached answers, paths that never ran
    retrieval). */
 function SearchRecordPanel({ t, P }) {
-  const coverage = t && t._coverage && typeof t._coverage === "object" ? t._coverage : null;
   const record = t && t._record && typeof t._record === "object" ? t._record : null;
+  // Wave 1B (lane 2 D1): the coverage sentence reads the canonical
+  // counts, carried into the coverage object here from the turn's
+  // counts field or the record's stored counts.
+  const coverage = t && t._coverage && typeof t._coverage === "object"
+    ? { ...t._coverage, counts: t._counts || (record && record.counts) || t._coverage.counts || null }
+    : null;
   const baseline = t && t.recordBaseline && typeof t.recordBaseline === "object" ? t.recordBaseline : null;
   const sentence = coverage ? coverageSentence(coverage) : "";
   if (!sentence && !record) return null;
@@ -9327,11 +9457,27 @@ function SearchRecordPanel({ t, P }) {
             {sectionRow("Question", record.question || null)}
             {sectionRow("When", whenLabel)}
             {sectionRow("How it searched", record.structuredQuery || (Array.isArray(record.conceptQueries) && record.conceptQueries.length ? record.conceptQueries.join("; ") : null))}
+            {/* Wave 1B (lane 2 D7): the executed queries join the
+                panel, one compressed line, so the panel carries
+                the same contract as the page and the export. */}
+            {Array.isArray(record.executedQueries) && record.executedQueries.length > 0 && sectionRow("Executed queries",
+              record.executedQueries.filter((q) => q && q.query).map((q) => `${EXECUTED_QUERY_KIND_LABELS[q.kind] || q.kind || "Query"}: ${q.query}`).join(" · "))}
             {Array.isArray(record.databases) && record.databases.length > 0 && sectionRow("Databases",
-              record.databases.map((d) => `${d.source} ${d.ok ? d.count : "no response"}`).join(" · "))}
-            {record.funnel && sectionRow("Funnel",
-              `Gathered ${record.funnel.gathered} · Deduped ${record.funnel.deduped} · Cited ${record.funnel.cited}`)}
+              record.databases.map((d) => `${d.source} ${databaseOutcomeLabel(d)}`).join(" · "))}
+            {/* Wave 1B (lane 2 D2): the aligned eight figure funnel
+                list, the same list the page and the export print. */}
+            {recordFunnelEntries(record) && sectionRow("Funnel",
+              recordFunnelEntries(record).map(([label, value]) => `${label} ${value}`).join(" · "))}
+            {/* Wave 1B (lane 2 D4): the budget row, directly under
+                the funnel row. Single source: the record's ledger
+                (t._record.ledger), phrased by recordBudgetLine
+                with the permanent page's exact rules. */}
+            {recordBudgetLine(record) && sectionRow("Budget", recordBudgetLine(record))}
+            {/* Wave 1B (lane 2 D7): the fact check trace as one
+                compressed line naming each tier and outcome. */}
+            {recordFactCheckTraceLine(record) && sectionRow("Fact check", recordFactCheckTraceLine(record))}
             {sectionRow("Model", record.synthesisModel || "Drafted from sources")}
+            {recordHealthLine(record) && sectionRow("Health", recordHealthLine(record))}
             {/* The permalink, or the honest absence of one. A record
                 rebuilt on a cache serve was never stored, so it has
                 no link; a live run whose store failed says it could
@@ -9489,9 +9635,21 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
   const skippedStages = stages.filter((s) => s && stageState(s) === "skipped");
   const okCount = dbOutcomes ? dbOutcomes.filter((x) => x.ok).length : 0;
   const missing = dbOutcomes ? dbOutcomes.filter((x) => !x.ok).map((x) => x.source).filter(Boolean) : [];
-  const cited = (t.sources || []).length;
+  // Wave 1B (lane 2 D3): the failed sources split by their honest
+  // state, from sourcesQueried directly. The not searched and
+  // budget stopped sources were never sources that did not
+  // respond, and no count here may exceed the names printed.
+  const missingDidNotRespond = dbOutcomes ? dbOutcomes.filter((x) => !x.ok && databaseOutcomeLabel(x) === "no response").map((x) => x.source).filter(Boolean) : [];
+  const missingBudgetStopped = dbOutcomes ? dbOutcomes.filter((x) => !x.ok && databaseOutcomeLabel(x) === "budget stopped").map((x) => x.source).filter(Boolean) : [];
+  const missingNotSearched = dbOutcomes ? dbOutcomes.filter((x) => !x.ok && databaseOutcomeLabel(x) === "not searched").map((x) => x.source).filter(Boolean) : [];
+  // Wave 1B (lane 2 D2): cited and further reading come from the
+  // same partition the header uses (partitionSources, the not
+  // uncited filter). t.sources is the cited and further reading
+  // sets concatenated, so its length was never the cited count.
+  const sourcePartition = partitionSources(t.sources || []);
+  const citedCount = sourcePartition.cited.length;
+  const furtherCount = sourcePartition.further.length;
   const withheld = t.relevanceGatedOut || 0;
-  const retrieved = cited + withheld;
 
   const rows = [];
   // QUERY INTELLIGENCE (2026-10-09): "what did you hear" — the system's
@@ -9503,11 +9661,15 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
     rows.push({ k: "Heard as", v: t.queryAnalysis.plainEnglish });
   }
   if (dbOutcomes && dbOutcomes.length > 0) {
+    // Built from sourcesQueried directly, never from the coverage
+    // note: the note is a sentence for the answer body, and this
+    // row must name every failed source under its own state.
     rows.push({
       k: "Databases",
-      v: t.coverageNote ||
-        `${okCount} of ${dbOutcomes.length} answered` +
-        (missing.length ? `, no answer from ${missing.join(", ")}` : ""),
+      v: `${okCount} of ${dbOutcomes.length} answered` +
+        (missingDidNotRespond.length ? `, no answer from ${missingDidNotRespond.join(", ")}` : "") +
+        (missingBudgetStopped.length ? `, stopped on the retrieval budget: ${missingBudgetStopped.join(", ")}` : "") +
+        (missingNotSearched.length ? `, not searched because the budget ran out: ${missingNotSearched.join(", ")}` : ""),
     });
   }
   if (typeof t.answerSeconds === "number" && t.answerSeconds > 0) {
@@ -9516,9 +9678,9 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
   }
   rows.push({
     k: "Sources",
-    v: withheld > 0
-      ? `Retrieved ${retrieved} relevant paper${retrieved === 1 ? "" : "s"} · cited ${cited} · ${withheld} withheld as tangential`
-      : `Cited ${cited} paper${cited === 1 ? "" : "s"}`,
+    v: `Cited ${citedCount} paper${citedCount === 1 ? "" : "s"}` +
+      (furtherCount > 0 ? ` · ${furtherCount} further reading` : "") +
+      (withheld > 0 ? ` · ${withheld} withheld as tangential` : ""),
   });
   if (t.synthesisMode === "extractive") {
     rows.push({ k: "Synthesis", v: "Assembled from the papers the search found. No AI synthesis ran for this answer." });
@@ -10846,7 +11008,16 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                 // empty one; ran and found nothing countable is
                 // the empty state.
                 const fcOutcome = t.factCheck && typeof t.factCheck.stageOutcome === "string" ? t.factCheck.stageOutcome : null;
-                const state = fcError || fcOutcome === "tiers-failed" ? "failed"
+                // Wave 1B (lane 2 D6): a trace proven all failed
+                // state outranks fcRanEmpty. The turn carries the
+                // trace inside _record; when every tier in it
+                // failed, the check never completed, whatever the
+                // shipped object's presence suggests. The empty
+                // wording below may render only when a tier
+                // actually completed a check, which the outcome
+                // enum now guarantees server side.
+                const fcTraceAllFailed = !!(t._record && factCheckTraceAllFailed(t._record.factCheckTrace));
+                const state = fcError || fcOutcome === "tiers-failed" || fcTraceAllFailed ? "failed"
                   : fcOutcome === "ran-no-countable" || fcRanEmpty || noClaimsPossible ? "empty"
                   : "notrun";
                 return (
@@ -22908,6 +23079,12 @@ function App({ profileHandle = null } = {}) {
         /* TRUST RELEASE (2026-10-13): per answer coverage disclosure and
            the exportable search record, straight from the response. Absent
            on older cached turns; SearchRecordPanel renders nothing then. */
+        /* Wave 1B (lane 2 D1): the canonical counts object, one
+           field on the response, read by the coverage sentence
+           through the panel. The budget ledger is NOT copied
+           here: its single source is the record's ledger (t._record.ledger),
+           which the Search record panel reads directly (D4). */
+        _counts: data._counts || (data._record && data._record.counts) || null,
         _coverage: data._coverage || null, _record: data._record || null, recordBaseline,
         /* NEXT-GEN answer instruments — computed by the backend on every
            evidence path (AI and deterministic). Absent on older cached
