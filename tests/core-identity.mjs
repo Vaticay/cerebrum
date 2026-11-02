@@ -76,30 +76,37 @@ await test("workspace CinematicFilm mount exists, darker than before", () => {
   // CinematicFilm mounts stand (calm, workspace). The shell's
   // unified grade assertions below are untouched: the workspace
   // keeps its film exactly as before.
+  /* Correct fix (2026-11-02): the entered app mounts no film at
+     all. The incident found the blurred reel among the layers
+     washing the shipped surfaces; the reel's home is the door,
+     and the door itself now mounts the authored atmosphere.
+     Zero mounts stand, in the app and on the door alike; the
+     CinematicFilm component survives in intro.jsx for the
+     door's own poster and credits surfaces. */
   const mounts = (appSrc.match(/<CinematicFilm/g) || []).concat(introSrc.match(/<CinematicFilm/g) || []);
-  assert.strictEqual(mounts.length, 2, `expected calm+workspace mounts, found ${mounts.length}`);
+  assert.strictEqual(mounts.length, 0, `expected no CinematicFilm mounts, found ${mounts.length}`);
   const introFn = introSrc.slice(introSrc.indexOf("function Intro({"), introSrc.indexOf("function CerebrumFieldCanvas"));
   assert.ok(introFn.includes("<IntroAtmosphere"), "the door lost its authored atmosphere");
   assert.ok(!introFn.includes("<CinematicFilm"), "the door mounts the film reel again");
   assert.ok(!introFn.includes("brightness(0.22)"), "the retired door grade is back on the door");
-  assert.match(appSrc, /started \? 0\.16/, "reading intensity should be 0.16 (darker)");
+  assert.ok(!appSrc.includes("<CinematicFilm"), "the entered app mounts the film reel again");
+  assert.match(appSrc, /"--cb-atmo-top": REGISTER_GROUND/, "the fixed atmosphere base is not the register ground");
   /* 2026-10-28 (declutter verdict): the calm reel no longer mounts
      on the home stage. The owner's photos showed the stage wearing
      the film as a murky wash behind unbacked text; the stage now
      sits on the atmo ground with a solid backing, and the reel
      mounts when a search starts. The mount count above is
      unchanged (the JSX mount still exists); this pins its gate. */
-  const calmAt = appSrc.indexOf('reel="calm"');
-  assert.ok(calmAt > 0 && appSrc.slice(Math.max(0, calmAt - 700), calmAt).includes("!homeStage"), "the calm reel mounts on the home stage again");
+  assert.ok(!appSrc.includes('reel="calm"'), "the calm reel mount came back into the entered app");
   /* Pin updated 2026-10-19 (S7 shell lane, audit H6): the workspace reel
      no longer grades brighter than the search home. Both wrappers carry
      the one grade, dark and blurred, so this asserts the unified grade
      and the absence of the old brighter one. */
-  assert.match(appSrc, /brightness\(0\.30\) saturate\(0\.60\) blur\(12px\)/, "the unified film grade is missing");
+  assert.ok(!appSrc.includes("brightness(0.30) saturate(0.60) blur(12px)"), "the blurred film grade is back over entered views");
   assert.ok(!appSrc.includes("brightness(0.72)"), "the brighter workspace grade is still present");
 });
-await test("generated field is the fallback when film is blocked", () => {
-  assert.match(appSrc, /<CerebrumFieldCanvas/, "CerebrumFieldCanvas mount missing");
+await test("no generated field mounts in the entered app either (correct fix)", () => {
+  assert.ok(!appSrc.includes("<CerebrumFieldCanvas"), "the entered app mounts the generated field behind its surfaces again");
 });
 await test("grain overlay is restored", () => {
   /* Pin updated 2026-10-22 (simplify audit SH9): the fixed S.grain
@@ -740,21 +747,21 @@ await test("the intro's text panels follow the palette and its film credits stay
   assert.ok(!introSrc.includes("HowItWorksDialog"), "the deleted How it works dialog came back to the door");
   assert.match(appSrc, /<SourcesDialog P=\{P\} accent=\{accent\}/, "the app's Sources dialog does not receive the palette");
 });
-await test("the mobile centre tab carries no filled FAB object (Wave Zero)", () => {
-  /* Pin rewritten 2026-11-02 (Wave Zero, accent ban in chrome):
-     the filled gold centre object this test pinned the icon
-     colour of is deleted. The centre tab is a text word with a
-     2px gold rule marker, and the pin now guards the removal:
-     no cb-shell-fab class survives anywhere, and the tab bar
-     carries the gold rule instead of a filled circle. The bug
-     class the old pin guarded (a bare function assigned as a
+await test("the mobile centre tab is the filled gold action again (correct fix)", () => {
+  /* Pin rewritten again 2026-11-02 (correct fix): the Wave Zero
+     hairline read as a tab indicator, not a button, and the
+     incident lists the filled centre action among the shell's
+     lost hierarchy. The 48px filled register gold circle,
+     raised over the bar, is the restored form. The bug class
+     the original pin guarded (a bare function assigned as a
      colour) stays covered by the AST scan directly below. */
-  assert.ok(!appSrc.includes("cb-shell-fab"), "the filled centre tab object came back");
   const tabbarAt = appSrc.indexOf('<nav aria-label="Primary" className="cb-shell-tabbar-in"');
   assert.ok(tabbarAt > 0, "the mobile tab bar is missing");
   const tabbar = appSrc.slice(tabbarAt, appSrc.indexOf('{view === "search" && (', tabbarAt));
-  assert.ok(!tabbar.includes("background: accent"), "the tab bar carries a filled accent object again");
-  assert.ok(tabbar.includes("background: REGISTER_GOLD"), "the centre tab marker is not the gold rule");
+  assert.ok(!tabbar.includes("background: accent"), "the tab bar carries a filled user accent object");
+  assert.ok(tabbar.includes("background: REGISTER_GOLD"), "the centre tab action is not filled register gold");
+  assert.ok(tabbar.includes('width: 48, height: 48, borderRadius: "50%"'), "the centre tab action is not the 48px circle");
+  assert.ok(tabbar.includes("marginTop: -22"), "the centre tab action is not raised over the bar");
 });
 await test("no style color property anywhere in the app is assigned a bare imported function", async () => {
   // The FAB bug's class, pinned precisely: a style object's color
@@ -860,9 +867,13 @@ await test("no style color property anywhere in the app is assigned a bare impor
        ground, and the arithmetic below stands as the record
        of the defect the tinted system carried. The label read
        is unchanged. */
-    assert.match(appSrc, /"--cb-ask-ink": askGold/, "the composer does not set --cb-ask-ink from the gold role");
-    assert.match(appSrc, /P && P\.dark === false \? REGISTER_GOLD_ON_LIGHT : REGISTER_GOLD/, "the gold role does not switch on light grounds");
-    assert.match(appSrc, /color: var\(--cb-ask-ink, var\(--cb-accent-ink, var\(--cb-acc\)\)\);/, "the Ask label does not read --cb-ask-ink");
+    /* Correct fix (2026-11-02): the send is a filled pill again.
+       --cb-ask-ink is the surface ink the pill label reads, and
+       the stage key reads --cb-on-acc, the ink computed on the
+       gold fill by the same accentInk helper. */
+    assert.match(appSrc, /"--cb-ask-ink": P\.ink/, "the composer does not set --cb-ask-ink from the surface ink");
+    assert.match(appSrc, /"--cb-on-acc": accentInk\(P, accent\)/, "the stage key ink is not computed on the accent");
+    assert.match(appSrc, /color: var\(--cb-ask-ink, var\(--cb-ink\)\);/, "the Ask label does not read --cb-ask-ink");
   });
   // 2026-10-14, design overhaul wave 1: ACCENTS.Amber moved from #d9a441
   // to the plan gold #c4a35a, so the pinned arithmetic below was

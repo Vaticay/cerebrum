@@ -131,10 +131,10 @@ import {
   FILM_POSTER_CLIP, DOC_FILM_SRC, FILM_OPT_IN_KEY, filmForcedOn,
   setFilmForcedOn, filmBlocked, filmPoster, __filmVp9OK, __filmIosH264,
   filmBestFile, SourcesDialog,
-  Intro, CerebrumFieldCanvas, CinematicFilm, Mark, MarkBreathe,
+  Intro, Mark, MarkBreathe,
   plateHead,
 } from "./intro.jsx";
-import { REGISTER_GOLD, REGISTER_GOLD_ON_LIGHT, REGISTER_GROUND, REGISTER_INK, SURFACE_CLASSES, resolveSurface } from "./registerTokens.js";
+import { REGISTER_GOLD, REGISTER_GOLD_ON_LIGHT, REGISTER_GROUND, REGISTER_INK, REGISTER_LINE, SURFACE_CLASSES, resolveSurface } from "./registerTokens.js";
 
 import { IntroAtmosphere } from "./introAtmosphere.jsx";
 
@@ -2246,11 +2246,6 @@ function SignalComposer({
   specimenPlaceholders = null,
 }) {
   const reduced = useReducedMotion();
-  /* Wave Zero (2026-11-02): the send word takes the resolver
-     gold role, never the palette accent. Dark grounds take
-     REGISTER_GOLD; a light Reading ground takes the darkened
-     gold that holds contrast there. */
-  const askGold = P && P.dark === false ? REGISTER_GOLD_ON_LIGHT : REGISTER_GOLD;
   /* The shared keyboard inset (src/keyboardInset.js): this
      composer is the search home stage composer, the one field
      the home screen exists for. Its root reserves scroll margin
@@ -2500,11 +2495,11 @@ function SignalComposer({
            4.8 to 1. The dark value already passes (about 5.2 to 1). */
         "--cb-ph": P.dark ? "rgba(242,244,242,0.52)" : "rgba(34,37,42,0.66)",
         "--cb-bg": P.bg,
-        /* Wave Zero (2026-11-02): the Ask word sits on a
-           transparent ground, so its ink is the gold role
-           itself, with no wash under it to calibrate against.
-           The disabled state reads the register ink55 step. */
-        "--cb-ask-ink": askGold,
+        /* Correct fix (2026-11-02): the Ask label reads
+           --cb-ask-ink, which is the surface ink on the filled
+           pill; the stage key's ink is --cb-on-acc below,
+           computed on the gold fill. */
+        "--cb-ask-ink": P.ink,
         "--cb-on-acc": accentInk(P, accent),
         "--cb-ink55": REGISTER_INK.ink55,
       }}
@@ -27386,7 +27381,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   border: 1px solid color-mix(in srgb, var(--cb-acc) 42%, transparent);
   background: color-mix(in srgb, var(--cb-acc) 15%, transparent);
   border-radius: var(--cb-r-md); cursor: pointer;
-  color: var(--cb-ink);
+  color: var(--cb-ask-ink, var(--cb-ink));
   font-family: var(--cb-font); font-size: 15px; font-weight: 500;
   display: inline-flex; align-items: center; justify-content: center;
   transition: background 280ms ease, border-color 280ms ease, opacity 280ms ease;

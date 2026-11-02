@@ -1006,8 +1006,12 @@ await test("workspace film is back without the Pro reel toggle", async () => {
   // corrected contract.
   assert.ok(!/Pro cinematic reel/.test(src), "Pro reel setting still present in Settings");
   assert.ok(!/Pro cinematic reel/.test(introSrc), "Pro reel setting still present in intro");
+  /* Correct fix (2026-11-02): no CinematicFilm mounts stand in
+     the entered app or on the door; the incident found the reel
+     among the wash layers, and its removal is the contract now.
+     The Pro reel toggle stays retired either way. */
   const filmMounts = (src.match(/<CinematicFilm/g) || []).concat(introSrc.match(/<CinematicFilm/g) || []);
-  assert.strictEqual(filmMounts.length, 2, `expected two CinematicFilm mounts (calm+workspace), found ${filmMounts.length}`);
+  assert.strictEqual(filmMounts.length, 0, `expected no CinematicFilm mounts, found ${filmMounts.length}`);
 });
 
 await test("settings account tab hosts the Pro section and founder grant panel", async () => {

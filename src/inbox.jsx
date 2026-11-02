@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { apiDataAction, toast, REPORT_REASONS, apiDataGet, cbNotify, cbBlip, avatarSkin, relativeTime, statusBad, statusGood, accentInk } from "./appUtils.js";
+import { apiDataAction, toast, REPORT_REASONS, apiDataGet, cbNotify, cbBlip, avatarSkin, relativeTime, accentInk, statusBad, statusGood } from "./appUtils.js";
 import { useKeyboardInset } from "./keyboardInset.js";
 import { historyNav } from "./historyNav.js";
 import { withAlpha, STATUS, FONT_SIZES, RADIUS, TRACKING, TYPE, Z, SHADOW, SP, Icon, UIButton } from "./designSystem.jsx";
@@ -18,7 +18,7 @@ import { REGISTER_GOLD } from "./registerTokens.js";
 /* The trust action sits inside the restored Inbox panels, so it
    takes the active surface's accessible action color rather than
    imposing a ground or ink from another surface system. */
-function TrustWordAction({ children, onClick, disabled, color }) {
+function TrustStripAction({ children, onClick, disabled, color }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled}
       style={{ background: "none", border: "none", padding: "8px 0", minHeight: 44, cursor: disabled ? "default" : "pointer", color: color || REGISTER_GOLD, fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label, fontWeight: 500, opacity: disabled ? 0.55 : 1 }}>
@@ -2439,14 +2439,14 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                   )}
                 </div>
                 {activeThread.kind === "dm" && !activeThread.encrypted && (
-                  <TrustWordAction color={accentInk(P, accent)} onClick={doUpgradeConversation} disabled={upgradeBusy}>
+                  <TrustStripAction color={accentInk(P, accent)} onClick={doUpgradeConversation} disabled={upgradeBusy}>
                     {upgradeBusy ? "Upgrading…" : "Upgrade this conversation"}
-                  </TrustWordAction>
+                  </TrustStripAction>
                 )}
                 {activeThread.kind === "dm" && activeThread.encrypted && safety && safety.number && (
-                  <TrustWordAction color={accentInk(P, accent)} onClick={() => setVerifyOpen(true)}>
+                  <TrustStripAction color={accentInk(P, accent)} onClick={() => setVerifyOpen(true)}>
                     {safety.verified ? "See the safety number" : "Verify the safety number"}
-                  </TrustWordAction>
+                  </TrustStripAction>
                 )}
               </div>
             </div>
@@ -2899,9 +2899,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </p>
           )}
           <div style={{ display: "flex", gap: 18, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
-            {!safety.verified && <TrustWordAction color={accentInk(P, accent)} onClick={doMarkVerified}>Mark as verified</TrustWordAction>}
+            {!safety.verified && <TrustStripAction color={accentInk(P, accent)} onClick={doMarkVerified}>Mark as verified</TrustStripAction>}
             {safety.verified && <span style={{ fontSize: FONT_SIZES.label, color: P.ink2 }}>Verified on this device.</span>}
-            <TrustWordAction color={accentInk(P, accent)} onClick={() => setVerifyOpen(false)}>Close</TrustWordAction>
+            <TrustStripAction color={accentInk(P, accent)} onClick={() => setVerifyOpen(false)}>Close</TrustStripAction>
           </div>
         </div>
       </Dialog>
@@ -2916,7 +2916,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
           </p>
           <div style={{ fontFamily: "var(--cb-mono)", fontSize: 15, letterSpacing: "0.04em", color: P.ink, marginTop: 12, lineHeight: 2, wordBreak: "break-word", borderTop: `1px solid ${P.line}`, borderBottom: `1px solid ${P.line}`, padding: "10px 0" }}>{recoveryDue}</div>
           <div style={{ display: "flex", gap: 18, alignItems: "center", marginTop: 10 }}>
-            <TrustWordAction color={accentInk(P, accent)} onClick={doConfirmRecovery}>I wrote it down</TrustWordAction>
+            <TrustStripAction color={accentInk(P, accent)} onClick={doConfirmRecovery}>I wrote it down</TrustStripAction>
           </div>
         </div>
       </Dialog>

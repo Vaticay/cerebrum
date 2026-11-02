@@ -586,11 +586,18 @@ await test("papers can be shared into a conversation from answers and saved sour
   assert.ok(appSrc.includes("setSharePaper(paperAttachmentFromSource(sv))"), "saved sources have no Share action");
 });
 
-await test("the redo removals hold: no Nova in messaging, no safety ceremony, no voice recording", () => {
+await test("the redo removals hold: no Nova in messaging, no voice recording; the audited trust flows stand in the strip", () => {
   assert.ok(!inboxSrc.includes("NovaLive"), "the Nova figure is back in the messaging header");
-  assert.ok(!inboxSrc.includes("getSafetyNumber"), "the safety number ceremony is back in the thread view");
-  assert.ok(!inboxSrc.includes("upgradeThread("), "the encryption upgrade banner flow is back");
-  assert.ok(!inboxSrc.includes("Verify encryption"), "the verify encryption menu item is back");
+  /* Correct fix (2026-11-02): the safety number, verification,
+     upgrade, and recovery flows shipped in Wave 2 and the
+     incident audit cleared that wiring as safe to keep. The
+     correct fix ports them into the restored composition as a
+     compact trust strip, so their presence is the contract
+     now; what stays removed is the letterhead ceremony form
+     they originally wore. */
+  assert.ok(inboxSrc.includes("getSafetyNumber"), "the audited safety number flow is gone");
+  assert.ok(inboxSrc.includes("upgradeThread("), "the audited upgrade flow is gone");
+  assert.ok(!inboxSrc.includes("TrustWordAction"), "the correspondence letterhead action form came back");
   assert.ok(!inboxSrc.includes("MediaRecorder"), "voice note recording is back in the composer");
   assert.ok(!inboxSrc.includes("startRecording"), "the record control is back");
   assert.ok(inboxSrc.includes("<audio controls"), "existing voice messages no longer render a player");
