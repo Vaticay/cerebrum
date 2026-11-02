@@ -1071,7 +1071,18 @@ test("disagreement fallback uses the computed verdict, not a default", () => {
 });
 
 test("coverage failures render the backend's explicit note", () => {
-  assert.ok(appSrc.includes("t.coverageNote"), "coverageNote not rendered");
+  // Wave 1B (lane 2 D3) supersedes the second half of this pin:
+  // AnswerDiagnostics no longer prefers t.coverageNote for its
+  // Databases row, because the note capped its names at five
+  // under a larger count. The row now builds from sourcesQueried
+  // directly and names every failed source under its honest
+  // state. The note itself still ships on the response and the
+  // turn still carries it (pinned by the field list test above).
+  assert.ok(appSrc.includes("coverageNote: data.coverageNote"), "coverageNote not carried");
+  const diagAt = appSrc.indexOf("function AnswerDiagnostics");
+  const diagBlock = appSrc.slice(diagAt, diagAt + 6000);
+  assert.ok(!diagBlock.includes("t.coverageNote"), "diagnostics still prefers the coverage note");
+  assert.ok(diagBlock.includes("missingNotSearched"), "diagnostics does not split the not searched state");
 });
 
 test("no-results turns get one-tap reformulations and ambiguity picks", () => {

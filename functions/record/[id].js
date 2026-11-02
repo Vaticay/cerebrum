@@ -230,9 +230,16 @@ function recordPage(record, url) {
   if (Array.isArray(record.databases) && record.databases.length) {
     const items = record.databases.map((d, i) => {
       const entry = d && typeof d === "object" ? d : {};
-      return "<li>" + esc(entry.source || "") + ": "
-        + (entry.ok ? esc(entry.count) + " paper" + (entry.count === 1 ? "" : "s") + " returned" : "did not respond")
-        + "</li>";
+      // Wave 1B (lane 2 D3): the three honest failure states. A
+      // source carrying notSearched was never searched, and one
+      // whose recorded error is the retrieval budget was stopped
+      // by that budget; neither is a source that did not respond.
+      const state = entry.ok
+        ? esc(entry.count) + " paper" + (entry.count === 1 ? "" : "s") + " returned"
+        : Number(entry.notSearched) > 0 ? "not searched"
+        : (typeof entry.error === "string" && /subrequest|budget/i.test(entry.error)) ? "stopped on the retrieval budget"
+        : "did not respond";
+      return "<li>" + esc(entry.source || "") + ": " + state + "</li>";
     });
     parts.push("<ol>" + items.join("") + "</ol>");
   } else {
@@ -243,17 +250,27 @@ function recordPage(record, url) {
   if (record.funnel && typeof record.funnel === "object") {
     const f = record.funnel;
     const num = (v) => (typeof v === "number" && Number.isFinite(v) ? String(v) : "not recorded");
+    // Wave 1B (lane 2 D2): the shelf and cited lines join the
+    // list so this page prints the same eight figures as the in
+    // page panel and the Markdown export. The shelf reads the
+    // stored canonical counts when present, else the funnel's
+    // own arithmetic.
+    const shelf = record.counts && typeof record.counts === "object" && typeof record.counts.shelf === "number"
+      ? record.counts.shelf
+      : (typeof f.deduped === "number" && typeof f.excludedWeak === "number" ? f.deduped - f.excludedWeak : null);
     parts.push("<ul>"
       + "<li>Gathered: " + num(f.gathered) + "</li>"
       + "<li>Deduped: " + num(f.deduped) + "</li>"
       + "<li>Excluded as weak matches: " + num(f.excludedWeak) + "</li>"
       + "<li>Excluded as non English: " + num(f.excludedNonEnglish) + "</li>"
       + "<li>Excluded as retracted: " + num(f.excludedRetracted) + "</li>"
+      + "<li>Kept by the relevance floor (the shelf): " + num(shelf) + "</li>"
       // The label names the final source list, so the number is that
       // list's length, counted from the list itself . f.cited is the
       // smaller set the answer actually cited, and printing it here
       // understated the list the label describes (2026-10-14).
       + "<li>In the final source list: " + num(Array.isArray(record.sources) ? record.sources.length : null) + "</li>"
+      + "<li>Cited in the answer: " + num(f.cited) + "</li>"
       + "</ul>");
   } else {
     parts.push("<p>Funnel counts were not recorded for this search.</p>");

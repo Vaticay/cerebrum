@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const { buildSearchRecord, buildCoverage, buildCachedServeTrust, mintSearchRecordId, storeSearchRecord, applyRecordStoreOutcome } = await import(join(root, "functions/api/search.js"));
+const { buildSearchRecord, buildCoverage, buildCachedServeTrust, mintSearchRecordId, storeSearchRecord, applyRecordStoreOutcome, buildCanonicalCounts, buildCoverageNote, deriveFactCheckStageOutcome, factCheckTraceAllFailed } = await import(join(root, "functions/api/search.js"));
 const recordRoute = await import(join(root, "functions/record/[id].js"));
 const searchSrc = readFileSync(join(root, "functions/api/search.js"), "utf8");
 const appSrc = readFileSync(join(root, "src/CerebrumApp.jsx"), "utf8");
@@ -1230,8 +1230,18 @@ await test("the funnel's final source list line counts the source list, not the 
   const mdAt = appSrc.indexOf("function searchRecordMarkdown");
   const panelAt = appSrc.indexOf("function SearchRecordPanel");
   const md = appSrc.slice(mdAt, panelAt);
-  assert.match(md, /In the final source list: " \+ \(Array\.isArray\(record\.sources\) \? record\.sources\.length/,
-    "the Markdown export does not count the source list itself");
+  // Wave 1B (lane 2 D2): the Markdown funnel now comes from the
+  // shared recordFunnelEntries helper, whose final list entry is
+  // the source list length and whose cited entry is its own
+  // labelled figure, never a substitute for the other.
+  assert.match(md, /recordFunnelEntries\(record\)/,
+    "the Markdown export does not use the shared funnel list");
+  const funnelAt = appSrc.indexOf("function recordFunnelEntries");
+  const funnelHelper = appSrc.slice(funnelAt, funnelAt + 1600);
+  assert.match(funnelHelper, /\["In the final source list", num\(Array\.isArray\(record\.sources\) \? record\.sources\.length : null\)\]/,
+    "the shared funnel list does not count the source list itself");
+  assert.match(funnelHelper, /\["Cited in the answer", num\(f\.cited\)\]/,
+    "the shared funnel list does not carry cited as its own labelled figure");
   assert.ok(!md.includes('"In the final source list: " + f.cited'),
     "the Markdown export still prints f.cited under the source list label");
 });
@@ -1557,6 +1567,238 @@ await test("rungs, ladder continuation and budget trims surface bounded, and sta
     "a run whose rungs carry no per source detail must not gain an empty rung shell");
   assert.ok(!("ladderContinuation" in bare), "a run with no ladder continuation gained one");
   assert.ok(!("budgetTrims" in bare), "a run with no budget trims gained a trim list");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("Wave 1B (lane 2): canonical counts, equality, honest states, trace aware outcome");
+
+// The fever specimen's shape, as a builder input: gathered 40,
+// one cited paper, nine further reading, six of fourteen
+// databases answered, three distinct failure states, a ledger of
+// 47 of 50, and four fact check tiers that all failed.
+const FEVER_SOURCES = Array.from({ length: 10 }, (_, i) => ({
+  title: "Fever paper " + (i + 1), year: 2015 + i, uncited: i !== 0,
+}));
+const FEVER_DATABASES = [
+  { source: "europePMC", ok: true, count: 12 },
+  { source: "pubmed", ok: true, count: 12 },
+  { source: "openAlex", ok: true, count: 12 },
+  { source: "crossref", ok: false, count: 0, error: "retrieval deadline: source did not answer inside the retrieval slice" },
+  { source: "arxiv", ok: true, count: 2 },
+  { source: "semanticScholar", ok: false, count: 0, error: "HTTP 429 rate-limited" },
+  { source: "doaj", ok: true, count: 0 },
+  { source: "biorxiv", ok: false, count: 0, error: "HTTP 429 rate-limited" },
+  { source: "plos", ok: true, count: 2 },
+  { source: "CORE", ok: false, count: 0, error: "Too many subrequests by single Worker invocation (retrieval phase budget)" },
+  { source: "BASE", ok: false, count: 0, error: "Too many subrequests by single Worker invocation (retrieval phase budget)" },
+  { source: "pmcFullText", ok: false, count: 0, notSearched: 1 },
+  { source: "openAire", ok: false, count: 0, notSearched: 1 },
+  { source: "preprints", ok: false, count: 0, notSearched: 1 },
+];
+const FEVER_TRACE = [
+  { tier: "gemini", outcome: "timeout" },
+  { tier: "workers-ai", outcome: "timeout" },
+  { tier: "openrouter", outcome: "http-429" },
+  { tier: "openrouter-fallback", outcome: "timeout" },
+];
+const FEVER_INPUT = {
+  question: "Why do we get a fever when we are sick?",
+  askedAt: new Date("2026-11-02T14:30:03.223Z"),
+  funnel: { gathered: 40, deduped: 40, excludedWeak: 15, excludedNonEnglish: 0, excludedRetracted: 0, cited: 1 },
+  databases: FEVER_DATABASES,
+  sources: FEVER_SOURCES,
+  answer: "The body raises its set point [1].",
+  ledger: { used: 47, limit: 50, remaining: 3, refused: 3, byStage: { retrieval: 11, synthesis: 5, ratelimit: 3, queue: 3, pre: 3, expansion: 2 } },
+  factCheckTrace: FEVER_TRACE,
+  factCheckStageOutcome: "tiers-failed",
+};
+const FEVER_COUNTS = {
+  gathered: 40, deduped: 40, excludedWeak: 15, excludedNonEnglish: 0,
+  excludedRetracted: 0, shelf: 25, finalList: 10, cited: 1,
+  furtherReading: 9, databasesAttempted: 14, databasesAnswered: 6,
+};
+
+await test("D1: one canonical counts object, stored in the record, matching coverage and funnel", () => {
+  const rec = buildSearchRecord(FEVER_INPUT);
+  const cov = buildCoverage(FEVER_INPUT);
+  assert.deepEqual(rec.counts, FEVER_COUNTS);
+  assert.deepEqual(buildCanonicalCounts(rec.funnel, FEVER_SOURCES, rec.databases, FEVER_INPUT.answer), FEVER_COUNTS);
+  assert.equal(cov.gathered, rec.counts.gathered, "coverage gathered differs from the canonical counts");
+  assert.equal(cov.gathered, rec.funnel.gathered, "coverage gathered differs from the record funnel");
+  assert.equal(cov.cited, rec.counts.cited);
+  assert.equal(cov.cited, rec.funnel.cited);
+  assert.equal(cov.cited, rec.sources.filter((s) => s.cited).length, "cited differs from the source flags");
+  assert.equal(cov.furtherReading, 9);
+  assert.equal(cov.databasesAnswered, 6);
+  assert.equal(cov.databasesTotal, 14);
+  assert.equal(rec.factCheckStageOutcome, "tiers-failed", "the shipped fact check outcome is not stored in the record");
+});
+
+await test("D1 equality: every pairing path gives coverage gathered equal to record funnel gathered", () => {
+  // Fresh path pairing.
+  const freshCov = buildCoverage(FEVER_INPUT);
+  const freshRec = buildSearchRecord(FEVER_INPUT);
+  assert.equal(freshCov.gathered, freshRec.funnel.gathered);
+  assert.equal(freshCov.cited, freshRec.funnel.cited);
+  // Early cache pairing: no retrieval ran for this serve, so both
+  // sides honestly carry null gathered, and the cited partition
+  // still agrees with the flags.
+  const early = buildCachedServeTrust({
+    answer: FEVER_INPUT.answer, sources: FEVER_SOURCES,
+    question: FEVER_INPUT.question, askedAt: FEVER_INPUT.askedAt, degraded: false,
+  });
+  assert.equal(early.coverage.gathered, early.record.counts.gathered);
+  assert.equal(early.coverage.cited, early.record.counts.cited);
+  assert.equal(early.coverage.cited, early.record.sources.filter((s) => s.cited).length);
+  assert.equal(early.coverage.furtherReading, early.record.counts.furtherReading);
+  // Late cache pairing: this request's retrieval did run, with
+  // the fever funnel, so both sides carry 40 and 1.
+  const late = buildCachedServeTrust({
+    answer: FEVER_INPUT.answer, sources: FEVER_SOURCES,
+    question: FEVER_INPUT.question, askedAt: FEVER_INPUT.askedAt, degraded: false,
+    funnel: FEVER_INPUT.funnel, databases: FEVER_DATABASES,
+  });
+  assert.equal(late.coverage.gathered, 40);
+  assert.equal(late.coverage.gathered, late.record.funnel.gathered);
+  assert.equal(late.coverage.gathered, late.record.counts.gathered);
+  assert.equal(late.coverage.cited, late.record.funnel.cited);
+  assert.equal(late.coverage.cited, late.record.sources.filter((s) => s.cited).length);
+  // The assembly wiring: one counts object built once and read
+  // by the record builder, the coverage builder, and the response.
+  assert.match(searchSrc, /const canonicalCounts = buildCanonicalCounts\(/, "assembly does not build the canonical counts");
+  assert.match(searchSrc, /counts: canonicalCounts/, "a builder does not consume the canonical counts");
+  assert.match(searchSrc, /_counts: canonicalCounts/, "the response does not ship the canonical counts");
+  assert.match(searchSrc, /_counts: earlyTrust\.record \? earlyTrust\.record\.counts : null/, "the early cache response does not ship counts");
+  assert.match(searchSrc, /_counts: laterTrust\.record \? laterTrust\.record\.counts : null/, "the late cache response does not ship counts");
+});
+
+await test("D2: diagnostics partition equals the flag counts, pinned at the client source", () => {
+  const diagAt = appSrc.indexOf("function AnswerDiagnostics");
+  const diag = appSrc.slice(diagAt, diagAt + 7000);
+  assert.match(diag, /partitionSources\(t\.sources \|\| \[\]\)/, "diagnostics does not use the shared partition");
+  assert.ok(!diag.includes("(t.sources || []).length"), "diagnostics still counts the concatenated list as cited");
+  assert.match(diag, /Cited \$\{citedCount\}/, "the Sources row does not print the partitioned cited count");
+  assert.match(diag, /further reading/, "the Sources row does not print further reading");
+  assert.match(diag, /withheld as tangential/, "the Sources row does not print withheld");
+  // The fixture partition itself: 1 cited, 9 further, matching
+  // the record's flags for the fever shape.
+  const rec = buildSearchRecord(FEVER_INPUT);
+  assert.equal(rec.sources.filter((s) => s.cited).length, 1);
+  assert.equal(rec.sources.filter((s) => !s.cited).length, 9);
+});
+
+await test("D3: the coverage note names every failed source under its honest state, with no cap", () => {
+  const note = buildCoverageNote(FEVER_DATABASES.map((d) => ({
+    source: d.source, ok: d.ok, count: d.count,
+    ...(d.notSearched ? { notSearched: d.notSearched } : {}),
+    ...(typeof d.error === "string" && /subrequest|budget/i.test(d.error) ? { budgetStopped: true } : {}),
+  })));
+  assert.ok(note.includes("3 of 14 databases didn't respond (crossref, semanticScholar, biorxiv)"), "did not respond group wrong: " + note);
+  assert.ok(note.includes("2 of 14 databases stopped on the retrieval budget (CORE, BASE)"), "budget stopped group wrong: " + note);
+  assert.ok(note.includes("3 of 14 databases not searched because the budget ran out (pmcFullText, openAire, preprints)"), "not searched group wrong: " + note);
+  assert.ok(note.includes("built from the 6 that did"), "answered count wrong: " + note);
+  assert.ok(!searchSrc.includes('failed.map((s) => s.source).filter(Boolean).slice(0, 5)'), "the five name cap is still in buildCoverageNote");
+  // The record page prints the same three states per entry.
+  const stateRec = {
+    ...ROUTE_RECORD,
+    databases: FEVER_DATABASES,
+    counts: FEVER_COUNTS,
+  };
+  return routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(stateRec) }) })
+    .then((res) => res.text())
+    .then((html) => {
+      assert.ok(html.includes("crossref: did not respond"), "page does not name a plain failure as did not respond");
+      assert.ok(html.includes("CORE: stopped on the retrieval budget"), "page does not name the budget stop");
+      assert.ok(html.includes("pmcFullText: not searched"), "page does not name the never searched state");
+      assert.ok(html.includes("Kept by the relevance floor (the shelf): 25"), "page funnel lacks the shelf line");
+      assert.ok(html.includes("Cited in the answer: 1"), "page funnel lacks the cited line");
+      assert.ok(html.includes("In the final source list: 2"), "page funnel final list line changed");
+    });
+});
+
+await test("D3 client: diagnostics builds its Databases row from sourcesQueried, not the coverage note", () => {
+  const diagAt = appSrc.indexOf("function AnswerDiagnostics");
+  const diag = appSrc.slice(diagAt, diagAt + 7000);
+  assert.ok(!diag.includes("t.coverageNote"), "diagnostics still prefers the coverage note");
+  assert.match(diag, /no answer from \$\{missingDidNotRespond\.join/, "the did not respond group is not built from sourcesQueried");
+  assert.match(diag, /stopped on the retrieval budget: \$\{missingBudgetStopped\.join/, "the budget stopped group is missing");
+  assert.match(diag, /not searched because the budget ran out: \$\{missingNotSearched\.join/, "the not searched group is missing");
+});
+
+await test("D4: the panel budget row and the Markdown budget section use the record ledger, pinned at the client source", () => {
+  const panelAt = appSrc.indexOf("function SearchRecordPanel");
+  const panel = appSrc.slice(panelAt, appSrc.indexOf("function RecordComparison"));
+  const funnelRowAt = panel.indexOf('sectionRow("Funnel"');
+  const budgetRowAt = panel.indexOf('sectionRow("Budget"');
+  assert.ok(funnelRowAt > 0 && budgetRowAt > funnelRowAt, "the budget row does not sit directly under the funnel row");
+  assert.match(panel, /recordBudgetLine\(record\)/, "the panel does not phrase the budget from the record ledger helper");
+  // The helper replicates the record page's phrasing rules:
+  // total, five largest spends, refusal only when above zero.
+  const helperAt = appSrc.indexOf("function recordBudgetLine");
+  const helper = appSrc.slice(helperAt, helperAt + 1400);
+  assert.match(helper, /record\.ledger/, "the budget helper does not read the record's ledger");
+  assert.match(helper, /slice\(0, 5\)/, "the budget helper does not cap spends at five");
+  assert.match(helper, /L\.refused > 0/, "the budget helper does not gate the refusal sentence on refused above zero");
+  assert.match(helper, /used of a limit of/, "the budget helper does not use the page's total phrasing");
+  const mdAt = appSrc.indexOf("function searchRecordMarkdown");
+  const md = appSrc.slice(mdAt, panelAt);
+  assert.ok(md.indexOf('"## Budget"') > 0 && md.indexOf('"## Budget"') < md.indexOf('"## Record as JSON"'),
+    "the Markdown budget section is missing or below the JSON dump");
+  assert.match(md, /recordBudgetLine\(record\)/, "the Markdown does not use the same budget phrasing");
+  // Turn construction does not copy _ledger; the record's ledger
+  // is the single source, and the comment says so.
+  assert.match(appSrc, /single source[\s\S]{0,120}record's ledger \(t\._record\.ledger\)/, "the single source comment for the ledger is missing");
+});
+
+await test("D6: an all failed trace gives tiers-failed, and a landed nothing to verify control still gives ran-no-countable", () => {
+  assert.equal(factCheckTraceAllFailed(FEVER_TRACE), true);
+  assert.equal(factCheckTraceAllFailed([{ tier: "gemini", outcome: "nothing-to-verify" }]), false);
+  assert.equal(factCheckTraceAllFailed([]), false);
+  assert.equal(factCheckTraceAllFailed(null), false);
+  const failed = deriveFactCheckStageOutcome({
+    attempted: true, ranCheck: true, countable: 0, tiersAllFailed: factCheckTraceAllFailed(FEVER_TRACE),
+  });
+  assert.equal(failed, "tiers-failed", "an all failed trace must not derive ran-no-countable");
+  const empty = deriveFactCheckStageOutcome({
+    attempted: true, ranCheck: true, countable: 0,
+    tiersAllFailed: factCheckTraceAllFailed([{ tier: "gemini", outcome: "nothing-to-verify" }]),
+  });
+  assert.equal(empty, "ran-no-countable", "a landed nothing to verify check must keep the ran and found nothing wording");
+  assert.ok(!searchSrc.includes("ranCheck: true,"), "the hardcoded ranCheck is still in the second derivation");
+  // Client precedence: a trace proven failure outranks the
+  // empty state in the fact check card.
+  assert.match(appSrc, /fcOutcome === "tiers-failed" \|\| fcTraceAllFailed \? "failed"/,
+    "the fact check card does not let a trace proven failure outrank the empty state");
+  assert.match(appSrc, /factCheckTraceAllFailed\(t\._record\.factCheckTrace\)/,
+    "the fact check card does not read the trace from the record");
+});
+
+await test("D7: the panel and the Markdown carry the full readable contract", () => {
+  const panelAt = appSrc.indexOf("function SearchRecordPanel");
+  const panel = appSrc.slice(panelAt, appSrc.indexOf("function RecordComparison"));
+  for (const label of ["Question", "When", "How it searched", "Executed queries", "Databases", "Funnel", "Budget", "Fact check", "Model", "Health", "Sources"]) {
+    assert.ok(panel.includes(`"${label}"`) || panel.includes(`>${label}<`), `panel is missing the ${label} section`);
+  }
+  assert.match(panel, /recordFunnelEntries\(record\)/, "the panel does not use the aligned funnel list");
+  assert.match(panel, /recordFactCheckTraceLine\(record\)/, "the panel does not print the fact check trace line");
+  const mdAt = appSrc.indexOf("function searchRecordMarkdown");
+  const md = appSrc.slice(mdAt, panelAt);
+  for (const section of ["## Question", "## Databases", "## Funnel", "## Budget", "## Fact check", "## Model", "## Sources"]) {
+    assert.ok(md.includes(`"${section}"`), `Markdown is missing the ${section} section`);
+  }
+  assert.ok(md.indexOf('"## Fact check"') < md.indexOf('"## Record as JSON"'), "the Markdown fact check list sits below the JSON dump");
+  // The specimen ledger's figures under the shared phrasing
+  // rules, checked against the page renderer directly: the page
+  // budget line for the fever ledger is the line the client
+  // helper mirrors.
+  const budgetRec = { ...ROUTE_RECORD, ledger: FEVER_INPUT.ledger };
+  return routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(budgetRec) }) })
+    .then((res) => res.text())
+    .then((html) => {
+      assert.ok(html.includes("Subrequests: 47 used of a limit of 50."), "page budget total wrong for the specimen ledger");
+      assert.ok(html.includes("Largest spends: retrieval 11, synthesis 5, ratelimit 3, queue 3, pre 3."), "page budget spends wrong for the specimen ledger");
+      assert.ok(html.includes("3 grants were refused at the budget ceiling."), "page budget refusal wrong for the specimen ledger");
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════
