@@ -1957,7 +1957,29 @@ const NOVA_HOME_GREETINGS = [
   "One question is all I need. Plain words are fine.",
   "The databases are open. My notebook is open. Ask.",
   "Tell me what you need to know. I will check it twice.",
+  "Bring the question. I will bring the receipts, in the form of footnotes.",
+  "Curious about something? Good. That is the raw material I work with.",
+  "Up late. So is the literature. Ask, and keep it worth the hour.",
+  "Night hours. The databases are quiet and my standards are not. Ask.",
+  "Still up? Then we work. One clear question and I am in the stacks.",
+  "Morning. Fresh questions get my freshest reading. Ask.",
+  "Early start. Good. The footnotes and I are already awake.",
+  "First question of the day. Make it count and I will do the same.",
 ];
+
+/* Subsets by index range in NOVA_HOME_GREETINGS above:
+   general is 0 to 6, late is 6 to 9, morning is 9 to 12. */
+function novaHomeGreetingAt(date) {
+  const d = date instanceof Date ? date : new Date();
+  const hour = d.getHours();
+  const isLate = hour >= 21 || hour < 5;
+  const isMorning = !isLate && hour >= 5 && hour < 10;
+  const range = isLate ? [6, 9] : isMorning ? [9, 12] : [0, 6];
+  const part = isLate ? 1 : isMorning ? 2 : 0;
+  const daySeed = Math.floor(d.getTime() / 86400000) * 3 + part;
+  const span = range[1] - range[0];
+  return NOVA_HOME_GREETINGS[range[0] + (Math.abs(daySeed) % span)];
+}
 
 function EvidenceFilter({ value, onChange, P, accent, isMobile, hideBlurb = false, open: openProp = undefined, onOpenChange = null, hideToggle = false }) {
   /* The open state is controllable (2026-10-29, Home B): on the
@@ -24302,7 +24324,7 @@ function App({ profileHandle = null } = {}) {
      and a tap reopens the thread itself through
      openHistoryItem, the ledger's own opener. No entry, or no
      nameable question, and the line is absent. */
-  const stageGreeting = NOVA_HOME_GREETINGS[Math.floor(Date.now() / 86400000) % NOVA_HOME_GREETINGS.length];
+  const stageGreeting = novaHomeGreetingAt(new Date());
   const stageLastEntry = history && history.length ? history[0] : null;
   const stageLastQText = stageLastQ
     || (stageLastEntry ? tidyQuestionTitle(stageLastEntry.title || (stageLastEntry.turns && stageLastEntry.turns[0] && stageLastEntry.turns[0].q) || "") : "");

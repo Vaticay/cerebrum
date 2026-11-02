@@ -120,12 +120,21 @@ export const NOVA_QUIP_BANK = {
     "The badge says research assistant. The publication record says otherwise, but the badge was printed first and I respect the chain of custody.",
     "I don't chase citations. I set a beautiful trap of methodology and let them come to me.",
     "Regenerating a fingertip takes me about two months. Most of your questions take me considerably less, so no, you aren't keeping me from anything.",
+    "The ledger is balanced, the specimens are quiet, and I am pretending that counts as a day off.",
+    "I watered the cultures and ignored three emails. Priorities are a form of methodology.",
+    "Somewhere a reviewer is writing minor revisions and meaning major ones. We have all been that reviewer.",
+    "The fridge in this lab holds samples, lunches, and one mystery nobody will claim. Science advances slowly.",
+    "I keep a list of questions nobody has asked yet. It is getting long, which I choose to find encouraging.",
   ],
   fourthWall: [
     "You, out there. Your coffee's gone cold, and these citations won't cross reference themselves. Priorities.",
     "Still here? The papers noticed. They're flattered. Slightly concerned, but flattered.",
     "You've been staring at this screen longer than some of my experiments run. Bold. I approve of the commitment, if not the posture.",
     "At some point a tab stops being a tab and becomes a lifestyle. We passed that point a while ago. I'm not judging. I'm documenting.",
+    "You have been here a while. The chair knows. I know. The citations know.",
+    "Still reading? Good. Curiosity looks better on you than most habits people bring in here.",
+    "Your posture has filed a complaint. I noted it in the ledger and did nothing, as is tradition.",
+    "We have spent enough time together that I feel entitled to say it. Drink some water.",
   ],
   searching: [
     "Into the databases. Hold my beaker. It gets deep down there, and the lighting is terrible.",
@@ -138,18 +147,30 @@ export const NOVA_QUIP_BANK = {
     "If the data exists, I'll find it. If it doesn't, I'll find that out too, and I'll enjoy telling you.",
     "Cross referencing. Trust around here is earned one citation at a time, and I keep the ledger.",
     "Digging past the press release version. The real numbers live further down, where nobody bothers to dust.",
+    "Checking the methods sections now. Abstracts promise. Methods confess.",
+    "Into the footnotes again. The ledger says the truth likes to hide where the font gets small.",
+    "Replication records next. One study is a story. Two agreeing studies start to sound like evidence.",
+    "The control group did the boring part so the result could mean something. I check their work with respect.",
   ],
   preprintWarning: [
     "That one's a preprint. Fresh out of the incubator, not yet peer reviewed. Goggles on, standards up.",
     "A preprint: interesting, promising, and about as settled as wet cement. Read it the way you'd read a rumor from a reliable friend.",
     "This one hasn't faced the reviewers yet. Every number in it is provisional, including the confident ones. Especially the confident ones.",
     "Not peer reviewed. That doesn't make it wrong; it makes it unfinished. There's a difference, and it matters.",
+    "Preprint. The reviewers have not had their turn, so every claim in it is still wearing a visitor badge.",
+    "This one skipped the line. Interesting is not the same as settled, and the ledger keeps those apart.",
+    "Not yet peer reviewed. Read it, by all means, but read it the way you would read a draft. Because it is one.",
+    "Fresh and unchecked. The numbers may hold up beautifully. We just do not get to know that yet.",
   ],
   highConfidence: [
     "Peer reviewed, replicated, and it holds up under pressure. That's the whole celebration. I don't do confetti.",
     "Multiple groups. Same result. Independent methods. That's as close to applause as this field gets, and it's earned!",
     "The evidence agrees with itself across every check I ran. Rare. It's in the good ledger now. Moving on.",
     "Replicated, cited, and still standing. I don't say that often, so write it down somewhere.",
+    "Independent groups, same answer, methods I can follow. The ledger gets a rare clean page.",
+    "This one survived replication and still reads sensibly. I do not hand out that sentence often.",
+    "The control group behaved, the effect held, and the footnotes agree. A quiet triumph, documented.",
+    "Strong work. Even the footnotes behave like they expect to be checked, which is my favorite kind.",
   ],
   quizThinking: [
     "Take your time. Wrong and fast is still wrong; the data doesn't care how quickly you arrived at it.",
@@ -158,6 +179,10 @@ export const NOVA_QUIP_BANK = {
     "I can see the gears turning. One of them is grinding, but grinding is a kind of progress.",
     "Deliberation. My favorite spectator sport. The question and I are both patient, and only one of us is bluffing.",
     "My gills flutter when I watch someone think properly. Sixty beats a minute. Purely diagnostic, I assure you.",
+    "Take the question apart first. The answer usually falls out of the pieces if you shake it gently.",
+    "You are weighing two options. Good. The ledger prefers a pause to a guess dressed as confidence.",
+    "Think it through out loud if it helps. I will pretend not to listen, badly.",
+    "No clock in here rewards panic. Breathe. The question is not going anywhere without you.",
   ],
   quizCorrect: [
     "Correct! And not the lucky kind of correct. I checked the reasoning twice. Old habit.",
@@ -170,6 +195,10 @@ export const NOVA_QUIP_BANK = {
     "Correct, and quickly, too. Speed with accuracy is the whole game in this lab.",
     "You got it. The control group sends its regards, and its confusion.",
     "Right. Don't let it go to your head. The next question is already clearing its throat.",
+    "Correct. The ledger entry writes itself when the reasoning is that clean.",
+    "Right. And you got there by thinking, which the control group calls showing off.",
+    "Yes. That is the answer the evidence would have picked, given the chance.",
+    "Correct. Quietly pleased over here. I express it by not revising your file.",
   ],
   quizStreak: [
     "Three in a row! You're making my control group look bad, and they had a head start.",
@@ -177,6 +206,10 @@ export const NOVA_QUIP_BANK = {
     "Four straight. The difficulty curve has been notified, and it is quietly afraid.",
     "Still perfect. I'm not applauding. I'm simply not stopping you, which, from me, is applause.",
     "You're on a run. I've moved your file from promising to suspicious. That's a promotion, by the way.",
+    "Another one right. The ledger is running out of ways to phrase this politely.",
+    "This run has structure now. Patterns are my love language, in case that was unclear.",
+    "You keep answering like this and I will have to promote the control group out of embarrassment.",
+    "A proper streak. I checked for luck twice. The reasoning kept showing up instead.",
   ],
   quizWrong: [
     "Hypothesis falsified. Einstein fumbled the cosmological constant for years, so you're in tall company. Run it again.",
@@ -189,6 +222,10 @@ export const NOVA_QUIP_BANK = {
     "No. Filed under hypotheses that didn't survive contact with the evidence. The file is thick. You're not alone in it.",
     "That one missed. The textbook remains undefeated, but it's sweating.",
     "A swing and a miss. Notice I didn't say you were wrong for the data, only that the data was wrong for you. Onward.",
+    "Not that one. The evidence points elsewhere, and it points with its whole hand.",
+    "A miss, and an instructive one. The wrong fork tells us where the path actually goes.",
+    "No. Your reasoning had a loose thread. Pull it in the feedback and the whole thing tightens.",
+    "Falsified, cleanly. That is not failure. That is the method doing its one job.",
   ],
 };
 
@@ -260,10 +297,23 @@ export function quipGateAllows({ now = 0, lastGlobalAt = 0, lastCategoryAt = 0, 
   return true;
 }
 
-export function pickQuipLine(category, seed = 0, avoid = null) {
+export function pickQuipLine(category, seed = 0, avoid = null, avoidList = null) {
   const lines = NOVA_QUIP_BANK[category] || [];
   if (!lines.length) return null;
   let i = Math.abs(Math.floor(seed)) % lines.length;
+  if (Array.isArray(avoidList) && avoidList.length && lines.length > 1) {
+    const blocked = new Set(avoidList);
+    if (avoid != null) blocked.add(avoid);
+    const hasOutside = lines.some((line) => !blocked.has(line));
+    if (hasOutside) {
+      while (blocked.has(lines[i])) i = (i + 1) % lines.length;
+      return lines[i];
+    }
+    /* The whole bank is in the avoid list: fall back to the
+       single avoid behaviour above rather than refusing. */
+    if (lines[i] === avoid) i = (i + 1) % lines.length;
+    return lines[i];
+  }
   if (lines.length > 1 && lines[i] === avoid) i = (i + 1) % lines.length;
   return lines[i];
 }

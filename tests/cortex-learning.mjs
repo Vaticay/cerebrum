@@ -5053,7 +5053,7 @@ await test("the state machine contract is the one the editor build is authored a
    it. The figure in src/NovaFigure.jsx is that drop now,
    behind the identical seam; the assertions below hold the
    swap. */
-await test("the figure has landed: the canvas renders the in repo drop", () => {
+await test("the figure has landed: the canvas renders the restored axolotl", () => {
   // Pin updated 2026-10-20 citing the owner photos from 2026-10-20 and his order: the asset constant carries the version query, and NovaCanvas renders no img fallback or poster.
   assert.equal(NOVA_RIVE_ASSET, "/nova/nova.riv?v=3", "the asset switch must carry the shipped versioned asset path");
   assert.ok(NOVA_RIVE_ASSET.includes("?v=3"), "the asset constant carries no version query");
@@ -5083,8 +5083,22 @@ await test("the figure has landed: the canvas renders the in repo drop", () => {
   assert.ok(figureSrc.includes("registerTokens"), "the figure does not read the shared register tokens");
   assert.ok(tokenSrc.includes("#c89a3a"), "the drop gold is missing from the register tokens");
   assert.ok(tokenSrc.includes("#e0bd68"), "the bright gold of the wire's upper arcs is missing from the register tokens");
-  assert.ok(figureSrc.includes("radialGradient"), "the drop lost its water: the picked artwork is gradient built");
-  assert.ok(figureSrc.includes("<filter"), "the drop lost its soft mass: the picked artwork is blur built");
+  /* Pins rewritten 2026-11-02 (the owner's restoration
+     ruling): the drop is retired and her old original loved
+     version stands again, the revision 3 axolotl in her
+     coat, recolored to the register in colors he approved
+     as a still today before the build. The gradient and
+     blur pins invert honestly: the restored artwork is the
+     flat model sheet drawing, so gradients and blur filters
+     must NOT come back, and her approved values stand in
+     the artwork itself. */
+  assert.ok(figureSrc.includes('data-nova-figure="axolotl"'), "the figure is not the restored axolotl");
+  assert.ok(figureSrc.includes("#CC7A75"), "her approved rose skin is missing from the artwork");
+  assert.ok(figureSrc.includes("#BCAFA6"), "her approved coat is missing from the artwork");
+  assert.ok(figureSrc.includes("#B06068"), "her approved gill color is missing from the artwork");
+  assert.ok(figureSrc.includes("#E0BD68"), "the approved bright gold glasses rim is missing from the artwork");
+  assert.ok(!figureSrc.includes("radialGradient"), "the flat restored artwork grew a gradient; it is the model sheet drawing, not the drop");
+  assert.ok(!figureSrc.includes("<filter"), "the flat restored artwork grew a blur filter; it is the model sheet drawing, not the drop");
 });
 
 /* Regression pin for the dead canvas of 2026-10-15. The asset
@@ -5154,14 +5168,26 @@ await test("her stage: full body framing on Today, the living rig, the shelf on 
      than being faked), and the reduced motion still under
      the drop's own class prefix. The guards against the
      retired fixed loops stay. */
-  assert.ok(figureSrc.includes("filamentAngleAt"), "the drop lost her filament sway");
-  assert.ok(figureSrc.includes("massAngle"), "the drop lost her interior mass rotation");
+  /* Pins rewritten 2026-11-02 (the owner's alive order, the
+     same sitting as the restoration): the drop's interior
+     mass rotation retires with the drop. What stands here
+     is the alive set on the real artwork: the breath, the
+     per filament sway, the randomized blink with its slow
+     reopen priced as a constant, expressions as lid
+     coverage, the no repeat glance picker, the attention
+     shift, a mouth that never performs, and the reduced
+     motion still under the restored figure's own prefix. */
+  assert.ok(figureSrc.includes("filamentAngleAt"), "the figure lost her filament sway");
+  assert.ok(figureSrc.includes("novaLidCoverageFor"), "her expressions are not lid coverage on the restored figure");
+  assert.ok(figureSrc.includes("NOVA_BLINK_OPEN_MS"), "the slow reopen constant is gone; the blink asymmetry is her personality");
+  assert.ok(figureSrc.includes("novaGlancePick"), "the figure lost her no repeat glance picker");
+  assert.ok(figureSrc.includes('data-mouth="flat"'), "her mouth is not pinned still; speech must never move it");
   assert.ok(figureSrc.includes("novaBlinkIntervalMs"), "the figure lost her randomized blink");
   assert.ok(figureSrc.includes("data-blink"), "the figure no longer exposes her blink state");
   assert.ok(!figureSrc.includes("nvfBlink"), "the fixed blink loop is back");
   assert.ok(!figureSrc.includes("nvfGlance"), "the fixed glance loop is back");
-  assert.ok(figureSrc.includes("novaAttentionShift"), "the drop lost her attention shift");
-  assert.ok(figureSrc.includes("nvd-still"), "the drop has no reduced motion still");
+  assert.ok(figureSrc.includes("novaAttentionShift"), "the figure lost her attention shift");
+  assert.ok(figureSrc.includes("nva-still"), "the restored figure has no reduced motion still");
   assert.ok(riveSrc.includes("reducedMotion={reducedMotion}"), "the canvas no longer passes reduced motion to the figure");
   // Pin replaced 2026-10-15 (the old model purge): this slot
   // pinned the fallback surface mapping "full" onto the

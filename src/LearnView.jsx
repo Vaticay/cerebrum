@@ -3096,7 +3096,7 @@ function PlayerNovaFigure({ inSheet, good, streak = 0, face = null, correctStrea
     if (teachFiredRef.current === t.line) return;
     teachFiredRef.current = t.line;
     if (!opinionRef.current) {
-      const opener = pickNovaLine(t.good ? NOVA_FEEDBACK_RIGHT_LINES : NOVA_FEEDBACK_WRONG_LINES, t.seed || 0);
+      const opener = pickNovaSessionLine(t.good ? NOVA_FEEDBACK_RIGHT_LINES : NOVA_FEEDBACK_WRONG_LINES, (t.seed || 0) + (t.good ? (correctStreak || 0) * 7919 : 0), "feedback");
       if (opener) speechRef.current.say({ source: "lesson", text: opener, contextKey: cardKey, cause: { trigger: "lesson-verdict", surface: "lesson", subject: cardKey || "lesson-card" } });
     }
     speechRef.current.say({ source: "lesson", text: t.line, contextKey: cardKey, cause: { trigger: "lesson-verdict", surface: "lesson", subject: cardKey || "lesson-card" } });
@@ -3466,7 +3466,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust", surface = n
           usedDay = q.hourLineDays && typeof q.hourLineDays === "object" ? q.hourLineDays[set] : null;
         } catch { usedDay = null; }
         if (usedDay === day) { arrivalRef.current.hourDay = set + ":" + day; return; }
-        const text = pickNovaLine(set === "late" ? NOVA_LATE_LINES : NOVA_MORNING_LINES, Date.now());
+        const text = pickNovaSessionLine(set === "late" ? NOVA_LATE_LINES : NOVA_MORNING_LINES, Date.now(), "hour");
         if (!text) return;
         const res = speechRef.current.say({
           source: "brain",
@@ -3964,15 +3964,25 @@ export const NOVA_EGG_LINES = [
   "All quiet in here. I checked twice. Quiet data is still data.",
   "Nobody called. I came anyway. Curiosity isn't a summons based system.",
   "Quiet in here. The loud places are selling something; I can hear them from the tank.",
+  "Rounds. I do rounds in here the way other people check the weather. Habit, mostly. Partly concern.",
+  "The specimens are behaving, which in this lab counts as breaking news.",
+  "I was reviewing your file. Do not flatter yourself. I review all the files. Yours has better margins lately.",
+  "Nothing urgent. I simply prefer a lab where somebody is thinking, and the post was vacant.",
 ];
 export const NOVA_SUMMON_LINES = [
   "Three clicks. That was the entire password. I admire the security culture you've built here.",
   "Three clicks on the name. Subtle. Nobody saw a thing except me, and I see everything in this lab.",
   "Fine. I'm up. Make it quick and make it interesting; one of those is mandatory.",
+  "Summoned by clicking. The ritual has lost some dignity over the years, but it works.",
+  "You rang, in the loosest possible sense. State your business and make it a good one.",
+  "Up I come. This had better be more interesting than what I was doing. It usually is, eventually.",
 ];
 export const NOVA_CELEBRATE_LINES = [
   "The whole path. Finished. That shelf object earned its rent, and so did you.",
   "Last lesson of the path, done. I don't say this often, so listen closely: well done.",
+  "A whole path, finished properly. The shelf looks better with proof on it.",
+  "Done, all of it. I have updated the ledger from promising to proven, which is a promotion around here.",
+  "Path complete. Take a moment. Then take another path. Momentum suits you.",
 ];
 /* Lesson completion lines (audit fix, 2026-10-15): the lesson
    complete screen had no Nova on it at all. She stands beside
@@ -3990,18 +4000,30 @@ export const NOVA_LESSON_DONE_LINES = [
      dryness; she is logging results, not celebrating. */
   "Logged. The notebook has it now, which means it comes back right before you would have lost it.",
   "Finished, and filed. I keep what you earn. That is the whole arrangement.",
+  "Complete. The review schedule has it from here, and that schedule has never lost an argument with me.",
+  "That lesson is filed under earned. A good folder. It gets more respectable every week.",
+  "Finished. You may go. The facts will stay with you longer than you expect, partly by design.",
+  "Done and recorded. Future you gets the benefit. Present you gets my rarest sentence: nicely handled.",
 ];
 export const NOVA_GAG_LINES = [
   "Axolotl. Not a fish. We do this every month, and every month I bring the diagram.",
   "Axolotl. Not a fish. I'll wait while that settles in. I've waited longer for centrifuges.",
+  "Axolotl. Not a fish. The diagram is laminated now. That is what repetition does to a person.",
+  "Still not a fish. I keep the correction brief out of mercy, not uncertainty.",
 ];
 export const NOVA_LATE_LINES = [
   "Late hours. Even my gills are tired. One more, then we both go wherever it is I sleep.",
   "Night shift rules: we keep our voices down. Habit, not manners. The specimens are sleeping.",
+  "Past midnight the lab gets honest. So do the questions, I have noticed.",
+  "Late again. The night shift and I have an understanding. You are becoming part of it.",
+  "The specimens sleep at this hour. One of us should follow their example after this.",
 ];
 export const NOVA_MORNING_LINES = [
   "Morning. Don't get used to the mood; it evaporates by nine, and so does the mercy.",
   "Early. I'm awake, the lab is awake, and the data didn't move overnight. A small miracle, documented.",
+  "Morning. The coffee question is yours to solve. The science questions are mine.",
+  "Early bird hours. The worms filed a complaint, but the data is fresh and so are we.",
+  "Up before the lab warms up. Ambitious. Or lost. Either way, we work with what arrives.",
 ];
 const NOVA_MORNING_DENIAL = "Already did cheerful. It was brief. You were here.";
 const NOVA_POKE_LINE_THREE = "Third poke. We have talked about this.";
@@ -4074,6 +4096,10 @@ export const NOVA_FEEDBACK_RIGHT_LINES = [
   "Yes. Filed under results I didn't have to fix. A small folder, but growing.",
   "Right, and not by luck. Luck doesn't survive my review process.",
   "Logged as correct. The control group has been notified of its inadequacy.",
+  "Right. The reasoning held up under inspection, which is rarer than it should be.",
+  "Correct. I looked for the flaw out of professional habit and came back empty handed.",
+  "That is the one. Filed, stamped, and quietly admired by the ledger.",
+  "Yes, and cleanly done. The control group could learn from the technique.",
 ];
 export const NOVA_FEEDBACK_WRONG_LINES = [
   "Not quite. Good. Now we get to the interesting part.",
@@ -4083,6 +4109,10 @@ export const NOVA_FEEDBACK_WRONG_LINES = [
   "No. But watch how close the real answer was; that's where the learning hides.",
   "Falsified. My favorite outcome, honestly. Certainty teaches nothing.",
   "Not the one. Let me show you what the experiment actually found.",
+  "Not this time. Good news though. A wrong answer shows exactly where to dig.",
+  "Missed it. The real answer is more interesting anyway, which softens very little. Still.",
+  "No, but the mistake is a tidy one. Tidy mistakes teach faster than messy luck.",
+  "That one fell apart under the evidence. Happens to the best hypotheses. Watch it happen and learn.",
 ];
 const NOVA_SHELF_LINE = "It stays. Don't dust it. Dusting is how data gets opinions.";
 const NOVA_SHELF_FAVORITE_LINE = "That one goes on the good shelf. No discussion. Some results speak for themselves.";
@@ -4105,9 +4135,44 @@ export function recordNovaVisit(q) {
   return { ...s, hasVisitedNova: true };
 }
 
-export function pickNovaLine(lines, seed) {
+export function pickNovaLine(lines, seed, avoid) {
   if (!Array.isArray(lines) || !lines.length) return null;
-  return lines[Math.abs(Math.floor(seed || 0)) % lines.length];
+  const start = Math.abs(Math.floor(seed || 0)) % lines.length;
+  if (avoid == null) return lines[start];
+  const blocked = new Set(Array.isArray(avoid) ? avoid : [avoid]);
+  if (!blocked.has(lines[start])) return lines[start];
+  for (let step = 1; step < lines.length; step++) {
+    const candidate = lines[(start + step) % lines.length];
+    if (!blocked.has(candidate)) return candidate;
+  }
+  return lines[start];
+}
+
+export function pickNovaSessionLine(lines, seed, key) {
+  if (!Array.isArray(lines) || !lines.length) return null;
+  /* The per key shown sets live on the function itself, so
+     the picker carries its session memory wherever it goes
+     and stays a single self contained declaration. */
+  const store = pickNovaSessionLine.sessionSeen || (pickNovaSessionLine.sessionSeen = new Map());
+  const mapKey = typeof key === "string" && key ? key : "default";
+  let entry = store.get(mapKey);
+  if (!entry || typeof entry !== "object") {
+    entry = { seen: new Set(), last: null };
+    store.set(mapKey, entry);
+  }
+  const remaining = lines.filter((line) => !entry.seen.has(line));
+  let picked = null;
+  if (!remaining.length) {
+    entry.seen = new Set();
+    picked = lines.length > 1 && entry.last != null ? pickNovaLine(lines, seed, entry.last) : pickNovaLine(lines, seed);
+  } else {
+    picked = pickNovaLine(lines, seed, [...entry.seen]);
+  }
+  if (picked != null) {
+    entry.seen.add(picked);
+    entry.last = picked;
+  }
+  return picked;
 }
 
 /* Speech carries no markup: the sheet renders a card's why
@@ -13519,7 +13584,7 @@ function Player({ course, startLesson, P, accent, at, soundOn, onExit, onProgres
        lesson, so the same lesson earns the same line. The
        perfect lesson line outranks it and replaces it at 100
        percent. */
-    const doneLine = perfectLine ? null : pickNovaLine(NOVA_LESSON_DONE_LINES, hashStr(lesson.id || lesson.title || ""));
+    const doneLine = perfectLine ? null : pickNovaSessionLine(NOVA_LESSON_DONE_LINES, hashStr(lesson.id || lesson.title || ""), "lessonDone");
     return shell(
       <div className="lv-screen" style={{ maxWidth: LAYOUT.screen, margin: "0 auto", padding: "72px 24px 48px", textAlign: "center" }}>
         <div className="lv-rise">
@@ -15326,7 +15391,7 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     if (homeTab !== "library") return;
     const q = loadNovaQuirks();
     if (gagDue(q, Date.now())) {
-      setLibraryGagLine(pickNovaLine(NOVA_GAG_LINES, Date.now()));
+      setLibraryGagLine(pickNovaSessionLine(NOVA_GAG_LINES, Date.now(), "libraryGag"));
       saveNovaQuirks(recordGag(q, Date.now()));
     } else {
       setLibraryGagLine(null);

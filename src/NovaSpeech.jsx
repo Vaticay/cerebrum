@@ -473,7 +473,7 @@ export function speechTalkingAt(plan, elapsedMs, durationMs) {
    the same job for the quip bank by category; this one takes
    the bank itself, so brain and lesson banks pick the same
    way.) */
-export function pickSpeechLine(lines, seed = 0, avoid = null, prefer = null) {
+export function pickSpeechLine(lines, seed = 0, avoid = null, prefer = null, avoidMany = null) {
   if (!Array.isArray(lines) || !lines.length) return null;
   /* Wording preference (2026-10-29, dialog spec Lane 1): the
      cause is judged first and earns the wording; the pick then
@@ -499,6 +499,10 @@ export function pickSpeechLine(lines, seed = 0, avoid = null, prefer = null) {
     const kept = sorted.slice(0, Math.max(1, Math.ceil(sorted.length / 2)));
     if (kept.length && kept.length < lines.length) pool = kept;
   }
+  if (Array.isArray(avoidMany) && avoidMany.length) {
+    const kept = pool.filter((line) => !avoidMany.includes(line));
+    if (kept.length) pool = kept;
+  }
   let i = Math.abs(Math.floor(seed || 0)) % pool.length;
   if (pool.length > 1 && pool[i] === avoid) i = (i + 1) % pool.length;
   return pool[i];
@@ -518,6 +522,10 @@ export function pickSpeechLine(lines, seed = 0, avoid = null, prefer = null) {
      lastAnyAt: 0,           when any line last took the stage
      categoryAt: {},         category, when it last showed
      lastByCategory: {},     category, the text it last showed
+     seenByCategory: {},     category, the texts it has shown
+                             this session, in order, so a
+                             category cycles its whole bank
+                             before any line repeats
      seq: 0,                 line id counter
      contextKey: null,       the context lines on this stage
                              belong to (a lesson card, today),
@@ -551,7 +559,7 @@ export function pickSpeechLine(lines, seed = 0, avoid = null, prefer = null) {
    tables = { lines: { category: [text, ...] },
               cooldowns: { category: ms } } */
 export function createSpeechState() {
-  return { current: null, queue: [], lastAnyAt: 0, categoryAt: {}, lastByCategory: {}, seq: 0, contextKey: null, dismissals: 0, quietSession: false };
+  return { current: null, queue: [], lastAnyAt: 0, categoryAt: {}, lastByCategory: {}, seenByCategory: {}, seq: 0, contextKey: null, dismissals: 0, quietSession: false };
 }
 
 function speechIsCaused(source) {
@@ -602,6 +610,13 @@ function speechShow(state, offer, source, text, now) {
     lastByCategory: offer.category
       ? { ...state.lastByCategory, [offer.category]: text }
       : state.lastByCategory,
+    seenByCategory: offer.category
+      ? (() => {
+          const prevSeen = state.seenByCategory && Array.isArray(state.seenByCategory[offer.category]) ? state.seenByCategory[offer.category] : [];
+          const nextSeen = prevSeen.includes(text) ? prevSeen : [...prevSeen, text];
+          return { ...(state.seenByCategory || {}), [offer.category]: nextSeen };
+        })()
+      : (state.seenByCategory || {}),
   };
   return { state: next, line };
 }
@@ -647,6 +662,7 @@ export function speechOffer(state, offer, env) {
      prefer rule; search reactions default to brief). A
      direct offer is taken as written. */
   let text = typeof o.text === "string" ? o.text.trim() : "";
+  let speechSeenResetState = null;
   if (o.category) {
     const tables = e.tables || {};
     const bank = tables.lines ? tables.lines[o.category] : null;
@@ -655,7 +671,17 @@ export function speechOffer(state, offer, env) {
     if (now - (s.categoryAt[o.category] || 0) < cd) return deny("cooldown");
     if (!text) {
       const prefer = o.prefer != null ? o.prefer : source === "search" ? "brief" : null;
-      text = pickSpeechLine(bank, typeof o.seed === "number" ? o.seed : now, s.lastByCategory[o.category] || null, prefer) || "";
+      const seenRaw = s.seenByCategory && Array.isArray(s.seenByCategory[o.category]) ? s.seenByCategory[o.category] : [];
+      let seenForPick = seenRaw;
+      if (seenRaw.length && bank.length && bank.every((line) => seenRaw.includes(line))) {
+        /* A fresh cycle: the last shown line is avoided for
+           this one pick only, and the recorded seen list
+           starts empty, so the new cycle still has to show
+           every line in the pool before it can reset again. */
+        seenForPick = s.lastByCategory[o.category] ? [s.lastByCategory[o.category]] : [];
+        speechSeenResetState = { ...s, seenByCategory: { ...(s.seenByCategory || {}), [o.category]: [] } };
+      }
+      text = pickSpeechLine(bank, typeof o.seed === "number" ? o.seed : now, s.lastByCategory[o.category] || null, prefer, seenForPick) || "";
     }
   }
   /* Every line she speaks passes the one dash sanitizer,
@@ -678,7 +704,7 @@ export function speechOffer(state, offer, env) {
       /* A caused line takes the stage from an ambient one,
          the unified form of the old lineBusy dismissal: the
          ambient line is simply over. */
-      const shown = speechShow(s, o, source, text, now);
+      const shown = speechShow(speechSeenResetState || s, o, source, text, now);
       return { state: { ...shown.state, queue: s.queue }, result: "shown", line: shown.line, preempted: s.current };
     }
     if (caused) {
@@ -725,7 +751,7 @@ export function speechOffer(state, offer, env) {
      from the last line of any kind; caused lines do not. */
   if (!caused && s.lastAnyAt && now - s.lastAnyAt < SPEECH_MIN_GAP_MS) return deny("gap");
 
-  const shown = speechShow(s, o, source, text, now);
+  const shown = speechShow(speechSeenResetState || s, o, source, text, now);
   return { state: shown.state, result: "shown", line: shown.line };
 }
 
