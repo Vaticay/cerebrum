@@ -677,6 +677,36 @@ export function settleByDeadline(promises, deadlineMs) {
   return Promise.race([all, cut]).then((v) => { if (timer) clearTimeout(timer); return v; });
 }
 
+/* CROSSREF SLICE BOUNDING (2026-11-05, search fix wave 2,
+ * Lane C, from the Crossref deadline diagnosis): the Crossref
+ * fetcher's own budget is a 4,000 ms timeout with one retry
+ * (getJSON's worst case about 8,300 ms with the backoff), but
+ * the retrieval slice it settles against is 4,000 ms from
+ * request start when fact check is on, and pre gather work
+ * spends part of that before the first rung fires — so a slow
+ * Crossref call could never finish inside its slice, and its
+ * retry spent subrequests on a result the settle had already
+ * cut away unread. The leg now derives its attempt budget
+ * from the deadline its caller settles against: the full
+ * budget when the remainder holds it, otherwise attempts
+ * sized so attempt plus backoff plus attempt still fits the
+ * remainder, and no retry when only one attempt fits. An
+ * already spent deadline reads as expired and the leg records
+ * the deadline outcome itself instead of firing into a cut.
+ * No deadline named (callers outside the retrieval slice)
+ * keeps the fetcher's historic budget untouched. */
+export const CROSSREF_REASK_WINDOW_MS = 1200;
+export function crossrefAttemptBudget(deadlineMs, nowMs) {
+  if (deadlineMs == null || !Number.isFinite(Number(deadlineMs))) return null;
+  const remaining = Number(deadlineMs) - Number(nowMs);
+  if (remaining <= 0) return { timeoutMs: 0, retries: 0, expired: true };
+  if (remaining >= 8600) return { timeoutMs: 4000, retries: 1, expired: false };
+  if (remaining >= 1300) {
+    return { timeoutMs: Math.floor((remaining - 300) / 2), retries: 1, expired: false };
+  }
+  return { timeoutMs: remaining, retries: 0, expired: false };
+}
+
 /* RETRY RACE CLOSE (2026-10-14, wave sixteen, eighth panel,
  * Infrastructure defect 2): after a synthesis winner lands,
  * the post winner retries (quality, citation, minimum
@@ -4329,6 +4359,25 @@ const CONCEPT_GROUPS = [
    "infections", "infectious"],
   ["waste oil", "waste cooking oil", "used cooking oil", "cooking oil",
    "used oil"],
+  // 2026-11-05 (search fix wave 2, Lane B): the substrate
+  // bridge the black soldier fly downstream diagnosis named.
+  // People write "scraps" for what they feed the larvae; the
+  // diet literature writes "food waste" and "organic waste"
+  // for the same substrate. With no group joining them, the
+  // BSF4 specimen (genetics, age, and diet, Hermetia illucens
+  // raised on food waste diets) matched neither of the
+  // question's surface phrase constraints ("cooking oil
+  // mixed", "scraps") at verifyPaperConstraints, and at
+  // topicOverlapFilter it touched only the insect group of
+  // the three resolved groups, so both pre gate stages killed
+  // a paper that names the topic's organism and its
+  // substrate. The bridge is the wave seventeen pattern: the
+  // asker's word first, then the literature's forms. No rule
+  // changes: the constraint verdict still requires a concept
+  // mention for partial, and the passes still require two
+  // resolved groups or the subject group.
+  ["scraps", "food scraps", "kitchen scraps", "food waste",
+   "organic waste", "waste substrate", "waste substrates"],
   // 2026-11-02 (search fix wave, Lane A fix 1): the everyday
   // sense bridges for the hijack specimen class. "Bug" in an
   // illness frame resolved to nothing at all (the only table
@@ -4653,6 +4702,15 @@ const CONCEPT_GROUPS = [
   // Cardiovascular
   ["cardiovascular", "cardiac", "heart", "myocardial", "coronary",
    "atherosclerosis", "hypertension", "ischemia", "arrhythmia"],
+  // Salt (2026-11-05, search fix wave 2, Lane A): people ask
+  // about "salt"; the blood pressure literature writes
+  // "sodium". The hijack diagnosis found salt in no executed
+  // query on its question and no standing bridge for it: the
+  // word had no group at all, so nothing downstream could
+  // ever seat or bridge it. The asker's word heads the group,
+  // the wave seventeen pattern.
+  ["salt", "salts", "sodium", "sodium chloride", "table salt",
+   "salt intake", "dietary sodium"],
   // Respiratory
   ["lung", "lungs", "pulmonary", "respiratory", "airway", "alveolar",
    "bronchial", "asthma", "copd", "pneumonia"],
@@ -10872,7 +10930,19 @@ async function crossref(query, limit = 8, ledger = null, opts = {}) {
           "title,author,container-title,published,DOI,abstract,is-referenced-by-count,type,relation",
       }) +
       "&mailto=contact@askcerebrum.org";
-    const data = await getJSON(url, {}, 4000, 1, ledger);
+    // Slice bounding (2026-11-05, Lane C): when the caller
+    // names the deadline this call settles against, the
+    // attempt budget is derived from what is left of it (see
+    // crossrefAttemptBudget). A spent deadline records the
+    // deadline outcome without firing: the settle would cut
+    // the call unread either way, and firing only spends the
+    // subrequest.
+    const attemptBudget = crossrefAttemptBudget(opts && opts.deadlineMs, Date.now());
+    if (attemptBudget && attemptBudget.expired) {
+      return fetchFailed(new Error("retrieval deadline: source did not answer inside the retrieval slice"));
+    }
+    const data = await getJSON(url, {}, attemptBudget ? attemptBudget.timeoutMs : 4000,
+      attemptBudget ? attemptBudget.retries : 1, ledger);
     const items = (data && data.message && data.message.items) || [];
     return items
       .map((it) => ({
@@ -27876,7 +27946,7 @@ async function gatherPapersBody(rawQuery, opts) {
       // PubMed indexed work was never asked for here.
       pubmed(effectiveName, 25, ncbiKey, ledger),
       openAlex(quoted, 25, openAlexKey, ledger),            // cross-disciplinary
-      crossref(quoted, 15, ledger),                         // DOI-registered works
+      crossref(quoted, 15, ledger, { deadlineMs: _retrievalDeadlineMs }), // DOI-registered works
       arxiv(effectiveName, 15, ledger),                     // physics/CS/quantitative bio
       semanticScholar(quoted, 15, s2Key, ledger),           // includes preprints
       // Commit 94 . the authoritative preprint index. Europe PMC's default
@@ -28216,6 +28286,30 @@ async function gatherPapersBody(rawQuery, opts) {
       }
     }
   } catch { /* specificity order stands */ }
+  // Action verb re seat (2026-11-05, search fix wave 2,
+  // Lane A, from the hijack diagnosis): the lead pass above
+  // REORDERS ranked by the central concepts' order, and that
+  // reorder silently undid the November 2 action verb swap,
+  // which ran before it. On the live WLK4 trace the verb
+  // "moving" sat at index 6 of the post lead ranked list,
+  // below the widest rung's 4 term slice, so the executed
+  // rung was "glucose spikes around rice": an outcome, a
+  // food, and two fillers, with the question's one action
+  // nowhere in it. The swap re runs here, on the order the
+  // rungs are actually sliced from. It is the same splice,
+  // not a new rule: the verb moves to the last seat of the
+  // widest slice and every other term keeps its relative
+  // order, and it is a no op when the lead order already
+  // seats the verb inside the slice.
+  try {
+    if (ranked.length > 4 && actionVerbTerm) {
+      const verbIdx = ranked.indexOf(actionVerbTerm);
+      if (verbIdx >= 4) {
+        const [verb] = ranked.splice(verbIdx, 1);
+        ranked.splice(3, 0, verb);
+      }
+    }
+  } catch { /* ranked order unchanged */ }
   // STILL UNCOVERED (2026-10-14, fifth panel, Job 2a): a group
   // whose alternates are only the term's own inflections
   // (blood -> bloods, fix -> fixes) adds no vocabulary the
@@ -28391,6 +28485,122 @@ async function gatherPapersBody(rawQuery, opts) {
   ].filter((r) => r.length > 0);
   if (!rungs.length) rungs.push([query]);
 
+  // Widest rung guarantee (2026-11-05, search fix wave 2,
+  // Lane A, from the hijack diagnosis): in all six live
+  // records exactly one plain keyword rung executed and
+  // carried 100 percent of the gathered pool, and that rung
+  // is sliced from `ranked` at a point where several of the
+  // question's judged words can no longer reach it: the
+  // specificity slice and the constraint slot builder both
+  // choose their four or five words before the outcome word
+  // and the substance word are considered (salt sat at index
+  // 8 of its question's ranked list, blood at index 9, and
+  // neither appeared in any executed query in its record,
+  // while the citation gate judged the pool against concept
+  // groups for exactly those words). The guarantee runs at
+  // the composition point itself, on rungs[0] only:
+  // (a) a ranked term the slice dropped is seated when the
+  // vocabulary or the gate gives it standing: it carries a
+  // real bridge (a concept or synonym alternate that is a
+  // phrase, or a non inflection content word), or it belongs
+  // to a concept group the gate resolved for this question,
+  // or nothing can bridge it and it stands in the question's
+  // final clause, where these questions put the word the
+  // outcome is predicated on. At most three seats, in ranked
+  // order; every other rung keeps its built shape.
+  // (b) a bare word in the rung whose hand group qualifies
+  // it with a phrasal form of itself (bug, whose group holds
+  // "stomach bug") gains the group's OTHER phrase forms
+  // (viral infection, bacterial infection): the databases
+  // index the illness vocabulary, not the bare collision
+  // word, and keywordPlainTerms only bridges terms the rung
+  // carries in their tabled forms. Subject terms are
+  // skipped: their groups widen by design on other paths,
+  // and the control question whose rung already carries its
+  // words (WLK3) must stay byte exact.
+  try {
+    if (rungs.length > 0) {
+      const first = rungs[0].map((t) => String(t));
+      const rungWords = new Set();
+      for (const t of first) {
+        for (const w of t.toLowerCase().split(/\s+/)) if (w) rungWords.add(w);
+      }
+      const realBridge = (t) => {
+        const group = conceptSetFor(t, dynLookup)
+          || (SYNONYMS[t] ? [t, ...SYNONYMS[t]] : null);
+        if (!group) return false;
+        return [...group].some((a) => {
+          const alt = String(a || "").toLowerCase().trim();
+          if (!alt || alt === t) return false;
+          if (alt.indexOf(" ") !== -1) return true;
+          return !sameInflection(t, alt) && !isGateFunctionWord(alt);
+        });
+      };
+      const gateWords = new Set();
+      try {
+        for (const g of gateConceptGroups(rawQuery, dynLookup) || []) {
+          for (const m of g || []) {
+            const member = String(m || "").toLowerCase().trim();
+            if (!member) continue;
+            gateWords.add(member);
+            for (const w of member.split(/\s+/)) if (w) gateWords.add(w);
+          }
+        }
+      } catch { /* the gate set is an addition */ }
+      const lastComma = rawQuery.lastIndexOf(",");
+      const finalClause = new Set(
+        (lastComma >= 0 ? rawQuery.slice(lastComma + 1) : rawQuery)
+          .toLowerCase().replace(/[^\w\s]/g, " ").split(/\s+/).filter(Boolean)
+      );
+      const seated = [];
+      for (const term of ranked) {
+        if (seated.length >= 3) break;
+        const t = String(term || "").toLowerCase();
+        if (!t || t.indexOf(" ") !== -1 || t.length <= 2) continue;
+        if (rungWords.has(t) || isGateFunctionWord(t)) continue;
+        let qualifies = false;
+        try {
+          if (realBridge(t) || gateWords.has(t)) qualifies = true;
+          else if (finalClause.has(t)) {
+            const plain = keywordPlainTerms([t], null);
+            if (plain.length === 1 && plain[0] === t) qualifies = true;
+          }
+        } catch { /* qualification is best effort */ }
+        if (!qualifies) continue;
+        seated.push(t);
+        rungWords.add(t);
+      }
+      const withSeats = [...first, ...seated];
+      const subjectTerms = new Set(
+        questionCentralConcepts(rawQuery, dynLookup)
+          .map((c) => String((c && c.term) || "").toLowerCase())
+      );
+      const bridgePhrases = [];
+      for (const t of withSeats) {
+        if (bridgePhrases.length >= 2) break;
+        const s = String(t).toLowerCase();
+        if (s.indexOf(" ") !== -1 || subjectTerms.has(s)) continue;
+        const group = conceptSetFor(s, null);
+        if (!group) continue;
+        const members = [...group].map((a) => String(a || "").toLowerCase().trim());
+        const qualifiesWord = members.some((alt) =>
+          alt.indexOf(" ") !== -1 && alt.split(/\s+/).includes(s));
+        if (!qualifiesWord) continue;
+        for (const alt of members) {
+          if (bridgePhrases.length >= 2) break;
+          if (alt.indexOf(" ") === -1) continue;
+          if (alt.split(/\s+/).includes(s)) continue;
+          if (rungWords.has(alt)) continue;
+          bridgePhrases.push(alt);
+          rungWords.add(alt);
+        }
+      }
+      if (seated.length || bridgePhrases.length) {
+        rungs[0] = [...withSeats, ...bridgePhrases];
+      }
+    }
+  } catch { /* the rungs stand as built */ }
+
   if (organismTerm) {
     // Organism words were already stripped from `ranked`, so no rung can
     // contain organism fragments. Unconditionally prepend the quoted
@@ -28560,12 +28770,17 @@ async function gatherPapersBody(rawQuery, opts) {
     // Fetchers fire through runFanoutPairs below, never at
     // construction, so the firing order is a decision the runner
     // makes with the live ledger in view (Job 2).
+    // Crossref re ask holder (2026-11-05, Lane C): the Crossref
+    // thunk reads its deadline from this object at fire time, so
+    // the runner's one re ask (runFanoutPairs) can hand the same
+    // pair a fresh, short deadline without rebuilding the pairs.
+    const crossrefAsk = { deadlineMs: _retrievalDeadlineMs };
     const pairs = [
       { name: "europePMC", fetch: () => europePMC(boolQ, 12, ledger, { structuredQuery: booleanQuery }) },
       { name: "pubmed", fetch: () => pubmed(pubmedQ, 12, ncbiKey, ledger, { structuredQuery: booleanQuery }) },
       { name: "openAlex", fetch: () => openAlex(bare, 12, openAlexKey, ledger) },
       ...(bareCommon ? [{ name: "openAlexCommon", fetch: () => openAlex(bareCommon, 12, openAlexKey, ledger) }] : []),
-      { name: "crossref", fetch: () => crossref(bare, 10, ledger) },
+      { name: "crossref", fetch: () => crossref(bare, 10, ledger, { deadlineMs: crossrefAsk.deadlineMs }) },
       { name: "arxiv", fetch: () => arxiv(arx, 8, ledger) },
       { name: "semanticScholar", fetch: () => semanticScholar(bare, 10, s2Key, ledger) },
       { name: "doaj", fetch: () => doaj(bare, 8, ledger) },
@@ -28580,7 +28795,7 @@ async function gatherPapersBody(rawQuery, opts) {
       // that the OpenAlex-mediated `biorxiv()` above was silently missing.
       { name: "preprints", fetch: () => preprintSearch(bare, 8, ledger) },
     ];
-    return { pairs, clinical: isClinicalShapeQuery(surfaceQuery) };
+    return { pairs, clinical: isClinicalShapeQuery(surfaceQuery), crossrefAsk };
   };
 
   // The fanout's firing order (2026-10-14, wave eight round
@@ -28651,6 +28866,48 @@ async function gatherPapersBody(rawQuery, opts) {
     }
     const fundedByName = new Map();
     fundedPairs.forEach((p, i) => fundedByName.set(p.name, fundedResults[i]));
+    // Crossref re ask (2026-11-05, search fix wave 2, Lane C):
+    // a Crossref slot the retrieval slice cut gets ONE re ask
+    // inside this same fanout. The diagnosis showed no later
+    // round ever re asks Crossref (the ladder moves to the
+    // next rung or stops), so a slow first ask ended its
+    // coverage for the whole request. The cut reads in two
+    // shapes: the settle's own deadline rejection, and, now
+    // that the leg's attempts are bounded by the slice, the
+    // fetcher's exhausted attempts returning as an empty
+    // fetch failed slot whose error names the deadline or the
+    // abort. The re ask is narrow: only the funded crossref
+    // pair, only for those two shapes, only while the ledger
+    // still has retrieval room and the gather's own time
+    // budget still has the window to spend, and bounded to
+    // CROSSREF_REASK_WINDOW_MS (which fits inside the
+    // 1,500 ms POST_RETRIEVAL_PREP_MS allowance), so the
+    // gather's promise still resolves before the gather start
+    // plus GATHER_PAPERS_BUDGET_MS its callers assume. The
+    // re asked result replaces the cut slot before the
+    // provenance stamp below, so the record folds it as the
+    // pair's outcome, exactly like a first ask that answered.
+    try {
+      const cutCr = fundedByName.get("crossref");
+      const ask = fanoutResult && fanoutResult.crossrefAsk;
+      const crPair = fundedPairs.find((p) => p && p.name === "crossref");
+      const sliceCut = !!cutCr && (
+        (cutCr.status === "rejected" && cutCr.reason &&
+          /retrieval deadline/.test(String(cutCr.reason.message || cutCr.reason))) ||
+        (cutCr.status === "fulfilled" && Array.isArray(cutCr.value) &&
+          cutCr.value.length === 0 && typeof cutCr.value.fetchError === "string" &&
+          /retrieval deadline|abort/i.test(cutCr.value.fetchError))
+      );
+      if (sliceCut && ask && crPair &&
+          (!ledger || typeof ledger.retrievalRoom !== "function" || ledger.retrievalRoom() > 0) &&
+          Date.now() - _searchStart < GATHER_PAPERS_BUDGET_MS - CROSSREF_REASK_WINDOW_MS) {
+        ask.deadlineMs = Date.now() + CROSSREF_REASK_WINDOW_MS;
+        const reAsked = await settleByDeadline([fire(crPair)], ask.deadlineMs);
+        if (reAsked && reAsked[0] && reAsked[0].status === "fulfilled") {
+          fundedByName.set("crossref", reAsked[0]);
+        }
+      }
+    } catch { /* a failed re ask keeps the cut outcome */ }
     // Provenance stamp (2026-10-23, L2-15 and L2-7): every paper
     // a funded pair returned carries the slot that fetched it, so
     // the dedupe audit can log which source's copy was kept and
@@ -29634,7 +29891,7 @@ async function gatherPapersBody(rawQuery, opts) {
           const methodQuery = subjectPhrase
             ? subjectPhrase + " determination assay activity measurement"
             : laneQuery;
-          laneCalls.push(crossref(methodQuery, 12, ledger));
+          laneCalls.push(crossref(methodQuery, 12, ledger, { deadlineMs: _retrievalDeadlineMs }));
           laneNames.push("crossref");
         }
         if (foundingForm) {
@@ -29794,7 +30051,7 @@ async function gatherPapersBody(rawQuery, opts) {
           europePMC(orgQuoted2 + " AND (" + topicStr2 + ")", 10, ledger),
           pubmed(sciName + " " + topicStr2, 10, ncbiKey, ledger),
           openAlex(sciName + " " + topicStr2, 10, openAlexKey, ledger),
-          crossref(sciName + " " + topicStr2, 8, ledger),
+          crossref(sciName + " " + topicStr2, 8, ledger, { deadlineMs: _retrievalDeadlineMs }),
           semanticScholar(sciName + " " + topicStr2, 10, s2Key, ledger),
           doaj(sciName + " " + topicStr2, 6, ledger),
           biorxiv(sciName + " " + topicStr2, 6, ledger),
@@ -31695,7 +31952,7 @@ async function gatherPapersBody(rawQuery, opts) {
           openAlex(reviewQ, 10, openAlexKey, ledger, { types: "review" }),
           europePMC("(" + surfaceQuery + ') AND (PUB_TYPE:"Systematic Review" OR PUB_TYPE:"Meta-Analysis")', 10, ledger),
           semanticScholar(reviewQ, 8, s2Key, ledger),
-          crossref(reviewQ, 10, ledger, { includePosted: true }),
+          crossref(reviewQ, 10, ledger, { includePosted: true, deadlineMs: _retrievalDeadlineMs }),
         ]);
         const reviewNames = ["openAlex", "europePMC", "semanticScholar", "crossref"];
         stampLegPapers(reviewResults, reviewNames);
