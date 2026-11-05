@@ -14676,7 +14676,7 @@ function OnboardingFlow({ P, accent, at, onDone, onSkip }) {
   const [minutes, setMinutes] = useState(5);
   const [reminderHour, setReminderHour] = useState(null);
   const chip = (active) => ({
-    borderRadius: RADIUS.pill, padding: "11px 18px", fontSize: FONT_SIZES.body, fontWeight: 500,
+    borderRadius: RADIUS.xl, padding: "11px 18px", fontSize: FONT_SIZES.body, fontWeight: 500,
     cursor: "pointer", fontFamily: "var(--cb-font)", minHeight: 50,
     background: active ? accent : "transparent", color: active ? (at || "#101408") : P.ink,
     border: "1.5px solid " + (active ? accent : P.line), textAlign: "left",

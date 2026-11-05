@@ -19953,7 +19953,7 @@ function makeStyles(P, accent, at, isMobile = false, density = "comfortable") {
     },
     panelMobile: { position: "fixed", top: 0, right: 0, height: "100dvh", width: isMobile ? "88vw" : "380px", maxWidth: 400, borderRadius: 0, maxHeight: "none", zIndex: Z.dropdown, boxShadow: "none" },
     srcHead: { display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, fontWeight: 500, color: P.ink, marginBottom: 16, letterSpacing: 0, fontFamily: "var(--cb-font)" },
-    srcCount: { fontSize: 12, fontWeight: 400, color: P.faint, background: "transparent", padding: 0, borderRadius: 0, fontFamily: "var(--cb-font)" },
+    srcCount: { fontSize: 13, fontWeight: 500, color: P.faint, background: "transparent", padding: 0, borderRadius: 0, fontFamily: "var(--cb-font)" },
     srcActions: { display: "flex", gap: 6, marginBottom: 12 },
     srcFilterInput: { width: "100%", padding: "9px 12px", fontSize: 16, border: glassBorder, background: P.bg, color: P.ink, borderRadius: RADIUS.md, outline: "none", fontFamily: "var(--cb-font)", marginBottom: 10 },
     sortTabs: { display: "flex", gap: 2, background: P.bg, padding: 3, borderRadius: RADIUS.md, marginBottom: 14, border: `1px solid ${P.line}` },
@@ -20561,7 +20561,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
                 {expanded && <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>}
                 {key === "inbox" && inboxUnread > 0 && (expanded
                   ? <span className="cb-shell-badge" style={S.sidebarItemBadge}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>
-                  : <span className="cb-shell-badge" aria-hidden="true" style={{ position: "absolute", top: 5, right: 5, minWidth: 16, height: 16, borderRadius: RADIUS.viewport, background: REGISTER_GOLD, border: "none", color: REGISTER_GROUND, fontSize: 10, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>)}
+                  : <span className="cb-shell-badge" aria-hidden="true" style={{ position: "absolute", top: 5, right: 5, minWidth: 16, height: 16, borderRadius: RADIUS.viewport, background: REGISTER_GOLD, border: "none", color: REGISTER_GROUND, fontSize: 11, fontWeight: 500, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{inboxUnread > 99 ? "99+" : inboxUnread}</span>)}
               </button>
               );
             })}
@@ -24538,10 +24538,10 @@ function App({ profileHandle = null } = {}) {
       <div style={{ ...S.srcRow, gap: 2 }}>
         {/* Pass 5: pill toolbars become text actions — same handlers, no
             pill shells. cb-textbtn already carries the 44px touch target. */}
-        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 12, textDecoration: "none", color: isSaved(s) ? accentInk(P, accent) : undefined }} onClick={(e) => { e.stopPropagation(); const wasSaved = isSaved(s); toggleSave(s); if (!wasSaved) flyToLibrary(e.currentTarget, accent); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={12} />{isSaved(s) ? "Saved" : "Save"}</button>
-        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 12, textDecoration: "none", color: isPinned(s) ? accentInk(P, accent) : undefined }} onClick={(e) => { e.stopPropagation(); togglePin(s); }} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={12} />{isPinned(s) ? "Pinned" : "Pin"}</button>
-        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 12 }} onClick={(e) => { e.stopPropagation(); if (!user) { stableOnRequireAuth(); return; } setSharePaper(paperAttachmentFromSource(s)); }} title="Send this paper into a conversation"><Icon name="send" size={12} />Share</button>
-        {s.authors && <button type="button" className="cb-textbtn" style={{ padding: "6px 4px", fontSize: 12 }} onClick={(e) => { e.stopPropagation(); setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author</button>}
+        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 13, textDecoration: "none", color: isSaved(s) ? accentInk(P, accent) : undefined }} onClick={(e) => { e.stopPropagation(); const wasSaved = isSaved(s); toggleSave(s); if (!wasSaved) flyToLibrary(e.currentTarget, accent); }}><Icon name={isSaved(s) ? "bookmarkFilled" : "bookmark"} size={12} />{isSaved(s) ? "Saved" : "Save"}</button>
+        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 13, textDecoration: "none", color: isPinned(s) ? accentInk(P, accent) : undefined }} onClick={(e) => { e.stopPropagation(); togglePin(s); }} title={isPinned(s) ? "Pinned to conversation" : "Pin for follow ups"}><Icon name={isPinned(s) ? "pinFilled" : "pin"} size={12} />{isPinned(s) ? "Pinned" : "Pin"}</button>
+        <button type="button" className="cb-textbtn" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 4px", fontSize: 13 }} onClick={(e) => { e.stopPropagation(); if (!user) { stableOnRequireAuth(); return; } setSharePaper(paperAttachmentFromSource(s)); }} title="Send this paper into a conversation"><Icon name="send" size={12} />Share</button>
+        {s.authors && <button type="button" className="cb-textbtn" style={{ padding: "6px 4px", fontSize: 13 }} onClick={(e) => { e.stopPropagation(); setMobilePanel(false); ask(`papers by ${(s.authors || "").replace(" et al.", "")}`); }}>Author</button>}
       </div>
     </div>
   );
@@ -27649,7 +27649,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 /* ── First use hint under the composer ── */
 .cb-ask-hint {
   margin: 8px 0 0; padding: 0 6px;
-  font-family: var(--cb-font); font-size: 12px; font-weight: 500;
+  font-family: var(--cb-font); font-size: 13px; font-weight: 500;
   color: var(--cb-faint);
 }
 
@@ -27665,7 +27665,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 .cb-ask-recent-k {
   padding: 6px 12px 4px;
   /* Pass 3 (2026-09-17): Inter Tight label, not a tracked-out eyebrow. */
-  font-family: var(--cb-font); font-size: 12px; font-weight: 500;
+  font-family: var(--cb-font); font-size: 13px; font-weight: 500;
   color: var(--cb-faint);
 }
 .cb-ask-recent-item {
@@ -27822,7 +27822,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   font-family: var(--cb-font); font-size: 12px; letter-spacing: 0;
 }
 .cb-bench .cb-paperchip { border-radius: 2px; border-style: dashed; }
-.cb-bench .cb-ask-hint { font-family: var(--cb-font); font-size: 12px; }
+.cb-bench .cb-ask-hint { font-family: var(--cb-font); font-size: 13px; }
 
 /* ── Specimen tray: calibrated examples, not a link list ── */
 .cb-bench-tray {
@@ -27954,7 +27954,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 }
 .cb-dive-kicker {
   /* Inter Tight label, not a tracked-out eyebrow. */
-  font-family: var(--cb-font); font-size: 11px; font-weight: 500;
+  font-family: var(--cb-font); font-size: 13px; font-weight: 500;
   color: var(--cb-faint);
   margin-bottom: 14px;
   position: relative; z-index: 1;
@@ -28011,7 +28011,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   height: 64px; min-width: 0;
 }
 .cb-dive-depth {
-  font-family: var(--cb-mono); font-size: 10px; font-weight: 500;
+  font-family: var(--cb-mono); font-size: 12px; font-weight: 500;
   color: var(--cb-faint);
   width: 38px; flex-shrink: 0; text-align: right;
   font-variant-numeric: tabular-nums;
@@ -28040,7 +28040,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 }
 .cb-dive-stratum.is-pending .cb-dive-label { color: var(--cb-faint); font-weight: 500; }
 .cb-dive-detail {
-  font-family: var(--cb-font); font-size: 11px;
+  font-family: var(--cb-font); font-size: 13px;
   color: var(--cb-faint); margin-top: 2px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   max-width: 100%;
@@ -28058,7 +28058,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 .cb-dive-line {
   position: relative; z-index: 1;
   margin-top: 8px;
-  font-family: var(--cb-font); font-size: 11px;
+  font-family: var(--cb-font); font-size: 13px;
   letter-spacing: 0.02em;
   color: var(--cb-faint);
   max-width: 560px;
@@ -28067,7 +28067,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
 .cb-dive-honesty {
   position: relative; z-index: 1;
   margin-top: 14px; max-width: 560px;
-  font-family: var(--cb-font); font-size: 12px; line-height: 1.6;
+  font-family: var(--cb-font); font-size: 13px; line-height: 1.6;
   color: var(--cb-ink2);
   border-left: 2px solid color-mix(in srgb, var(--cb-acc) 55%, transparent);
   padding-left: 12px;
@@ -28076,7 +28076,7 @@ body.cb-motion-off .cb-inbox-pop-in { animation: none !important; }
   position: relative; z-index: 1;
   margin-top: 10px;
   display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--cb-font); font-size: 11px; font-weight: 500;
+  font-family: var(--cb-font); font-size: 13px; font-weight: 500;
   letter-spacing: 0.02em;
   color: var(--cb-ink2);
   animation: cbRise 320ms var(--cb-ease) both;
@@ -29544,7 +29544,7 @@ button.cb-cite { min-height: 0; min-width: 0; }
   display: inline-block; margin-left: 10px; padding: 3px 8px;
   /* 12px since 2026-10-20 (readability residue wave): the evidence
      labels are words a reader must read, not badge numerals. */
-  font-family: var(--cb-font); font-size: 12px; font-weight: 500;
+  font-family: var(--cb-font); font-size: 13px; font-weight: 500;
   letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
   border: 1px solid currentColor; border-radius: 2px; vertical-align: 2px;
 }
@@ -29560,8 +29560,8 @@ button.cb-cite { min-height: 0; min-width: 0; }
   padding: 18px 0 0; margin: 0 auto 4px 0; max-width: 1080px; margin-right: auto;
 }
 .cb-query-label {
-  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
-  opacity: 0.85; margin-bottom: 10px;
+  font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+  margin-bottom: 10px;
 }
 .cb-query-text {
   font-family: var(--cb-font); font-size: 22px; font-weight: 500;
@@ -29631,7 +29631,7 @@ button.cb-cite { min-height: 0; min-width: 0; }
 .cb-ctlbtn:last-child { border-right: none; }
 .cb-ctlbtn:hover { border-color: var(--cb-line, rgba(128,128,128,0.3)); color: var(--cb-ink, #fff); }
 .cb-readout-label {
-  font-size: 12px; font-weight: 400; letter-spacing: 0;
+  font-size: 13px; font-weight: 500; letter-spacing: 0;
   text-transform: none;
 }
 
@@ -29653,7 +29653,7 @@ button.cb-cite { min-height: 0; min-width: 0; }
    line height, not a mono face at line-height 2. */
 .cb-claim { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 14px; }
 .cb-claim-refs {
-  font-family: var(--cb-font); font-size: 11px; line-height: 1.55; text-align: right;
+  font-family: var(--cb-font); font-size: 13px; line-height: 1.55; text-align: right;
   border-right: 1px solid var(--cb-line, rgba(128,128,128,0.22)); padding-right: 10px;
   color: var(--cb-faint, #888);
 }
@@ -29715,7 +29715,7 @@ button.cb-cite { min-height: 0; min-width: 0; }
 
 /* Quiet instrument kicker — replaces letterspaced all-caps eyebrows. */
 .cb-kicker {
-  font-family: var(--cb-font); font-size: 12px; font-weight: 500; letter-spacing: 0;
+  font-family: var(--cb-font); font-size: 13px; font-weight: 500; letter-spacing: 0;
   color: var(--cb-faint, #888); text-transform: none;
 }
 

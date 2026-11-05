@@ -2672,7 +2672,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                         <Icon name={prof.icon} size={18} style={{ color: isActive ? accent : P.ink2, flexShrink: 0 }} />
                         <span style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink }}>{prof.label}</span>
                         {isActive && (
-                          <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "none", color: accent }}>Active</span>
+                          <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 500, letterSpacing: "0.08em", textTransform: "none", color: accent }}>Active</span>
                         )}
                       </span>
                       <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.45 }}>{prof.desc}</span>

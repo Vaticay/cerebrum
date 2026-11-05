@@ -126,7 +126,7 @@ export function LiveDemo({ P, accent, isMobile, page }) {
     minWidth: 22, height: 22, padding: "0 6px", margin: "0 2px",
     borderRadius: RADIUS.sm, border: `1px solid ${P.line2}`,
     background: P.raised, color: accent,
-    fontSize: 12, fontWeight: 500, fontFamily: "var(--cb-font)",
+    fontSize: 13, fontWeight: 500, fontFamily: "var(--cb-font)",
     textDecoration: "none", verticalAlign: "super", lineHeight: 1,
   };
   return (

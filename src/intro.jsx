@@ -301,7 +301,7 @@ function FilmCreditsDialog({ onClose, accent }) {
               }}>{c.n}</span>
               <div>
                 <div style={{ fontSize: FONT_SIZES.body, fontWeight: 500, lineHeight: 1.55, marginBottom: 3 }}>{c.title}</div>
-                <div style={{ fontSize: 12, color: FP.ink2, lineHeight: 1.55 }}>
+                <div style={{ fontSize: 13, color: FP.ink2, lineHeight: 1.55 }}>
                   {c.credit}
                   {c.source ? (<>{" · "}<a href={safeHref(c.source)} target="_blank" rel="noopener noreferrer" style={link}>Source</a></>) : null}
                   {" · "}
@@ -314,7 +314,7 @@ function FilmCreditsDialog({ onClose, accent }) {
           ))}
         </div>
 
-        <p style={{ margin: "18px 0 0", fontSize: 12, lineHeight: 1.55, color: FP.faint }}>
+        <p style={{ margin: "18px 0 0", fontSize: 13, lineHeight: 1.55, color: FP.faint }}>
           Clips are decorative. They are not data, not results, and not evidence of anything
           Cerebrum reports.
         </p>

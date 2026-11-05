@@ -75,7 +75,7 @@ function pageShell(title, bodyHtml) {
     + "body{margin:0;background:radial-gradient(ellipse 80% 58% at 50% 40%, rgba(198,204,212,0.13), rgba(198,204,212,0) 66%),radial-gradient(ellipse 120% 90% at 50% 112%, rgba(64,68,74,0.16), rgba(64,68,74,0) 62%),#060606;color:#f3f3f1;font-family:Georgia,'Times New Roman',serif;}"
     + "main{max-width:760px;margin:0 auto;padding:40px 20px 64px;}"
     + "h1{font-size:28px;line-height:1.25;margin:0 0 6px;}"
-    + "h2{font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:#c89a3a;margin:30px 0 8px;font-family:ui-monospace,Menlo,Consolas,monospace;}"
+    + "h2{font-size:16px;letter-spacing:.08em;text-transform:uppercase;color:#c89a3a;margin:30px 0 8px;}"
     + "p,li{font-size:16px;line-height:1.6;}"
     + "ul,ol{padding-left:22px;margin:6px 0;}"
     + ".meta{color:rgba(243,243,241,0.72);font-size:14px;overflow-wrap:anywhere;}"
