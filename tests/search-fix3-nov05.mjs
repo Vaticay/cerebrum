@@ -266,7 +266,18 @@ await test("FEV2: the plain string carries temperature itself, not only its clim
   const plain = keywordPlainTerms(FEV2_RUNG);
   const toks = plainTokens(plain);
   assert.ok(toks.includes("temperature"), "temperature missing: " + plain);
-  assert.ok(toks.includes("bug"), "bug missing: " + plain);
+  // WITNESS UPDATED (2026-11-05, search fix wave 4): this
+  // assertion also required the bare token "bug" to ride,
+  // pinning the wave 3 kept term form. The collision
+  // diagnosis traced that kept bare word as the FEV2
+  // regression's carrier (PubMed's "temperature bug" slice
+  // supplied all 8 live citations, all entomology), and
+  // wave 4 withholds the bare form for tabled collision
+  // terms: bug's bridge alternates now carry its sense in
+  // the plain string. Temperature's kept form, the property
+  // this test exists to pin, is unchanged.
+  assert.ok(!toks.includes("bug"), "the bare collision token rides again: " + plain);
+  assert.ok(/viral infection/.test(plain), "bug's bridge alternates should ride: " + plain);
   assert.ok(/climate/.test(plain), "the group alternates should still ride: " + plain);
 });
 
@@ -295,7 +306,16 @@ await test("FEV2 handler: the bare form a plain keyword source receives contains
 group("Lane B — PubMed receives a composable central string");
 
 await test("central strings compose from the rungs' own central terms", () => {
-  assert.equal(pubmedCentralString(FEV2_RUNG, FEV2_Q, null), "temperature bug");
+  // WITNESS UPDATED (2026-11-05, search fix wave 4): FEV2's
+  // expectation was "temperature bug", the wave 3 form. The
+  // collision diagnosis probed that exact string on PubMed
+  // (count 346, 11 entomology papers in the top 12) and
+  // named it the live regression's largest carrier; wave 4
+  // seats a tabled collision term's bridge alternates in
+  // its place, the probed C1 form. The other three strings,
+  // the property this test pins for untabled words, are
+  // unchanged.
+  assert.equal(pubmedCentralString(FEV2_RUNG, FEV2_Q, null), "temperature viral infection bacterial infection pathogen");
   assert.equal(pubmedCentralString(WLK4_RUNG, WLK4_Q, null), "moving glucose rice");
   assert.equal(pubmedCentralString(WLK2_RUNG, WLK2_Q, null), "ten minutes walking");
   assert.equal(pubmedCentralString(SLT4_RUNG, SLT4_Q, null), "heart salt");

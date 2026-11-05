@@ -5337,6 +5337,84 @@ function sameInflection(a, b) {
   return inflectionVariants(a).has(b) || inflectionVariants(b).has(a);
 }
 
+// ════════════════════════════════════════════════════════════════════
+// COLLISION TERMS (2026-11-05, search fix wave 4; collision
+// diagnosis at ~/workspace/cerebrum-collision-diagnosis
+// -nov05/report.md). A small hand authored table, in the
+// typed relations style of CONCEPT_GROUP_FAMILIES above: a
+// tabled word is a rung word whose hand sense bridge names a
+// DIFFERENT sense than the word's dominant retrieval sense
+// in the plain sources, where another central concept of the
+// question is native vocabulary in the dominant sense's
+// domain. For such a word the wave 3 kept term form inverts:
+// the bare form retrieves the wrong sense at scale (the
+// wrong sense's papers engage the whole question literally),
+// and the alternates riding beside it do not outvote it where
+// the string is short. The plain strings therefore withhold
+// the bare form and let the bridge alternates carry the
+// sense in its place. Untabled bridged words are same sense
+// expansions (rice and oryza sativa, salt and the sodium
+// forms: the word is its own literature's indexing word) and
+// keep the wave 3 form untouched; this table is the only
+// thing that separates the two classes, and a word joins it
+// only on probe evidence of the collision shape, never on a
+// general inference.
+export const COLLISION_TERMS = [
+  // bug: bridged sense illness (its group carries viral
+  // infection, bacterial infection, pathogen); dominant
+  // retrieval sense in PubMed and the plain sources is the
+  // insect, and the fever question's other central concept,
+  // temperature, is core entomology vocabulary. Probed in
+  // the diagnosis: the shipped PubMed central string
+  // "temperature bug" counted 346 with 11 entomology papers
+  // and 1 fever paper in its top 12, and all 8 papers the
+  // live FEV2 serve cited sit inside that top 12; the bridge
+  // form "temperature viral infection bacterial infection
+  // pathogen" counted 462 with zero insects in the top 12.
+  { term: "bug", bridgedSense: "illness", dominantSense: "insect" },
+];
+
+/* True when a lowercased single word is a tabled collision
+ * term. */
+export function isCollisionTerm(key) {
+  return COLLISION_TERMS.some((e) => e.term === key);
+}
+
+/* The alternates that carry a collision term's bridged sense
+ * in the plain strings, from a resolved concept set: group
+ * order preserved, the term itself and its inflections out,
+ * and any alternate that contains the term as a whole word
+ * out with them (the idiom "stomach bug" carries the bare
+ * token inside it; the diagnosis probed the quoted idiom
+ * alone as an unusable pool, and the bare token is what this
+ * wave withholds). */
+function collisionAlternatesFromSet(key, set) {
+  if (!set) return [];
+  const wordy = new RegExp("(^|\\s)" + key + "(\\s|$)");
+  return [...set]
+    .map((m) => String(m).toLowerCase())
+    .filter((m) => m && m !== key)
+    .filter((m) => !wordy.test(m))
+    .filter((m) => m.indexOf(" ") !== -1 || !isGateFunctionWord(m))
+    .filter((m) => m.indexOf(" ") !== -1 || !sameInflection(key, m));
+}
+
+/* The same alternates, resolving the term's set the way
+ * keywordPlainTerms does (concept table or model group
+ * first, then the SYNONYMS bridge). Exported for the PubMed
+ * central composer below and the wave 4 proofs. */
+export function collisionBridgeAlternates(key, dynLookup) {
+  let set = null;
+  try { set = conceptSetFor(key, dynLookup); } catch { set = null; }
+  if (!set) {
+    const syns = SYNONYMS[key];
+    if (Array.isArray(syns) && syns.length > 0) {
+      set = new Set([key, ...syns.map((s) => String(s).toLowerCase())]);
+    }
+  }
+  return collisionAlternatesFromSet(key, set);
+}
+
 // KEYWORD PLAIN TERMS (2026-10-15, wave seventeen, citation
 // depth diagnosis, stage 4). The terms a rung sends to the
 // PLAIN keyword engines (the engines that receive a bare word
@@ -5378,6 +5456,18 @@ function sameInflection(a, b) {
 // and the field's, which is what the plain engines tokenize
 // best. The boolean path is untouched (it always kept the
 // term as its group's head).
+//
+// WAVE 4 EXCEPTION (2026-11-05, search fix wave 4; collision
+// diagnosis): a tabled collision term (COLLISION_TERMS
+// above) is the one case where the kept term form inverts.
+// Its bare form retrieves the dominant wrong sense at scale
+// at the plain sources (on FEV2 the kept word "bug" carried
+// 8 entomology citations into the live serve, through this
+// function and through PubMed's central string), so for a
+// tabled term the bare form is withheld and the bridge
+// alternates ride in its place, the form the diagnosis
+// probed clean on every source it could reach. Untabled
+// bridged terms keep the wave 3 form exactly.
 export function keywordPlainTerms(terms, dynLookup) {
   const out = [];
   for (const raw of Array.isArray(terms) ? terms : []) {
@@ -5400,7 +5490,18 @@ export function keywordPlainTerms(terms, dynLookup) {
         .filter((m) => m && m !== key)
         .filter((m) => m.indexOf(" ") !== -1 || !isGateFunctionWord(m))
         .filter((m) => m.indexOf(" ") !== -1 || !sameInflection(key, m));
-      if (alts.length > 0) { out.push(t, ...alts.slice(0, 4)); continue; }
+      if (alts.length > 0) {
+        // WAVE 4 (collision terms): the bare form is
+        // withheld; the sense carrying alternates ride in
+        // its place. A tabled term whose alternates all
+        // filter out falls through to the kept form below:
+        // a term is never dropped silently.
+        if (isCollisionTerm(key)) {
+          const calts = collisionAlternatesFromSet(key, set);
+          if (calts.length > 0) { out.push(...calts.slice(0, 4)); continue; }
+        }
+        out.push(t, ...alts.slice(0, 4)); continue;
+      }
     }
     out.push(t);
   }
@@ -5492,16 +5593,42 @@ export function pubmedCentralString(terms, query, dynLookup) {
   for (const t of list) if (/\s/.test(t) && !isBridgePhrase(t)) take(t);
   for (const t of list) {
     if (/\s/.test(t)) continue;
+    // WAVE 4 (collision terms): the bare form is never taken
+    // in any class; a tabled term's seat, when it earns one,
+    // is filled by its alternates in class 3 below.
+    if (isCollisionTerm(t.toLowerCase())) continue;
     try { if (structuralTermIsActionVerb(t)) take(t); } catch { /* not a verb */ }
   }
   for (const t of list) {
     if (/\s/.test(t)) continue;
     const tl = t.toLowerCase();
-    if (backedTerms.has(tl) || inGating(groupOf(tl))) take(t);
+    if (backedTerms.has(tl) || inGating(groupOf(tl))) {
+      // WAVE 4 (collision terms): the term's seat is taken
+      // by its bridge alternates (up to three, group order),
+      // the form the collision diagnosis probed clean on
+      // PubMed ("temperature viral infection bacterial
+      // infection pathogen", count 462, zero insects in the
+      // top 12, against the shipped "temperature bug" at 346
+      // with 11). The alternates are the string's sense
+      // carrier, so they are not cut by the three word
+      // budget that governs the salad forms this composer
+      // replaced; every other class keeps the budget.
+      if (isCollisionTerm(tl)) {
+        for (const alt of collisionBridgeAlternates(tl, dynLookup).slice(0, 3)) {
+          if (pickedSet.has(alt)) continue;
+          picked.push(alt);
+          pickedSet.add(alt);
+          words += alt.split(/\s+/).length;
+        }
+        continue;
+      }
+      take(t);
+    }
   }
   if (words < 2) {
     for (const t of list) {
       if (/\s/.test(t)) continue;
+      if (isCollisionTerm(t.toLowerCase())) continue;
       if (centralTerms.has(t.toLowerCase())) take(t);
     }
   }
@@ -28980,7 +29107,21 @@ async function gatherPapersBody(rawQuery, opts) {
       const salad = topicOverride.length >= 2;
       const loneWord = topicOverride.length === 1
         && topicOverride[0].trim().split(/\s+/).length < 2;
-      if (salad || loneWord) {
+      // WAVE 4 (2026-11-05, search fix wave 4; collision
+      // diagnosis): a single multi word phrase is the healthy
+      // form above, but not when the phrase itself carries a
+      // tabled collision term as a word. FEV2's override is
+      // the phrase "temperature bug": left standing, it hands
+      // PubMed the exact string the diagnosis probed as the
+      // regression's largest carrier, and the central
+      // composer never runs. A phrase carrying a collision
+      // term routes to the composer like the salad and the
+      // lone word do; phrases without one (the WLK3 control
+      // shape) stand byte identical.
+      const collisionPhrase = topicOverride.some((p) =>
+        String(p).toLowerCase().split(/\s+/)
+          .some((w) => isCollisionTerm(w.replace(/[^a-z]/g, ""))));
+      if (salad || loneWord || collisionPhrase) {
         try {
           const central = pubmedCentralString(topicTerms, surfaceQuery, dynLookup);
           if (central) pubmedTopicStr = central;
