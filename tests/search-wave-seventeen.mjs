@@ -326,9 +326,24 @@ await test("the puff bridge exists statically: the concept group resolves", () =
 
 await test("collision tokens are never sent bare to the plain keyword engines", () => {
   const bridged = keywordPlainTerms(["puff"], null);
-  assert.ok(!bridged.includes("puff"), "the bare collision token survived: " + JSON.stringify(bridged));
+  // WITNESS UPDATED (2026-11-05, search fix wave 3, Lane A;
+  // post rung diagnosis): the wave 17 rule replaced a bridged
+  // term with its alternates wholesale, and the diagnosis
+  // measured the replacement destroying the topic one level
+  // down (temperature replaced by its climate group left no
+  // source string carrying the question's own word; rice and
+  // salt vanished the same way). The term itself is now kept
+  // as the first plain term with the alternates after it.
+  // The property this witness pins is unchanged in kind: a
+  // collision token is never sent as the whole string, nor
+  // alone — puff rides WITH swelling and edema, never bare
+  // by itself, which is the form that summoned the smoke
+  // papers in wave 17.
   assert.ok(bridged.includes("swelling") && bridged.includes("edema"),
     "the bridge alternates missing: " + JSON.stringify(bridged));
+  assert.ok(bridged.length > 1 && bridged[0] === "puff",
+    "the kept term does not head its alternates: " + JSON.stringify(bridged));
+  assert.ok(bridged.join(" ") !== "puff", "the bare collision token is the whole string");
   assert.deepEqual(keywordPlainTerms(["else"], null), [],
     "a closed class word reached the plain terms");
   assert.deepEqual(keywordPlainTerms(["socks"], null), ["socks"],

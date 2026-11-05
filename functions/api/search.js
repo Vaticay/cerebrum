@@ -4810,6 +4810,55 @@ export function gateConceptSetFor(group) {
   return typed ? typed.gate : group;
 }
 
+// ── Concept group families (2026-11-05, search fix wave 3,
+// Lane D; post rung diagnosis, BSF4 trace) ──────────────────
+// Two central concepts can be two phrasings of ONE concept:
+// the question names the same thing twice in different
+// words, and each phrasing resolves its own group. The post
+// rung diagnosis traced the BSF4 specimen ("Genetics, age,
+// and diet influence gut bacterial communities and
+// performance of black soldier fly larvae") dying at the
+// citation gate's two concept count on exactly this shape:
+// the question's concepts are "used cooking oil" (the
+// subject, the oil group) and "scraps" (the wave 2 bridge
+// group: food waste, organic waste), the specimen engages
+// the substrate through the scraps phrasing alone ("food
+// waste" in its abstract), and the gate demanded a second
+// concept the question does not actually contain — the two
+// concepts are both the substrate the larvae eat, one topic
+// stated twice. A family entry names groups that are
+// phrasings of one concept, by their member terms (content
+// matched, like the typed relations above, so rebuilt group
+// Sets still match). The gate's count reads families through
+// conceptGroupFamilyOf: inside the judged set, when two or
+// more concepts belong to one family, engaging any one of
+// them counts the family's concepts as engaged. Genuinely
+// distinct concepts (no shared family) still each require
+// their own engagement, and the two concept requirement
+// itself is untouched — this is not the retired Group A
+// standard change, which loosened the count for every
+// question on a disagreement count this project filed
+// unverified; this fires only where an authored family
+// names the equivalence, and the BSF4 trace is its evidence.
+export const CONCEPT_GROUP_FAMILIES = [
+  // The feeding substrate, stated as the oil the scraps
+  // carry and as the scraps themselves (BSF4 trace, above).
+  { terms: ["waste oil", "scraps"] },
+];
+
+/* The family a concept belongs to, or -1: the concept's own
+ * group (the widening set it resolved with) contains one of
+ * the family's naming terms. */
+export function conceptGroupFamilyOf(concept) {
+  const group = concept && concept.group;
+  if (!group || typeof group.has !== "function") return -1;
+  for (let i = 0; i < CONCEPT_GROUP_FAMILIES.length; i++) {
+    const terms = CONCEPT_GROUP_FAMILIES[i].terms || [];
+    for (const t of terms) if (group.has(t)) return i;
+  }
+  return -1;
+}
+
 // ════════════════════════════════════════════════════════════════════
 // MODEL-PROPOSED CONCEPT GROUPS (2026-10-13)
 //
@@ -5311,6 +5360,24 @@ function sameInflection(a, b) {
 // string. Terms with no bridge pass through untouched, and a
 // multi word term (a constraint phrase, a quoted organism)
 // passes through untouched.
+//
+// WAVE 3 AMENDMENT (2026-11-05, search fix wave 3, Lane A;
+// post rung diagnosis): the replacement rule above is
+// superseded for the term itself. The post rung diagnosis
+// traced pass 4's pools to this function: on the fever
+// question the word temperature was replaced by its CLIMATE
+// group (climate, warming, thermal, heat), so no string sent
+// to any source contained the question's own topic word, and
+// the same replacement dropped rice behind oryza sativa and
+// salt behind its sodium forms. A bridged term is now KEPT as
+// the first plain term, with its alternates after it (up to
+// four, the same filters as before): the term rides WITH its
+// disambiguating vocabulary, never alone and never away. The
+// wave seventeen harm was the bare token as the whole string;
+// a kept term beside its bridge names both the asker's word
+// and the field's, which is what the plain engines tokenize
+// best. The boolean path is untouched (it always kept the
+// term as its group's head).
 export function keywordPlainTerms(terms, dynLookup) {
   const out = [];
   for (const raw of Array.isArray(terms) ? terms : []) {
@@ -5333,11 +5400,112 @@ export function keywordPlainTerms(terms, dynLookup) {
         .filter((m) => m && m !== key)
         .filter((m) => m.indexOf(" ") !== -1 || !isGateFunctionWord(m))
         .filter((m) => m.indexOf(" ") !== -1 || !sameInflection(key, m));
-      if (alts.length > 0) { out.push(...alts.slice(0, 4)); continue; }
+      if (alts.length > 0) { out.push(t, ...alts.slice(0, 4)); continue; }
     }
     out.push(t);
   }
   return out;
+}
+
+/* pubmedCentralString(terms, query, dynLookup): the short
+ * composable keyword string PubMed receives when the
+ * constraint phrase override's own form cannot map (two or
+ * more phrases, or a lone word — see the fanout's PubMed form
+ * note, search fix wave 3, Lane B). Built from the rung's own
+ * terms, in rung order within each priority class, inside a
+ * three word budget (phrases count by their words):
+ *   1. the rung's multi word terms that are the question's
+ *      own phrases — a duration or key phrase the question
+ *      states as a unit ("ten minutes"). A multi word term
+ *      that is a member of another rung term's concept group
+ *      is a bridge alternate OF that term, not a phrase of
+ *      the question ("viral infection" rides for "bug"), and
+ *      its head term represents it in class 3.
+ *   2. the rung's action verb (structuralTermIsActionVerb):
+ *      the operative word of the question, the one the trials
+ *      are indexed by ("walking", "moving").
+ *   3. the rung's backed central terms (a central concept
+ *      carrying a group or the subject flag) and its gating
+ *      group terms (a term whose resolved group, through the
+ *      concept table or the SYNONYMS bridge, is one of the
+ *      question's gating groups — "salt" on the salt question,
+ *      whose concept resolution never names it a concept).
+ *   4. bare central terms, only to bring a string that would
+ *      otherwise be a lone word up to two words: a bare scene
+ *      word beside a mappable core is what zeroed the probed
+ *      forms ("ten minutes walking eat" 0 against "ten
+ *      minutes walking" 620), so this class never fills a
+ *      string that already has two words.
+ * Returns "" when nothing qualifies, and the caller keeps the
+ * override string in that case. */
+export function pubmedCentralString(terms, query, dynLookup) {
+  const list = (Array.isArray(terms) ? terms : [])
+    .map((t) => String(t || "").trim())
+    .filter(Boolean);
+  if (!list.length) return "";
+  let concepts = [];
+  try { concepts = questionCentralConcepts(query, dynLookup) || []; } catch { concepts = []; }
+  const centralTerms = new Set(
+    concepts.map((c) => String((c && c.term) || "").toLowerCase()).filter(Boolean)
+  );
+  const backedTerms = new Set(
+    concepts
+      .filter((c) => c && (c.subject || (c.group && c.group.size > 0)))
+      .map((c) => String(c.term || "").toLowerCase())
+      .filter(Boolean)
+  );
+  let gating = [];
+  try { gating = gateConceptGroups(query, dynLookup) || []; } catch { gating = []; }
+  const groupOf = (t) => {
+    let g = null;
+    try { g = conceptSetFor(t, dynLookup); } catch { g = null; }
+    if (g) return g;
+    const syns = SYNONYMS[t];
+    if (Array.isArray(syns) && syns.length > 0) {
+      return new Set([t, ...syns.map((s) => String(s).toLowerCase())]);
+    }
+    return null;
+  };
+  const inGating = (g) => !!g && gating.some(
+    (x) => x === g || (x && x.size === g.size && [...g].every((m) => x.has(m)))
+  );
+  const isBridgePhrase = (t) => {
+    const tl = t.toLowerCase();
+    return list.some((o) => {
+      if (o === t) return false;
+      const g = groupOf(String(o).toLowerCase());
+      return !!g && g.has(tl);
+    });
+  };
+  const picked = [];
+  const pickedSet = new Set();
+  let words = 0;
+  const take = (t) => {
+    const tl = t.toLowerCase();
+    if (pickedSet.has(tl)) return;
+    const w = t.split(/\s+/).length;
+    if (picked.length > 0 && words + w > 3) return;
+    picked.push(t);
+    pickedSet.add(tl);
+    words += w;
+  };
+  for (const t of list) if (/\s/.test(t) && !isBridgePhrase(t)) take(t);
+  for (const t of list) {
+    if (/\s/.test(t)) continue;
+    try { if (structuralTermIsActionVerb(t)) take(t); } catch { /* not a verb */ }
+  }
+  for (const t of list) {
+    if (/\s/.test(t)) continue;
+    const tl = t.toLowerCase();
+    if (backedTerms.has(tl) || inGating(groupOf(tl))) take(t);
+  }
+  if (words < 2) {
+    for (const t of list) {
+      if (/\s/.test(t)) continue;
+      if (centralTerms.has(t.toLowerCase())) take(t);
+    }
+  }
+  return picked.join(" ");
 }
 
 // Plausible NOUN forms of a single word, for GENERATION (the
@@ -19774,6 +19942,33 @@ export function paperClearsCitationGate(paper, standard) {
         }
       }
       const hits = aggregateConceptSetHits(useSet, gateRecordFor);
+      // Family count (2026-11-05, search fix wave 3, Lane D):
+      // when the judged set carries two or more concepts of
+      // one authored family (CONCEPT_GROUP_FAMILIES — two
+      // phrasings of one concept, the BSF4 substrate stated
+      // as "used cooking oil" and as "scraps"), engaging any
+      // one of them counts the family's concepts in the set
+      // as engaged: the question stated one concept twice,
+      // and a paper is not required to hit both phrasings.
+      // Concepts outside a family count exactly as before,
+      // and a family with no engagement adds nothing.
+      let conceptTotal = hits.total;
+      if (useSet.length >= 2) {
+        const famCounts = new Map();
+        for (const c of useSet) {
+          const f = conceptGroupFamilyOf(c);
+          if (f < 0) continue;
+          const rec = gateRecordFor(c);
+          const engaged = !!(rec && (rec.inTitle || rec.inAbstract));
+          const cur = famCounts.get(f) || { present: 0, engaged: 0 };
+          cur.present++;
+          if (engaged) cur.engaged++;
+          famCounts.set(f, cur);
+        }
+        for (const fc of famCounts.values()) {
+          if (fc.present >= 2 && fc.engaged >= 1) conceptTotal += fc.present - fc.engaged;
+        }
+      }
       // Diagnosis amendment (2026-10-21, search diagnosis): the
       // abstract engagement requirement below cannot be judged
       // for a paper that HAS no abstract — and the index that
@@ -19812,7 +20007,7 @@ export function paperClearsCitationGate(paper, standard) {
         if (!hasAbstract) abstractServe = hits.total >= 1;
         verdict = hits.total >= 1 && depthEngaged && (abstractServe || hits.subjectInTitle);
       }
-      else verdict = hits.total >= 2 && depthEngaged;
+      else verdict = conceptTotal >= 2 && depthEngaged;
     }
     // TAIL DISCIPLINE (2026-10-14, wave nine): on a mechanism
     // question, a paper whose only engagement is application
@@ -28656,6 +28851,7 @@ async function gatherPapersBody(rawQuery, opts) {
     // involving BSFL waste oil substrates" was sending "waste oil substrates"
     // to the engines, but the constraint is "waste oil". Extra terms dilute
     // the query and return off-topic papers.
+    let topicOverride = null;
     try {
       // Surface terms (wave seven): the analysis runs on the
       // unstemmed query — analyzing the lemmatized clean query
@@ -28664,7 +28860,7 @@ async function gatherPapersBody(rawQuery, opts) {
       const _qaTopic = analyzeQuery(surfaceQuery);
       if (_qaTopic && _qaTopic.constraints && _qaTopic.constraints.length > 0 && !_qaTopic.isNameSearch) {
         const cps = _qaTopic.constraints.map((c) => c.phrase).filter(Boolean);
-        if (cps.length > 0) topicStr = cps.join(" ");
+        if (cps.length > 0) { topicStr = cps.join(" "); topicOverride = cps; }
       }
     } catch { /* keep topicTerms-based topicStr */ }
 
@@ -28751,9 +28947,49 @@ async function gatherPapersBody(rawQuery, opts) {
     // beside it answered. PubMed's own term mapping handles
     // plain text well; the ladder's loosening still applies,
     // because each rung's terms are what it receives.
+    //
+    // PubMed form of the constraint override (2026-11-05,
+    // search fix wave 3, Lane B; post rung diagnosis): the
+    // override above wins for the topic string, but its raw
+    // form is not always a string PubMed can map. When the
+    // analysis yields TWO OR MORE constraint phrases, the join
+    // is a phrase salad ("glucose monitor spikes rice moving
+    // around right eating real", "eat huge bowl pasta sit
+    // couch ten minutes walking", "say white stuff chips bad
+    // heart but") — probed directly against PubMed, each
+    // returns a count of exactly 0, on every rung, because the
+    // override is rung independent and the ladder's loosening
+    // never reaches PubMed. When it yields ONE phrase of a
+    // single word ("temperature"), PubMed maps that word to
+    // over a million records of physics and flower colour.
+    // A single multi word phrase is a healthy form and stands
+    // unchanged (the control shape: "meal walk glucose"). For
+    // the salad and the lone word, PubMed instead receives a
+    // short string built from the rung's own central terms
+    // (pubmedCentralString): the question's phrases, its
+    // action verb, and its backed or gating terms, inside a
+    // three word budget, because PubMed's mapping ANDs every
+    // word it cannot place and a fourth content word is what
+    // zeroes the mappable forms the diagnosis probed ("glucose
+    // rice moving" 9, "ten minutes walking" 620, "heart salt"
+    // 22543, "temperature bug" 346, against 0 for every long
+    // form). The other engines keep the override exactly as
+    // before; this is PubMed's string only.
+    let pubmedTopicStr = plainTopicStr;
+    if (topicOverride) {
+      const salad = topicOverride.length >= 2;
+      const loneWord = topicOverride.length === 1
+        && topicOverride[0].trim().split(/\s+/).length < 2;
+      if (salad || loneWord) {
+        try {
+          const central = pubmedCentralString(topicTerms, surfaceQuery, dynLookup);
+          if (central) pubmedTopicStr = central;
+        } catch { /* the override string stands */ }
+      }
+    }
     const pubmedQ = orgQuoted
-      ? (orgQuoted.replace(/"/g, "") + " " + (plainTopicStr || "")).trim()
-      : (plainTopicStr || plainTermsStr);
+      ? (orgQuoted.replace(/"/g, "") + " " + (pubmedTopicStr || "")).trim()
+      : (pubmedTopicStr || plainTermsStr);
 
     // One paired structure (2026-10-14, wave eight round three,
     // Job 1): each slot carries its own name AND its fetcher as a

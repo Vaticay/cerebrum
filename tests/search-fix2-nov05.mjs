@@ -324,7 +324,14 @@ await test("WLK3 control: the rung and its bare form are byte exact", async () =
   const rungs = rungQueries(data);
   assert.equal(rungs[0], "meal glucose walk",
     "the control's rung changed: " + rungs[0]);
-  assert.equal(firstBareString(captured), "meal diabetes diabetic insulin glycemic walk",
+  // WITNESS UPDATED (2026-11-05, search fix wave 3, Lane A;
+  // post rung diagnosis): the bare form now keeps the bridged
+  // term itself ahead of its alternates — "glucose" heads the
+  // group it used to be replaced by. The rung above is
+  // unchanged byte exact, and the property this control pins
+  // (the control's executed forms are stable) is unchanged;
+  // the bare string's content is the diagnosed fix itself.
+  assert.equal(firstBareString(captured), "meal glucose diabetes diabetic insulin glycemic walk",
     "the control's bare form changed: " + firstBareString(captured));
 });
 
