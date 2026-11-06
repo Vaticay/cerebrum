@@ -120,8 +120,19 @@ function libraryAnswersSublist(history, libraryQuery) {
   return history.filter((h) => { const q = libraryQuery.trim().toLowerCase(); return !q || String(h.title || "").toLowerCase().includes(q); });
 }
 
-// The Library answers row label, as shipped.
-const rowLabel = (h) => (typeof h.title === "string" && h.title.trim() ? h.title.trim() : "Untitled answer");
+// The Library answers row label, as shipped: the row renders the
+// shared historyEntryLabel helper from src/textUtils.js (visible
+// title, else the first turn's question, else "Untitled answer").
+// PIN UPDATED 2026-11-06 (blank title lane): the shipped resolution
+// was the inline h.title expression; it rendered a BLANK row for a
+// title made only of zero width characters, which survive .trim(),
+// so the resolution moved into the helper where the invisible
+// character set is stripped before the check. The fixtures below now
+// assert the helper's labels, which differ from the old fallback in
+// one honest way: a record whose title is unusable but whose first
+// turn carries the question is labelled with its question.
+const { historyEntryLabel } = await import(join(root, "src/textUtils.js"));
+const rowLabel = (h) => historyEntryLabel(h);
 
 // ── Fixtures: the malformed shapes ───────────────────────────────────────
 
@@ -200,15 +211,22 @@ await test("every malformed answer gets a non-empty string row label", async () 
     assert.ok(label.length > 0, `${h.id} label is not blank`);
   }
   assert.equal(rowLabel(malformedHistory[0]), "Why do we dream");
-  assert.equal(rowLabel(malformedHistory[5]), "Untitled answer", "whitespace title");
-  assert.equal(rowLabel(malformedHistory[4]), "Untitled answer", "object title");
-  assert.equal(rowLabel(malformedHistory[3]), "Untitled answer", "numeric title");
+  // PIN UPDATED 2026-11-06 (blank title lane): the whitespace, object,
+  // and numeric title fixtures asserted the old "Untitled answer"
+  // fallback; under historyEntryLabel those records show the question
+  // they carry in their first turn, which is the honest label. The
+  // "Untitled answer" fallback itself is pinned by the new
+  // library-blank-title-nov06 suite on records with no visible text
+  // anywhere.
+  assert.equal(rowLabel(malformedHistory[5]), "whitespace title entry", "whitespace title shows its question");
+  assert.equal(rowLabel(malformedHistory[4]), "object title question", "object title shows its question");
+  assert.equal(rowLabel(malformedHistory[3]), "42", "numeric title stringifies, as saveInvestigation itself derives it");
 });
 
-await test("row label source resolves through the string-or-fallback expression", async () => {
+await test("row label source resolves through the shared historyEntryLabel helper", async () => {
   assert.ok(
-    appSource.includes('typeof h.title === "string" && h.title.trim() ? h.title.trim() : "Untitled answer"'),
-    "Library answers row label expression"
+    appSource.includes("{historyEntryLabel(h)}"),
+    "Library answers row label renders historyEntryLabel"
   );
 });
 

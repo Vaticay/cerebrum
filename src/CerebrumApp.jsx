@@ -99,7 +99,7 @@ import { trendingDoiOf, cleanMediaUrl, cleanMediaText, verifiedMediaOf, trending
 import {FONT_SIZES, STATUS, PRO, COLOR, LAYOUT, accentText, relLuminance, withAlpha, Icon, S_toolbarBtnBase, TYPE, SP, SHADOW, UIButton, UICard, UIRow, UIField, UISelect, RADIUS, TICKS, TickFrame, BADGE_DISPLAY, BADGE_ORDER, VerifiedCheck, FounderFrame, Z, TRACKING, ProBadge, TierBadge } from "./designSystem.jsx";
 
 /* Text utilities (extracted 2026-10-07, monolith split). */
-import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography, extractQueryTerms, highlightKeywords } from "./textUtils.js";
+import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities, TITLE_SAFE_TAG_RE, renderCleanTitle, cleanTitleText, tidyQuestionTitle, visibleTitleText, historyEntryLabel, sourceKey, sourceKeys, safeHref, stripMarkdown, YT_ID_RE, getYouTubeId, JOURNAL_STYLE, JOURNAL_SMALL_WORDS, JOURNAL_DENYLIST, formatJournalName, formatCitationCount, formatCitation, formatBibliography, extractQueryTerms, highlightKeywords } from "./textUtils.js";
 
 /* Citation export writers (extracted 2026-11-06, monolith split):
    toRIS, toBibTeX, and toCSV live in src/citationExport.js with the
@@ -12064,7 +12064,7 @@ function CompareModal({ P, accent, at, S, history, close }) {
   const noop = () => {};
   const Picker = ({ value, onChange, exclude }) => (
     <UISelect P={P} accent={accent} value={value} onChange={onChange}
-      options={[{ value: "", label: "Choose an investigation…" }, ...history.filter((h) => h.id !== exclude).map((h) => ({ value: h.id, label: h.title }))]}
+      options={[{ value: "", label: "Choose an investigation…" }, ...history.filter((h) => h.id !== exclude).map((h) => ({ value: h.id, label: historyEntryLabel(h, "Untitled investigation") }))]}
       ariaLabel="Choose an investigation to compare" style={{ width: "100%" }} />
   );
   const Column = ({ entry }) => (
@@ -25280,7 +25280,7 @@ function App({ profileHandle = null } = {}) {
   };
   const navResults = cmdQuery ? [
     ...(history || []).filter((h) => fuzzyMatch(h.title, cmdQuery)).slice(0, 3).map((h) => ({
-      type: "inv", icon: "history", label: h.title || "Untitled investigation",
+      type: "inv", icon: "history", label: historyEntryLabel(h, "Untitled investigation"),
       sub: `${(h.turns || []).length} answer${(h.turns || []).length === 1 ? "" : "s"}`,
       run: () => { setCmdOpen(false); openHistoryItem(h); },
     })),
@@ -25296,7 +25296,7 @@ function App({ profileHandle = null } = {}) {
     })),
   ] : [];
   const paletteRecents = !cmdQuery ? (history || []).slice(0, 3).map((h) => ({
-    type: "inv", icon: "history", label: h.title || "Untitled investigation",
+    type: "inv", icon: "history", label: historyEntryLabel(h, "Untitled investigation"),
     sub: "Continue where you left off",
     run: () => { setCmdOpen(false); openHistoryItem(h); },
   })) : [];
@@ -26677,13 +26677,13 @@ function App({ profileHandle = null } = {}) {
                   {visibleLibraryAnswers.map((h, i) => (
                       <div key={h.id} role="listitem" className="cb-lib-item" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "14px 16px", borderTop: i ? `1px solid ${P.line}` : "none", "--cb-lib-i": Math.min(i, 8) }}>
                         <span style={{ flex: "1 1 220px", minWidth: 0 }}>
-                          <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{typeof h.title === "string" && h.title.trim() ? h.title.trim() : "Untitled answer"}</span>
+                          <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{historyEntryLabel(h)}</span>
                           <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)" }}>
                             {h.ts ? `${new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · ` : ""}{(h.allSources || []).length} cited paper{(h.allSources || []).length === 1 ? "" : "s"}
                           </span>
                         </span>
                         <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); openHistoryItem(h); }}>Open</UIButton>
-                        <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); parkLibUndo({ historyItem: h, text: `Removed the answer "${typeof h.title === "string" && h.title.trim() ? h.title.trim() : "Untitled answer"}" from your library.` }); sfx(); }}>Remove</UIButton>
+                        <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); parkLibUndo({ historyItem: h, text: `Removed the answer "${historyEntryLabel(h)}" from your library.` }); sfx(); }}>Remove</UIButton>
                       </div>
                     ))}
                 </div>
@@ -27059,7 +27059,7 @@ function App({ profileHandle = null } = {}) {
                          empty rather than borrowing an identifier's
                          authority with placeholder text. */
                       const accession = accessionById.get(h.id) || "";
-                      const invTitle = h.title || ((h.turns || [])[0] && (h.turns || [])[0].q) || "Untitled";
+                      const invTitle = historyEntryLabel(h, "Untitled");
                       const statusTone = status === "Answered" ? accent : status === "Needs review" ? statusWarn(P) : P.faint;
                       return (
                       <div key={h.id} role="listitem"

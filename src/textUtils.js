@@ -102,6 +102,44 @@ export function tidyQuestionTitle(raw) {
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
 }
 
+/* Characters that occupy space in a string but paint nothing: the
+   zero width family, word joiners, the soft hyphen, combining marks
+   that attach to nothing, and the bidi marks. String.trim() does not
+   remove most of them (they are format characters, not whitespace),
+   so a title made only of them passes a trimmed length check and
+   then renders as a blank line in every list that shows it. */
+export const INVISIBLE_TITLE_CHARS_RE = /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u206A-\u206F\u2800\uFEFF\uFFA0]/g;
+
+/* The honest visible text of an investigation title, or "" when the
+   title carries nothing a reader can see. Only a string or a number
+   can be a title at all: a stored object or array carries no text
+   of its own (an object would stringify to "[object Object]"),
+   so it resolves to no visible text and the caller falls through
+   to the question. For text, strips the invisible characters
+   above, then trims and collapses whitespace the way
+   tidyQuestionTitle does. Every surface that decides whether a
+   stored title exists should ask this, not the raw string. */
+export function visibleTitleText(raw) {
+  if (typeof raw !== "string" && typeof raw !== "number") return "";
+  return String(raw).replace(INVISIBLE_TITLE_CHARS_RE, "").trim().replace(/\s+/g, " ");
+}
+
+/* The label a history entry carries in answer lists: its own title
+   when the title has visible text, else the first turn's question
+   when that has visible text, else the caller's fallback. A stored
+   record always keeps its question in the turns even when its title
+   field is blank or invisible, so the question is the honest label
+   before any placeholder is. */
+export function historyEntryLabel(h, fallback = "Untitled answer") {
+  const fromTitle = visibleTitleText(h && h.title);
+  if (fromTitle) return fromTitle;
+  const turns = (h && h.turns) || [];
+  const first = turns[0];
+  const fromTurn = visibleTitleText(first && first.q);
+  if (fromTurn) return fromTurn;
+  return fallback;
+}
+
 // Identity key for a source used across dedup / save / pin state. Was
 // `(s.title || "").toLowerCase()` in half a dozen places — when two distinct
 // sources both lack a title (not uncommon: some Zenodo/CORE/BASE records
