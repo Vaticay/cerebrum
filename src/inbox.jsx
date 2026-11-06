@@ -141,16 +141,26 @@ function PaperSharePicker({ P, accent, at, paper, threads, onClose, onSent }) {
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [busyKey, setBusyKey] = useState("");
+  /* Site debug P1, 2026-11-06: a failed search is its own state, not
+     an empty list. apiDataGet returns null on failure and never
+     throws, so the old (d && d.items) || [] turned a search that
+     never ran into "Nobody matches that". */
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [searchRetry, setSearchRetry] = useState(0);
   const att = paperAttachmentFromSource(paper);
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setResults([]); setSearching(false); return; }
+    if (q.length < 2) { setResults([]); setSearching(false); setSearchFailed(false); return; }
     setSearching(true);
     const t = setTimeout(() => {
-      apiDataGet("search-users", { q }).then((d) => { setResults((d && d.items) || []); setSearching(false); }).catch(() => setSearching(false));
+      apiDataGet("search-users", { q }).then((d) => {
+        if (d && Array.isArray(d.items)) { setResults(d.items); setSearchFailed(false); }
+        else setSearchFailed(true);
+        setSearching(false);
+      }).catch(() => { setSearchFailed(true); setSearching(false); });
     }, 250);
     return () => clearTimeout(t);
-  }, [query]);
+  }, [query, searchRetry]);
   const sendToThread = async (threadId) => {
     if (!threadId || busyKey) return;
     setBusyKey("thread:" + threadId);
@@ -206,7 +216,13 @@ function PaperSharePicker({ P, accent, at, paper, threads, onClose, onSent }) {
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search a name or @username" aria-label="Search people to share with"
             style={{ width: "100%", padding: "12px 12px", borderRadius: RADIUS.md, fontSize: 16, background: P.surface, border: `1px solid ${P.line}`, color: P.ink, outline: "none", fontFamily: "var(--cb-font)", boxSizing: "border-box" }} />
           {searching && <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>}
-          {!searching && query.trim().length >= 2 && results.length === 0 && (
+          {!searching && searchFailed && query.trim().length >= 2 && (
+            <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
+              Search did not load. Check your connection, then try again.
+              <button type="button" onClick={() => setSearchRetry((n) => n + 1)} style={{ display: "block", marginTop: 8, minHeight: 40, padding: "0 16px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label }}>Try again</button>
+            </div>
+          )}
+          {!searching && !searchFailed && query.trim().length >= 2 && results.length === 0 && (
             <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>Nobody matches that. Try their full name or their @username.</div>
           )}
           {results.length > 0 && (
@@ -641,6 +657,10 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [groupQuery, setGroupQuery] = useState("");
   const [groupResults, setGroupResults] = useState([]);
   const [groupSearching, setGroupSearching] = useState(false);
+  /* Site debug P1, 2026-11-06: failed search states for the two group
+     people searches below, same pattern as the share picker. */
+  const [groupSearchFailed, setGroupSearchFailed] = useState(false);
+  const [groupSearchRetry, setGroupSearchRetry] = useState(0);
   const [groupMembers, setGroupMembers] = useState([]);
   const [groupCreating, setGroupCreating] = useState(false);
   // Group info panel — roster, add/remove people, rename, leave. The Add
@@ -650,6 +670,8 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const [settingsQuery, setSettingsQuery] = useState("");
   const [settingsResults, setSettingsResults] = useState([]);
   const [settingsSearching, setSettingsSearching] = useState(false);
+  const [settingsSearchFailed, setSettingsSearchFailed] = useState(false);
+  const [settingsSearchRetry, setSettingsSearchRetry] = useState(0);
   // settingsBusy: "" | "add" | "rename" | "leave" | "remove:<memberId>"
   const [settingsBusy, setSettingsBusy] = useState("");
   // Commit 56 — attachments. `attachBusy` covers both the compression pass
@@ -806,38 +828,48 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   // search-users endpoint as Find People (2+ chars, excludes blocked).
   useEffect(() => {
     const q = groupQuery.trim();
-    if (!groupModalOpen || q.length < 2) { setGroupResults([]); setGroupSearching(false); return; }
+    if (!groupModalOpen || q.length < 2) { setGroupResults([]); setGroupSearching(false); setGroupSearchFailed(false); return; }
     setGroupSearching(true);
     const t = setTimeout(() => {
       apiDataGet("search-users", { q }).then((d) => {
-        const items = (d && d.items) || [];
-        // Don't show people already added.
-        setGroupResults(items.filter((r) => !groupMembers.some((m) => m.id === r.id)));
+        /* Site debug P1, 2026-11-06: null means the search failed;
+           previous results stay and the failure state shows instead
+           of the no match copy. */
+        if (d && Array.isArray(d.items)) {
+          // Don't show people already added.
+          setGroupResults(d.items.filter((r) => !groupMembers.some((m) => m.id === r.id)));
+          setGroupSearchFailed(false);
+        } else setGroupSearchFailed(true);
         setGroupSearching(false);
-      }).catch(() => setGroupSearching(false));
+      }).catch(() => { setGroupSearchFailed(true); setGroupSearching(false); });
     }, 250);
     return () => clearTimeout(t);
-  }, [groupQuery, groupModalOpen, groupMembers]);
+  }, [groupQuery, groupModalOpen, groupMembers, groupSearchRetry]);
 
   // Group info panel — debounced people search, same endpoint and 2-char
   // floor as creation. Filters out people already in the group so a tap is
   // always a real add.
   useEffect(() => {
     const q = settingsQuery.trim();
-    if (!groupInfoOpen || q.length < 2) { setSettingsResults([]); setSettingsSearching(false); return; }
+    if (!groupInfoOpen || q.length < 2) { setSettingsResults([]); setSettingsSearching(false); setSettingsSearchFailed(false); return; }
     setSettingsSearching(true);
     const t = setTimeout(() => {
       apiDataGet("search-users", { q }).then((d) => {
-        const items = (d && d.items) || [];
-        const memberIds = new Set((activeThread?.members || []).map((m) => m.id));
-        setSettingsResults(items.filter((r) => !memberIds.has(r.id)));
+        /* Site debug P1, 2026-11-06: null means the search failed;
+           previous results stay and the failure state shows instead
+           of the no match copy. */
+        if (d && Array.isArray(d.items)) {
+          const memberIds = new Set((activeThread?.members || []).map((m) => m.id));
+          setSettingsResults(d.items.filter((r) => !memberIds.has(r.id)));
+          setSettingsSearchFailed(false);
+        } else setSettingsSearchFailed(true);
         setSettingsSearching(false);
-      }).catch(() => setSettingsSearching(false));
+      }).catch(() => { setSettingsSearchFailed(true); setSettingsSearching(false); });
     }, 250);
     return () => clearTimeout(t);
     // activeThread.members changes as people are added/removed — refilter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsQuery, groupInfoOpen, activeThread?.members]);
+  }, [settingsQuery, groupInfoOpen, activeThread?.members, settingsSearchRetry]);
 
   const createGroup = async () => {
     const name = groupName.trim();
@@ -3006,7 +3038,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               }}
             />
             {groupSearching && <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>}
-            {!groupSearching && groupQuery.trim().length >= 2 && groupResults.length === 0 && (
+            {!groupSearching && groupSearchFailed && groupQuery.trim().length >= 2 && (
+              <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
+                Search did not load. Check your connection, then try again.
+                <button type="button" onClick={() => setGroupSearchRetry((n) => n + 1)} style={{ display: "block", marginTop: 8, minHeight: 40, padding: "0 16px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label }}>Try again</button>
+              </div>
+            )}
+            {!groupSearching && !groupSearchFailed && groupQuery.trim().length >= 2 && groupResults.length === 0 && (
               <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>Nobody matches that. Try their full name or their @username.</div>
             )}
             {groupResults.length > 0 && (
@@ -3134,7 +3172,13 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
               }}
             />
             {settingsSearching && <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>}
-            {!settingsSearching && settingsQuery.trim().length >= 2 && settingsResults.length === 0 && (
+            {!settingsSearching && settingsSearchFailed && settingsQuery.trim().length >= 2 && (
+              <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>
+                Search did not load. Check your connection, then try again.
+                <button type="button" onClick={() => setSettingsSearchRetry((n) => n + 1)} style={{ display: "block", marginTop: 8, minHeight: 40, padding: "0 16px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label }}>Try again</button>
+              </div>
+            )}
+            {!settingsSearching && !settingsSearchFailed && settingsQuery.trim().length >= 2 && settingsResults.length === 0 && (
               <div style={{ padding: "12px 4px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.5 }}>Nobody matches that. Try their full name or their @username.</div>
             )}
             {settingsResults.length > 0 && (

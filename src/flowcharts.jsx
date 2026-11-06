@@ -673,7 +673,7 @@ function dsPaperText(paper) {
   return paper.abstract || paper.summary || paper.snippet || "";
 }
 
-export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial = null, docTitle = "", answerText = "", sources = [], latestAnswer = null, savedPapers = [], diagrams = [], onSave = null, onClose = null, tier = "free", resetSignal = 0 }) {
+export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial = null, docTitle = "", answerText = "", sources = [], latestAnswer = null, savedPapers = [], diagrams = [], onSave = null, onClose = null, tier = "free", resetSignal = 0, navGuardRef = null }) {
   const bootRef = useRef(null);
   if (bootRef.current === null) {
     const propSources = Array.isArray(sources) ? sources : [];
@@ -869,6 +869,19 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
   };
   const guardRef = useRef(guardLoad);
   guardRef.current = guardLoad;
+
+  /* Site debug D1, 2026-11-06: the page form registers the same guard
+     with the shell, so sidebar navigation (or the logo door) away
+     from unsaved work asks first instead of unmounting the studio
+     and losing the steps in silence. The dialog form needs no
+     registration: its own close already runs through requestClose.
+     The registration clears on unmount so a stale guard can never
+     intercept navigation after the studio is gone. */
+  useEffect(() => {
+    if (!navGuardRef || dialog) return undefined;
+    navGuardRef.current = (proceed) => guardRef.current("leaving", proceed);
+    return () => { if (navGuardRef.current) navGuardRef.current = null; };
+  }, [navGuardRef, dialog]);
 
   const noteFor = (text, extracted, kind, srcs) => {
     if (extracted.length >= 2) return null;
@@ -1315,15 +1328,15 @@ export function DiagramStudio({ P, accent, at, isMobile, dialog = false, initial
       {pendingLoad && (
         <div role="alertdialog" aria-label="Unsaved work" className="cb-ds-detail" style={{ background: P.surface, border: `1px solid ${accent}`, borderRadius: RADIUS.lg, padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.5 }}>
-            {pendingLoad.label === "closing" ? "Closing now will leave work that is not saved." : `Loading ${pendingLoad.label} will replace work that is not saved.`}
+            {pendingLoad.label === "closing" ? "Closing now will leave work that is not saved." : pendingLoad.label === "leaving" ? "Leaving now will leave work that is not saved." : `Loading ${pendingLoad.label} will replace work that is not saved.`}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button type="button" style={{ ...smallBtnStyle, background: accent, color: at, border: `1px solid ${accent}` }}
               onClick={() => { const run = pendingLoad.run; setPendingLoad(null); run(); }}>
-              {pendingLoad.label === "closing" ? "Close without saving" : "Replace my work"}
+              {pendingLoad.label === "closing" ? "Close without saving" : pendingLoad.label === "leaving" ? "Leave without saving" : "Replace my work"}
             </button>
             <button type="button" style={smallBtnStyle} onClick={() => setPendingLoad(null)}>
-              {pendingLoad.label === "closing" ? "Keep working" : "Keep my work"}
+              {pendingLoad.label === "closing" || pendingLoad.label === "leaving" ? "Keep working" : "Keep my work"}
             </button>
           </div>
         </div>
