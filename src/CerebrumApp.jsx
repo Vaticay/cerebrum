@@ -10591,6 +10591,15 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
   const aiQuotaReason = t.aiQuota && t.aiQuota.cap != null
     ? `AI answers are used up. You have used ${t.aiQuota.used} of ${t.aiQuota.cap} AI answers in this period. ${quotaRefillSentence()} Searching and reading papers keep working.`
     : `AI answers are used up. ${quotaRefillSentence()} Searching and reading papers keep working.`;
+  /* The Lite shape of the same sentence: the server sends gated
+     "lite-cap" with the Lite numbers (used of 500), and until
+     2026-11-06 no branch rendered it, so a Lite member who ran out
+     got the extractive fallback with no reason and no way forward.
+     Same honesty as the document reader's exhaustion message: the
+     count, the refill, what keeps working, and the way up. */
+  const liteQuotaReason = t.aiQuota && t.aiQuota.cap != null
+    ? `AI answers are used up on your Lite plan. You have used ${t.aiQuota.used} of ${t.aiQuota.cap} AI answers in this period. ${quotaRefillSentence()} Searching and reading papers keep working.`
+    : `AI answers are used up on your Lite plan. ${quotaRefillSentence()} Searching and reading papers keep working.`;
   const onActivateCite = (n) => { setActiveCite(n); setEvidenceOpen(true); };
   return (
     <div style={S.turn} className="cb-rise cb-turn">
@@ -10942,6 +10951,15 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
               <span style={{ flexBasis: "100%", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.55 }}>{aiQuotaReason}</span>
                 <button onClick={() => window.dispatchEvent(new CustomEvent("cb:open-pro", { detail: { reason: aiQuotaReason } }))}
+                  style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", letterSpacing: "normal", textTransform: "none", color: accentInk(P, accent), background: "transparent", border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 2, padding: "3px 12px", cursor: "pointer" }}>
+                  Go Pro
+                </button>
+              </span>
+            )}
+            {t.aiQuota && t.aiQuota.gated === "lite-cap" && (
+              <span style={{ flexBasis: "100%", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: FONT_SIZES.caption, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.55 }}>{liteQuotaReason}</span>
+                <button onClick={() => window.dispatchEvent(new CustomEvent("cb:open-pro", { detail: { reason: liteQuotaReason } }))}
                   style={{ minHeight: 44, display: "inline-flex", alignItems: "center", gap: 6, fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", letterSpacing: "normal", textTransform: "none", color: accentInk(P, accent), background: "transparent", border: `1px solid ${withAlpha(accent, 0.4)}`, borderRadius: 2, padding: "3px 12px", cursor: "pointer" }}>
                   Go Pro
                 </button>
@@ -13251,6 +13269,10 @@ function quotaRefillSentence(now = Date.now()) {
 
 function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, onRetryPro = null, onOpenPro, onOpenAuth, isMobile = false }) {
   const [now, setNow] = useState(() => Date.now());
+  /* Billing portal state for the compare table's Free column (paid
+     members): the portal is the one real route down from a paid plan. */
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planError, setPlanError] = useState("");
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(id);
@@ -13412,16 +13434,68 @@ function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, on
     { id: "pro", name: "Pro", ai: "Unlimited", docs: "Unlimited", flow: "Unlimited", price: "$20/mo · $144/yr" },
     { id: "student", name: "Pro Student", ai: "Unlimited", docs: "Unlimited", flow: "Unlimited", price: "$7.99/mo for 12 months, then $20/mo" },
   ];
+  /* The billing portal is the real route down from a paid plan: it is
+     where a subscription is cancelled, and the plan falls to Free at
+     the end of the paid period. Same endpoint the Pro modal's Manage
+     subscription button uses. */
+  const openPlanPortal = async () => {
+    if (planBusy) return;
+    setPlanBusy(true); setPlanError("");
+    try {
+      const r = await apiProPost("create-portal", {});
+      window.location.href = r.url;
+    } catch (e) {
+      setPlanError(e.message || "Couldn't open billing. Try again?");
+      setPlanBusy(false);
+    }
+  };
   const tierAction = (id) => {
     if (id === tier) return <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.faint, fontFamily: "var(--cb-font)" }}>Current plan</span>;
+    if (id === "free") {
+      /* A paid member looking at the Free column. Until 2026-11-06 this
+         button promised a switch to Free and opened the Pro modal,
+         which contains no switch at all, and lifetime members dead ended on
+         a modal that only told them they were lifetime. Now the state
+         is told truthfully: lifetime Pro never bills, so there is
+         nothing to switch and no action is offered; a subscription
+         member goes straight to the billing portal, the one place a
+         plan actually comes down; a paid plan with no billing account
+         behind it has nothing to cancel, so the cell says so and
+         names the contact the legal pages publish. */
+      const noteStyle = { fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.55 };
+      const isLifetime = user?.proSource === "lifetime" || proStatus?.proSource === "lifetime" || proStatus?.billing?.plan === "lifetime";
+      if (isLifetime) return <span style={noteStyle}>Lifetime Pro. No billing, nothing to switch.</span>;
+      if (proStatus?.hasBilling && proStatus?.proConfigured) {
+        return (
+          <span style={{ display: "inline-flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+            <UIButton P={P} variant="ghost" onClick={openPlanPortal} disabled={planBusy} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+              {planBusy ? "Opening…" : "Manage plan"}
+            </UIButton>
+            {planError && <span style={{ fontSize: FONT_SIZES.caption, color: statusBad(P), fontFamily: "var(--cb-font)" }}>{planError}</span>}
+          </span>
+        );
+      }
+      if (proStatus?.hasBilling) {
+        /* Billing exists but is not switched on in this build: the Pro
+           modal carries the honest not configured state and, once
+           configured, its own Manage subscription button. */
+        return (
+          <UIButton P={P} variant="ghost" onClick={() => onOpenPro()} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: P.ink, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
+            Manage plan
+          </UIButton>
+        );
+      }
+      return <span style={noteStyle}>No billing account on file, so there is nothing to cancel here. To change plans, email dusty@askcerebrum.org.</span>;
+    }
     /* 2026-10-08: "Get Lite" must open the Pro dialog with the Lite plan
        preselected — opening on Pro Annual ($144) after clicking "Get Lite"
        is a money-path bug. Same rule for Pro Student: it preselects the
        Student plan, which gates checkout on college email verification. */
     const proLike = id === "pro" || id === "student";
+    const actionLabel = id === "lite" ? "Get Lite" : id === "student" ? "Get Student" : "Go Pro";
     return (
       <UIButton P={P} variant="ghost" onClick={() => onOpenPro(id === "lite" ? "lite-monthly" : id === "student" ? "student" : undefined)} style={{ padding: "12px 16px", minHeight: 44, fontSize: FONT_SIZES.label, fontWeight: 500, background: proLike ? PRO.action : "transparent", color: proLike ? PRO.actionInk : P.ink, border: proLike ? "none" : `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)", whiteSpace: "nowrap" }}>
-        {id === "lite" ? "Get Lite" : id === "pro" ? "Go Pro" : id === "student" ? "Get Student" : "Switch to Free"}
+        {actionLabel}
       </UIButton>
     );
   };

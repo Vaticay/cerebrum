@@ -1047,7 +1047,28 @@ export async function onRequest(context) {
      * never touches the database, so a deleted user's cookie would keep
      * authenticating a ghost until it expired. bumpSessionEpoch writes the
      * epoch to a tombstone the verifier checks, and getSessionUser also now
-     * confirms the account row still exists. */
+     * confirms the account row still exists.
+     *
+     * 2026-11-06 (site wide debug, account lane): the purge above still
+     * missed every store added after it was written: the Private Vault
+     * and its saved items, the e2ee device keys, one time prekeys and
+     * backup bundles, push subscriptions, the Pro usage ledger, student
+     * verifications, answer votes, document job rows, and the per user
+     * budget and usage ledgers. All are purged below now, and
+     * tests/account-delete-coverage.mjs enumerates every user keyed
+     * table in schema.sql and the code created tables and fails until
+     * this handler deals with each one, so the next new table cannot
+     * silently orphan data the way these did. Three stores keep their
+     * rows but lose the person: reports (a moderation and feedback
+     * trail, like content_reports), e2ee_threads (the row is the
+     * ciphertext only switch for a thread other people still use;
+     * deleting it would silently downgrade them, so only the
+     * upgraded_by reference is blanked), and cortex_catalog (published
+     * catalog entries stay; the creator email on them is blanked).
+     * session_epochs is the one deliberate residue: the tombstone row
+     * written below is what refuses this account's outstanding JWTs,
+     * and it holds nothing but the id, an epoch counter, and a
+     * timestamp. */
     if (action === "delete-account") {
       const current0 = await auth.getSessionUser(request, env);
       if (!current0) return json({ error: "Sign in first.", code: "unauthenticated" }, 401, cors);
@@ -1065,9 +1086,27 @@ export async function onRequest(context) {
       const anonymise = [
         "UPDATE content_reports SET reporter_id = NULL WHERE reporter_id = ?",
         "UPDATE content_reports SET reported_user_id = NULL WHERE reported_user_id = ?",
+        // Feedback reports carry a nullable user_id in the code created
+        // shape; the report stays (it is the product's feedback trail),
+        // the person on it does not.
+        "UPDATE reports SET user_id = NULL WHERE user_id = ?",
+        // The row is the thread's ciphertext only switch; blanking the
+        // reference severs the link without downgrading the thread for
+        // the people still in it.
+        "UPDATE e2ee_threads SET upgraded_by = '' WHERE upgraded_by = ?",
       ];
       for (const sql of anonymise) {
         try { await env.DB.prepare(sql).bind(uid).run(); } catch (e) { console.error("delete-account anonymise:", e); }
+      }
+      // Email keyed references on rows that stay: published catalog
+      // entries keep their place in the catalog with the creator email
+      // blanked, and creator grants no longer name this account as the
+      // grantor.
+      for (const sql of [
+        "UPDATE cortex_catalog SET created_by = '' WHERE created_by = ?",
+        "UPDATE cortex_creators SET granted_by = '' WHERE granted_by = ?",
+      ]) {
+        try { await env.DB.prepare(sql).bind(emailLower).run(); } catch (e) { console.error("delete-account anonymise email:", e); }
       }
 
       // Every table that holds a reference to this account. Each is attempted
@@ -1087,10 +1126,30 @@ export async function onRequest(context) {
         ["user_collections",   "DELETE FROM user_collections WHERE user_id = ?"],
         ["user_history",       "DELETE FROM user_history WHERE user_id = ?"],
         ["user_flowcharts",    "DELETE FROM user_flowcharts WHERE user_id = ?"],
+        // api_key_usage is keyed by the key id, not the user: clear the
+        // usage rows for this account's keys before the keys themselves
+        // go, or they orphan against ids that no longer exist.
+        ["api_key_usage",      "DELETE FROM api_key_usage WHERE key_id IN (SELECT id FROM api_keys WHERE user_id = ?)"],
         ["api_keys",           "DELETE FROM api_keys WHERE user_id = ?"],
         ["passkey_credentials","DELETE FROM passkey_credentials WHERE user_id = ?"],
         ["passkey_challenges", "DELETE FROM passkey_challenges WHERE user_id = ?"],
         ["sessions",           "DELETE FROM sessions WHERE user_id = ?"],
+        // The stores the 2026-11-06 account audit found still standing:
+        // the Private Vault and everything in it, the e2ee key material,
+        // push endpoints, and every per user ledger.
+        ["zk_data_vault",      "DELETE FROM zk_data_vault WHERE user_id = ?"],
+        ["zk_saved_items",     "DELETE FROM zk_saved_items WHERE user_id = ?"],
+        ["e2ee_devices",       "DELETE FROM e2ee_devices WHERE user_id = ?"],
+        ["e2ee_one_time_prekeys", "DELETE FROM e2ee_one_time_prekeys WHERE user_id = ?"],
+        ["e2ee_backups",       "DELETE FROM e2ee_backups WHERE user_id = ?"],
+        ["push_subscriptions", "DELETE FROM push_subscriptions WHERE user_id = ?"],
+        ["pro_usage",          "DELETE FROM pro_usage WHERE user_id = ?"],
+        ["student_verifications", "DELETE FROM student_verifications WHERE user_id = ?"],
+        ["answer_votes",       "DELETE FROM answer_votes WHERE user_id = ?"],
+        ["doc_jobs",           "DELETE FROM doc_jobs WHERE user_id = ?"],
+        ["doc_dlq",            "DELETE FROM doc_dlq WHERE user_id = ?"],
+        ["tenant_budgets",     "DELETE FROM tenant_budgets WHERE user_id = ?"],
+        ["llm_usage",          "DELETE FROM llm_usage WHERE user_id = ?"],
       ];
       const failed = [];
       for (const [label, sql] of purges) {
@@ -1101,6 +1160,14 @@ export async function onRequest(context) {
       for (const sql of [
         "DELETE FROM otp_codes WHERE email_lower = ?",
         "DELETE FROM magic_links WHERE email_lower = ?",
+        // Pending passkey challenges carry the email with a NULL user_id
+        // (they exist before sign in completes), so the user_id purge
+        // above never reaches them.
+        "DELETE FROM passkey_challenges WHERE email_lower = ?",
+        // A creator grant is keyed by the email itself: without this,
+        // the same address signing up again would silently regain
+        // creator status the deleted account held.
+        "DELETE FROM cortex_creators WHERE email = ?",
       ]) {
         try { await env.DB.prepare(sql).bind(emailLower).run(); } catch (e) { console.error("delete-account email purge:", e); }
       }
