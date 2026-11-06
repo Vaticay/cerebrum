@@ -1768,4 +1768,4 @@ function ModalChrome({ label, eyebrow, title, actions, onClose, accent, zIndex =
 }
 
 export { ChromeHeader, ModalChrome };
-export { fcId, mergeFlowcharts, fcSlug, fcSvgString };
+export { fcId, mergeFlowcharts, fcSlug, fcSvgString, fcPaletteColors };

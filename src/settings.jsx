@@ -11,6 +11,7 @@ import { FONT_SIZES, Icon, LAYOUT, PRO, ProBadge, RADIUS, SP, STATUS, TRACKING, 
 import { isProPalette } from "./palettes.js";
 import { Sfx } from "./sfx.js";
 import { Dialog } from "./flowcharts.jsx";
+import { buildCortexExport, parseCortexImport, applyCortexImport } from "./LearnView.jsx";
 import { clearE2EEMemory, confirmRecoveryPhrase, ensureE2EEDevice, getBackupInfo, getRecoveryPhrase, listBackups, listDevices, restoreFromPhrase, revokeDevice, uploadBackupNow } from "./e2ee/messaging.js";
 import { ZkSession, isValidRecoveryPhrase, makeItemId } from "./zkData.js";
 import { normalizePhrase } from "./e2ee/recovery.js";
@@ -1860,7 +1861,144 @@ function ConfigStatus({ P, accent }) {
   );
 }
 
-function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro, onProChanged, onRegisterPasskey }) {
+/* ── Workspace export and import (2026-11-06, export honesty) ────
+   The Workspace section promises "Everything, as JSON", and the
+   document now carries every store the app keeps in this browser:
+   the library (saved, history), collections, diagrams, the account
+   profile, inbox drafts and outbox, the Nova learning record, and
+   preferences. The Nova section is the versioned Nova progress
+   document itself, built, validated, and applied by LearnView's own
+   export module (buildCortexExport, parseCortexImport,
+   applyCortexImport), never a parallel shape invented here.
+   Import validates the whole file into a plan before anything is
+   applied, then replaces each store the file carries. A store the
+   file does not carry is left exactly as it stands, so a file can
+   never half replace the workspace or leave a stale copy of a store
+   it did carry standing beside the imported one. */
+const WORKSPACE_INBOX_DRAFTS_KEY = "cb_inbox_drafts_v1";
+const WORKSPACE_INBOX_OUTBOX_KEY = "cb_inbox_outbox_v1";
+const WORKSPACE_LEARN_KEYS = { courses: "cerebrum-learn2-courses", claims: "cerebrum-learn2-claims", profile: "cerebrum-learn2-profile", progress: "cerebrum-learn2-progress", sound: "cerebrum-learn2-sound" };
+
+function workspaceIsPlainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
+function workspaceReadJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return fallback;
+    const v = JSON.parse(raw);
+    return v == null ? fallback : v;
+  } catch { return fallback; }
+}
+
+/* The Nova learning record as LearnView keeps it in local storage,
+   in the exact state shape buildCortexExport consumes. The profile
+   bridge mirrors loadProfile in LearnView: XP earned before the
+   profile record existed lives under the legacy key. */
+export function readWorkspaceLearnState() {
+  let profile = workspaceReadJSON(WORKSPACE_LEARN_KEYS.profile, null);
+  if (!workspaceIsPlainObject(profile)) {
+    let xp = 0;
+    try { xp = parseInt(localStorage.getItem("cerebrum-learn-xp") || "0", 10) || 0; } catch { xp = 0; }
+    profile = { xp, days: [], bridged: [], freezes: 2, freezeMilestone: 0, sparks: 0, loopDay: "", loop: null, reminderHour: null, leaguesOptIn: false };
+  }
+  const courses = workspaceReadJSON(WORKSPACE_LEARN_KEYS.courses, []);
+  const claims = workspaceReadJSON(WORKSPACE_LEARN_KEYS.claims, {});
+  const builtinProgress = workspaceReadJSON(WORKSPACE_LEARN_KEYS.progress, null);
+  return {
+    courses: Array.isArray(courses) ? courses : [],
+    claims: workspaceIsPlainObject(claims) ? claims : {},
+    profile,
+    builtinProgress: workspaceIsPlainObject(builtinProgress) ? builtinProgress : { lessons: {}, lastPathId: "", lastLessonId: "" },
+    sound: workspaceReadJSON(WORKSPACE_LEARN_KEYS.sound, false) === true,
+  };
+}
+
+/* Assemble the workspace document from its parts. Every store is
+   written even when empty, so an import of this file replaces every
+   store wholesale, empty ones included. */
+export function buildWorkspaceDocument(parts) {
+  const p = workspaceIsPlainObject(parts) ? parts : {};
+  const inbox = workspaceIsPlainObject(p.inbox) ? p.inbox : {};
+  return {
+    version: typeof p.version === "string" ? p.version : "",
+    exported: typeof p.exported === "string" ? p.exported : "",
+    saved: Array.isArray(p.saved) ? p.saved : [],
+    history: Array.isArray(p.history) ? p.history : [],
+    collections: Array.isArray(p.collections) ? p.collections : [],
+    diagrams: Array.isArray(p.diagrams) ? p.diagrams : [],
+    profile: workspaceIsPlainObject(p.profile) ? p.profile : {},
+    inbox: {
+      drafts: workspaceIsPlainObject(inbox.drafts) ? inbox.drafts : {},
+      outbox: workspaceIsPlainObject(inbox.outbox) ? inbox.outbox : {},
+    },
+    nova: workspaceIsPlainObject(p.nova) ? p.nova : null,
+    preferences: workspaceIsPlainObject(p.preferences) ? p.preferences : {},
+  };
+}
+
+/* Validate an imported preferences object field by field, against
+   the same enums the settings controls themselves write, and return
+   the values to apply as plain values (booleans restored from the
+   "1" and "0" the export writes). A field that is absent or fails
+   its check is simply not in the result: that preference is left
+   alone, never guessed at. */
+export function planWorkspacePreferences(p) {
+  const out = {};
+  if (!workspaceIsPlainObject(p)) return out;
+  const inSet = (v, set) => set.includes(v);
+  if (typeof p.paletteName === "string") out.paletteName = p.paletteName;
+  if (typeof p.accentName === "string") out.accentName = p.accentName;
+  if (typeof p.customAccent === "string") out.customAccent = p.customAccent;
+  if (inSet(p.answerLength, ["short", "medium", "long"])) out.answerLength = p.answerLength;
+  if (p.factCheck === "1" || p.factCheck === "0") out.factCheck = p.factCheck === "1";
+  if (p.muted === "1" || p.muted === "0") out.muted = p.muted === "1";
+  if (inSet(p.soundMode, ["pulse", "shimmer", "warm", "minimal"])) out.soundMode = p.soundMode;
+  if (inSet(p.citationStyle, ["vancouver", "apa", "mla", "chicago", "bibtex"])) out.citationStyle = p.citationStyle;
+  if (inSet(p.animationMode, ["off", "subtle", "cinematic"])) out.animationMode = p.animationMode;
+  if (inSet(p.dataDensity, ["comfortable", "compact"])) out.dataDensity = p.dataDensity;
+  if (typeof p.animSpeed === "number" && p.animSpeed >= 0.25 && p.animSpeed <= 4) out.animSpeed = p.animSpeed;
+  if (p.highContrast === "1" || p.highContrast === "0") out.highContrast = p.highContrast === "1";
+  if (inSet(p.fontSize, ["small", "medium", "large", "xlarge"])) out.fontSize = p.fontSize;
+  if (p.reducedTransparency === "1" || p.reducedTransparency === "0") out.reducedTransparency = p.reducedTransparency === "1";
+  if (p.autoplay === "1" || p.autoplay === "0") out.autoplay = p.autoplay === "1";
+  if (p.dyslexicFont === "1" || p.dyslexicFont === "0") out.dyslexicFont = p.dyslexicFont === "1";
+  if (inSet(p.lineSpacing, ["normal", "relaxed", "loose"])) out.lineSpacing = p.lineSpacing;
+  if (p.focusHighlight === "1" || p.focusHighlight === "0") out.focusHighlight = p.focusHighlight === "1";
+  if (typeof p.readingProfile === "string" && (p.readingProfile === "none" || READING_PROFILE_KEYS.includes(p.readingProfile))) out.readingProfile = p.readingProfile;
+  if (p.typewriter === "1" || p.typewriter === "0") out.typewriter = p.typewriter === "1";
+  if (workspaceIsPlainObject(p.notify)) { const n = { call: true, message: true, watch: true }; for (const k of ["call", "message", "watch"]) if (typeof p.notify[k] === "boolean") n[k] = p.notify[k]; out.notify = n; }
+  if (typeof p.ttsVoice === "string" && p.ttsVoice) out.ttsVoice = p.ttsVoice;
+  return out;
+}
+
+/* Validate a parsed workspace file into an import plan. Only the
+   stores the file actually carries enter the plan, each checked to
+   the shape its store keeps. A file carrying no recognizable store
+   at all is refused outright: importing it would change nothing
+   while announcing success. The Nova document is carried through
+   as data; the caller validates it with parseCortexImport before
+   anything is applied. */
+export function planWorkspaceImport(data) {
+  if (!workspaceIsPlainObject(data)) return { ok: false, error: "That file is not a Cerebrum workspace file. Nothing was imported." };
+  const plan = { ok: true };
+  if (Array.isArray(data.saved)) plan.saved = data.saved;
+  if (Array.isArray(data.history)) plan.history = data.history;
+  if (Array.isArray(data.collections)) plan.collections = data.collections;
+  if (Array.isArray(data.diagrams)) plan.diagrams = data.diagrams;
+  if (workspaceIsPlainObject(data.profile)) plan.profile = data.profile;
+  if (workspaceIsPlainObject(data.inbox)) {
+    const inbox = {};
+    if (workspaceIsPlainObject(data.inbox.drafts)) inbox.drafts = data.inbox.drafts;
+    if (workspaceIsPlainObject(data.inbox.outbox)) inbox.outbox = data.inbox.outbox;
+    if (Object.keys(inbox).length) plan.inbox = inbox;
+  }
+  if (workspaceIsPlainObject(data.nova)) plan.nova = data.nova;
+  if (workspaceIsPlainObject(data.preferences)) plan.preferences = planWorkspacePreferences(data.preferences);
+  const stores = ["saved", "history", "collections", "diagrams", "profile", "inbox", "nova", "preferences"];
+  if (!stores.some((k) => k in plan)) return { ok: false, error: "That file does not look like a Cerebrum workspace file. Nothing was imported." };
+  return plan;
+}
+
+function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, flowcharts, setFlowcharts, profile, setProfile, vaultCtl, proStatus, onOpenPro, onProChanged, onRegisterPasskey }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "account");
   // Wave 3 — the three destructive confirmations used to be inline
@@ -1876,6 +2014,39 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
   const [highlight, setHighlight] = useState("");
   const highlightTimer = useRef(null);
   const [notify, setNotify] = useState(() => notifyPref());
+  /* Apply a validated workspace preferences plan (planWorkspace
+     Preferences above). Each field present in the plan is applied
+     through the same setter the matching control uses. The dyslexic
+     font also runs the font loader, the same path the manual toggle
+     takes: setting the state alone would leave an imported profile
+     showing the font on while the font itself never loads until
+     some later manual toggle (2026-11-06 coordination note from
+     the settings debug lane). */
+  const applyWorkspacePreferences = (prefs) => {
+    if (!prefs) return;
+    if (prefs.paletteName !== undefined) setPaletteName(prefs.paletteName);
+    if (prefs.accentName !== undefined) setAccentName(prefs.accentName);
+    if (prefs.customAccent !== undefined) setCustomAccent(prefs.customAccent);
+    if (prefs.answerLength !== undefined) setAnswerLength(prefs.answerLength);
+    if (prefs.factCheck !== undefined) setFactCheck(prefs.factCheck);
+    if (prefs.muted !== undefined) setMuted(prefs.muted);
+    if (prefs.soundMode !== undefined) setSoundMode(prefs.soundMode);
+    if (prefs.citationStyle !== undefined) setCitationStyle(prefs.citationStyle);
+    if (prefs.animationMode !== undefined) setAnimationMode(prefs.animationMode);
+    if (prefs.dataDensity !== undefined) setDataDensity(prefs.dataDensity);
+    if (prefs.animSpeed !== undefined) setAnimSpeed(prefs.animSpeed);
+    if (prefs.highContrast !== undefined) setHighContrast(prefs.highContrast);
+    if (prefs.fontSize !== undefined) setFontSize(prefs.fontSize);
+    if (prefs.reducedTransparency !== undefined) setReducedTransparency(prefs.reducedTransparency);
+    if (prefs.autoplay !== undefined) setAutoplay(prefs.autoplay);
+    if (prefs.dyslexicFont !== undefined) { if (prefs.dyslexicFont) ensureDyslexicFont(); setDyslexicFont(prefs.dyslexicFont); }
+    if (prefs.lineSpacing !== undefined) setLineSpacing(prefs.lineSpacing);
+    if (prefs.focusHighlight !== undefined) setFocusHighlight(prefs.focusHighlight);
+    if (prefs.readingProfile !== undefined) setReadingProfile(prefs.readingProfile);
+    if (prefs.typewriter !== undefined) setTypewriter(prefs.typewriter);
+    if (prefs.notify !== undefined) { setNotify(prefs.notify); setNotifyPref(prefs.notify); }
+    if (prefs.ttsVoice !== undefined) { try { localStorage.setItem("cb_tts_voice", prefs.ttsVoice); } catch (cbErr) { console.error("[Cerebrum] settings.jsx applyWorkspacePreferences: localStorage.setItem('cb_tts_voice', prefs.ttsVoice); }:", cbErr); } }
+  };
   const [notifPerm, setNotifPerm] = useState(() => {
     try { return "Notification" in window ? Notification.permission : "unsupported"; } catch { return "unsupported"; }
   });
@@ -3024,12 +3195,23 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                 <button onClick={() => {
                   let ttsVoice = "";
                   try { ttsVoice = localStorage.getItem("cb_tts_voice") || ""; } catch (cbErr) { console.error("[Cerebrum] settings.jsx: ttsVoice = localStorage.getItem('cb_tts_voice') || ''; }:", cbErr); }
-                  const workspace = {
+                  /* Export honesty (2026-11-06): the document now
+                     carries every store the section promises, not
+                     just the library and preferences: collections,
+                     diagrams, the account profile, inbox drafts and
+                     outbox, and the Nova learning record as the
+                     versioned Nova progress document itself. */
+                  const workspace = buildWorkspaceDocument({
                     version: APP_VERSION_LABEL,
                     exported: new Date().toISOString(),
-                    saved, history,
+                    saved, history, collections, diagrams: flowcharts, profile,
+                    inbox: {
+                      drafts: workspaceReadJSON(WORKSPACE_INBOX_DRAFTS_KEY, {}),
+                      outbox: workspaceReadJSON(WORKSPACE_INBOX_OUTBOX_KEY, {}),
+                    },
+                    nova: buildCortexExport(readWorkspaceLearnState(), new Date()),
                     preferences: { paletteName, accentName, customAccent, answerLength, factCheck: factCheck ? "1" : "0", muted: muted ? "1" : "0", soundMode, citationStyle, animationMode, dataDensity, animSpeed, highContrast: highContrast ? "1" : "0", fontSize, reducedTransparency: reducedTransparency ? "1" : "0", autoplay: autoplay ? "1" : "0", dyslexicFont: dyslexicFont ? "1" : "0", lineSpacing, focusHighlight: focusHighlight ? "1" : "0", typewriter: typewriter ? "1" : "0", readingProfile, notify, ttsVoice },
-                  };
+                  });
                   const blob = new Blob([JSON.stringify(workspace, null, 2)], { type: "application/json" });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
@@ -3050,43 +3232,42 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                     const reader = new FileReader();
                     reader.onload = () => {
                       // Import replaces the current workspace — confirm before
-                      // touching anything, then validate enums so a malformed
-                      // file can't silently install garbage preferences.
+                      // touching anything, then validate the whole file into
+                      // a plan (planWorkspaceImport) so a malformed file can't
+                      // silently install garbage or half replace a store.
                       let data;
                       try { data = JSON.parse(reader.result); }
                       catch { toast("Couldn't import that file. It isn't valid workspace JSON.", { tone: "error" }); return; }
-                      if (!window.confirm("Replace your current workspace (library, history, preferences) with this file? This can't be undone.")) return;
+                      if (!window.confirm("Replace your current workspace (library, history, collections, diagrams, profile, Nova progress, inbox drafts, preferences) with this file? This can't be undone.")) return;
                       try {
-                        if (data.saved && Array.isArray(data.saved)) setSaved(data.saved);
-                        if (data.history && Array.isArray(data.history)) setHistory(data.history);
+                        const plan = planWorkspaceImport(data);
+                        if (!plan.ok) { toast(plan.error, { tone: "error" }); return; }
+                        /* The Nova section is validated by LearnView's own
+                           import parser before anything is applied, so a
+                           bad learning section refuses the whole file with
+                           nothing changed. */
+                        let novaState = null;
+                        if (plan.nova) {
+                          const parsedNova = parseCortexImport(JSON.stringify(plan.nova));
+                          if (!parsedNova.ok) { toast(parsedNova.error, { tone: "error" }); return; }
+                          novaState = parsedNova.state;
+                        }
+                        if (plan.saved) setSaved(plan.saved);
+                        if (plan.history) setHistory(plan.history);
+                        if (plan.collections) setCollections(plan.collections);
+                        if (plan.diagrams) setFlowcharts(plan.diagrams);
+                        if (plan.profile) setProfile(plan.profile);
+                        if (plan.inbox) {
+                          if (plan.inbox.drafts) { try { localStorage.setItem(WORKSPACE_INBOX_DRAFTS_KEY, JSON.stringify(plan.inbox.drafts)); } catch (cbErr) { console.error("[Cerebrum] settings.jsx import: localStorage.setItem(WORKSPACE_INBOX_DRAFTS_KEY, ...); }:", cbErr); } }
+                          if (plan.inbox.outbox) { try { localStorage.setItem(WORKSPACE_INBOX_OUTBOX_KEY, JSON.stringify(plan.inbox.outbox)); } catch (cbErr) { console.error("[Cerebrum] settings.jsx import: localStorage.setItem(WORKSPACE_INBOX_OUTBOX_KEY, ...); }:", cbErr); } }
+                        }
+                        if (novaState) {
+                          const appliedNova = applyCortexImport(novaState, localStorage);
+                          if (!appliedNova.ok) { toast(appliedNova.error, { tone: "error" }); return; }
+                        }
                         // Export writes preferences; restore them too so an
                         // import actually brings the workspace back whole.
-                        if (data.preferences && typeof data.preferences === "object") {
-                          const p = data.preferences;
-                          const inSet = (v, set) => set.includes(v);
-                          if (typeof p.paletteName === "string") setPaletteName(p.paletteName);
-                          if (typeof p.accentName === "string") setAccentName(p.accentName);
-                          if (typeof p.customAccent === "string") setCustomAccent(p.customAccent);
-                          if (inSet(p.answerLength, ["short", "medium", "long"])) setAnswerLength(p.answerLength);
-                          if (p.factCheck === "1" || p.factCheck === "0") setFactCheck(p.factCheck === "1");
-                          if (p.muted === "1" || p.muted === "0") setMuted(p.muted === "1");
-                          if (inSet(p.soundMode, ["pulse", "shimmer", "warm", "minimal"])) setSoundMode(p.soundMode);
-                          if (inSet(p.citationStyle, ["vancouver", "apa", "mla", "chicago", "bibtex"])) setCitationStyle(p.citationStyle);
-                          if (inSet(p.animationMode, ["off", "subtle", "cinematic"])) setAnimationMode(p.animationMode);
-                          if (inSet(p.dataDensity, ["comfortable", "compact"])) setDataDensity(p.dataDensity);
-                          if (typeof p.animSpeed === "number" && p.animSpeed >= 0.25 && p.animSpeed <= 4) setAnimSpeed(p.animSpeed);
-                          if (p.highContrast === "1" || p.highContrast === "0") setHighContrast(p.highContrast === "1");
-                          if (inSet(p.fontSize, ["small", "medium", "large", "xlarge"])) setFontSize(p.fontSize);
-                          if (p.reducedTransparency === "1" || p.reducedTransparency === "0") setReducedTransparency(p.reducedTransparency === "1");
-                          if (p.autoplay === "1" || p.autoplay === "0") setAutoplay(p.autoplay === "1");
-                          if (p.dyslexicFont === "1" || p.dyslexicFont === "0") setDyslexicFont(p.dyslexicFont === "1");
-                          if (inSet(p.lineSpacing, ["normal", "relaxed", "loose"])) setLineSpacing(p.lineSpacing);
-                          if (p.focusHighlight === "1" || p.focusHighlight === "0") setFocusHighlight(p.focusHighlight === "1");
-                          if (typeof p.readingProfile === "string" && (p.readingProfile === "none" || READING_PROFILE_KEYS.includes(p.readingProfile))) setReadingProfile(p.readingProfile);
-                          if (p.typewriter === "1" || p.typewriter === "0") setTypewriter(p.typewriter === "1");
-                          if (p.notify && typeof p.notify === "object") { const n = { call: true, message: true, watch: true }; for (const k of ["call", "message", "watch"]) if (typeof p.notify[k] === "boolean") n[k] = p.notify[k]; setNotify(n); setNotifyPref(n); }
-                          if (typeof p.ttsVoice === "string" && p.ttsVoice) { try { localStorage.setItem("cb_tts_voice", p.ttsVoice); } catch (cbErr) { console.error("[Cerebrum] settings.jsx if: localStorage.setItem('cb_tts_voice', p.ttsVoice); }:", cbErr); } }
-                        }
+                        if (plan.preferences) applyWorkspacePreferences(plan.preferences);
                         sfx();
                         toast("Workspace imported.");
                       } catch {

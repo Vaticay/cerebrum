@@ -107,7 +107,7 @@ import { zoteroErrorMessage, escapeHtml, HTML_NAMED_ENTITIES, decodeHtmlEntities
 import { toRIS, toBibTeX, toCSV, zoteroItemOf } from "./citationExport.js";
 
 /* Flowchart/diagram components (extracted 2026-10-07, monolith split). */
-import {DiagramStudio, Dialog, cbMotionOff, ChromeHeader, ModalChrome } from "./flowcharts.jsx";
+import {DiagramStudio, Dialog, cbMotionOff, ChromeHeader, ModalChrome, fcSvgString, fcPaletteColors } from "./flowcharts.jsx";
 import { InboxView, ReportConductModal, PaperSharePicker, paperAttachmentFromSource } from "./inbox.jsx";
 import { SettingsView } from "./settings.jsx";
 import LearnView from "./LearnView.jsx";
@@ -357,6 +357,17 @@ function logExport(kind, filename) {
     localStorage.setItem(EXPORT_LOG_KEY, JSON.stringify(log.slice(0, 60)));
   } catch { /* storage full or unavailable — the export itself still worked */ }
 }
+/* Export honesty (2026-11-06): cut text at the last word boundary
+   before the cap, never mid word. A single word longer than the cap
+   still cuts at the cap; there is no boundary to cut at. Returns
+   { text, truncated } so the caller can disclose the cut. */
+function truncateAtWordBoundary(text, cap) {
+  const s = String(text || "");
+  if (s.length <= cap) return { text: s, truncated: false };
+  const head = s.slice(0, cap);
+  const sp = head.lastIndexOf(" ");
+  return { text: (sp > 0 ? head.slice(0, sp) : head).trimEnd(), truncated: true };
+}
 /* Moved to src/appUtils.js: download */
 
 /* The Cerebrum brain mark as a standalone SVG string, for raster export
@@ -515,6 +526,19 @@ function pdfGroupBlocks(lines) {
   flushPara();
   return blocks.filter((b) => b.text);
 }
+/* Export honesty (2026-11-06): the plain text fallback for a non
+   empty answer whose sections yield zero printable blocks (headings
+   only, or only a horizontal rule). The answer's own lines print as
+   plain text blocks instead: heading markers are stripped, so the
+   words the answer actually has become ordinary paragraphs. An
+   answer made only of separators (a lone rule, say) still yields
+   nothing here; exportAnswerToPDF prints its raw text as one
+   paragraph in that case, so a non empty answer never exports as a
+   PDF with an empty body and no notice. */
+function pdfPlainTextSections(answer) {
+  const lines = String(answer || "").split("\n").map((ln) => ln.replace(/^\s{0,3}#{1,6}\s+/, ""));
+  return pdfGroupBlocks(lines).length ? [{ heading: null, lines }] : [];
+}
 async function exportAnswerToPDF(answer, sources, question, turn) {
   try {
     const { jsPDF } = await import("jspdf");
@@ -672,12 +696,28 @@ async function exportAnswerToPDF(answer, sources, question, turn) {
        through pdfInlineRuns. Nothing is relabeled, regrouped or
        manufactured around them. */
     const sections = pdfSplitSections(answer);
+    /* Export honesty (2026-11-06): when the sectioniser yields zero
+       printable blocks for a non empty answer, print the answer's
+       own lines as plain text blocks (pdfPlainTextSections) instead
+       of a body that is silently only headings and furniture. */
+    const printableBlocks = sections.reduce((n, sec) => n + pdfGroupBlocks(sec.lines).length, 0);
+    const bodySections = printableBlocks > 0 ? sections : pdfPlainTextSections(answer);
     let printedBlocks = 0;
-    for (const sec of sections) {
+    for (const sec of bodySections) {
       if (sec.heading) sectionHeading(pdfInlineText(plainInlineText(sec.heading)));
       const before = y;
       renderBlocks(sec);
       if (y !== before) printedBlocks++;
+    }
+    /* Last resort of the same fallback: a non empty answer made
+       only of separators survives even the plain text sections with
+       no printable block, because the block grouper drops rule
+       lines on sight. Print its raw text as one paragraph rather
+       than leaving the body empty. */
+    if (!printedBlocks && String(answer || "").trim()) {
+      richPara(pdfInlineRuns(String(answer).trim()));
+      y += 5;
+      printedBlocks++;
     }
     // L7-7 (2026-10-23): the no answer text sentence may only print
     // when the answer itself is empty; a non empty answer whose
@@ -6614,14 +6654,19 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
          its own stance. */
       const stances = relOf ? citedEntries.map(({ n }) => relWord[relOf(n)] || "") : undefined;
       const excelResult = await exportTopPapersExcel(citedEntries.map(({ s }) => s), { accent, stances });
-      logExport("Excel", "cerebrum-papers.xlsx");
+      /* Export honesty (2026-11-06): a receipt is written only for a
+         file that was actually produced. An empty cited set builds
+         no workbook, so it earns no Exports log entry either. */
+      if (excelResult && excelResult.count > 0) logExport("Excel", "cerebrum-papers.xlsx");
       /* Tail 15: the toast always states the exported count, capped
          or not. Silence on an uncapped export read as nothing having
          happened. */
       if (excelResult) {
-        toast(excelResult.capped
-          ? `Exported the top 20 of ${excelResult.total} papers.`
-          : `Exported ${excelResult.count} paper${excelResult.count === 1 ? "" : "s"}.`, { tone: "info" });
+        toast(excelResult.count === 0
+          ? "Nothing to export yet. Exports cover the papers this answer cites, and this answer cites none."
+          : excelResult.capped
+            ? `Exported the top 20 of ${excelResult.total} papers.`
+            : `Exported ${excelResult.count} paper${excelResult.count === 1 ? "" : "s"}.`, { tone: excelResult.count === 0 ? "error" : "info" });
       }
     }
     catch (e) { toast(e?.message || "Couldn't build the Excel file. Try again.", { tone: "error" }); }
@@ -6655,6 +6700,17 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
     // L7-6 (2026-10-23): structured exports cover the cited set only;
     // further reading never leaves as a reference.
     const citedOnly = sources.filter((x) => !(x && x.uncited));
+    /* Export honesty (2026-11-06): when every source is further
+       reading the cited set is empty, and the text writers turn that
+       into empty files (zero byte BibTeX and RIS, a header only CSV)
+       that the Exports log then recorded as successes. Refuse with
+       words instead, the honesty the Excel path already has: no
+       file is produced, and no receipt is written for one. */
+    if (!citedOnly.length) {
+      toast("Nothing to export yet. Exports cover the papers this answer cites, and this answer cites none.", { tone: "error" });
+      setExportOpen(false);
+      return;
+    }
     if (fmt === "bibtex") { download("cerebrum-bibliography.bib", toBibTeX(citedOnly)); logExport("BibTeX", "cerebrum-bibliography.bib"); }
     else if (fmt === "ris") { download("cerebrum-bibliography.ris", toRIS(citedOnly)); logExport("RIS", "cerebrum-bibliography.ris"); }
     else if (fmt === "csv") { download("cerebrum-bibliography.csv", toCSV(citedOnly)); logExport("CSV", "cerebrum-bibliography.csv"); }
@@ -15058,20 +15114,6 @@ function fcNewEdge(from, to, label = "") { return { id: fcId("e"), from, to, lab
 function fcNodeById(nodes, id) { return nodes.find((n) => n.id === id); }
 function fcSlug(s) { return (s || "flowchart").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 60) || "flowchart"; }
 
-/* Word-wrap a label into lines that fit ~maxChars each. */
-function fcWrap(label, maxChars) {
-  const words = String(label || "").split(/\s+/).filter(Boolean);
-  const lines = [];
-  let cur = "";
-  for (const w of words) {
-    const next = cur ? cur + " " + w : w;
-    if (next.length > maxChars && cur) { lines.push(cur); cur = w; }
-    else cur = next;
-  }
-  if (cur) lines.push(cur);
-  return lines.length ? lines : [""];
-}
-
 /* ── Edge geometry: pick the closest port pair, route a bezier ── */
 function fcPorts(n) {
   const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
@@ -15212,9 +15254,6 @@ function fcDraftFromAnswer(text, sources) {
 }
 
 /* ── Export helpers ── */
-function fcEsc(s) {
-  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 function fcBounds(nodes, pad = 60) {
   if (!nodes.length) return { x: 0, y: 0, w: 800, h: 600 };
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -15224,48 +15263,15 @@ function fcBounds(nodes, pad = 60) {
   }
   return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + pad * 2, h: y1 - y0 + pad * 2 };
 }
-const FC_EXPORT_COLORS = {
-  bg: "#ffffff", fill: "#f6f7f6", stroke: "#232723", text: "#161916",
-  accent: "#2e7d52", accentText: "#ffffff", edge: "#5b625b", decisionFill: "#eef4ef",
-};
-function fcNodeSvg(n) {
-  const C = FC_EXPORT_COLORS;
-  const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
-  const lines = fcWrap(n.label, Math.max(8, Math.floor((n.w - 30) / 7)));
-  const lh = 16;
-  const ty = cy - ((lines.length - 1) * lh) / 2 + 5;
-  const isAccent = n.type === "start" || n.type === "end";
-  const textFill = isAccent ? C.accentText : C.text;
-  const text = lines.map((ln, i) => `<text x="${cx}" y="${(ty + i * lh).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="${textFill}">${fcEsc(ln)}</text>`).join("");
-  let shape = "";
-  if (n.type === "start" || n.type === "end") {
-    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${n.h / 2}" fill="${C.accent}"/>`;
-  } else if (n.type === "decision") {
-    shape = `<polygon points="${cx},${n.y} ${n.x + n.w},${cy} ${cx},${n.y + n.h} ${n.x},${cy}" fill="${C.decisionFill}" stroke="${C.accent}" stroke-width="1.6"/>`;
-  } else if (n.type === "io") {
-    const s = 22;
-    shape = `<polygon points="${n.x + s},${n.y} ${n.x + n.w},${n.y} ${n.x + n.w - s},${n.y + n.h} ${n.x},${n.y + n.h}" fill="${C.fill}" stroke="${C.stroke}" stroke-width="1.5"/>`;
-  } else if (n.type === "evidence") {
-    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10" fill="${C.fill}" stroke="${C.accent}" stroke-width="1.6"/><rect x="${n.x}" y="${n.y}" width="5" height="${n.h}" rx="2.5" fill="${C.accent}"/>`;
-  } else {
-    shape = `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="10" fill="${C.fill}" stroke="${C.stroke}" stroke-width="1.5"/>`;
-  }
-  return `<g>${shape}${text}</g>`;
-}
-function fcSvgString(nodes, edges, title) {
-  const C = FC_EXPORT_COLORS;
-  const b = fcBounds(nodes);
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const edgeSvg = edges.map((e) => {
-    const a = byId.get(e.from), bb = byId.get(e.to);
-    if (!a || !bb) return "";
-    const g = fcEdgeGeom(a, bb);
-    const lbl = e.label ? `<text x="${g.mx}" y="${(g.my - 7).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" font-style="italic" fill="${C.edge}">${fcEsc(e.label)}</text>` : "";
-    return `<path d="${g.d}" fill="none" stroke="${C.edge}" stroke-width="1.6" marker-end="url(#fcArrow)"/>${lbl}`;
-  }).join("");
-  const nodeSvg = nodes.map(fcNodeSvg).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(b.w)}" height="${Math.ceil(b.h)}" viewBox="${b.x} ${b.y} ${b.w} ${b.h}"><title>${fcEsc(title || "Flowchart")}</title><defs><marker id="fcArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="${C.edge}"/></marker></defs><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" fill="${C.bg}"/>${edgeSvg}${nodeSvg}</svg>`;
-}
+/* The SVG exporter that used to live here (a local fcSvgString with
+   its own unbounded fcWrap, a fixed white palette, and no step
+   badges) was a stale duplicate of the maintained exporter in
+   src/flowcharts.jsx (2026-11-06, export honesty). It is deleted:
+   every surface now exports through the one fcSvgString imported
+   from flowcharts.jsx, with the live palette colors, so the same
+   diagram produces the same file in the Library and in Diagram
+   Studio. Its private helpers (fcWrap, fcEsc, fcNodeSvg) went with
+   it; fcBounds stays, the Library thumbnail below still uses it. */
 function fcToMarkdown(nodes, edges, title) {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const out = new Map(nodes.map((n) => [n.id, []]));
@@ -22789,7 +22795,7 @@ function App({ profileHandle = null } = {}) {
     ];
     (h.turns || []).forEach((t, i) => {
       lines.push(`Q${i + 1}: ${t.q || ""}`);
-      if (t.answer) { const plain = t.answer.replace(/<[^>]+>/g, ""); lines.push(plain.slice(0, 2000) + (plain.length > 2000 ? "\n[…answer truncated at 2,000 characters. The full answer is in the investigation]" : "")); }
+      if (t.answer) { const plain = t.answer.replace(/<[^>]+>/g, ""); const cut = truncateAtWordBoundary(plain, 2000); lines.push(cut.text + (cut.truncated ? "\n[…answer truncated at 2,000 characters. The full answer is in the investigation]" : "")); }
       lines.push("");
     });
     if ((h.allSources || []).length) {
@@ -25236,7 +25242,11 @@ function App({ profileHandle = null } = {}) {
     { label: muted ? "Unmute sound" : "Mute sound", run: () => { setMuted(!muted); setCmdOpen(false); } },
     { label: "Switch between light and dark", hint: kbdLabel("D"), run: () => { setPaletteName(P.dark ? "Light" : "Dark"); setCmdOpen(false); } },
     { label: factCheck ? "Turn off fact check" : "Turn on fact check", run: () => { setFactCheck(!factCheck); setCmdOpen(false); } },
-    { label: "Download your papers as a BibTeX file", run: () => { download("cerebrum.bib", toBibTeX(saved.length ? saved : allSources)); setCmdOpen(false); } },
+    /* Export honesty (2026-11-06): this path used to fall back to
+       every source in the app when nothing was saved, and wrote no
+       Exports log receipt. It now exports the saved papers only,
+       says so when there are none, and logs like the other paths. */
+    { label: "Download your papers as a BibTeX file", run: () => { setCmdOpen(false); if (!saved.length) { toast("No saved papers yet. Save a paper first, then export it here.", { tone: "error" }); return; } download("cerebrum.bib", toBibTeX(saved)); logExport("BibTeX", "cerebrum.bib"); } },
     ...(history.length >= 2 ? [{ label: "Compare investigations", run: () => { setCmdOpen(false); setCompareOpen(true); } }] : []),
     ...(turns.length && turns[turns.length - 1].sources && turns[turns.length - 1].sources.length >= 2
       ? [{ label: "See how these papers connect", run: () => { setCmdOpen(false); setNetworkGraphSources(turns[turns.length - 1].sources); } }]
@@ -26299,7 +26309,7 @@ function App({ profileHandle = null } = {}) {
       )}
       {view === "settings" && (
         <Reveal deps={[view]} style={{ ...S.pageView, background: P.bg }}>
-        <SettingsView key={settingsOpenNonce} {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, vaultCtl, proStatus, onOpenPro: openPro, onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, onRegisterPasskey: registerPasskey }} />
+        <SettingsView key={settingsOpenNonce} {...{ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut: signOut, onAccountDeleted, onOpenAuth: (tab) => { setAuthInitialTab(tab); setAuthOpen(true); }, initialTab: settingsInitialTab, close: () => setView("search"), dataDensity, setDataDensity, collections, setCollections, flowcharts, setFlowcharts, profile, setProfile, vaultCtl, proStatus, onOpenPro: openPro, onProChanged: async () => { const u = await apiWhoAmI(); if (u) setUser(u); await refreshPro(); }, onRegisterPasskey: registerPasskey }} />
         </Reveal>
       )}
       {view === "trending" && (
@@ -26777,7 +26787,7 @@ function App({ profileHandle = null } = {}) {
                     </span>
                     <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap", padding: "10px 12px 12px", marginTop: "auto" }}>
                       <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); setFlowchartOpen({ title: fc.title, chartId: fc.id, sources: Array.isArray(fc.sources) ? fc.sources : [] }); }}>Open</UIButton>
-                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", fcSvgString(fc.nodes || [], fc.edges || [], fc.title)); }}>SVG file</UIButton>
+                      <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { sfx(); download(fcSlug(fc.title) + ".svg", fcSvgString(fc.nodes || [], fc.edges || [], fc.title, fcPaletteColors(P, accent, at))); }}>SVG file</UIButton>
                       {/* Delete is one press with the undo window as
                           the safety net. The old armed pair was wider
                           than the row on a phone and clipped outside
