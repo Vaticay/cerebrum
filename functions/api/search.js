@@ -34890,7 +34890,7 @@ async function runSearchPipeline(pctx) {
         seenKeys.add(key);
         reused.push({
           ...s,
-          _allAuthors: s._allAuthors || s.authors || "",
+          _allAuthors: s._allAuthors || s.authorsFull || s.authors || "",
           score: 10,
           contentHits: 1,
           contentCoverage: 1,
@@ -36489,21 +36489,37 @@ async function runSearchPipeline(pctx) {
     // list, in the exact same order, that the AI was given. Otherwise the model
     // writes "[3]" meaning its third source while the UI renders a different
     // paper as entry 3. This was silently misattributing citations.
-    const toSourceEntry = ({ title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType, thinEvidence }) => ({
-      title,
-      url,
-      journal,
-      authors,
-      year,
-      citations,
-      relevance: relevance == null ? null : relevance,
-      type: type || "Reference",
-      tldr: tldr || null,
-      retracted: !!retracted,
-      concern: !!concern,
-      updateType: updateType || null,
-      thinEvidence: !!thinEvidence,  // 2026-10-12: was dropped, UI never saw it
-    });
+    const toSourceEntry = (paper) => {
+      const { title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType, thinEvidence } = paper || {};
+      return {
+        title,
+        url,
+        journal,
+        authors,
+        year,
+        citations,
+        relevance: relevance == null ? null : relevance,
+        type: type || "Reference",
+        tldr: tldr || null,
+        retracted: !!retracted,
+        concern: !!concern,
+        updateType: updateType || null,
+        thinEvidence: !!thinEvidence,  // 2026-10-12: was dropped, UI never saw it
+        /* 2026-11-06 (site debug, exports fix): the full citation
+           record rides along, additively. Until now the served entry
+           carried no doi field at all (the DOI lived only inside the
+           URL) and authors only as the display string ("Dong J et
+           al."), so every export writer faithfully shipped empty
+           DOIs and a fake author list while the real data sat server
+           side in the paper's doi field and _allAuthors. doi is the
+           recordDoiOf resolution (the paper's own field first, then
+           its doi.org URL), "" when the paper genuinely has none;
+           authorsFull is the full author list the fetchers already
+           collect. Display fields above are untouched. */
+        doi: recordDoiOf(paper) || "",
+        authorsFull: String((paper && paper._allAuthors) || "").trim(),
+      };
+    };
     let sourceList = (useEvidence ? evidencePapers : useWeb ? webRefs : []).map(toSourceEntry);
 
     // FURTHER READING TAIL (2026-10-13): papers that passed the

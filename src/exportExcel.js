@@ -11,8 +11,10 @@
  * and an autofilter. `buildPapersWorkbook(papers, opts)` exposes the workbook
  * itself for tests and non-download consumers.
  *
- * Paper shape: { title, authors, journal, year, url, doi, citations }.
+ * Paper shape: { title, authors, authorsFull, journal, year, url, doi, citations }.
  * `authors` is normally a pre-joined string but an array is tolerated.
+ * The Authors cell prefers `authorsFull` (the full list the server
+ * serves since 2026-11-06) over the display string in `authors`.
  * Every field is optional. opts.stances, when passed, is an array of
  * stance words parallel to the papers (2026-10-19, S2 / M18).
  */
@@ -81,10 +83,20 @@ function accentTintArgb(accent) {
 /* A paper's DOI as the bare identifier, or null. Same normalization
    the app applies everywhere: strip a doi.org prefix and trailing
    punctuation, then require the 10.registrant shape. */
-function doiOf(paper) {
-  const raw = String((paper && (paper.doi || paper.DOI)) || "")
+function normalizeDoi(raw) {
+  const v = String(raw || "")
     .replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/\/+$/, "").trim().replace(/[.,;:!?)\]]+$/, "");
-  return /^10\.\d{4,9}\//.test(raw) ? raw : null;
+  return /^10\.\d{4,9}\//.test(v) ? v : null;
+}
+
+function doiOf(paper) {
+  const fromField = normalizeDoi((paper && (paper.doi || paper.DOI)) || "");
+  if (fromField) return fromField;
+  /* Backstop (2026-11-06, exports fix): records saved before the
+     server served a doi field carry the DOI only inside a doi.org
+     URL; mine it rather than ship an empty DOI cell. */
+  const m = String((paper && paper.url) || "").match(/doi\.org\/(.+)$/i);
+  return m && m[1] ? normalizeDoi(m[1]) : null;
 }
 
 /* The logo's intrinsic aspect ratio, from its viewBox or its
@@ -222,7 +234,7 @@ export async function buildPapersWorkbook(papers, opts = {}) {
     row.getCell(2).value = cleanText(paper.title) || "Untitled";
     row.getCell(2).alignment = { vertical: "center", wrapText: true };
 
-    row.getCell(3).value = authorsText(paper.authors);
+    row.getCell(3).value = authorsText(paper.authorsFull != null ? paper.authorsFull : paper.authors);
     row.getCell(3).alignment = { vertical: "center", wrapText: true };
 
     row.getCell(4).value = cleanText(paper.journal);
