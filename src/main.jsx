@@ -196,8 +196,12 @@ function NotFound() {
   }, []);
   const paletteName = readCookie("cb_pal") || "Dark";
   const P = PALETTES[isProPalette(paletteName) ? "Dark" : paletteName] || PALETTES.Dark;
-  const accentName = readCookie("cb_accent") || "Mono";
-  const customAccent = readCookie("cb_accentCustom") || "";
+  const accentName = readCookie("cb_accent") || "Amber";
+  /* Settings fix (2026-11-06, defect S3): the app writes the
+     custom accent to cb_ca. This page used to read a cookie
+     named cb_accentCustom that nothing ever writes, so a
+     custom accent could never show here. */
+  const customAccent = readCookie("cb_ca") || "";
   const accent = customAccent || ACCENTS[accentName] || ACCENTS.Mono;
   const [q, setQ] = React.useState("");
   const deadPath = (() => {

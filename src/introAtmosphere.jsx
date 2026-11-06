@@ -256,7 +256,19 @@ function compileShader(gl, type, src) {
   return sh;
 }
 
-export function IntroAtmosphere({ animationMode = "off", still = false, swell = false, fixedClock = false }) {
+/* Settings fix (2026-11-06, defect S4): the animation speed
+   setting finally has a consumer. The ambient clock advances
+   by the frame delta scaled by the speed, so 2 runs the scene
+   twice as fast and 0.25 a quarter as fast. The swell easing
+   stays on raw frame time: it is a transition, not ambience.
+   Exported pure so the harness can measure the scaling without
+   a WebGL context. */
+export function atmoStep(elapsed, dtSec, speed) {
+  const s = typeof speed === "number" && speed > 0 ? speed : 1;
+  return elapsed + dtSec * s;
+}
+
+export function IntroAtmosphere({ animationMode = "off", still = false, swell = false, fixedClock = false, speed = 1 }) {
   const canvasRef = useRef(null);
   const swellRef = useRef(0);
   const swellTargetRef = useRef(0);
@@ -308,7 +320,10 @@ export function IntroAtmosphere({ animationMode = "off", still = false, swell = 
       const conn = navigator && navigator.connection;
       saveData = !!(conn && conn.saveData);
     } catch { saveData = false; }
-    const drawStill = still || animationMode === "off" || saveData;
+    /* Settings fix (2026-11-06, defect S5): Subtle draws the
+       atmosphere as a still, like Off. Ambient looping motion
+       is exactly what Subtle exists to quiet. */
+    const drawStill = still || animationMode === "off" || animationMode === "subtle" || saveData;
 
     let scale = 0.55;
     const fit = () => {
@@ -352,7 +367,7 @@ export function IntroAtmosphere({ animationMode = "off", still = false, swell = 
       const dtMs = now - last;
       last = now;
       const dt = Math.min(dtMs / 1000, 0.05);
-      elapsed += dt;
+      elapsed = atmoStep(elapsed, dt, speed);
       /* One honest self check: if the first ninety frames run slow
          on this device, drop the internal scale once and keep the
          door smooth rather than proud. */
@@ -387,7 +402,7 @@ export function IntroAtmosphere({ animationMode = "off", still = false, swell = 
         if (ext) ext.loseContext();
       } catch { /* context already gone */ }
     };
-  }, [animationMode, still, fixedClock]);
+  }, [animationMode, still, fixedClock, speed]);
 
   if (failed) {
     return <div aria-hidden="true" style={{ position: "absolute", inset: 0, ...ATMO_FALLBACK }} />;

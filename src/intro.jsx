@@ -769,7 +769,7 @@ export function DotField({ still = false, dotRgb = "232,228,218", accentRgb = "1
    consent appears on the way in, in the shell, never on this door.
    Entry is never gated by any of the visuals.
    ════════════════════════════════════════════════════════════════════ */
-function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
+function Intro({ accent, P, onEnter, animationMode = "off", user = null, animSpeed = 1 }) {
   /* Cinema mode, 2026-10-28 (the owner's call, for commercial
      takes): ?cinema locks the door into a fixed recordable frame,
      9 by 16 by default, 16 by 9 with ?cinema=wide. Restaged the
@@ -900,6 +900,7 @@ function Intro({ accent, P, onEnter, animationMode = "off", user = null }) {
       }}>
         <IntroAtmosphere
           animationMode={animationMode}
+          speed={animSpeed}
           still={reduced || animationMode === "off"}
           swell={leaving}
           fixedClock={!!cinema}

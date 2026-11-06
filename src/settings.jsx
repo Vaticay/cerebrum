@@ -2938,13 +2938,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
               {/* 2026-10-05: the members-only footage toggle lived here. The
                   workspace no longer plays film behind it (cinema lives at
                   the door only), so the toggle had nothing to switch. */}
-              {/* v6.9: was cookie-persisted and threaded all the way down into
-                  LivingBackground already, but had no control anywhere to
-                  actually change it from its default — this is the first real
-                  UI for it, reusing LocalSlider. Hidden when the background
-                  is off entirely, since a speed has nothing to apply to at
-                  that point. */}
-              {animationMode !== "off" && (
+              {/* Settings fix (2026-11-06, defect S4): the speed
+                  scales the ambient clock in IntroAtmosphere, the
+                  living background on the door and the search
+                  home. Shown only in Full: under Subtle the
+                  atmosphere draws a still, so a speed control
+                  there would govern nothing. The components the
+                  old v6.9 comment named no longer exist. */}
+              {animationMode === "cinematic" && (
                 <div style={{ padding: "12px 0 4px" }}>
                   <LocalSlider label="Animation speed" value={animSpeed} min={0.25} max={2} step={0.25}
                     format={(v) => `${v}×`} onCommit={(v) => { sfx(); setAnimSpeed(v); }} accent={accent} P={P} />

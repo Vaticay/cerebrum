@@ -23764,40 +23764,48 @@ function App({ profileHandle = null } = {}) {
   const mutedRef = useRef(false);
   useEffect(() => { mutedRef.current = muted; }, [muted]);
 
-  const P = (() => {
+  /* Settings fix (2026-11-06, defects S2 and S3): the palette B
+     ruling (2026-11-02) exempts only the Register surfaces from
+     the chosen palette and accent. The door, the search home
+     before a search starts, and sign in always sit on the
+     register ground with the register gold. Reading surfaces
+     (answer, reader, Nova, profile) and Instrument surfaces
+     (Library, Settings, Inbox, Studio, Usage) consume the
+     palette and accent the user picked. The November 2 matching
+     pass overrode the palette on every surface, which made the
+     Theme and Accent pickers dead controls; the class split
+     below restores the ruling. Register surfaces receive exactly
+     the override object the matching pass built, so they render
+     unchanged. */
+  const surfaceClassNow = (() => {
+    if (!entered) return "Register";
+    if (view === "search") return (turns.length > 0 || busy) ? "Reading" : "Register";
+    return SURFACE_CLASSES[view] || "Reading";
+  })();
+  const onRegisterSurface = surfaceClassNow === "Register";
+  const paletteBase = (() => {
     // The Pro palette is members-only: anyone holding the cookie without a
     // Pro account (signed out, expired, revoked) falls back to Dark rather
     // than seeing the members' theme.
     const name = isProPalette(paletteName) && !(user && user.isPro) ? "Dark" : paletteName;
-    const base = PALETTES[name] || PALETTES.Dark;
-    /* Matching pass (2026-11-02): the owner ruled the search home
-       the standard for the whole product, so the palette the app
-       hands to every surface is now built from the register: the
-       register ground and ink family, the two register surface
-       steps, and the register hairlines. The selected palette
-       still resolves first (its entitlement rule above stands,
-       and Settings keeps offering the palettes), but the values
-       the surfaces consume are the register values, so a page
-       cannot drift back to a tinted ground or a mismatched ink
-       family again. Ground and ink move together here, the F7
-       rule: no surface receives one without the other. */
-    return {
-      ...base,
-      dark: true,
-      bg: REGISTER_GROUND,
-      surface: REGISTER_SURFACE,
-      raised: REGISTER_RAISED,
-      ink: REGISTER_INK.ink,
-      ink2: REGISTER_INK.ink72,
-      faint: REGISTER_INK.ink55,
-      line: REGISTER_LINE,
-      line2: REGISTER_LINE_STRONG,
-      shadow: "none",
-      shadowSm: "none",
-      grain: 0,
-      skel: `linear-gradient(90deg, ${REGISTER_SURFACE} 25%, ${REGISTER_RAISED} 50%, ${REGISTER_SURFACE} 75%)`,
-    };
+    return PALETTES[name] || PALETTES.Dark;
   })();
+  const P = onRegisterSurface ? {
+    ...paletteBase,
+    dark: true,
+    bg: REGISTER_GROUND,
+    surface: REGISTER_SURFACE,
+    raised: REGISTER_RAISED,
+    ink: REGISTER_INK.ink,
+    ink2: REGISTER_INK.ink72,
+    faint: REGISTER_INK.ink55,
+    line: REGISTER_LINE,
+    line2: REGISTER_LINE_STRONG,
+    shadow: "none",
+    shadowSm: "none",
+    grain: 0,
+    skel: `linear-gradient(90deg, ${REGISTER_SURFACE} 25%, ${REGISTER_RAISED} 50%, ${REGISTER_SURFACE} 75%)`,
+  } : paletteBase;
   // "Mono" isn't a real color swatch — it means "match the current palette's
   // own ink," which is why it's derived from P.dark rather than read out of
   // ACCENTS. Any other named accent (Sage, or a future addition) is a real
@@ -23805,14 +23813,36 @@ function App({ profileHandle = null } = {}) {
   // this used to hardcode the Mono branch unconditionally, silently ignoring
   // accentName for every non-Mono swatch (invisible while Mono was the only
   // entry in ACCENTS; became a real bug the moment a second one was added).
-  /* Matching pass (2026-11-02): the accent the surfaces consume
-     is the register gold, the way the search home uses it: the
-     filled key, the current page rule, and small marks. The
-     accent picker state still lives in Settings, but a green or
-     white accent cannot repaint the product away from the
-     standard the owner set. */
-  const accent = REGISTER_GOLD;
+  /* On Register surfaces the accent is the register gold, per
+     the ruling. Everywhere else the picked accent drives, with
+     the custom color winning when it is a valid hex. */
+  const accent = onRegisterSurface ? REGISTER_GOLD : (
+    (customAccent && /^#[0-9a-fA-F]{6}$/.test(customAccent))
+      ? customAccent
+      : accentName === "Mono"
+        ? (paletteBase.dark ? "#ffffff" : "#000000")
+        : (ACCENTS[accentName] || (paletteBase.dark ? "#ffffff" : "#000000"))
+  );
   const at = accentText(accent);
+  /* Sign in is a Register surface whatever view sits behind
+     it, so the auth modal always receives the register palette
+     and the register gold explicitly. */
+  const registerPalette = {
+    ...paletteBase,
+    dark: true,
+    bg: REGISTER_GROUND,
+    surface: REGISTER_SURFACE,
+    raised: REGISTER_RAISED,
+    ink: REGISTER_INK.ink,
+    ink2: REGISTER_INK.ink72,
+    faint: REGISTER_INK.ink55,
+    line: REGISTER_LINE,
+    line2: REGISTER_LINE_STRONG,
+    shadow: "none",
+    shadowSm: "none",
+    grain: 0,
+    skel: `linear-gradient(90deg, ${REGISTER_SURFACE} 25%, ${REGISTER_RAISED} 50%, ${REGISTER_SURFACE} 75%)`,
+  };
   /* Live tab icon: sweeping activity arc while a search is in flight,
      inbox badge for unread threads, mark tinted with the user's accent.
      Placed after `accent` is initialized — calling it earlier threw
@@ -24448,6 +24478,12 @@ function App({ profileHandle = null } = {}) {
        effects). setCookie already busted the cbMotionOff cache above. */
     try {
       document.body.classList.toggle("cb-motion-off", animationMode === "off");
+      /* Settings fix (2026-11-06, defect S5): Subtle gets its
+         own body class. The stylesheet kills the ambient and
+         looping animations under it and leaves short functional
+         transitions, loading indicators, and one shot entrances
+         alone. Full sets neither class. */
+      document.body.classList.toggle("cb-motion-subtle", animationMode === "subtle");
       window.dispatchEvent(new CustomEvent("cb:anim"));
     } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: document.body.classList.toggle('cb-motion-off', animationMode === 'off:", cbErr); }
   }, [animationMode]);
@@ -25212,7 +25248,7 @@ function App({ profileHandle = null } = {}) {
             entry, landing sign in failures and checkout results among
             them, used to have no listener here and were dropped. */}
         <ToastHost P={P} accent={accent} isMobile={isMobile} />
-        <Intro accent={accent} P={P} animationMode={animationMode} user={user}
+        <Intro accent={accent} P={P} animationMode={animationMode} animSpeed={animSpeed} user={user}
           onEnter={(seed, submit, clipSrc) => {
             sfx();
             if (seed) setInput(seed);
@@ -25858,7 +25894,7 @@ function App({ profileHandle = null } = {}) {
                   IntroAtmosphere itself. Still under reduced
                   motion or animation off, exactly as the door
                   holds still. */}
-              <IntroAtmosphere animationMode={animationMode} still={stageReducedMotion || animationMode === "off"} />
+              <IntroAtmosphere animationMode={animationMode} speed={animSpeed} still={stageReducedMotion || animationMode === "off"} />
               <input ref={imageInputRef} type="file" accept="image/*" onChange={onImagePicked} style={{ display: "none" }} />
               <div className="cb-homeb-column" style={{
                 width: "100%", minWidth: 0, maxWidth: LAYOUT.answer, padding: isMobile ? "0" : "0 24px",
@@ -27217,7 +27253,7 @@ function App({ profileHandle = null } = {}) {
           nothing was ever requesting a code. */}
       {authOpen && (
         <AuthModal
-          P={P} accent={accent} at={at}
+          P={registerPalette} accent={REGISTER_GOLD} at={accentText(REGISTER_GOLD)}
           close={() => { setAuthOpen(false); setAuthReturnTo(null); }}
           intent={authInitialTab === "signup" ? "signup" : "login"}
           onAuthed={(u) => handleAuthed(u, { checkImport: true })}
@@ -30138,6 +30174,19 @@ body.cb-motion-off .cb-home-deck .cb-tilt-wrap > * { animation: none !important;
 .cb-founder-ring { animation: cbFounderSpin 12s linear infinite; }
 @keyframes cbFounderSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .cb-founder-ring { animation: none; } }
+/* Settings fix (2026-11-06, defect S5): Motion Subtle. The
+   ambient and looping animations stop; short functional
+   transitions, loading indicators, recording and reading
+   progress, and one shot entrances keep running. Full sets
+   neither body class, Off keeps its own wider kills. */
+body.cb-motion-subtle .cb-mark-breath-a,
+body.cb-motion-subtle .cb-mark-breath-b,
+body.cb-motion-subtle .cb-spec-sheen,
+body.cb-motion-subtle .cb-spec-dot,
+body.cb-motion-subtle .cb-intro-haze i,
+body.cb-motion-subtle .cb-intro-grain,
+body.cb-motion-subtle .cb-founder-ring,
+body.cb-motion-subtle .lv-pulse { animation: none; }
 
 .cb-founder-card { transition: border-color 280ms ease, box-shadow 280ms ease; }
 .cb-founder-card:hover {
