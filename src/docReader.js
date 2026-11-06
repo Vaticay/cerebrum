@@ -673,10 +673,14 @@ export function buildDocSegments(text, headings) {
 /* Durable per-document reading state. Shape:
  *   { docs: { [fingerprint]: { title, text, summary, qaHistory, rightTab,
  *     highlights, docB, compareResult, scrollY, updatedAt } },
- *     lastOpened: fingerprint|null }
- * Streaming (unfinished) payloads are never persisted — callers strip
- * them before saving, so a reload can never resurrect a partial answer
- * as if it were final. */
+ *     lastOpened: fingerprint|null,
+ *     deleted: { [fingerprint]: deletedAt } }
+ * `deleted` holds tombstones for documents that were removed (shelf
+ * delete or shelf cap eviction); stores written before tombstones
+ * existed simply have no `deleted` field, and every reader treats a
+ * missing one as empty. Streaming (unfinished) payloads are never
+ * persisted — callers strip them before saving, so a reload can never
+ * resurrect a partial answer as if it were final. */
 export function loadDocStore() {
   try {
     const raw = localStorage.getItem(DOCMODE_STORE_KEY);
@@ -691,13 +695,71 @@ export function loadDocStore() {
   }
 }
 
-/* Persist the store. Returns true when the write landed and false
+/* The deleted map of a store, tolerating stores written before
+   tombstones existed and malformed values alike. */
+function docTombstones(store) {
+  const d = store && typeof store === "object" ? store.deleted : null;
+  if (!d || typeof d !== "object") return {};
+  const out = {};
+  for (const [fp, at] of Object.entries(d)) {
+    const n = Number(at);
+    if (fp && Number.isFinite(n) && n > 0) out[fp] = n;
+  }
+  return out;
+}
+
+/* Pure merge of two store snapshots, document by document. Two tabs
+   can each hold a snapshot of this one whole localStorage store, and
+   whichever tab saves last used to overwrite the other tab's newest
+   work without a word. The merge makes a save additive instead: for
+   each document the version with the newer updatedAt wins, whichever
+   snapshot it came from, so a stale tab cannot erase a document it
+   never saw. A tombstone wins over any copy of the document stamped
+   at or before the deletion, so a stale save cannot resurrect a
+   deleted document either; a copy stamped after the deletion is a
+   later write and wins, and its tombstone is dropped. lastOpened
+   follows the saving tab when that document survives the merge, and
+   otherwise keeps whichever side names a surviving document. */
+export function mergeDocStores(stored, incoming) {
+  const s = stored && typeof stored === "object" && stored.docs && typeof stored.docs === "object" ? stored : { docs: {} };
+  const i = incoming && typeof incoming === "object" && incoming.docs && typeof incoming.docs === "object" ? incoming : { docs: {} };
+  const deleted = docTombstones(s);
+  for (const [fp, at] of Object.entries(docTombstones(i))) {
+    if (!(fp in deleted) || at > deleted[fp]) deleted[fp] = at;
+  }
+  const docs = {};
+  const fps = new Set([...Object.keys(s.docs || {}), ...Object.keys(i.docs || {})]);
+  for (const fp of fps) {
+    const a = s.docs ? s.docs[fp] : null;
+    const b = i.docs ? i.docs[fp] : null;
+    let winner = null;
+    if (a && b) winner = (b.updatedAt || 0) >= (a.updatedAt || 0) ? b : a;
+    else winner = b || a || null;
+    if (!winner) continue;
+    const goneAt = deleted[fp] || 0;
+    if (goneAt && goneAt >= (winner.updatedAt || 0)) continue;
+    if (goneAt) delete deleted[fp];
+    docs[fp] = winner;
+  }
+  let lastOpened = null;
+  if (i.lastOpened && docs[i.lastOpened]) lastOpened = i.lastOpened;
+  else if (s.lastOpened && docs[s.lastOpened]) lastOpened = s.lastOpened;
+  const out = { docs, lastOpened };
+  if (Object.keys(deleted).length) out.deleted = deleted;
+  return out;
+}
+
+/* Persist the store. The snapshot being saved is first merged against
+   whatever is actually stored right now (see mergeDocStores), so a
+   tab holding an older snapshot cannot silently overwrite a newer
+   one from another tab. Returns true when the write landed and false
    when it did not (private mode, quota): a failed save must not look
    identical to a successful one, because the reader is owed the
    difference. Reading still works either way; it just won't persist. */
 export function saveDocStore(store) {
   try {
-    localStorage.setItem(DOCMODE_STORE_KEY, JSON.stringify(store));
+    const merged = mergeDocStores(loadDocStore(), store);
+    localStorage.setItem(DOCMODE_STORE_KEY, JSON.stringify(merged));
     return true;
   } catch {
     return false;
@@ -717,6 +779,12 @@ export function evictOldestDocs(store, maxDocs = DOCMODE_MAX_DOCS) {
     const entry = store.docs[fp];
     evicted.push({ fp, title: entry && entry.title ? entry.title : "Untitled document" });
     delete store.docs[fp];
+    // Tombstone the eviction at the entry's own stamp, so the save
+    // merge cannot pull the evicted copy back in from storage while
+    // a genuinely newer copy of the same document still wins.
+    if (!store.deleted || typeof store.deleted !== "object") store.deleted = {};
+    const goneAt = entry && entry.updatedAt ? entry.updatedAt : 0;
+    if (goneAt > (store.deleted[fp] || 0)) store.deleted[fp] = goneAt;
   }
   return evicted;
 }
@@ -740,6 +808,11 @@ export function deleteDocFromStore(fp) {
     if (!store.docs || !store.docs[fp]) return false;
     delete store.docs[fp];
     if (store.lastOpened === fp) store.lastOpened = null;
+    // Tombstone the deletion at the moment it happens, so a stale
+    // tab saving an older snapshot cannot bring the document back.
+    if (!store.deleted || typeof store.deleted !== "object") store.deleted = {};
+    const now = Date.now();
+    if (now > (store.deleted[fp] || 0)) store.deleted[fp] = now;
     saveDocStore(store);
     return true;
   } catch {

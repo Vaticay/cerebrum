@@ -82,7 +82,7 @@ import {
    contract, HTML text extraction, highlight guards, durable reading state. */
 import {
   docFingerprint, extractHtmlText, streamDocumentApi, canAddHighlight, rebaseQaHistoryOffsets,
-  docTitleOf, detectDocHeadings, buildDocSegments, loadDocStore, saveDocStore, deleteDocFromStore, evictOldestDocs, docEvictionNote, DOCMODE_MAX_TEXT,
+  docTitleOf, detectDocHeadings, buildDocSegments, loadDocStore, saveDocStore, deleteDocFromStore, evictOldestDocs, docEvictionNote, DOCMODE_MAX_TEXT, DOCMODE_STORE_KEY,
   pdfPagesToText, readBodyContainerProps,
 } from "./docReader.js";
 import { fcCompressStep, fcExtractSteps } from "./fcLabel.js";
@@ -17879,6 +17879,27 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* Cross tab shelf sync: when another tab saves the document store,
+     refresh this tab's shelf listing from what is actually stored, so
+     the shelf never shows a document another tab deleted or hides one
+     it added. The save merge in docReader.js is what protects the
+     data itself; this only keeps the visible shelf honest. */
+  useEffect(() => {
+    const onStorage = (ev) => {
+      if (!ev || (ev.key !== DOCMODE_STORE_KEY && ev.key !== null)) return;
+      try {
+        const store = loadDocStore();
+        setRecentDocs(
+          Object.entries(store.docs || {})
+            .map(([fp, d]) => ({ fp, title: d.title || "Untitled document", words: d.text ? d.text.split(/\s+/).length : 0, updatedAt: d.updatedAt || 0 }))
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+        );
+      } catch (e) { console.error("[Cerebrum] CerebrumApp.jsx doc store storage sync:", e); }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   /* Durable reading state: debounced save of the open document keyed by
      its fingerprint. Unfinished (streaming) payloads are stripped before
      saving, so a reload can never resurrect a partial answer as final;
@@ -22207,7 +22228,21 @@ function App({ profileHandle = null } = {}) {
     setView("search");
   }
 
-  const [input, setInput] = useState("");
+  // The composer draft survives a reload or a browser crash, the same
+  // way the inbox drafts and the profile persist: restored on mount,
+  // written on every change, and gone the moment the input clears,
+  // which is what ask() does when a question is sent. Before this the
+  // typed question lived only in this state, so reloading mid answer
+  // lost it entirely while every failure the app knew about carefully
+  // handed it back. One state serves both the main composer and the
+  // follow up composer, so one draft covers both.
+  const [input, setInput] = useState(() => { try { return localStorage.getItem("cb_composer_draft_v1") || ""; } catch { return ""; } });
+  useEffect(() => {
+    try {
+      if (input) localStorage.setItem("cb_composer_draft_v1", input);
+      else localStorage.removeItem("cb_composer_draft_v1");
+    } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx composer draft persist:", cbErr); }
+  }, [input]);
   // Previous conversations. This used to be dead state (`showHistory` was
   // declared and never read anywhere — a stub from an earlier attempt at
   // this exact feature that never got finished) while "New investigation"
