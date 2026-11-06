@@ -814,7 +814,12 @@ export function citationRetryGateOpen(msLeftMs, factCheckOn) {
  * its inputs plus the leg health store, with an injectable clock, so
  * the contract is testable without running the pipeline:
  *   - no recorded leg failures (parked-leg skips excluded . they are
- *     not failures of this request) → skip silently (summary null).
+ *     not failures of this request) → skip silently (summary null),
+ *     UNLESS the caller attests the waves never fired at all
+ *     (opts.wavesNeverFired, the window starved shape): then the
+ *     plan is a first fire of the best two unparked legs with a
+ *     zero wait, marked firstFire (2026-11-06, 100 percent answer
+ *     success lane; see the branch in the body).
  *   - every failure a daily cap → skip WITH a summary: a short wait
  *     cannot clear a daily cap, and stage health should say the
  *     rescue was considered and stood down, not vanish.
@@ -857,7 +862,51 @@ export function planDelayedRescue(attempts, opts = {}) {
   const legFailures = (Array.isArray(attempts) ? attempts : []).filter(
     (a) => a && typeof a.wave === "number" && typeof a.model === "string" && a.ok === false && !a.parked
   );
-  if (legFailures.length === 0) return { action: "skip", reason: "no leg failures recorded", summary: null };
+  if (legFailures.length === 0) {
+    // FIRST FIRE (2026-11-06, 100 percent answer success lane):
+    // the empty trail has a second shape the original contract
+    // did not carry. When preparation overruns the synthesis
+    // window — the Nov 6 w1 batch specimens FRS6 and FRS7, where
+    // validation burned its full 5,750 ms failing open behind a
+    // 4 to 5 s retrieval, and the Oct 23 burnout probe before
+    // them — wave 1 is never fired at all: the trail holds only
+    // the window gate's named skip, no leg was ever attempted,
+    // and every rescue planner that keys on recorded failures
+    // stands down over an untried fleet. When the caller attests
+    // no leg fired (opts.wavesNeverFired), the rescue fires its
+    // best two unparked legs immediately, on this planner's own
+    // deadline bound: there is no throttle to wait out, so the
+    // wait is zero and the plan is marked firstFire so the trail
+    // can tell it from a throttle wait. A leg parked right now
+    // (any class) is not a candidate: it cannot fire. The fit
+    // check is the same shape as the wait's — retry plus the
+    // 2.5s assembly reserve before deadline + the overrun.
+    if (!opts.wavesNeverFired) return { action: "skip", reason: "no leg failures recorded", summary: null };
+    const rankedFF = [...new Set(rosterLabels)].sort((a, b) =>
+      ((legHealthSnapshot(b) || {}).successes || 0) - ((legHealthSnapshot(a) || {}).successes || 0));
+    const orderedFF = [];
+    if (preferredLabel) orderedFF.push(preferredLabel);
+    for (const label of rankedFF) if (!orderedFF.includes(label)) orderedFF.push(label);
+    const eligibleFF = orderedFF.filter((label) => {
+      if (legParkInfo(label, nowMs)) return false;
+      const bPark = bucketParkInfo(label, nowMs);
+      if (bPark) return false;
+      return true;
+    });
+    if (eligibleFF.length === 0) {
+      return { action: "skip", reason: "first fire: every rescue leg parked", summary: "delayed rescue skipped: the waves never fired and every rescue leg is parked" };
+    }
+    if (nowMs + DELAYED_RESCUE_RETRY_MS + 2500 > requestDeadlineMs + DELAYED_RESCUE_OVERRUN_MS) {
+      return { action: "skip", reason: "first fire does not fit", summary: "delayed rescue skipped: the waves never fired and a first fire no longer fits before the rescue deadline" };
+    }
+    const chosenFF = [eligibleFF[0]];
+    if (eligibleFF.length > 1) {
+      const independent = eligibleFF.find(
+        (label) => synthesisBucketForLabel(label) !== synthesisBucketForLabel(chosenFF[0]));
+      chosenFF.push(independent || eligibleFF[1]);
+    }
+    return { action: "wait", waitMs: 0, chosen: chosenFF, firstFire: true };
+  }
   const classes = legFailures.map((a) => classifyLegFailure(a.error));
   if (!classes.some((c) => c !== "daily-cap")) {
     return { action: "skip", reason: "daily caps only", summary: "delayed rescue skipped: every failure was a daily cap, which a short wait cannot clear" };
@@ -39083,18 +39132,30 @@ async function runSearchPipeline(pctx) {
     const rescuePreferredLabel = activeProviders.some((p) => p.id === "groq") ? "groq:openai/gpt-oss-120b" : null;
     if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {
       const rosterLabels = rescueRosterLabels;
+      // First fire attestation (2026-11-06, 100 percent answer
+      // success lane): a leg counts as fired only when a real
+      // call was attempted — planner stamps, parked skips, and
+      // budget skips are records of calls that never happened.
+      // When nothing fired (the synthesis window closed during
+      // preparation), the delayed planner may first fire instead
+      // of standing down over an empty trail (see planDelayedRescue).
+      const anyLegFired = aiAttempts.some(
+        (a) => a && typeof a.model === "string" && !a.plannedSkip && !a.parked && !a.budgetSkipped);
       const delayedPlan = planDelayedRescue(aiAttempts, {
         rosterLabels,
         preferredLabel: activeProviders.some((p) => p.id === "groq") ? "groq:openai/gpt-oss-120b" : null,
         nowMs: Date.now(),
         requestDeadlineMs: requestDeadline,
+        wavesNeverFired: !anyLegFired,
       });
       if (delayedPlan.action === "skip" && delayedPlan.summary) {
         aiAttempts.push({ wave: 6, ok: false, delayedRescue: true, summary: delayedPlan.summary });
       } else if (delayedPlan.action === "wait") {
         const delayedRescueDeadline = requestDeadline + DELAYED_RESCUE_OVERRUN_MS;
         const chosen = delayedPlan.chosen;
-        aiAttempts.push({ wave: 6, ok: false, delayedRescue: true, waitedMs: delayedPlan.waitMs, summary: "delayed rescue: waiting " + delayedPlan.waitMs + "ms for rate limit windows to refill, then retrying " + chosen.join(", ") });
+        aiAttempts.push({ wave: 6, ok: false, delayedRescue: true, waitedMs: delayedPlan.waitMs, summary: delayedPlan.firstFire
+          ? "delayed rescue: the waves never fired (the synthesis window closed during preparation); firing the rescue legs now: " + chosen.join(", ")
+          : "delayed rescue: waiting " + delayedPlan.waitMs + "ms for rate limit windows to refill, then retrying " + chosen.join(", ") });
         await new Promise((res) => setTimeout(res, delayedPlan.waitMs));
         // guardedRaceEntry re-checks each park at fire time: a leg
         // whose cooldown did not lapse is skipped and recorded,

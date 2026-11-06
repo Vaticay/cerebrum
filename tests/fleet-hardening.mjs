@@ -804,6 +804,85 @@ await test("no recorded failures stands the park rescue down silently", () => {
   assert.equal(plan.summary, null);
 });
 
+group("delayed rescue first fire (2026-11-06, 100 percent answer success lane)");
+
+await test("the window starved trail first fires the best two unparked legs with no wait", () => {
+  resetLegHealth();
+  recordLegOutcome("gemini:gemini-3.8-flash", true, null, T0);
+  // The FRS6/FRS7 trail shape: the wave 1 window gate's named
+  // skip and nothing else — no leg was ever attempted.
+  const attempts = [
+    { wave: 1, ok: false, summary: "synthesis-deadline: wave 1 not fired, only 240ms of synthesis window remained and a leg needs at least 3000ms" },
+  ];
+  const plan = planDelayedRescue(attempts, {
+    rosterLabels: ["groq:openai/gpt-oss-120b", "gemini:gemini-3.8-flash", "groq:openai/gpt-oss-20b"],
+    preferredLabel: "groq:openai/gpt-oss-120b",
+    nowMs: T0 + 11500,
+    requestDeadlineMs: T0 + 19000,
+    wavesNeverFired: true,
+  });
+  assert.equal(plan.action, "wait");
+  assert.equal(plan.waitMs, 0, "there is no throttle to wait out");
+  assert.equal(plan.firstFire, true);
+  assert.equal(plan.chosen[0], "groq:openai/gpt-oss-120b", "the preferred leg leads the first fire");
+  assert.ok(plan.chosen.includes("gemini:gemini-3.8-flash"), "the second seat is an independent bucket");
+});
+
+await test("the same empty trail without the attestation still stands down silently", () => {
+  resetLegHealth();
+  const attempts = [
+    { wave: 1, ok: false, summary: "synthesis-deadline: wave 1 not fired" },
+  ];
+  const plan = planDelayedRescue(attempts, {
+    rosterLabels: ["groq:openai/gpt-oss-120b"],
+    preferredLabel: "groq:openai/gpt-oss-120b",
+    nowMs: T0 + 11500,
+    requestDeadlineMs: T0 + 19000,
+  });
+  assert.equal(plan.action, "skip");
+  assert.equal(plan.summary, null);
+});
+
+await test("a first fire with every rescue leg parked stands down by name", () => {
+  resetLegHealth();
+  recordLegOutcome("groq:openai/gpt-oss-120b", false, GROQ_429, T0);
+  const attempts = [
+    { wave: 1, ok: false, summary: "synthesis-deadline: wave 1 not fired" },
+  ];
+  const plan = planDelayedRescue(attempts, {
+    rosterLabels: ["groq:openai/gpt-oss-120b"],
+    preferredLabel: "groq:openai/gpt-oss-120b",
+    nowMs: T0 + 11500,
+    requestDeadlineMs: T0 + 19000,
+    wavesNeverFired: true,
+  });
+  assert.equal(plan.action, "skip");
+  assert.ok(plan.summary && plan.summary.includes("never fired"), "the stand down is named");
+});
+
+await test("a first fire that no longer fits before the rescue deadline stands down by name", () => {
+  resetLegHealth();
+  const attempts = [
+    { wave: 1, ok: false, summary: "synthesis-deadline: wave 1 not fired" },
+  ];
+  const plan = planDelayedRescue(attempts, {
+    rosterLabels: ["groq:openai/gpt-oss-120b"],
+    preferredLabel: "groq:openai/gpt-oss-120b",
+    // 45s past the deadline: retry + reserve cross deadline + overrun.
+    nowMs: T0 + 19000 + 45000,
+    requestDeadlineMs: T0 + 19000,
+    wavesNeverFired: true,
+  });
+  assert.equal(plan.action, "skip");
+  assert.ok(plan.summary && plan.summary.includes("no longer fits"), "the stand down is named");
+});
+
+await test("the handler attests wavesNeverFired from the attempt trail (source pin)", () => {
+  assert.ok(src.includes("wavesNeverFired: !anyLegFired"), "the delayed planner does not receive the attestation");
+  assert.ok(src.includes("!a.plannedSkip && !a.parked && !a.budgetSkipped"), "the attestation counts stamps and skips as fires");
+  assert.ok(src.includes("delayedPlan.firstFire"), "the trail does not name a first fire");
+});
+
 await test("the park rescue is wired after the delayed rescue, as wave 7, before the stage closes", () => {
   const delayedIdx = src.indexOf("planDelayedRescue(aiAttempts");
   const parkIdx = src.indexOf("planParkRescue(aiAttempts");
