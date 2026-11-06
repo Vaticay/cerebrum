@@ -5323,6 +5323,25 @@ function buildShareText(t, url) {
   return lines.join("\n");
 }
 
+/* The permanent record link for a turn's answer, when its search
+   minted one (2026-11-06, cold demo fix). The turn's record
+   carries its id (and an absolute url on the production origin);
+   the share link is built on the visitor's own origin so it opens
+   the same record from any host the app is served on. Null when
+   the turn has no record id: the caller falls back to the rerun
+   link and must say plainly that the recipient's answer may
+   differ, because a rerun is a fresh search, not this answer. */
+const SHARE_RECORD_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{7,79}$/;
+function shareRecordUrl(t) {
+  const rec = t && t._record && typeof t._record === "object" ? t._record : null;
+  if (!rec) return null;
+  if (typeof rec.id === "string" && SHARE_RECORD_ID.test(rec.id)) {
+    return window.location.origin + "/record/" + rec.id;
+  }
+  if (typeof rec.url === "string" && /\/record\/[A-Za-z0-9][A-Za-z0-9_-]{7,79}$/.test(rec.url)) return rec.url;
+  return null;
+}
+
 /* ── KeyFigures: quiet counts, not a verdict ─────────────────────────────
    Replaces the old VerdictReadout ("Supported"/"Contested"/"Unverified").
    Dusty's rule: the judgment is distributed per-paper, never global.
@@ -9622,37 +9641,178 @@ function recordFunnelEntries(record) {
   ];
 }
 
-/* The budget line, replicating the permanent page's
-   recordBudgetSection phrasing rules exactly: total used of
-   limit, the five largest stage spends by name, and the refusal
-   sentence only when refused is above zero. The ledger's single
-   source is the record's own ledger (t._record.ledger). */
+/* ── Plain language screens for the record's diagnostic fields ──
+   (2026-11-06, cold demo fix). The record stores the run's raw
+   diagnostics: fact check trace entries whose detail is the
+   provider's own error text (the public record page printed one
+   vendor's daily quota message and its paid plan upsell), a
+   subrequest ledger with grant refusals, and internal stage
+   names. The readable half of the record (this panel, the
+   Markdown export, and the public record page, whose renderers
+   in functions/record/[id].js mirror these helpers) may never
+   print those strings. Everything below maps the stored fields
+   to plain honest sentences: what ran, what did not, and what
+   that left unchecked. An outcome the map does not know falls
+   back to a generic honest line, never the stored string, and
+   the stored detail is never read at all, because the detail is
+   where provider error text lives. Honesty is kept: a search
+   that was partial still says so. The verbatim record stays
+   available as data (the export's JSON block, the record page's
+   ?format=json); it is the prose that is screened. */
+const RECORD_STAGE_PLAIN = {
+  retrieval: "searching the databases",
+  synthesis: "writing the answer",
+  validation: "checking the evidence",
+  "fact-check": "checking the claims",
+  disagreement: "comparing the sources",
+  cache: "looking up a saved answer",
+  request: "handling the request",
+  rerank: "ranking the results",
+};
+
+function recordStagePlain(name) {
+  return Object.prototype.hasOwnProperty.call(RECORD_STAGE_PLAIN, name)
+    ? RECORD_STAGE_PLAIN[name] : null;
+}
+
+/* A stage's plain name for the answer diagnostics rows, with a
+   generic honest fallback for a name the map does not know. */
+function stagePlain(name) {
+  return recordStagePlain(name) || "one part of the search";
+}
+
+/* A stage's stored skip or failure reason, screened for the
+   diagnostics rows (2026-11-06, cold demo fix). Known short
+   tokens map to plain words. A written sentence the stage
+   recorded to explain itself passes only when it carries no
+   vendor name, no machinery word, and no raw status code; the
+   token "stage failed" adds nothing beside the row's own words
+   and drops. Anything else drops too, so an unknown internal
+   string can never reach the reader raw. */
+const STAGE_REASON_PLAIN = {
+  "stage timed out": "it timed out",
+  "no database responded": "no database responded",
+  "all legs failed": "every writing service failed",
+  "no legs recorded": "no writing service was tried",
+  "drafts rejected downstream": "the drafts did not pass the quality checks",
+  "answer had no citations": "the answer had no citations",
+  "no citable evidence": "there was no citable evidence",
+  "subrequest budget exhausted": "the search reached its working limit",
+  "budget": "the search reached its working limit",
+  "budget-spent": "the search reached its working limit",
+  "gate": "the quality gate stopped it",
+  "ran-no-countable": "it ran and found nothing countable",
+  "tiers-failed": "every checker failed",
+  "off": "it was turned off",
+  "no-time": "it ran out of time",
+};
+function stageReasonPlain(reason) {
+  if (typeof reason !== "string" || !reason) return "";
+  if (Object.prototype.hasOwnProperty.call(STAGE_REASON_PLAIN, reason)) return STAGE_REASON_PLAIN[reason];
+  if (reason === "stage failed") return "";
+  if (/workers|openrouter|gemini|groq|mistral|nvidia|cerebras|sambanova|http-?\d|subrequest|ledger|neuron/i.test(reason)) return "";
+  if (!/\s/.test(reason)) return "";
+  return reason;
+}
+
+/* One stored trace outcome's category, from the outcome token
+ * alone. Unknown outcomes land in "failed", whose wording is the
+ * generic honest line. */
+function factCheckOutcomeCategory(entry) {
+  const outcome = entry && typeof entry.outcome === "string" ? entry.outcome : "";
+  const tier = entry && typeof entry.tier === "string" ? entry.tier : "";
+  if (outcome === "ok") return tier === "terms" ? "terms-ran" : "ran";
+  if (outcome === "nothing-to-verify") return "nothing-to-verify";
+  if (tier === "stage") {
+    if (outcome === "off") return "off";
+    if (outcome === "no-time") return "stage-no-time";
+    if (outcome === "budget") return "stage-budget";
+    return "stage-other";
+  }
+  switch (outcome) {
+    case "excluded": return "excluded";
+    case "no-key": case "no-binding": return "unavailable";
+    case "unparseable": return "unreadable";
+    case "timeout": case "no-time": return "timeout";
+    case "budget": return "budget";
+    case "http-429": return "limit";
+    default:
+      if (/^http-\d+$/.test(outcome)) return "unreachable";
+      return "failed";
+  }
+}
+
+/* The trace as plain sentences, one per category that occurred,
+ * counted where several checkers met the same end. */
+function factCheckPlainLines(trace) {
+  if (!Array.isArray(trace)) return [];
+  const entries = trace.filter((t) => t && typeof t === "object" && (t.tier || t.outcome));
+  if (!entries.length) return [];
+  const counts = {};
+  for (const e of entries) {
+    const c = factCheckOutcomeCategory(e);
+    counts[c] = (counts[c] || 0) + 1;
+  }
+  const counted = (n, oneText, manyText) => (n === 1 ? oneText : manyText.replace(/\{n\}/g, String(n)));
+  const lines = [];
+  if (counts["ran"]) lines.push("A claim check ran on this answer.");
+  if (counts["terms-ran"]) lines.push("A light check of the scientific terms in the answer ran.");
+  if (counts["nothing-to-verify"]) lines.push("The light check ran and found no checkable terms in the answer.");
+  if (counts["off"]) lines.push("The claim check was off for this search.");
+  if (counts["stage-no-time"]) lines.push("The claim check did not run. The search ran out of time first.");
+  if (counts["stage-budget"]) lines.push("The claim check did not run. The search had reached its working limit.");
+  if (counts["stage-other"]) lines.push("The claim check did not run for this search.");
+  if (counts["excluded"]) lines.push(counted(counts["excluded"],
+    "One checker was skipped because it wrote the answer, and a writer cannot check its own work.",
+    "{n} checkers were skipped because they wrote the answer, and a writer cannot check its own work."));
+  if (counts["unavailable"]) lines.push(counted(counts["unavailable"],
+    "One checker was not available for this search.",
+    "{n} checkers were not available for this search."));
+  if (counts["unreadable"]) lines.push(counted(counts["unreadable"],
+    "One checker replied in a form that could not be read, so it was not counted.",
+    "{n} checkers replied in a form that could not be read, so they were not counted."));
+  if (counts["timeout"]) lines.push(counted(counts["timeout"],
+    "One checker did not answer in time, so it was not counted.",
+    "{n} checkers did not answer in time, so they were not counted."));
+  if (counts["budget"]) lines.push(counted(counts["budget"],
+    "One checker could not run, because the search had reached its working limit.",
+    "{n} checkers could not run, because the search had reached its working limit."));
+  if (counts["limit"]) lines.push(counted(counts["limit"],
+    "One checker was at its usage limit, so it could not run.",
+    "{n} checkers were at their usage limits, so they could not run."));
+  if (counts["unreachable"]) lines.push(counted(counts["unreachable"],
+    "One checker could not be reached, so it was not counted.",
+    "{n} checkers could not be reached, so they were not counted."));
+  if (counts["failed"]) lines.push(counted(counts["failed"],
+    "One checker did not complete, so it was not counted.",
+    "{n} checkers did not complete, so they were not counted."));
+  return lines;
+}
+
+/* The budget line in plain words (2026-11-06, cold demo fix),
+   replicating the permanent page's recordBudgetSection rules.
+   The stored ledger counts subrequests and refused grants, which
+   are working machinery, not facts a reader can use. The single
+   source is the record's ledger (t._record.ledger).
+   What a reader can use is whether the search finished its
+   planned work. The refusal count is the one honest signal:
+   above zero, some planned lookups never ran; at zero, the
+   search stayed within its working limit. Numbers from the
+   ledger never print. */
 function recordBudgetLine(record) {
   const L = record && typeof record === "object" ? record.ledger : null;
   if (!L || typeof L !== "object" || !Number.isFinite(L.used) || !Number.isFinite(L.limit)) return null;
-  const stages = Object.entries(L.byStage && typeof L.byStage === "object" ? L.byStage : {})
-    .filter(([, v]) => Number.isFinite(v) && v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  let line = "Subrequests: " + L.used + " used of a limit of " + L.limit + ".";
-  if (stages.length) {
-    line += " Largest spends: " + stages.map(([k, v]) => k + " " + v).join(", ") + ".";
-  }
   if (Number.isFinite(L.refused) && L.refused > 0) {
-    line += " " + L.refused + " grant" + (L.refused === 1 ? " was" : "s were") + " refused at the budget ceiling.";
+    return "This search reached its working limit, so some of its planned lookups never ran. The answer rests on the sources that were gathered.";
   }
-  return line;
+  return "This search stayed within its working limit.";
 }
 
-/* The fact check trace as one compressed line, each tier named
-   with its outcome, the way the permanent page prints it. */
+/* The fact check trace as one compressed line of plain
+   sentences, the way the permanent page prints it. */
 function recordFactCheckTraceLine(record) {
-  const trace = record && Array.isArray(record.factCheckTrace) ? record.factCheckTrace : null;
-  if (!trace || !trace.length) return null;
-  const parts = trace
-    .filter((x) => x && typeof x === "object" && (x.tier || x.outcome))
-    .map((x) => String(x.tier || "") + ": " + String(x.outcome || "") + (x.detail ? " (" + String(x.detail) + ")" : ""));
-  return parts.length ? parts.join(", ") : null;
+  const lines = factCheckPlainLines(record && record.factCheckTrace);
+  return lines.length ? lines.join(" ") : null;
 }
 
 /* True when a fact check trace proves every tier failed: the
@@ -9670,12 +9830,20 @@ function factCheckTraceAllFailed(trace) {
 }
 
 /* The health note, mirroring the permanent page's
-   recordHealthNote wording. Null for a healthy record. */
+   recordHealthNote wording. Null for a healthy record. The
+   failed stage names print through RECORD_STAGE_PLAIN
+   (2026-11-06): the stored names are internal identifiers, and
+   a name the map does not know is dropped rather than printed
+   raw. */
 function recordHealthLine(record) {
   if (!record || typeof record !== "object") return null;
   if (record.degraded === true) {
     const stages = Array.isArray(record.failedStages)
-      ? record.failedStages.filter((s) => typeof s === "string" && s) : [];
+      ? record.failedStages
+        .filter((s) => typeof s === "string" && s)
+        .map(recordStagePlain)
+        .filter(Boolean)
+      : [];
     return "This search ran degraded: part of the pipeline did not complete"
       + (stages.length ? " (failed stages: " + stages.join(", ") + ")" : "")
       + ". The record below is still the complete record of the run.";
@@ -9786,9 +9954,9 @@ function searchRecordMarkdown(record) {
   lines.push(recordBudgetLine(record) || "Budget counts were not recorded for this search.");
   lines.push("");
   lines.push("## Fact check");
-  const fcTraceLine = recordFactCheckTraceLine(record);
-  if (fcTraceLine) {
-    for (const part of fcTraceLine.split(", ")) lines.push(part);
+  const fcLines = factCheckPlainLines(record.factCheckTrace);
+  if (fcLines.length) {
+    for (const part of fcLines) lines.push(part);
   } else {
     lines.push("Fact check attempts were not recorded for this search.");
   }
@@ -10104,12 +10272,16 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
   }
   for (const s of failedStages) {
     const ms = typeof s.ms === "number" && s.ms > 0 ? ` after ${Math.round(s.ms)} ms` : "";
-    const reason = typeof s.skipReason === "string" && s.skipReason ? ` (${s.skipReason})` : "";
-    rows.push({ k: "Pipeline", v: `The ${s.name || "unnamed"} stage did not complete${ms}${reason}, the answer was built without it.` });
+    const plain = stagePlain(s.name);
+    const head = plain.charAt(0).toUpperCase() + plain.slice(1);
+    const reason = stageReasonPlain(s.skipReason);
+    rows.push({ k: "Pipeline", v: `${head} did not complete${ms}${reason ? ` (${reason})` : ""}. The answer was built without it.` });
   }
   for (const s of skippedStages) {
-    const reason = typeof s.skipReason === "string" && s.skipReason ? `: ${s.skipReason}` : "";
-    rows.push({ k: "Pipeline", v: `The ${s.name || "unnamed"} stage was skipped${reason}.` });
+    const plain = stagePlain(s.name);
+    const head = plain.charAt(0).toUpperCase() + plain.slice(1);
+    const reason = stageReasonPlain(s.skipReason);
+    rows.push({ k: "Pipeline", v: `${head} was skipped${reason ? `: ${reason}` : ""}.` });
   }
   if (t.degraded && failedStages.length === 0) {
     rows.push({ k: "Pipeline", v: "Built under degraded conditions. Part of the pipeline did not complete." });
@@ -11103,8 +11275,17 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                   {linkCopied ? "Link copied" : "Share"}
                 </button>
                 {shareOpen && (() => {
-                  const url = window.location.origin + "/?q=" + encodeURIComponent(t.q);
-                  const shareText = buildShareText(t, url);
+                  /* The permanent record link when this answer has
+                     one (2026-11-06, cold demo fix): the recipient
+                     opens the record of this exact search. The
+                     rerun link is only the fallback for an answer
+                     with no record, and the copy says so, in the
+                     dialog and in the shared text, because a rerun
+                     is a fresh search that can answer differently. */
+                  const recordUrl = shareRecordUrl(t);
+                  const url = recordUrl || window.location.origin + "/?q=" + encodeURIComponent(t.q);
+                  const shareText = buildShareText(t, url)
+                    + (recordUrl ? "" : "\nThis link runs the question again, so the answer may differ from this one.");
                   const tops = shareTopSources(t);
                   const figures = keyFiguresLine(t);
                   const canNativeShare = !!(navigator.share && window.isSecureContext);
@@ -11137,6 +11318,11 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
                         </div>
                       )}
                       <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 14, overflowWrap: "anywhere", lineHeight: 1.5 }}>{url}</div>
+                      <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", marginTop: 6, lineHeight: 1.5 }}>
+                        {recordUrl
+                          ? "This link opens the permanent record of this exact search."
+                          : "This answer has no saved record, so this link runs the question again. The answer may differ."}
+                      </div>
                       <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end", flexWrap: "wrap" }}>
                         <button type="button" className="cb-textbtn" style={{ minHeight: 44, padding: "12px 12px" }} onClick={() => { copyToClipboard(url, "Link copied").then((ok) => { if (ok) setShareOpen(false); }); }}>
                           Copy link only
@@ -15403,7 +15589,7 @@ function FcNodeShape({ n, P, accent, selected, pending }) {
 const OTP_LENGTH = 6;
 const OTP_RESEND_COOLDOWN_S = 30;
 
-function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
+function AuthModal({ P, accent, at, close, onAuthed, intent = "login", note }) {
   const winW = useWindowWidth();
   const [step, setStep] = useState("email"); // "email" | "code"
   const [email, setEmail] = useState("");
@@ -15591,6 +15777,9 @@ function AuthModal({ P, accent, at, close, onAuthed, intent = "login" }) {
       eyebrow={step === "email" ? "Account" : "Check your email"}
       title={step === "email" ? (intent === "signup" ? "Create your account" : "Sign in") : "Enter your code"}>
 
+        {note && step === "email" ? (
+          <div style={{ fontSize: FONT_SIZES.body, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.55, marginBottom: 14 }}>{note}</div>
+        ) : null}
         {step === "email" ? (
           <form onSubmit={requestCode} style={{ paddingTop: 4 }}>
             <label style={{ display: "block", fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink2 }}>
@@ -18525,8 +18714,17 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       : "You have used all of your document reads in this period.";
     return `Document reads are used up. ${countLine} ${quotaRefillSentence()}`;
   };
+  /* Sign in routes out of Documents carry their reason
+     (2026-11-06, cold demo fix). The modal used to open in
+     silence after a paste and an Inspect tap, so the moment read
+     as a trap. The note rides onOpenAuth's second argument into
+     the modal itself, and every auth route in this surface (the
+     gate, the analyze and compare backends, the follow up ask)
+     uses it, so no path out of Documents opens the modal mute. */
+  const DOC_AUTH_NOTE = "Documents need a free account. Sign in to continue. Your document stays on this page while you do.";
+  const openDocAuth = () => { if (onOpenAuth) onOpenAuth("signin", DOC_AUTH_NOTE); };
   const docGate = () => {
-    if (!user) { if (onOpenAuth) onOpenAuth("signin"); return false; }
+    if (!user) { openDocAuth(); return false; }
     if (!docIsPro && docCap != null && docUsed >= docCap) { if (onOpenPro) onOpenPro(undefined, docQuotaReason(true)); return false; }
     return true;
   };
@@ -18613,7 +18811,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       if (gen !== docGen.current) return;
       emitNovaActivity("search", "failed");
       const code = e && e.code;
-      if (code === "auth_required") { if (onOpenAuth) onOpenAuth("signin"); }
+      if (code === "auth_required") { openDocAuth(); }
       else if (code === "doc_quota_exhausted") { if (onOpenPro) onOpenPro(undefined, docQuotaReason(true)); }
       else if (code === "aborted") setError("Analysis canceled.");
       else if (code === "timeout") setError("The analysis took too long. Try again in a moment.");
@@ -18648,7 +18846,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     // longer meters Q&A as reads either). Signed in is the only gate
     // here; docGate() with its cap check would shut the ask box after
     // a couple of questions and call it a Pro feature.
-    if (!user) { if (onOpenAuth) onOpenAuth("signin"); return; }
+    if (!user) { openDocAuth(); return; }
     // Prior turns ride along for context; the backend bounds and formats
     // them, and is instructed to verify every fact against the document.
     // Turns from before an edit describe the earlier text: they are not
@@ -18698,7 +18896,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       const code = e && e.code;
       if (code === "auth_required") {
         setQaHistory((h) => h.slice(0, -1));
-        if (onOpenAuth) onOpenAuth("signin");
+        openDocAuth();
       } else if (code === "doc_quota_exhausted") {
         setQaHistory((h) => h.slice(0, -1));
         if (onOpenPro) onOpenPro(undefined, docQuotaReason(true));
@@ -18785,7 +18983,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       if (cmpGen !== docGen.current) return;
       const code = e && e.code;
       setCompareResult(null);
-      if (code === "auth_required") { if (onOpenAuth) onOpenAuth("signin"); }
+      if (code === "auth_required") { openDocAuth(); }
       else if (code === "doc_quota_exhausted") { if (onOpenPro) onOpenPro(undefined, docQuotaReason(true)); }
       else if (code === "aborted") setCompareError("Comparison canceled.");
       else if (code === "timeout") setCompareError("The comparison took too long. Try again in a moment.");
@@ -19430,7 +19628,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
             </div>
             <div className="cb-doc-helper" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 12, flexWrap: "wrap" }}>
               <div style={{ alignItems: "center", fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {!docStats ? <span>Paste a paper, report, or any long document. You can also upload a file or drop one here.</span> : <>
+                {!docStats ? <span>Paste a paper, report, or any long document. You can also upload a file or drop one here.{!user ? " Reading it needs a free account." : ""}</span> : <>
                   <span>{docStats.words.toLocaleString()} words</span>
                   <span>·</span>
                   <span>~{docStats.mins} min read</span>
@@ -21971,18 +22169,22 @@ function App({ profileHandle = null } = {}) {
   const [entered, setEntered] = useState(false);
   const srcTabUid = useId().replace(/:/g, "");
   /* Public Beta 2 announcement (2026-10-12). Shows exactly once per
-     browser, right after the door, keyed off its own localStorage flag.
-     The Dialog render near the other overlays is gated on this same
-     boolean, so state and dialog can never diverge. That divergence is
-     what froze the page in Commit 92: v5Open had state and a scroll
-     lock entry but no render. */
+     browser, keyed off its own localStorage flag. The Dialog render
+     near the other overlays is gated on this same boolean, so state
+     and dialog can never diverge. That divergence is what froze the
+     page in Commit 92: v5Open had state and a scroll lock entry but
+     no render.
+     Sequencing (2026-11-06, cold demo fix): it used to fire right
+     after the door, stacking on top of the non dismissible consent
+     gate before the visitor had asked a single question. The
+     effect that opens it now waits until consent is complete AND
+     the first answer has rendered, and it lives below the legalOk
+     declaration, beside the deep link effect, because its
+     dependency array reads legalOk, busy, and turns during
+     render. Until it fires the state stays false, so no scroll
+     lock or backdrop engages early either. The consent gate
+     itself is untouched. */
   const [beta2Open, setBeta2Open] = useState(false);
-  useEffect(() => {
-    if (!entered || beta2Open) return;
-    let seen = true;
-    try { seen = localStorage.getItem("cb_seen_beta2_v2") === "1"; } catch { seen = true; }
-    if (!seen) setBeta2Open(true);
-  }, [entered, beta2Open]);
   const dismissBeta2 = useCallback(() => {
     setBeta2Open(false);
     try { localStorage.setItem("cb_seen_beta2_v2", "1"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx dismissBeta2:", cbErr); }
@@ -22036,6 +22238,11 @@ function App({ profileHandle = null } = {}) {
   const [sessionKnown, setSessionKnown] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState("login");
+  /* One plain line explaining why the sign in modal appeared,
+     carried by a surface that routes a signed out visitor into
+     it (2026-11-06, cold demo fix; Documents is the first). Null
+     for every ordinary open, cleared when the modal closes. */
+  const [authNote, setAuthNote] = useState(null);
   // returnTo: where to go after a successful sign-in. Set when the Pro
   // modal's sign-in button opens auth, so the highest-intent click in the
   // app doesn't dead-end at the sign-in wall.
@@ -23884,6 +24091,22 @@ function App({ profileHandle = null } = {}) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [legalOk]);
+  /* Public Beta 2 announcement sequencing (2026-11-06, cold demo
+     fix): the announcement opens only once consent is complete
+     AND the first answer has rendered: entered, legalOk, no
+     search in flight, and at least one turn carrying an answer.
+     It lives here, below the legalOk, busy, and turns
+     declarations, because its dependency array reads them during
+     render. The state and its dismiss handler stay with the other
+     shell state above; the consent gate itself is untouched. */
+  useEffect(() => {
+    if (!entered || beta2Open || !legalOk || busy) return;
+    const firstAnswerRendered = turns.some((t) => t && typeof t.answer === "string" && t.answer.length > 0);
+    if (!firstAnswerRendered) return;
+    let seen = true;
+    try { seen = localStorage.getItem("cb_seen_beta2_v2") === "1"; } catch { seen = true; }
+    if (!seen) setBeta2Open(true);
+  }, [entered, beta2Open, legalOk, busy, turns]);
   // Commit 66 — true once this account has anything of its own to show on
   // the Home Deck. Drives the compact hero; see the comment at its
   // <Reveal>. Deliberately does NOT include the watchlist: that loads
@@ -26345,7 +26568,7 @@ function App({ profileHandle = null } = {}) {
       )}
       {view === "document" && (
         <Reveal style={{ ...S.pageView, background: "transparent", minHeight: "100%" }} deps={[view]}>
-          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} onOpenPro={openPro} onUsageChanged={refreshPro}
+          <NotebookMode P={P} accent={accent} at={at} asPage close={() => setView("search")} user={user} proStatus={proStatus} onOpenAuth={(tab, note) => { setAuthInitialTab(tab); setAuthNote(note || null); setAuthOpen(true); }} onOpenPro={openPro} onUsageChanged={refreshPro}
             fontSize={fontSize} dyslexicFont={dyslexicFont} lineSpacing={lineSpacing}
             /* The document page runs its own single FilmLayer; mirror the
                workspace reel's rule so reduced motion / Save-Data /
@@ -27429,8 +27652,9 @@ function App({ profileHandle = null } = {}) {
       {authOpen && (
         <AuthModal
           P={registerPalette} accent={REGISTER_GOLD} at={accentText(REGISTER_GOLD)}
-          close={() => { setAuthOpen(false); setAuthReturnTo(null); }}
+          close={() => { setAuthOpen(false); setAuthReturnTo(null); setAuthNote(null); }}
           intent={authInitialTab === "signup" ? "signup" : "login"}
+          note={authNote}
           onAuthed={(u) => handleAuthed(u, { checkImport: true })}
         />
       )}
@@ -27441,7 +27665,7 @@ function App({ profileHandle = null } = {}) {
           onClose={() => setProModalOpen(false)}
           initialPlan={proModalPlan}
           reason={proModalReason}
-          onSignIn={() => { setAuthInitialTab("login"); setAuthReturnTo("pro"); setAuthOpen(true); }}
+          onSignIn={() => { setAuthInitialTab("login"); setAuthNote(null); setAuthReturnTo("pro"); setAuthOpen(true); }}
         />
       )}
       {evidenceTableSources && <EvidenceTableModal P={P} accent={accent} at={at} sources={evidenceTableSources} close={() => setEvidenceTableSources(null)} />}

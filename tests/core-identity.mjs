@@ -464,7 +464,15 @@ await test("answer diagnostics counts only ok false stages as failures and repor
     "diagnostics still treats every falsy ok as a stage failure");
   assert.ok(diag.includes('stageState(s) === "failed"'), "the failure filter does not go through stageState");
   assert.ok(diag.includes('stageState(s) === "skipped"'), "diagnostics never separates skipped stages");
-  assert.ok(diag.includes("stage was skipped"), "a skipped stage gets no neutral row in diagnostics");
+  /* Pin updated 2026-11-06 (cold demo fix): the rows still report
+     skips neutrally and still surface the shipped skipReason, but
+     the stage name and the reason now pass through the plain
+     language screens (stagePlain, stageReasonPlain), so the old
+     literal "stage was skipped" wording, which printed the raw
+     internal stage name, is gone by design. */
+  assert.ok(diag.includes("was skipped"), "a skipped stage gets no neutral row in diagnostics");
+  assert.ok(diag.includes("stagePlain(s.name)"), "diagnostics prints the raw stage name instead of its plain name");
+  assert.ok(diag.includes("stageReasonPlain(s.skipReason)"), "diagnostics never surfaces the shipped skipReason through its screen");
   assert.ok(diag.includes("s.skipReason"), "diagnostics never surfaces the shipped skipReason");
   assert.ok(diag.includes("const issueCount = missing.length + failedStages.length + (t.degraded ? 1 : 0);"),
     "the issue count changed shape; it must count failed stages only, never skipped ones");

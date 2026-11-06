@@ -852,8 +852,16 @@ await test("the record page renders the fact check trace lines", async () => {
   assert.equal(res.status, 200);
   const html = await res.text();
   assert.ok(html.includes("<h2>Fact check</h2>"), "the fact check section is missing from the record page");
-  assert.ok(html.includes("gemini: ok"), "the gemini trace line did not render: " + html.slice(html.indexOf("Fact check"), html.indexOf("Fact check") + 300));
-  assert.ok(html.includes("openrouter: http-429"), "the openrouter trace line did not render");
+  /* Pin updated 2026-11-06 (cold demo fix): the section renders the
+     trace as plain sentences, never the stored tier names, outcome
+     tokens, or detail text — the detail on a live record carried a
+     provider's quota message and paid plan upsell. The gemini ok
+     entry reads as the ran line and the openrouter 429 as the
+     usage limit line. */
+  assert.ok(html.includes("A claim check ran on this answer."), "the ran trace line did not render in plain words: " + html.slice(html.indexOf("Fact check"), html.indexOf("Fact check") + 300));
+  assert.ok(html.includes("One checker was at its usage limit, so it could not run."), "the 429 trace line did not render in plain words");
+  assert.ok(!html.includes("gemini") && !html.includes("openrouter") && !html.includes("http-429") && !html.includes("the validate model answered"),
+    "a vendor name, raw outcome token, or stored detail rendered on the public page");
 });
 
 await test("the record page says the trace was not recorded when the record has none", async () => {

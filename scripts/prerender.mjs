@@ -282,9 +282,18 @@ for (const slug of slugs) {
  * same values, at the foot of its frame. Element for element
  * parity is this layer's whole contract; a row that existed only
  * after mount would be a second, lesser door for exactly the
- * stalled visitor this document serves. */
+ * stalled visitor this document serves.
+ * 2026-11-06 (cold demo fix): the door main carries id "cb-boot",
+ * the boot watchdog's marker (public/boot-watchdog.js, loaded by
+ * the shell this document is built from). If the bundle never
+ * mounts, the watchdog replaces this card with plain failure words
+ * and a Reload button after 15 seconds; the card's one link reloads
+ * into the same stall, which is not a failure exit. The id changes
+ * no rendering, so the parity contract above is untouched. The
+ * slug documents deliberately carry no marker: they are complete
+ * without the bundle and the watchdog never arms on them. */
 const doorMain = `
-    <main class="cb-prerender" style="min-height:100dvh;background:#060606;color:#f3f3f1;font:16px/1.7 'Inter Tight','Inter',system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
+    <main id="cb-boot" class="cb-prerender" style="min-height:100dvh;background:#060606;color:#f3f3f1;font:16px/1.7 'Inter Tight','Inter',system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
       <div style="padding:3rem 1.25rem;margin:auto">
       <h1 style="font-family:'Source Serif 4',Charter,Georgia,'Times New Roman',serif;font-weight:500;font-size:3.25rem;line-height:1.04;letter-spacing:0.008em;margin:0">Cerebrum</h1>
       <p style="font-size:1.05rem;color:rgba(243,243,241,0.72);margin:1.35rem 0 0">Answers from published research.</p>

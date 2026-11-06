@@ -343,6 +343,17 @@ createRoot(document.getElementById("root")).render(
   </ErrorBoundary>
 );
 
+/* Boot watchdog stand down (2026-11-06, cold demo fix; see
+ * public/boot-watchdog.js). The bundle arrived and executed, so
+ * the static layer's failure exit must never fire. Set here, at
+ * module scope, the moment this file runs: React's first commit
+ * also replaces the static layer (the watchdog's other stand down
+ * signal), and a render error lands in the ErrorBoundary above,
+ * which carries its own Reload. */
+if (typeof window !== "undefined") {
+  window.__cbAppMounted = true;
+}
+
 /**
  * Service worker registration — push notifications for closed tabs.
  *

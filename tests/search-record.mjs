@@ -1269,7 +1269,11 @@ await test("a degraded record labels itself at the top of its page and names the
   const html = await res.text();
   assert.ok(html.includes("This search ran degraded: part of the pipeline did not complete"),
     "degraded record carries no banner");
-  assert.ok(html.includes("failed stages: synthesis, fact-check"), "the banner does not name the failed stages");
+  /* 2026-11-06 (cold demo fix): the stored stage names are internal
+     identifiers, so the banner names the failed stages in plain
+     words through the record page's stage map. */
+  assert.ok(html.includes("failed stages: writing the answer, checking the claims"), "the banner does not name the failed stages in plain words");
+  assert.ok(!html.includes("failed stages: synthesis"), "the banner printed an internal stage name");
   assert.ok(html.indexOf("This search ran degraded") < html.indexOf("<h2>Question</h2>"),
     "the banner belongs at the top of the page, before the record body");
 });
@@ -1294,7 +1298,13 @@ await test("a healthy record shows no health note, and a legacy record states on
     "the legacy note must not claim the degraded verdict it cannot know");
 });
 
-await test("the budget line renders the record's own ledger, and only then", async () => {
+/* 2026-11-06 (cold demo fix): the budget section prints plain
+   words, never the ledger's machinery. The ledger's refusal count
+   is the honest signal: above zero, the search reached its working
+   limit and some planned lookups never ran; at zero, it stayed
+   within the limit. Subrequest totals, stage spends, and grant
+   wording never render on the public page. */
+await test("the budget section states the ledger's one honest fact in plain words, and only then", async () => {
   const withLedger = {
     ...ROUTE_RECORD,
     ledger: {
@@ -1303,17 +1313,20 @@ await test("the budget line renders the record's own ledger, and only then", asy
     },
   };
   const html = await (await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(withLedger) }) })).text();
-  assert.ok(html.includes("Subrequests: 41 used of a limit of 50."), "budget total missing or wrong");
-  assert.ok(html.includes("Largest spends: retrieval 19, synthesis 8, validation 5, ratelimit 3, cache 1."),
-    "stage spends missing, unsorted, or not capped at five");
-  assert.ok(html.includes("3 grants were refused at the budget ceiling."), "refusals not stated when nonzero");
+  assert.ok(html.includes("This search reached its working limit, so some of its planned lookups never ran. The answer rests on the sources that were gathered."),
+    "a search with refused lookups does not say it was partial in plain words");
+  assert.ok(!html.includes("Subrequests"), "the subrequest total rendered on the public page");
+  assert.ok(!html.includes("Largest spends"), "the stage spends rendered on the public page");
+  assert.ok(!html.includes("grants were refused"), "grant internals rendered on the public page");
   const noRefusals = { ...withLedger, ledger: { ...withLedger.ledger, refused: 0 } };
   const htmlNoRefusals = await (await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(noRefusals) }) })).text();
-  assert.ok(!htmlNoRefusals.includes("refused at the budget ceiling"), "a refusal line printed when nothing was refused");
+  assert.ok(htmlNoRefusals.includes("This search stayed within its working limit."),
+    "a search with no refusals does not say it stayed within its working limit");
+  assert.ok(!htmlNoRefusals.includes("reached its working limit"), "a search with no refusals claimed it hit the limit");
   const bareHtml = await (await routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(ROUTE_RECORD) }) })).text();
   assert.ok(bareHtml.includes("Budget counts were not recorded for this search."),
     "a record without a ledger must say so, not print zeros");
-  assert.ok(!bareHtml.includes("Subrequests:"), "a record without a ledger printed a budget total");
+  assert.ok(!bareHtml.includes("working limit"), "a record without a ledger printed a budget verdict");
 });
 
 await test("?format=json returns the stored record JSON verbatim", async () => {
@@ -1732,14 +1745,19 @@ await test("D4: the panel budget row and the Markdown budget section use the rec
   const budgetRowAt = panel.indexOf('sectionRow("Budget"');
   assert.ok(funnelRowAt > 0 && budgetRowAt > funnelRowAt, "the budget row does not sit directly under the funnel row");
   assert.match(panel, /recordBudgetLine\(record\)/, "the panel does not phrase the budget from the record ledger helper");
-  // The helper replicates the record page's phrasing rules:
-  // total, five largest spends, refusal only when above zero.
+  // The helper replicates the record page's phrasing rules
+  // (2026-11-06, cold demo fix): the refusal count is the one
+  // honest signal, above zero the plain reached the limit
+  // sentence, at zero the stayed within sentence, and the
+  // ledger's machinery words never print.
   const helperAt = appSrc.indexOf("function recordBudgetLine");
   const helper = appSrc.slice(helperAt, helperAt + 1400);
   assert.match(helper, /record\.ledger/, "the budget helper does not read the record's ledger");
-  assert.match(helper, /slice\(0, 5\)/, "the budget helper does not cap spends at five");
   assert.match(helper, /L\.refused > 0/, "the budget helper does not gate the refusal sentence on refused above zero");
-  assert.match(helper, /used of a limit of/, "the budget helper does not use the page's total phrasing");
+  assert.match(helper, /reached its working limit/, "the budget helper does not use the page's plain limit phrasing");
+  assert.match(helper, /stayed within its working limit/, "the budget helper lacks the stayed within phrasing");
+  assert.ok(!helper.includes("Subrequests"), "the budget helper prints the subrequest machinery");
+  assert.ok(!helper.includes("grant"), "the budget helper prints grant internals");
   const mdAt = appSrc.indexOf("function searchRecordMarkdown");
   const md = appSrc.slice(mdAt, panelAt);
   assert.ok(md.indexOf('"## Budget"') > 0 && md.indexOf('"## Budget"') < md.indexOf('"## Record as JSON"'),
@@ -1845,17 +1863,19 @@ await test("D7: the panel and the Markdown carry the full readable contract", ()
     assert.ok(md.includes(`"${section}"`), `Markdown is missing the ${section} section`);
   }
   assert.ok(md.indexOf('"## Fact check"') < md.indexOf('"## Record as JSON"'), "the Markdown fact check list sits below the JSON dump");
-  // The specimen ledger's figures under the shared phrasing
-  // rules, checked against the page renderer directly: the page
-  // budget line for the fever ledger is the line the client
-  // helper mirrors.
+  // The specimen ledger under the shared plain phrasing rules
+  // (2026-11-06, cold demo fix), checked against the page
+  // renderer directly: the fever ledger refused 3 lookups, so the
+  // page budget line is the reached the limit sentence the client
+  // helper mirrors, and none of the ledger's machinery prints.
   const budgetRec = { ...ROUTE_RECORD, ledger: FEVER_INPUT.ledger };
   return routeCall(ROUTE_RECORD.id, { DB: routeDbWith({ record: JSON.stringify(budgetRec) }) })
     .then((res) => res.text())
     .then((html) => {
-      assert.ok(html.includes("Subrequests: 47 used of a limit of 50."), "page budget total wrong for the specimen ledger");
-      assert.ok(html.includes("Largest spends: retrieval 11, synthesis 5, ratelimit 3, queue 3, pre 3."), "page budget spends wrong for the specimen ledger");
-      assert.ok(html.includes("3 grants were refused at the budget ceiling."), "page budget refusal wrong for the specimen ledger");
+      assert.ok(html.includes("This search reached its working limit, so some of its planned lookups never ran. The answer rests on the sources that were gathered."),
+        "page budget sentence wrong for the specimen ledger");
+      assert.ok(!html.includes("Subrequests"), "page printed the subrequest machinery for the specimen ledger");
+      assert.ok(!html.includes("grants were refused"), "page printed grant internals for the specimen ledger");
     });
 });
 

@@ -107,6 +107,113 @@ function notFoundPage() {
   });
 }
 
+/* ── Plain language screens for the record's diagnostic fields ──
+ * (2026-11-06, cold demo fix). The record stores the run's raw
+ * diagnostics: fact check trace entries whose detail is the
+ * provider's own error text (a live record printed one vendor's
+ * daily quota message, its paid plan upsell, and two HTTP 429
+ * lines), a subrequest ledger with grant refusals, and internal
+ * stage names. This page is public and shareable, so its readable
+ * prose may never print those strings. Everything below maps the
+ * stored fields to plain honest sentences: what ran, what did
+ * not, and what that left unchecked. An outcome the map does not
+ * know falls back to a generic honest line, never the stored
+ * string, and the stored detail is never read at all, because the
+ * detail is where provider error text lives. Honesty is kept:
+ * a search that was partial still says so. The verbatim record
+ * stays available as data at ?format=json, labelled as JSON; it
+ * is the prose that is screened. The in app record panel and the
+ * Markdown export mirror these helpers in src/CerebrumApp.jsx. */
+const RECORD_STAGE_PLAIN = {
+  retrieval: "searching the databases",
+  synthesis: "writing the answer",
+  validation: "checking the evidence",
+  "fact-check": "checking the claims",
+  disagreement: "comparing the sources",
+  cache: "looking up a saved answer",
+  request: "handling the request",
+  rerank: "ranking the results",
+};
+
+function recordStagePlain(name) {
+  return Object.prototype.hasOwnProperty.call(RECORD_STAGE_PLAIN, name)
+    ? RECORD_STAGE_PLAIN[name] : null;
+}
+
+/* One stored trace outcome's category, from the outcome token
+ * alone. Unknown outcomes land in "failed", whose wording is the
+ * generic honest line. */
+function factCheckOutcomeCategory(entry) {
+  const outcome = entry && typeof entry.outcome === "string" ? entry.outcome : "";
+  const tier = entry && typeof entry.tier === "string" ? entry.tier : "";
+  if (outcome === "ok") return tier === "terms" ? "terms-ran" : "ran";
+  if (outcome === "nothing-to-verify") return "nothing-to-verify";
+  if (tier === "stage") {
+    if (outcome === "off") return "off";
+    if (outcome === "no-time") return "stage-no-time";
+    if (outcome === "budget") return "stage-budget";
+    return "stage-other";
+  }
+  switch (outcome) {
+    case "excluded": return "excluded";
+    case "no-key": case "no-binding": return "unavailable";
+    case "unparseable": return "unreadable";
+    case "timeout": case "no-time": return "timeout";
+    case "budget": return "budget";
+    case "http-429": return "limit";
+    default:
+      if (/^http-\d+$/.test(outcome)) return "unreachable";
+      return "failed";
+  }
+}
+
+/* The trace as plain sentences, one per category that occurred,
+ * counted where several checkers met the same end. */
+function factCheckPlainLines(trace) {
+  if (!Array.isArray(trace)) return [];
+  const entries = trace.filter((t) => t && typeof t === "object" && (t.tier || t.outcome));
+  if (!entries.length) return [];
+  const counts = {};
+  for (const e of entries) {
+    const c = factCheckOutcomeCategory(e);
+    counts[c] = (counts[c] || 0) + 1;
+  }
+  const counted = (n, oneText, manyText) => (n === 1 ? oneText : manyText.replace(/\{n\}/g, String(n)));
+  const lines = [];
+  if (counts["ran"]) lines.push("A claim check ran on this answer.");
+  if (counts["terms-ran"]) lines.push("A light check of the scientific terms in the answer ran.");
+  if (counts["nothing-to-verify"]) lines.push("The light check ran and found no checkable terms in the answer.");
+  if (counts["off"]) lines.push("The claim check was off for this search.");
+  if (counts["stage-no-time"]) lines.push("The claim check did not run. The search ran out of time first.");
+  if (counts["stage-budget"]) lines.push("The claim check did not run. The search had reached its working limit.");
+  if (counts["stage-other"]) lines.push("The claim check did not run for this search.");
+  if (counts["excluded"]) lines.push(counted(counts["excluded"],
+    "One checker was skipped because it wrote the answer, and a writer cannot check its own work.",
+    "{n} checkers were skipped because they wrote the answer, and a writer cannot check its own work."));
+  if (counts["unavailable"]) lines.push(counted(counts["unavailable"],
+    "One checker was not available for this search.",
+    "{n} checkers were not available for this search."));
+  if (counts["unreadable"]) lines.push(counted(counts["unreadable"],
+    "One checker replied in a form that could not be read, so it was not counted.",
+    "{n} checkers replied in a form that could not be read, so they were not counted."));
+  if (counts["timeout"]) lines.push(counted(counts["timeout"],
+    "One checker did not answer in time, so it was not counted.",
+    "{n} checkers did not answer in time, so they were not counted."));
+  if (counts["budget"]) lines.push(counted(counts["budget"],
+    "One checker could not run, because the search had reached its working limit.",
+    "{n} checkers could not run, because the search had reached its working limit."));
+  if (counts["limit"]) lines.push(counted(counts["limit"],
+    "One checker was at its usage limit, so it could not run.",
+    "{n} checkers were at their usage limits, so they could not run."));
+  if (counts["unreachable"]) lines.push(counted(counts["unreachable"],
+    "One checker could not be reached, so it was not counted.",
+    "{n} checkers could not be reached, so they were not counted."));
+  if (counts["failed"]) lines.push(counted(counts["failed"],
+    "One checker did not complete, so it was not counted.",
+    "{n} checkers did not complete, so they were not counted."));
+  return lines;
+}
+
 /* The health note that sits at the top of the page (2026-10-14,
  * MCP and record wave). A record whose run degraded must say so
  * where a reader lands, not read as a clean run: the fourth panel
@@ -117,11 +224,17 @@ function notFoundPage() {
  * neither field; the only health fact they hold is whether an AI
  * synthesis model ran, so the note states exactly that and says the
  * record predates health recording, rather than guessing at a
- * verdict nobody stored. A healthy record gets no note. */
+ * verdict nobody stored. A healthy record gets no note.
+ * The failed stage names print through RECORD_STAGE_PLAIN
+ * (2026-11-06): the stored names are internal identifiers, and a
+ * name the map does not know is dropped rather than printed raw. */
 function recordHealthNote(record) {
   if (record.degraded === true) {
     const stages = Array.isArray(record.failedStages)
-      ? record.failedStages.filter((s) => typeof s === "string" && s)
+      ? record.failedStages
+        .filter((s) => typeof s === "string" && s)
+        .map(recordStagePlain)
+        .filter(Boolean)
       : [];
     return "This search ran degraded: part of the pipeline did not complete"
       + (stages.length ? " (failed stages: " + stages.join(", ") + ")" : "")
@@ -136,56 +249,48 @@ function recordHealthNote(record) {
   return "";
 }
 
-/* The budget line (2026-10-14): the record has carried the run's
- * subrequest ledger since the observability wave, and the page
- * rendered none of it. One compact paragraph: the total against
- * the limit, the largest stage spends by name as recorded, and the
- * refusal count only when grants were actually refused. Rendered
- * only when the record carries a ledger with real totals; older
- * records say the counts were not recorded, in the page's usual
- * way. */
 /* The claim check's tier trace (2026-10-14, wave sixteen,
  * eighth panel, Trust): the record's JSON carried factCheckTrace
  * since wave thirteen, but this page — the reader facing health
  * view of the run — never rendered it, so a search whose check
  * never landed looked identical here to one whose check landed
- * clean. Each trace entry prints as its tier, its outcome, and
- * its detail when the search recorded one, in the same plain
- * list style as the budget section; a record written before the
- * trace existed (or one the stage produced no trace for) says
- * so in the page's standard not recorded sentence. */
+ * clean. Since 2026-11-06 (cold demo fix) the section prints the
+ * trace through factCheckPlainLines above: the stored tier names
+ * are vendor names and the stored detail is the provider's own
+ * error text, so neither may print. What prints is what happened,
+ * in plain words; a record written before the trace existed (or
+ * one the stage produced no trace for) says so in the page's
+ * standard not recorded sentence. */
 function recordFactCheckSection(record) {
-  const trace = Array.isArray(record.factCheckTrace) ? record.factCheckTrace : null;
-  const entries = trace
-    ? trace.filter((t) => t && typeof t === "object" && (t.tier || t.outcome))
-    : [];
-  if (entries.length === 0) {
+  const lines = factCheckPlainLines(record.factCheckTrace);
+  if (lines.length === 0) {
     return "<h2>Fact check</h2>\n<p>Fact check attempts were not recorded for this search.</p>";
   }
-  const items = entries.map((t) => {
-    let line = esc(t.tier || "") + ": " + esc(t.outcome || "");
-    if (t.detail) line += " (" + esc(t.detail) + ")";
-    return "<li>" + line + "</li>";
-  });
+  const items = lines.map((line) => "<li>" + esc(line) + "</li>");
   return "<h2>Fact check</h2>\n<ul>" + items.join("") + "</ul>";
 }
 
+/* The budget section in plain words (2026-11-06, cold demo fix,
+ * replacing the 2026-10-14 ledger rendering). The stored ledger
+ * counts subrequests and refused grants: working machinery, not
+ * facts a reader can use, and a live record printed them raw
+ * ("Subrequests: 50 used of a limit of 50", "4 grants were
+ * refused at the budget ceiling"). What a reader can use is
+ * whether the search finished its planned work. The refusal
+ * count is the one honest signal: above zero, some planned
+ * lookups never ran and the answer rests on what was gathered;
+ * at zero, the search stayed within its working limit. Numbers
+ * from the ledger never print. Rendered only when the record
+ * carries a ledger with real totals; older records say the
+ * counts were not recorded, in the page's usual way. */
 function recordBudgetSection(record) {
   const L = record.ledger;
   if (!L || typeof L !== "object" || !Number.isFinite(L.used) || !Number.isFinite(L.limit)) {
     return "<h2>Budget</h2>\n<p>Budget counts were not recorded for this search.</p>";
   }
-  const stages = Object.entries(L.byStage && typeof L.byStage === "object" ? L.byStage : {})
-    .filter(([, v]) => Number.isFinite(v) && v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  let line = "Subrequests: " + L.used + " used of a limit of " + L.limit + ".";
-  if (stages.length) {
-    line += " Largest spends: " + stages.map(([k, v]) => esc(k) + " " + v).join(", ") + ".";
-  }
-  if (Number.isFinite(L.refused) && L.refused > 0) {
-    line += " " + L.refused + " grant" + (L.refused === 1 ? " was" : "s were") + " refused at the budget ceiling.";
-  }
+  const line = Number.isFinite(L.refused) && L.refused > 0
+    ? "This search reached its working limit, so some of its planned lookups never ran. The answer rests on the sources that were gathered."
+    : "This search stayed within its working limit.";
   return "<h2>Budget</h2>\n<p>" + line + "</p>";
 }
 
