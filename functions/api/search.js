@@ -5415,6 +5415,128 @@ export function collisionBridgeAlternates(key, dynLookup) {
   return collisionAlternatesFromSet(key, set);
 }
 
+// ════════════════════════════════════════════════════════════════════
+// CONCEPT PAIRINGS (2026-11-05, search fix wave 5; fever
+// expansion diagnosis at ~/workspace/cerebrum-fever-expansion
+// -diagnosis-nov05/report.md). A small hand authored pairing
+// table in the COLLISION_TERMS idiom: an entry joins only on
+// probe evidence, never on general inference. The shape it
+// names: a question whose words are all tabled can still
+// miss its field's head term, when one of its words resolves
+// through a group belonging to a different field and nothing
+// links the resolved groups to the group that carries the
+// head term. FEV2 ("what makes your temperature go up when
+// you have a bug") is the type specimen: bare "temperature"
+// resolves through the climate group by design (it is the
+// climate group's word; the fever group deliberately holds
+// only the phrase "body temperature"), "bug" resolves
+// through its illness bridge, and no link joins either group
+// to the fever group, so the word fever appears in no
+// executed query and the fever literature is never asked
+// for. The model expansion leg cannot close it either: its
+// trigger fires only on untabled words or two named question
+// shapes, and FEV2 has neither (diagnosis sections 1b, 1c).
+//
+// The pairing: when the bare term has resolved through its
+// named group AND an illness frame concept has also resolved
+// (a concept whose group is one of the entry's frame groups),
+// the entry's seat group joins RETRIEVAL ONLY. It becomes
+// its own AND group in the structured boolean, its head term
+// joins the plain keyword strings, and the PubMed central
+// composer may seat the head beside the rung's central terms.
+// The citation gate is untouched: questionCentralConcepts
+// and the gate's resolved set are exactly what they were
+// (for FEV2 still [temperature, bug]), so a fever paper must
+// clear the same standard as before; the diagnosis traced
+// that it can (its section 1d). Probed in the diagnosis:
+// Europe PMC boolean plus the fever group as a third AND
+// group counted 189,881 with the fever mechanism paper at
+// rank 1, against 867,834 mixed on the shipped boolean;
+// PubMed's shipped string plus fever counted 65, fever
+// concentrated, against 462 diffuse without it. Rejected on
+// probes there and not built here: fever widened into the
+// climate group, and fever added as a member of the bug
+// group (both dilute past a million, and the second would
+// also change the gate's reading of the bug concept). A
+// question that already resolves the seat group (FEV1, which
+// says the word fever) never fires: the seat is already in
+// its query by its own name.
+export const CONCEPT_PAIRINGS = [
+  // temperature through the climate group (the set
+  // CONCEPT_LOOKUP hands back for the bare term), beside an
+  // illness frame concept (the bug bridge or the sickness
+  // group), seats the fever group.
+  { term: "temperature", throughHead: "temperature", frameHeads: ["bug", "sick"], seatHead: "fever" },
+];
+
+/* Content equality for concept sets: the pipeline rebuilds
+ * group Sets (buildDynLookup copies every group it merges),
+ * so identity cannot be trusted. typedConceptGroup matches
+ * by content for the same reason. */
+function sameConceptSet(a, b) {
+  if (!a || !b || typeof a.has !== "function" || a.size !== b.size) return false;
+  for (const m of a) if (!b.has(m)) return false;
+  return true;
+}
+
+/* The seat one pairing entry grants over a list of resolved
+ * concept sets, or null: the bare term must be present, its
+ * named group must be among the resolved sets, an illness
+ * frame group must be among them too, and the seat group
+ * must not already be resolved. */
+function pairingSeatFromSets(entry, sets, hasTerm) {
+  if (!hasTerm) return null;
+  const through = CONCEPT_LOOKUP.get(entry.throughHead);
+  const seat = CONCEPT_LOOKUP.get(entry.seatHead);
+  if (!through || !seat) return null;
+  if (!sets.some((s) => sameConceptSet(s, through))) return null;
+  const framed = (entry.frameHeads || []).some((h) => {
+    const fs = CONCEPT_LOOKUP.get(h);
+    return !!fs && sets.some((s) => sameConceptSet(s, fs));
+  });
+  if (!framed) return null;
+  if (sets.some((s) => sameConceptSet(s, seat))) return null;
+  return seat;
+}
+
+/* The retrieval seat a question earns under CONCEPT_PAIRINGS,
+ * or null: { entry, seat } with seat the hand group Set to
+ * seat. Judged on the retrieval resolution
+ * (questionConceptGroups), never the gate's. */
+export function retrievalPairingSeat(query, dynLookup) {
+  const tokens = String(query || "").toLowerCase()
+    .replace(/[^\w\s-]/g, " ").split(/[\s-]+/).filter(Boolean);
+  let groups = [];
+  try { groups = questionConceptGroups(query, dynLookup) || []; } catch { groups = []; }
+  for (const entry of CONCEPT_PAIRINGS) {
+    const seat = pairingSeatFromSets(entry, groups, tokens.includes(entry.term));
+    if (seat) return { entry, seat };
+  }
+  return null;
+}
+
+/* The same seat judged from a term list instead of the
+ * question: the plain string and PubMed central composers
+ * receive a rung's terms, not the question, so the pairing
+ * is read off the sets those terms resolve (phrase terms
+ * included: the lookup keys group members as well as heads,
+ * so "viral infection" resolves the bug group it rides for). */
+export function retrievalPairingSeatForTerms(terms, dynLookup) {
+  const list = (Array.isArray(terms) ? terms : [])
+    .map((t) => String(t || "").toLowerCase()).filter(Boolean);
+  const sets = [];
+  for (const t of list) {
+    let s = null;
+    try { s = conceptSetFor(t, dynLookup); } catch { s = null; }
+    if (s && !sets.includes(s)) sets.push(s);
+  }
+  for (const entry of CONCEPT_PAIRINGS) {
+    const seat = pairingSeatFromSets(entry, sets, list.includes(entry.term));
+    if (seat) return { entry, seat };
+  }
+  return null;
+}
+
 // KEYWORD PLAIN TERMS (2026-10-15, wave seventeen, citation
 // depth diagnosis, stage 4). The terms a rung sends to the
 // PLAIN keyword engines (the engines that receive a bare word
@@ -5468,6 +5590,13 @@ export function collisionBridgeAlternates(key, dynLookup) {
 // alternates ride in its place, the form the diagnosis
 // probed clean on every source it could reach. Untabled
 // bridged terms keep the wave 3 form exactly.
+//
+// WAVE 5 AMENDMENT (2026-11-05, search fix wave 5; fever
+// expansion diagnosis): a rung that carries a CONCEPT_PAIRINGS
+// pairing also gains the seat group's head term at the tail
+// (see the pairing table above). On FEV2 the plain string
+// gains "fever" beside the wave 4 alternates; every other
+// rung's form is untouched.
 export function keywordPlainTerms(terms, dynLookup) {
   const out = [];
   for (const raw of Array.isArray(terms) ? terms : []) {
@@ -5504,6 +5633,18 @@ export function keywordPlainTerms(terms, dynLookup) {
       }
     }
     out.push(t);
+  }
+  // WAVE 5 (concept pairings): when the rung carries a
+  // pairing (the bare term resolved through its named group
+  // beside an illness frame concept), the seat group's head
+  // term rides at the tail of the plain string. Without it no
+  // plain string sent anywhere contains the field's head word
+  // (on FEV2, fever), and the plain engines rank a
+  // neighbouring field instead. Retrieval only: the seat is
+  // a string addition, never a concept.
+  const seatHit = retrievalPairingSeatForTerms(terms, dynLookup);
+  if (seatHit && !out.some((t) => String(t).toLowerCase() === seatHit.entry.seatHead)) {
+    out.push(seatHit.entry.seatHead);
   }
   return out;
 }
@@ -5631,6 +5772,19 @@ export function pubmedCentralString(terms, query, dynLookup) {
       if (isCollisionTerm(t.toLowerCase())) continue;
       if (centralTerms.has(t.toLowerCase())) take(t);
     }
+  }
+  // WAVE 5 (concept pairings): when the rung carries a
+  // pairing, the seat group's head joins as a backed central
+  // term, outside the three word budget like the wave 4
+  // alternates: it is the string's field carrier. The
+  // diagnosis's probed form is the wave 4 central string plus
+  // fever ("temperature viral infection bacterial infection
+  // pathogen fever", PubMed count 65, fever concentrated,
+  // against 462 diffuse without the word).
+  const seatHit = retrievalPairingSeatForTerms(list, dynLookup);
+  if (seatHit && !pickedSet.has(seatHit.entry.seatHead)) {
+    picked.push(seatHit.entry.seatHead);
+    pickedSet.add(seatHit.entry.seatHead);
   }
   return picked.join(" ");
 }
@@ -7477,6 +7631,14 @@ export function dropFailedRungs(structuredQuery, failedRungs) {
 // budget the builder uses. Returns null when no group resolves.
 export function rebuildStructuredQueryFromGroups(query, dynLookup) {
   const groups = questionConceptGroups(query, gateDynLookup(query, dynLookup));
+  // WAVE 5 (concept pairings, retrieval only): the rebuilt
+  // boolean is the same executed boolean the authored builder
+  // produces, so the pairing seat rides here too, as its own
+  // group under the same AND budget and overflow rules.
+  const pairingSeat = retrievalPairingSeat(query, dynLookup);
+  if (pairingSeat && !groups.some((g) => sameConceptSet(g, pairingSeat.seat))) {
+    groups.push(pairingSeat.seat);
+  }
   if (!groups.length) return null;
   const qLower = String(query || "").toLowerCase();
   const renderGroup = (set) => {
@@ -8115,6 +8277,29 @@ export function buildStructuredQuery(query, dynLookup) {
     const members = [t, ...ordered].slice(0, 7);
     return "(" + members.map((m) => (m.includes(" ") ? '"' + m + '"' : m)).join(" OR ") + ")";
   });
+  // WAVE 5 (concept pairings, retrieval only): when the
+  // question carries a pairing, the seat group joins as its
+  // own AND group, rendered exactly as an anchored group is
+  // (head first, phrases before single word members, cap 7).
+  // The diagnosis probed this form on Europe PMC: the shipped
+  // boolean plus the fever group as a third AND group counted
+  // 189,881 with the fever mechanism literature at the top,
+  // against 867,834 mixed without it. The gate never sees
+  // this group: this builder is retrieval only, and
+  // questionCentralConcepts is untouched by the pairing.
+  const pairingSeat = retrievalPairingSeat(query, dynLookup);
+  if (pairingSeat) {
+    const head = pairingSeat.entry.seatHead;
+    const others = [...pairingSeat.seat].filter(
+      (m) => m !== head && (m.indexOf(" ") !== -1 || !isGateFunctionWord(m))
+    );
+    const ordered = [
+      ...others.filter((m) => m.indexOf(" ") !== -1),
+      ...others.filter((m) => m.indexOf(" ") === -1),
+    ];
+    const members = [head, ...ordered].slice(0, 7);
+    groups.push("(" + members.map((m) => (m.includes(" ") ? '"' + m + '"' : m)).join(" OR ") + ")");
+  }
   // Degraded case (2026-11-02, Wave 1A, fever cluster D1): when
   // NO anchor resolves a concept group at all — no phrase anchor
   // and every token anchor bare, the tables knowing none of the

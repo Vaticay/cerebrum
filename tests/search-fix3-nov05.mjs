@@ -315,7 +315,17 @@ await test("central strings compose from the rungs' own central terms", () => {
   // its place, the probed C1 form. The other three strings,
   // the property this test pins for untabled words, are
   // unchanged.
-  assert.equal(pubmedCentralString(FEV2_RUNG, FEV2_Q, null), "temperature viral infection bacterial infection pathogen");
+  // WITNESS UPDATED (2026-11-05, search fix wave 5): FEV2's
+  // expectation gains the word fever at the tail. The fever
+  // expansion diagnosis probed the wave 4 string plus fever
+  // on PubMed (count 65, fever concentrated, against 462
+  // diffuse) and wave 5's authored pairing seats the fever
+  // group's head in the central string when the rung carries
+  // the pairing (bare temperature through the climate group
+  // beside an illness frame concept). The C1 body, the
+  // property this test pins for the collision term, is
+  // unchanged in front of it.
+  assert.equal(pubmedCentralString(FEV2_RUNG, FEV2_Q, null), "temperature viral infection bacterial infection pathogen fever");
   assert.equal(pubmedCentralString(WLK4_RUNG, WLK4_Q, null), "moving glucose rice");
   assert.equal(pubmedCentralString(WLK2_RUNG, WLK2_Q, null), "ten minutes walking");
   assert.equal(pubmedCentralString(SLT4_RUNG, SLT4_Q, null), "heart salt");
@@ -342,9 +352,21 @@ await test("WLK3 handler: the healthy control form keeps its exact PubMed string
 /* ── Lane C: REVERTED — the controls pin the revert ─────── */
 group("Lane C — reverted in full; controls pin the pre wave builder");
 
-await test("FEV2 boolean: byte identical to the pre wave form", () => {
+await test("FEV2 boolean: the pre wave form, plus the wave 5 fever seat", () => {
+  // WITNESS UPDATED (2026-11-05, search fix wave 5): this
+  // test pinned the FEV2 boolean byte identical to the pre
+  // wave 3 form as the Lane C revert control. Wave 5 changes
+  // that form by design: the fever expansion diagnosis named
+  // the boolean as one of the three executed forms carrying
+  // no fever vocabulary, and its Candidate 1 seats the
+  // existing fever group as its own AND group for retrieval
+  // only (Europe PMC probe: 189,881 with the mechanism paper
+  // at rank 1, against 867,834 on the form pinned here). The
+  // expectation is now the pre wave form plus that seat,
+  // exactly; the WLK3 control below still pins the unchanged
+  // builder behavior this group exists to protect.
   const b = buildStructuredQuery(FEV2_Q, null);
-  assert.equal(b, "(temperature OR climate OR warming OR thermal OR heat) AND (bug OR \"stomach bug\" OR \"viral infection\" OR \"bacterial infection\" OR bugs OR pathogen OR pathogens)");
+  assert.equal(b, "(temperature OR climate OR warming OR thermal OR heat) AND (bug OR \"stomach bug\" OR \"viral infection\" OR \"bacterial infection\" OR bugs OR pathogen OR pathogens) AND (fever OR \"body temperature\" OR \"set point\" OR fevers OR febrile OR pyrexia OR pyrogen)");
 });
 
 await test("WLK3 boolean: the control's behavior is unchanged", () => {

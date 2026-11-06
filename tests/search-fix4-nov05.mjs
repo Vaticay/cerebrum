@@ -274,7 +274,16 @@ group("pubmedCentralString — the C1 shape on FEV2, the wave 3 forms elsewhere"
 
 await test("FEV2: the central string is the probed C1 form, no bare bug", () => {
   const central = pubmedCentralString(FEV2_RUNG, FEV2_Q, null);
-  assert.equal(central, "temperature viral infection bacterial infection pathogen");
+  // WITNESS UPDATED (2026-11-05, search fix wave 5): the
+  // expectation gains the word fever at the tail. The fever
+  // expansion diagnosis probed exactly this form (the C1
+  // string plus fever: PubMed count 65, fever concentrated,
+  // against 462 diffuse for C1 alone), and wave 5's authored
+  // pairing seats the fever group's head in the central
+  // string when the rung carries the pairing. The C1 body
+  // and the no bare bug property this test pins are
+  // unchanged.
+  assert.equal(central, "temperature viral infection bacterial infection pathogen fever");
   assert.ok(!tokens(central).includes("bug"), "the bare form rides: " + central);
 });
 
