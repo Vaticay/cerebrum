@@ -13386,6 +13386,306 @@ function quotaRefillSentence(now = Date.now()) {
   return `Your allowance refills ${date} at ${time}.`;
 }
 
+/* Reference Check (2026-11-06, Scite audit wave, ballot decision
+   6: DOI list first). Paste a draft's references, one per line, and
+   each one is checked three ways: whether the DOI resolves and
+   names the paper it should (bibliography integrity, from the
+   Crossref work record), whether the paper carries a retraction or
+   another editorial notice (publication integrity, the multi signal
+   rule in functions/lib/retraction.js, applied by /api/refcheck),
+   and how later papers received it (the scite.ai tallies the answer
+   bibliography already shows, fetched the same batched way).
+   Results arrive ordered by editorial concern, most concerning
+   first, and the ordering rule lives server side in
+   functions/lib/refcheck.js. No claim level matching and no
+   manuscript upload in this wave: both are later ballot steps.
+   Nothing pasted here is saved or uploaded anywhere; the check
+   runs when the button is pressed and the list stays on the page. */
+function useTalliesBatched(dois) {
+  const [tallies, setTallies] = useState({});
+  const key = useMemo(() => [...new Set((dois || []).filter(Boolean))].sort().join(","), [dois]);
+  useEffect(() => {
+    if (!key) { setTallies({}); return; }
+    let cancelled = false;
+    const all = key.split(",");
+    const chunks = [];
+    for (let i = 0; i < all.length; i += 20) chunks.push(all.slice(i, i + 20));
+    Promise.all(chunks.map((c) => fetch("/api/tallies?dois=" + encodeURIComponent(c.join(",")))
+      .then((r) => (r.ok ? r.json() : null)).catch(() => null)))
+      .then((parts) => {
+        if (cancelled) return;
+        const merged = {};
+        for (const j of parts) if (j && j.tallies) Object.assign(merged, j.tallies);
+        setTallies(merged);
+      });
+    return () => { cancelled = true; };
+  }, [key]);
+  return tallies;
+}
+
+function refCheckJoinNames(names) {
+  const list = (names || []).filter(Boolean);
+  if (list.length <= 1) return list.join("");
+  if (list.length === 2) return list.join(" and ");
+  return list.slice(0, -1).join(", ") + " and " + list[list.length - 1];
+}
+
+function refCheckNoticeLink(notices, status) {
+  const kinds = status === "retracted" || status === "reported" ? ["retraction", "withdrawal"]
+    : status === "concern" ? ["concern"] : status === "corrected" ? ["correction"] : [];
+  const list = Array.isArray(notices) ? notices : [];
+  const n = list.find((x) => kinds.includes(x.kind)) || list[0];
+  if (!n) return null;
+  const label = { retraction: "Retraction notice", withdrawal: "Withdrawal notice", concern: "Concern notice", correction: "Correction notice" }[n.kind] || "Notice";
+  let date = "";
+  if (n.date) {
+    const d = new Date(n.date + "T00:00:00");
+    if (!isNaN(d)) date = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  }
+  const text = date ? label + ", " + date : label;
+  if (!n.noticeDoi) return text;
+  return (
+    <a href={"https://doi.org/" + n.noticeDoi} target="_blank" rel="noreferrer"
+      style={{ color: "inherit", textDecoration: "underline", textUnderlineOffset: "2px" }}>{text}</a>
+  );
+}
+
+/* The one status word set every part of this surface uses, rows and
+   the exported report alike, so the page and the file never drift. */
+function refCheckStatusWord(row) {
+  if (!row) return "";
+  if (row.status === "retracted") return "Retracted";
+  if (row.status === "reported") return "Reported as retracted";
+  if (row.status === "concern") return "Expression of concern";
+  if (row.status === "corrected") return "Corrected";
+  if (row.status === "unresolved") return row.doi ? "Does not resolve" : "No DOI found";
+  if (row.status === "none") return "No editorial notices found";
+  return "Could not be checked";
+}
+
+/* The status block at the head of a result row. The four notice
+   statuses carry the same wording the retraction flags use in the
+   answer bibliography, so a paper reads the same way on both
+   surfaces; the wording rule behind them (two sources settle a
+   retraction, one source is a report) is the server's, stated in
+   functions/lib/retraction.js. */
+function RefCheckStatusLine({ row, P }) {
+  const status = row.status;
+  const verdict = row.verdict || {};
+  const names = refCheckJoinNames(verdict.namedBy || []);
+  let head = null, sub = "", color = P.faint;
+  if (status === "retracted") {
+    head = "Retracted"; color = stanceInk(P, STANCE_TOKENS.retracted);
+    sub = names ? "Named by " + names + "." : "";
+  } else if (status === "reported") {
+    head = "Reported as retracted"; color = stanceInk(P, STANCE_TOKENS.retracted);
+    sub = names ? "Named by " + names + " so far. No second source has confirmed it yet." : "Named by one source so far. No second source has confirmed it yet.";
+  } else if (status === "concern") {
+    head = "Expression of concern"; color = stanceInk(P, STANCE_TOKENS.concern);
+    sub = names ? "Named by " + names + "." : "";
+  } else if (status === "corrected") {
+    head = "Corrected"; color = P.faint;
+    sub = names ? "A correction notice is on record with " + names + "." : "A correction notice is on record.";
+  } else if (status === "unresolved" && row.doi) {
+    head = "Does not resolve"; color = stanceInk(P, STANCE_TOKENS.contest);
+    sub = "Crossref has no paper with this DOI. Check the DOI for a typing mistake, or replace the reference.";
+  } else if (status === "unresolved") {
+    head = "No DOI found"; color = stanceInk(P, STANCE_TOKENS.contest);
+    sub = "This line carries no DOI, so it cannot be checked. Add the DOI and run the check again.";
+  } else if (status === "none") {
+    head = "No editorial notices found"; color = P.faint;
+  } else {
+    head = "Could not be checked"; color = P.faint;
+    sub = "The sources did not answer this time. Run the check again to retry this one.";
+  }
+  const notice = verdict && verdict.notices ? refCheckNoticeLink(verdict.notices, status) : null;
+  return (
+    <div style={{ fontFamily: "var(--cb-font)" }}>
+      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color }}>{head}</div>
+      {(sub || notice) && (
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 1, lineHeight: 1.5 }}>
+          {sub}{sub && notice ? " " : ""}{notice}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function refCheckReportCSV(results) {
+  const esc = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+  const header = ["n", "status", "doi", "title", "authors", "journal", "year", "named_by"];
+  const rows = (results || []).map((r, i) => [
+    i + 1,
+    refCheckStatusWord(r),
+    r.doi || "",
+    r.meta ? r.meta.title || "" : "",
+    r.meta ? r.meta.authors || "" : "",
+    r.meta ? r.meta.journal || "" : "",
+    r.meta ? r.meta.year || "" : "",
+    r.verdict ? refCheckJoinNames(r.verdict.namedBy || []) : "",
+  ].map(esc).join(","));
+  return [header.join(","), ...rows].join("\n");
+}
+
+function refCheckSummary(counts, checked) {
+  const parts = [`Checked ${checked} ${checked === 1 ? "reference" : "references"}.`];
+  const n = (k) => counts && counts[k] ? counts[k] : 0;
+  if (n("retracted")) parts.push(`${n("retracted")} retracted.`);
+  if (n("unresolved")) parts.push(`${n("unresolved")} ${n("unresolved") === 1 ? "does" : "do"} not resolve.`);
+  if (n("reported")) parts.push(`${n("reported")} reported as retracted by one source.`);
+  if (n("concern")) parts.push(`${n("concern")} with an expression of concern.`);
+  if (n("corrected")) parts.push(`${n("corrected")} corrected.`);
+  if (n("none")) parts.push(`${n("none")} with no editorial notices found.`);
+  if (n("unknown")) parts.push(`${n("unknown")} could not be checked.`);
+  return parts.join(" ");
+}
+
+function ReferenceCheckView({ P, accent, at, isMobile = false }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState(null);
+  const [counts, setCounts] = useState(null);
+  const [error, setError] = useState("");
+  const resolvedDois = useMemo(
+    () => (results || []).filter((r) => r.doi && r.resolves).map((r) => r.doi),
+    [results]
+  );
+  const tallies = useTalliesBatched(resolvedDois);
+
+  const runCheck = async () => {
+    const body = text.trim();
+    if (!body || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch("/api/refcheck", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: body }),
+      });
+      const j = res.ok ? await res.json() : null;
+      if (!j || !Array.isArray(j.results)) {
+        setError("The check could not run. Please wait a moment and try again.");
+        setResults(null);
+        setCounts(null);
+      } else {
+        setResults(j.results);
+        setCounts(j.counts || {});
+      }
+    } catch {
+      setError("The check could not run. Please wait a moment and try again.");
+      setResults(null);
+      setCounts(null);
+    }
+    setBusy(false);
+  };
+
+  const resolvedSources = useMemo(
+    () => (results || []).filter((r) => r.doi && r.resolves && r.meta).map((r) => ({
+      authors: r.meta.authors || "",
+      title: r.meta.title || "",
+      journal: r.meta.journal || "",
+      year: r.meta.year || "",
+      doi: r.doi,
+      url: "https://doi.org/" + r.doi,
+    })),
+    [results]
+  );
+
+  const actions = results && results.length > 0 ? (
+    <>
+      <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { download("cerebrum-reference-check.csv", refCheckReportCSV(results)); logExport("Reference Check CSV", "cerebrum-reference-check.csv"); }}>Report as CSV</UIButton>
+      {resolvedSources.length > 0 && (
+        <>
+          <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { download("cerebrum-references.ris", toRIS(resolvedSources)); logExport("RIS", "cerebrum-references.ris"); }}>Citations as RIS</UIButton>
+          <UIButton P={P} accent={accent} at={at} size="sm" icon="download" onClick={() => { download("cerebrum-references.bib", toBibTeX(resolvedSources)); logExport("BibTeX", "cerebrum-references.bib"); }}>Citations as BibTeX</UIButton>
+        </>
+      )}
+    </>
+  ) : null;
+
+  return (
+    <WorkspacePage
+      P={P} accent={accent} isMobile={isMobile} wide
+      title="Reference Check"
+      count={results ? results.length : null}
+      description="Paste the references from a draft, one per line. Each DOI is checked three ways: whether it resolves and names the paper it should, whether the paper carries a retraction or another editorial notice, and how later papers have received it. Results are ordered by editorial concern, most concerning first. A check covers up to 60 references at a time."
+      actions={actions}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={isMobile ? 8 : 10}
+          placeholder="Paste one reference per line. A DOI inside a full citation line is found too."
+          aria-label="References to check, one per line"
+          spellCheck={false}
+          style={{
+            width: "100%", boxSizing: "border-box", resize: "vertical",
+            background: P.surface,
+            border: `1px solid ${P.line}`, borderRadius: RADIUS.md,
+            padding: "14px 16px", color: P.ink,
+            fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.body, lineHeight: 1.6,
+          }}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <UIButton P={P} accent={accent} at={at} icon="shield" onClick={runCheck} disabled={busy || !text.trim()}>
+            {busy ? "Checking..." : "Check references"}
+          </UIButton>
+          <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>
+            Nothing is uploaded or kept. The list is checked when you press the button and stays on this page.
+          </span>
+        </div>
+        {error && (
+          <p role="alert" style={{ margin: 0, fontSize: FONT_SIZES.label, color: stanceInk(P, STANCE_TOKENS.contest), fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>{error}</p>
+        )}
+        {results && (
+          <p style={{ margin: "6px 0 0", fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+            {refCheckSummary(counts, results.length)}
+          </p>
+        )}
+        {results && results.length > 0 && (
+          <ol style={{ listStyle: "none", margin: "6px 0 0", padding: 0, display: "flex", flexDirection: "column" }}>
+            {results.map((row, i) => (
+              <li key={(row.doi || "line") + ":" + i}
+                style={{
+                  padding: "16px 0",
+                  borderTop: i === 0 ? `1px solid ${P.line}` : "none",
+                  borderBottom: `1px solid ${P.line}`,
+                }}>
+                <RefCheckStatusLine row={row} P={P} />
+                {row.meta ? (
+                  <div style={{ marginTop: 6 }}>
+                    <div style={{ fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.subhead, fontWeight: 500, color: P.ink, lineHeight: 1.35 }}>{row.meta.title || "Title not on record"}</div>
+                    <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-font)", lineHeight: 1.55 }}>
+                      {[row.meta.authors, row.meta.journal, row.meta.year].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                ) : row.doi ? null : (
+                  <div style={{ marginTop: 6, fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.55, overflowWrap: "anywhere" }}>{row.line}</div>
+                )}
+                {row.doi && (
+                  <div style={{ fontSize: FONT_SIZES.caption, marginTop: 4, fontFamily: "var(--cb-font)" }}>
+                    <a href={"https://doi.org/" + row.doi} target="_blank" rel="noreferrer" style={{ color: P.ink2, textDecoration: "underline", textUnderlineOffset: "2px" }}>{"doi.org/" + row.doi}</a>
+                  </div>
+                )}
+                {row.doi && row.resolves && tallies[row.doi] && (
+                  <ReceptionLine source={{}} P={P} tally={tallies[row.doi]} />
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+        {results && results.length === 0 && (
+          <p style={{ margin: 0, fontSize: FONT_SIZES.label, color: P.ink2, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>
+            No references were found in what was pasted. Paste one reference per line and run the check again.
+          </p>
+        )}
+      </div>
+    </WorkspacePage>
+  );
+}
+
 function UsageView({ P, accent, at, user, proStatus, proStatusFailed = false, onRetryPro = null, onOpenPro, onOpenAuth, isMobile = false }) {
   const [now, setNow] = useState(() => Date.now());
   /* Billing portal state for the compare table's Free column (paid
@@ -20809,6 +21109,7 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
       ["studio", "Diagrams", "flowchart"],
       ["investigations", "Answers", "trail"],
       ["library", "Library", "bookmark"],
+      ["refcheck", "Reference Check", "shield"],
     ] },
     { heading: "Discover", items: [
       ["trending", "Science news", "chart"],
@@ -22344,6 +22645,7 @@ function App({ profileHandle = null } = {}) {
     else if (view === "trending") t = "Today in Science · Cerebrum";
     else if (view === "usage") t = "Plan · Cerebrum";
     else if (view === "library") t = "Library · Cerebrum";
+    else if (view === "refcheck") t = "Reference Check · Cerebrum";
     else if (view === "inbox") t = "Inbox · Cerebrum";
     if (document.title !== t) document.title = t;
   }, [view, turns]);
@@ -24509,6 +24811,7 @@ function App({ profileHandle = null } = {}) {
          dialog form deliberately — there, interrupting you is correct. */
       case "investigations": setView("investigations"); break;
       case "library": setView("library"); break;
+      case "refcheck": setView("refcheck"); break;
       case "learn": setView("learn"); break;
       case "usage": if (user) setView("usage"); else { setAuthInitialTab("login"); setAuthOpen(true); } break;
       case "collections": setLibraryTab("collections"); setView("library"); break;
@@ -25728,6 +26031,9 @@ function App({ profileHandle = null } = {}) {
       )}
       {view === "usage" && (
         <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}><UsageView P={P} accent={accent} at={at} user={user} proStatus={proStatus} proStatusFailed={proStatusFailed} onRetryPro={refreshPro} isMobile={isMobile} onOpenPro={openPro} onOpenAuth={(tab) => { setAuthInitialTab(tab); setAuthOpen(true); }} /></Reveal>
+      )}
+      {view === "refcheck" && (
+        <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}><ReferenceCheckView P={P} accent={accent} at={at} isMobile={isMobile} /></Reveal>
       )}
       {/* Commit 99 — Document Mode, as a destination. See NotebookMode's own
           comment for why it stopped being an overlay. */}

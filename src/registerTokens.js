@@ -178,6 +178,7 @@ export const SURFACE_CLASSES = {
   inbox: "Instrument",
   studio: "Instrument",
   usage: "Instrument",
+  refcheck: "Instrument",
   investigations: "Instrument",
   people: "Instrument",
   record: "RecordHybrid",
