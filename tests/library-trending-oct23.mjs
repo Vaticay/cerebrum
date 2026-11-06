@@ -153,7 +153,11 @@ await test("export receipts are a downloads and imports list at the foot of the 
   assert.ok(!appSrc.includes('id="lib-exports"'), "Exports is still a top level section");
   assert.ok(appSrc.includes("Your downloads and imports"), "no downloads and imports list");
   const receipts = slice(appSrc, "Your downloads and imports", 'id="lib-maps"');
-  assert.ok(receipts.includes("exportLog.slice(0, 8)"), "the activity list is not a short list");
+  // 2026-11-06 (site debug L4): the badge counts every receipt, so
+  // the list renders every receipt; the old slice(0, 8) pin encoded
+  // the count versus rows mismatch the audit proved as a defect.
+  assert.ok(receipts.includes("exportLog.map("), "the activity list does not render every receipt its badge counts");
+  assert.ok(!receipts.includes("exportLog.slice(0, 8)"), "the activity list still caps the rendered receipts");
   assert.ok(receipts.includes("!isMobile && ("), "the fixed date span still renders on phones");
 });
 

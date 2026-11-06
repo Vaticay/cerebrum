@@ -1617,13 +1617,18 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const toggleThreadPinned = async (tidArg) => {
     const tid = typeof tidArg === "string" ? tidArg : activeId;
     if (!tid || prefBusy) return;
-    const row = threads.find((t) => t.id === tid);
+    // The row can live in either list: archived rows are not in
+    // threads, and looking only there made the next value collapse
+    // to true, so an archived row could never be unpinned. The
+    // result is mirrored into whichever list holds the row.
+    const row = threads.find((t) => t.id === tid) || archivedThreads.find((t) => t.id === tid);
     const next = !(row ? !!row.pinned : !!(tid === activeId && activeThread && activeThread.pinned));
     setPrefBusy("pin");
     setMenuOpen(false);
     try {
       const res = await apiDataAction("set-thread-pinned", { thread_id: tid, pinned: next });
       setThreads((prev) => sortThreadList(prev.map((t) => (t.id === tid ? { ...t, pinned: !!res.pinned, pinnedAt: res.pinned_at || null } : t))));
+      setArchivedThreads((prev) => sortThreadList(prev.map((t) => (t.id === tid ? { ...t, pinned: !!res.pinned, pinnedAt: res.pinned_at || null } : t))));
       setActiveThread((t) => (t && t.id === tid ? { ...t, pinned: !!res.pinned } : t));
       toast(res.pinned ? "Pinned to the top of your list." : "Unpinned.");
     } catch (e) {
@@ -1643,13 +1648,17 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const toggleThreadMuted = async (tidArg) => {
     const tid = typeof tidArg === "string" ? tidArg : activeId;
     if (!tid || prefBusy) return;
-    const row = threads.find((t) => t.id === tid);
+    // Same either list lookup as pin: an archived row is not in
+    // threads, so a muted archived row could never be unmuted from
+    // its own menu, and a stuck mute is a stuck silence.
+    const row = threads.find((t) => t.id === tid) || archivedThreads.find((t) => t.id === tid);
     const next = !(row ? !!row.muted : !!(tid === activeId && activeThread && activeThread.muted));
     setPrefBusy("mute");
     setMenuOpen(false);
     try {
       const res = await apiDataAction("set-thread-muted", { thread_id: tid, muted: next });
       setThreads((prev) => prev.map((t) => (t.id === tid ? { ...t, muted: !!res.muted } : t)));
+      setArchivedThreads((prev) => prev.map((t) => (t.id === tid ? { ...t, muted: !!res.muted } : t)));
       setActiveThread((t) => (t && t.id === tid ? { ...t, muted: !!res.muted } : t));
       toast(res.muted ? "Notifications are off for this conversation." : "Notifications are on for this conversation.");
     } catch (e) {
@@ -2041,13 +2050,15 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
   const showList = !isMobile || !activeId;
   const showThread = !isMobile || !!activeId;
 
-  const filteredThreads = threadQuery.trim()
-    // Unnamed threads carry the peer's identity in otherUsername /
-    // otherAffiliation instead of name — matching only name made them
-    // unfindable in search.
-    ? threads.filter((t) => ((t.name || "") + " " + (t.otherUsername || "") + " " + (t.otherAffiliation || "")).toLowerCase().includes(threadQuery.trim().toLowerCase()))
-    : threads;
-  const displayThreads = showArchived ? archivedThreads : filteredThreads;
+  // Unnamed threads carry the peer's identity in otherUsername /
+  // otherAffiliation instead of name, so the match text includes all
+  // three. The archived list is filtered by the same predicate: it
+  // used to bypass the filter entirely, so typing in the Archived
+  // view changed nothing on screen.
+  const threadMatchesQuery = (t) => ((t.name || "") + " " + (t.otherUsername || "") + " " + (t.otherAffiliation || "")).toLowerCase().includes(threadQuery.trim().toLowerCase());
+  const filteredThreads = threadQuery.trim() ? threads.filter(threadMatchesQuery) : threads;
+  const filteredArchivedThreads = threadQuery.trim() ? archivedThreads.filter(threadMatchesQuery) : archivedThreads;
+  const displayThreads = showArchived ? filteredArchivedThreads : filteredThreads;
 
   /* Fitted polish, 2026-10-28 (phase 2, inbox lane): the motion
      classes below (cb-inbox-row-in, cb-inbox-thread-in,
@@ -2097,7 +2108,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             </button>
             </div>
           </div>
-          {threads.length > 0 && (
+          {(threads.length > 0 || (showArchived && archivedThreads.length > 0)) && (
             <div style={{ padding: `0 ${SP.lg}px ${SP.md}px` }}>
               <input
                 value={threadQuery}
@@ -2144,7 +2155,7 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
                 </div>
               </div>
             )}
-            {threads.length === 0 && listLoaded && !listFailed && (
+            {threads.length === 0 && listLoaded && !listFailed && !showArchived && (
               <div style={{ padding: "16px 12px", lineHeight: 1.6 }}>
                 <div style={{ fontSize: FONT_SIZES.label, fontWeight: 500, color: P.ink, marginBottom: 5 }}>No conversations yet</div>
                 <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>
@@ -2159,6 +2170,9 @@ function InboxView({ P, accent, at, isMobile, threads, setThreads, initialThread
             )}
             {threads.length > 0 && !showArchived && filteredThreads.length === 0 && (
               <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>No conversations match "{threadQuery}". Try a different name, or clear the search to see all of your conversations.</div>
+            )}
+            {showArchived && archivedThreads.length > 0 && threadQuery.trim() && filteredArchivedThreads.length === 0 && (
+              <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>No archived conversations match "{threadQuery}". Try a different name, or clear the search to see all of your archived conversations.</div>
             )}
             {showArchived && archivedThreads.length === 0 && (
               <div style={{ padding: "16px 12px", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>No archived conversations. When you archive a conversation, it moves here and out of your main list.</div>

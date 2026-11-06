@@ -23205,7 +23205,13 @@ function App({ profileHandle = null } = {}) {
         const id = typeof r === "string" ? r : (r && (r.id || r.zkId));
         if (id) ids.add(id);
       }
-      return ids;
+      // An empty result means the index had nothing usable for this
+      // query (a partial word, a single letter), not that nothing can
+      // match. Returning the empty Set here read as a constraint no
+      // entry could pass, because an empty Set is truthy and the
+      // callers' no index fallback never fired. Null is the no
+      // constraint signal, the same one a missing index produces.
+      return ids.size ? ids : null;
     } catch { return null; }
   };
   // One bundle handed to the Settings "Private Vault" section: everything
@@ -23258,7 +23264,7 @@ function App({ profileHandle = null } = {}) {
       || (h.turns || []).some((t) => String((t && t.q) || "").toLowerCase().includes(ql));
     const ids = zkQueryIds(q);
     if (!ids) return history.filter(legacyMatch);
-    return history.filter((h) => (h.zkId ? ids.has(h.zkId) : legacyMatch(h)));
+    return history.filter((h) => (h.zkId ? ids.has(h.zkId) || legacyMatch(h) : legacyMatch(h)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history, historyQuery, zkIndexReady]);
   /* Investigations ledger (Pass 4): stable accession IDs and conservative
@@ -23319,7 +23325,9 @@ function App({ profileHandle = null } = {}) {
       if (cur) {
         if (Array.isArray(cur.papers) && cur.papers.length) setSaved((prev) => [...prev, ...cur.papers.filter((p) => !prev.some((x) => sourceKey(x) === sourceKey(p)))]);
         if (Array.isArray(cur.maps) && cur.maps.length) setFlowcharts((prev) => [...cur.maps.filter((m) => !prev.some((x) => x.id === m.id)), ...prev]);
-        if (cur.historyItem) setHistory((prev) => (prev.some((x) => x.id === cur.historyItem.id) ? prev : [cur.historyItem, ...prev]));
+        // The list reads newest first: a restored answer goes back
+        // in ts order, not at the top whatever its age.
+        if (cur.historyItem) setHistory((prev) => (prev.some((x) => x.id === cur.historyItem.id) ? prev : [...prev, cur.historyItem].sort((a, b) => (b.ts || 0) - (a.ts || 0))));
       }
       return null;
     });
@@ -23396,10 +23404,16 @@ function App({ profileHandle = null } = {}) {
       list = saved.slice();
     } else {
       const ql = q.toLowerCase();
+      const terms = ql.split(/\s+/).filter(Boolean);
       const legacyMatch = (sv) => {
         const collectionName = sv.collectionId ? (collections.find((c) => c.id === sv.collectionId)?.name || "") : "";
-        return [sv.title, sv.authors, sv.journal, sv.abstract, sv.doi, sv.year, collectionName]
-          .filter(Boolean).join(" ").toLowerCase().includes(ql);
+        const haystack = [sv.title, sv.authors, sv.journal, sv.abstract, sv.doi, sv.year, collectionName]
+          .filter(Boolean).join(" ").toLowerCase();
+        // Every typed term must appear somewhere in the fields, not
+        // the whole query as one unbroken substring: "Okafor 2023"
+        // is an author and a year in two different fields, and the
+        // whole string appears in neither.
+        return terms.every((t) => haystack.includes(t));
       };
       const ids = zkQueryIds(q);
       list = ids
@@ -23413,6 +23427,23 @@ function App({ profileHandle = null } = {}) {
     return list.sort((x, y) => (y.savedAt || y.createdAt || 0) - (x.savedAt || x.createdAt || 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved, libraryQuery, librarySort, zkIndexReady, collections]);
+
+  /* The Library answers sublist, filtered by the Library search box.
+     It searches the same text the Answers page searches: the title
+     or any turn's question, with the vault index ORed in the same
+     way. It used to test the title only, so a follow up question
+     could never be found from the Library. */
+  const visibleLibraryAnswers = useMemo(() => {
+    const q = libraryQuery.trim();
+    if (!q) return history;
+    const ql = q.toLowerCase();
+    const legacyMatch = (h) => String(h.title || "").toLowerCase().includes(ql)
+      || (h.turns || []).some((t) => String((t && t.q) || "").toLowerCase().includes(ql));
+    const ids = zkQueryIds(q);
+    if (!ids) return history.filter(legacyMatch);
+    return history.filter((h) => (h.zkId ? ids.has(h.zkId) || legacyMatch(h) : legacyMatch(h)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, libraryQuery, zkIndexReady]);
 
   /* 2026-10-20, tail item 6: prune the bulk selection to the visible
      list whenever that list changes shape, whether from the saved
@@ -24572,7 +24603,7 @@ function App({ profileHandle = null } = {}) {
   const retrySave = useCallback(() => {
     setSaveState("saving");
     try {
-      if (vaultModeRef.current === "off") localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40)));
+      if (vaultModeRef.current === "off") localStorage.setItem("cb_history", JSON.stringify(history.slice(0, Math.max(40, history.reduce((n, e) => n + (e && e.kept ? 1 : 0), 0)))));
       else { try { localStorage.removeItem("cb_history"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: localStorage.removeItem('cb_history'); }:", cbErr); } }
       setSaveState("saved");
     } catch {
@@ -24582,7 +24613,10 @@ function App({ profileHandle = null } = {}) {
   useEffect(() => {
     setSaveState("saving");
     try {
-      if (vaultModeRef.current === "off") localStorage.setItem("cb_history", JSON.stringify(history.slice(0, 40)));
+      // The write limit is the pin path's own limit: kept entries
+      // survive past 40. A flat slice(0, 40) here silently dropped
+      // pinned answers past that position on the next reload.
+      if (vaultModeRef.current === "off") localStorage.setItem("cb_history", JSON.stringify(history.slice(0, Math.max(40, history.reduce((n, e) => n + (e && e.kept ? 1 : 0), 0)))));
       else { try { localStorage.removeItem("cb_history"); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx: localStorage.removeItem('cb_history'); }:", cbErr); } }
       setSaveState("saved");
     } catch {
@@ -26226,6 +26260,18 @@ function App({ profileHandle = null } = {}) {
                   <SegControl small value={libraryKind} onChange={setLibraryKind} P={P} accent={accent} ariaLabel="What to show"
                     options={[{ id: "all", label: "Everything" }, { id: "papers", label: `Papers (${saved.length})` }, { id: "answers", label: `Answers (${history.length})` }]} />
                 </div>
+                {libraryKind === "papers" && saved.length === 0 && (
+                  <WorkspaceEmpty P={P} accent={accent} icon="bookmark" className="cb-lib-empty"
+                    title="No saved papers yet"
+                    body="When you read an answer, press Save on a paper you want to keep. It will show up here with its authors, journal, and year."
+                    action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Ask a question</UIButton>} />
+                )}
+                {libraryKind === "answers" && history.length === 0 && (
+                  <WorkspaceEmpty P={P} accent={accent} icon="bookmark" className="cb-lib-empty"
+                    title="No saved answers yet"
+                    body="Answers you get are kept here as records, with the papers each one cited. Ask a question and its answer will show up here."
+                    action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Ask a question</UIButton>} />
+                )}
                 {libraryKind !== "answers" && visibleSaved.length === 0 && saved.length > 0 ? (
                   <WorkspaceEmpty P={P} accent={accent} icon="search" className="cb-lib-empty"
                     title="No matches"
@@ -26410,10 +26456,14 @@ function App({ profileHandle = null } = {}) {
                 {libraryKind === "all" && (
                   <h3 style={{ margin: "0 0 10px", fontSize: FONT_SIZES.section, fontWeight: 500, color: P.ink, fontFamily: "var(--cb-font)" }}>Answers</h3>
                 )}
+                {visibleLibraryAnswers.length === 0 ? (
+                  <WorkspaceEmpty P={P} accent={accent} icon="search" className="cb-lib-empty"
+                    title="No matches"
+                    body={`Nothing in your answers matches "${libraryQuery}". Try words from the first question or from a follow up.`}
+                    action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setLibraryQuery("")}>Clear the search</UIButton>} />
+                ) : (
                 <div role="list" aria-label="Saved answers" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, overflow: "hidden" }}>
-                  {history
-                    .filter((h) => { const q = libraryQuery.trim().toLowerCase(); return !q || String(h.title || "").toLowerCase().includes(q); })
-                    .map((h, i) => (
+                  {visibleLibraryAnswers.map((h, i) => (
                       <div key={h.id} role="listitem" className="cb-lib-item" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "14px 16px", borderTop: i ? `1px solid ${P.line}` : "none", "--cb-lib-i": Math.min(i, 8) }}>
                         <span style={{ flex: "1 1 220px", minWidth: 0 }}>
                           <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{typeof h.title === "string" && h.title.trim() ? h.title.trim() : "Untitled answer"}</span>
@@ -26426,6 +26476,7 @@ function App({ profileHandle = null } = {}) {
                       </div>
                     ))}
                 </div>
+                )}
               </div>
             )}
             {/* Recent activity: the export receipts, demoted from a
@@ -26440,12 +26491,12 @@ function App({ profileHandle = null } = {}) {
                   <span style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)", color: P.ink2, background: P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)", border: `1px solid ${P.line}`, padding: "4px 11px", borderRadius: RADIUS.pill, fontVariantNumeric: "tabular-nums" }}>{exportLog.length}</span>
                 )}
               </div>
-              <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>A short list of the files this browser has made for you, and any citation files you brought in. Each line gives the file name, what kind of file it is, and when it happened. This list lives in this browser only. It does not follow your account.</p>
+              <p style={{ margin: "0 0 18px", maxWidth: 620, fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.6, fontFamily: "var(--cb-font)" }}>A list of the files this browser has made for you, and any citation files you brought in. Each line gives the file name, what kind of file it is, and when it happened. This list lives in this browser only. It does not follow your account.</p>
               {exportLog.length === 0 ? (
                 <p style={{ margin: 0, fontSize: FONT_SIZES.label, color: P.faint, fontFamily: "var(--cb-font)", lineHeight: 1.6 }}>You have not downloaded or imported anything in this browser yet. When you download your saved papers, an answer, or a Diagram Studio diagram, a line about it will appear here.</p>
               ) : (
                 <div role="list" aria-label="Your downloads and imports" style={{ border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, overflow: "hidden" }}>
-                  {exportLog.slice(0, 8).map((r, i) => (
+                  {exportLog.map((r, i) => (
                     <div key={`${r.at ?? r.ts}-${i}`} role="listitem" className="cb-lib-item"
                       style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 16px", borderTop: i ? `1px solid ${P.line}` : "none", "--cb-lib-i": Math.min(i, 8) }}>
                       <span className="cb-mono" style={{ flex: "1 1 160px", minWidth: 0, fontSize: FONT_SIZES.label, color: P.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.filename}>{r.filename}</span>
@@ -26759,7 +26810,7 @@ function App({ profileHandle = null } = {}) {
                 action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setView("search")}>Ask something</UIButton>} />
             ) : (
               <>
-                {history.length > 6 && (
+                {(history.length > 6 || historyQuery) && (
                   <div style={{ marginBottom: 16 }}>
                     <UIField P={P} accent={accent} value={historyQuery} onChange={setHistoryQuery}
                       placeholder="Filter answers…" aria-label="Filter answers" />
@@ -26767,7 +26818,8 @@ function App({ profileHandle = null } = {}) {
                 )}
                 {visibleHistory.length === 0 ? (
                   <WorkspaceEmpty P={P} accent={accent} icon="search" title="No matches"
-                    body={`No answer matches "${historyQuery}".`} />
+                    body={`No answer matches "${historyQuery}".`}
+                    action={<UIButton P={P} accent={accent} at={at} variant="primary" onClick={() => setHistoryQuery("")}>Clear the filter</UIButton>} />
                 ) : (
                   /* The research log: one flat ledger, newest first.
                      Columns: accession, title (falling back to the original
