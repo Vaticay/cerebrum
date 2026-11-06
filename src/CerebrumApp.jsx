@@ -6663,6 +6663,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
   // site and printed code in the rendered bibliography.
   const tallyDois = useMemo(() => (sources || []).map(normalizeSourceDoi), [sources]);
   const tallies = useTallies(tallyDois);
+  const stmtByDoi = useStatements(tallyDois);
   const bibKinds = useMemo(() => (sources || []).map(bibKindOf), [sources]);
   const bibCounts = useMemo(() => ({
     all: (sources || []).length,
@@ -6850,7 +6851,8 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
             return <BibEntry key={i} source={s} index={i + 1} P={P} accent={accent} style={citationStyle} last={pos === rows.length - 1}
               onOpen={() => onOpenPaper(i + 1)} alphaAnchor={anchor} onShare={onSharePaper ? () => onSharePaper(s) : null}
               rel={relOf ? relOf(i + 1) : "supports"} active={activeCite === i + 1} onActivate={onActivateCite}
-              tally={doi && tallies[doi] ? tallies[doi] : null} terms={bibTerms} />;
+              tally={doi && tallies[doi] ? tallies[doi] : null}
+              stmt={doi && stmtByDoi[doi] ? stmtByDoi[doi] : null} terms={bibTerms} />;
           });
         })()}
       </ol>
@@ -6977,6 +6979,40 @@ function useTallies(dois) {
   return tallies;
 }
 
+/* Citation statements, from our own cached store via /api/statements
+   (2026-11-06, statements lane). The server reads D1 only; papers the
+   store has not ingested yet answer "collecting" and are gathered off
+   path, so this hook polls twice more at a slow interval and the panel
+   fills in without a reload. Returns a map of lowercase DOI to
+   { status, counts, citingPapers, totalCitations, kept, items }.
+   Missing entries mean no sentences held yet: the panel renders
+   nothing, never a guess. One request per bibliography render, exactly
+   like useTallies. */
+function useStatements(dois) {
+  const [byDoi, setByDoi] = useState({});
+  const key = useMemo(() => [...new Set((dois || []).filter(Boolean))].sort().join(","), [dois]);
+  useEffect(() => {
+    if (!key) { setByDoi({}); return; }
+    let cancelled = false;
+    let timer = null;
+    let tries = 0;
+    const load = () => {
+      fetch("/api/statements?dois=" + encodeURIComponent(key))
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (cancelled || !j || !j.statements) return;
+          setByDoi(j.statements);
+          const anyCollecting = Object.values(j.statements).some((s) => s && s.status === "collecting");
+          if (anyCollecting && tries < 2) { tries += 1; timer = setTimeout(load, 25000); }
+        })
+        .catch(() => {});
+    };
+    load();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [key]);
+  return byDoi;
+}
+
 /* Reception counts: honest "unknown" until real per-paper stance data exists.
    Score #13 (2026-10-09): the old version derived "supporting" as 70% of
    citation count — arithmetic fiction presented as data. Removed.
@@ -7058,7 +7094,103 @@ function ReceptionLine({ source, P, tally = null }) {
     </div>
   );
 }
-function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {}, tally = null, terms = null, onShare = null }) {
+
+/* Citation statements panel (2026-11-06, statements lane, Family 1 in
+   place): the sentences behind the counts, inside the paper's own entry.
+   Each sentence renders verbatim, with two labels kept side by side:
+   Cerebrum's own stance read of the sentence (supporting, contrasting,
+   mentioning, judged on rhetorical function) and Semantic Scholar's
+   purpose label for the citation (background, method, results). Neither
+   label is dressed as the other, and no confidence number exists
+   anywhere in this panel. When the store holds nothing yet the panel
+   renders nothing at all, the same honesty rule as the reception line:
+   a number or a sentence appears only when it is real. */
+const STATEMENT_STANCE_WORDS = { supporting: "Supporting", contradicting: "Contrasting", mentioning: "Mentioning" };
+const STATEMENT_INTENT_WORDS = { background: "Background", methodology: "Method", result: "Results" };
+function statementIntentWord(intents) {
+  if (!Array.isArray(intents)) return null;
+  for (const i of intents) {
+    const w = STATEMENT_INTENT_WORDS[String(i || "").toLowerCase()];
+    if (w) return w;
+  }
+  return null;
+}
+function StatementsPanel({ stmt, P, accent }) {
+  const [open, setOpen] = useState(false);
+  if (!stmt) return null;
+  const items = Array.isArray(stmt.items) ? stmt.items : [];
+  const wrap = { marginTop: 6, paddingLeft: "1.2em", fontFamily: "var(--cb-font)" };
+  if (!items.length) {
+    if (stmt.status === "collecting") {
+      return (
+        <div style={{ ...wrap, fontSize: FONT_SIZES.caption, color: P.faint }}>
+          Citing sentences for this paper are still being gathered.
+        </div>
+      );
+    }
+    return null;
+  }
+  const c = stmt.counts || { supporting: 0, contradicting: 0, mentioning: 0 };
+  const kept = Number(stmt.kept) || items.length;
+  return (
+    <div style={wrap}>
+      <button type="button" aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        style={{ background: "none", border: "none", padding: "6px 0", cursor: "pointer", textAlign: "left", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, minHeight: 32 }}>
+        <span style={{ fontWeight: 500, color: accentInk(P, accent) }}>{open ? "Hide citing sentences" : "Citing sentences"}</span>
+        <span style={{ color: P.faint }}>
+          {"  "}{kept} held · <span style={{ color: P.ink2, fontWeight: 500 }}>{c.supporting}</span> supporting · <span style={{ color: P.ink2, fontWeight: 500 }}>{c.contradicting}</span> contrasting · <span style={{ color: P.ink2, fontWeight: 500 }}>{c.mentioning}</span> mentioning
+        </span>
+      </button>
+      {open && (
+        <div style={{ marginTop: 4 }}>
+          {items.map((it, i) => {
+            const stanceWord = STATEMENT_STANCE_WORDS[it.stance] || "Mentioning";
+            const intentWord = statementIntentWord(it.intents);
+            const citing = it.citing || {};
+            return (
+              <div key={i} style={{ marginBottom: 12 }}>
+                <div style={{ fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.label, lineHeight: 1.55, color: P.ink, borderLeft: `2px solid ${P.line}`, paddingLeft: 10 }}>
+                  {it.sentence}
+                </div>
+                <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontFamily: "var(--cb-font)" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center" }}>
+                    <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: STANCE_COLORS[it.stance] || STANCE_COLORS.mentioning, marginRight: 5 }} />
+                    <span style={{ color: stanceInk(P, STANCE_COLORS[it.stance] || STANCE_COLORS.mentioning), fontWeight: 500 }}>{stanceWord}</span>
+                  </span>
+                  {intentWord && <span>Purpose: {intentWord}</span>}
+                  {it.influential && <span style={{ color: accentInk(P, accent), fontWeight: 500 }}>Influential</span>}
+                  {citing.title && (
+                    <span>
+                      {"in "}
+                      {citing.doi ? (
+                        <a href={"https://doi.org/" + citing.doi} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                          style={{ color: accentInk(P, accent), textDecoration: "none" }}>{citing.title}</a>
+                      ) : citing.title}
+                      {citing.year ? " (" + citing.year + ")" : ""}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {items.length < kept && (
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint }}>Showing the first {items.length} of {kept} sentences held.</div>
+          )}
+          {Number(stmt.totalCitations) > 0 && Number(stmt.citingPapers) > 0 && (
+            <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 6 }}>
+              Sentences held from {stmt.citingPapers} citing papers, of {stmt.totalCitations} citations Semantic Scholar lists for this paper.
+            </div>
+          )}
+          <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4 }}>
+            Citing sentences via Semantic Scholar. The stance word is Cerebrum's own read of each sentence. The purpose word is Semantic Scholar's label for the citation.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {}, tally = null, stmt = null, terms = null, onShare = null }) {
   const [copiedOne, setCopiedOne] = useState(false);
   const copyOne = (e) => {
     e.stopPropagation();
@@ -7164,6 +7296,9 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
             the tldr. The retraction flag (top) stays prominent; this is
             reception, not answer-level relevance (rel stays on the edge). */}
         <ReceptionLine source={source} P={P} tally={tally} />
+        {/* Citation statements: the sentences behind the counts, from our
+            own store. Renders nothing until real sentences are held. */}
+        <StatementsPanel stmt={stmt} P={P} accent={accent} />
         {source.tldr && (
           <div style={{ fontSize: FONT_SIZES.label, color: P.ink2, marginTop: 5, paddingLeft: 8, borderLeft: `2px solid ${withAlpha(accent, 0.4)}`, lineHeight: 1.5, fontStyle: "italic", marginLeft: "1.2em", fontFamily: "var(--cb-font)" }}>
             {(() => {
