@@ -221,7 +221,6 @@ await test("BSF2 and BSF3: the traced refusal subjects belong to no authored fam
   // SUBJECT's family, and neither subject has one, so the
   // changed test cannot reach either refusal.
   const cases = [
-    ["my cousin raises those black compost flies for chicken feed, can the little white worms just eat the grease left over from a fish fry", "cousin"],
     ["can kitchen scraps and old chip fat feed the grubs that turn rubbish into chicken feed", "chip"],
   ];
   for (const [q, term] of cases) {
@@ -236,6 +235,36 @@ await test("BSF2 and BSF3: the traced refusal subjects belong to no authored fam
     assert.equal(paperEngagesSubjectFamily(GENETICS, judged, subj), false,
       "family engagement fired for: " + q);
   }
+  // 2026-11-06 (gathering losses fix) witness update for the
+  // BSF2 case above: its traced subject was "cousin", a
+  // fallback singleton that gated only because the hand table
+  // resolved ONE curated group for the question (insect). The
+  // gathering fix puts "grease" in the waste oil group, so the
+  // hand table now resolves two (insect, waste oil) and the
+  // gate precedence rule (2026-10-13, gateDynLookup) counts
+  // fallback groups for nothing — the cousin subject no
+  // longer resolves at all, and the subject serve does not
+  // judge the question. That subject refused every cited set
+  // indiscriminately (no paper on the question's real topic
+  // engages "cousin" either), so its loss is the precedence
+  // rule working, not a refusal weakened: the gate still
+  // judges the question on its real concepts. The blast
+  // radius claim this test exists for is unchanged and is
+  // what is pinned here: no judged concept of the question
+  // belongs to an authored family, and family engagement
+  // cannot fire.
+  const q2 = "my cousin raises those black compost flies for chicken feed, can the little white worms just eat the grease left over from a fish fry";
+  const dyn2 = dynFor(q2);
+  const judged2 = gateJudgedConcepts(citationGateStandard(q2, dyn2));
+  const subj2 = judged2.find((c) => c && c.subject);
+  assert.equal(subj2, undefined,
+    "the BSF2 question gained a subject: " + (subj2 && subj2.term));
+  for (const c of judged2) {
+    assert.equal(conceptGroupFamilyOf(c), -1,
+      "a BSF2 judged concept joined a family: " + c.term);
+  }
+  assert.equal(paperEngagesSubjectFamily(GENETICS, judged2, subj2 || null), false,
+    "family engagement fired for the BSF2 question");
 });
 
 await test("WLK1: the walk subject belongs to no family, so the correct serve shape cannot move", () => {

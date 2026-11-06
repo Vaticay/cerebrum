@@ -4434,9 +4434,16 @@ const CONCEPT_GROUPS = [
   ["plastic", "plastics", "polymer", "polymers", "polyethylene", "polystyrene",
    "polypropylene", "polyurethane", "pvc", "pet", "ldpe", "hdpe", "microplastic",
    "microplastics", "nanoplastic", "nanoplastics", "polyolefin"],
+  // 2026-11-06 (gathering losses fix): "maggot" rides the TAIL.
+  // The BSF1 specimen ("can you feed maggots leftover frying
+  // grease...") resolved maggots to NO group, so no deterministic
+  // rung, gate group, or scorer set ever carried the organism the
+  // asker named; the papers say larvae and Hermetia. Tail only:
+  // the head order renders existing rungs byte identical.
   ["insect", "insects", "larva", "larvae", "larval", "worm", "worms", "caterpillar",
    "grub", "mealworm", "waxworm", "galleria", "tenebrio", "hermetia", "zophobas",
-   "beetle", "moth", "fly", "arthropod", "arthropods", "entomological"],
+   "beetle", "moth", "fly", "arthropod", "arthropods", "entomological",
+   "maggot", "maggots"],
   // 2026-10-13: methods vocabulary. A question about insect gut
   // homogenates retrieved only microbiome reviews, because the
   // digestive enzymology papers describe the same preparation as a
@@ -4506,10 +4513,43 @@ const CONCEPT_GROUPS = [
   // words to the papers' words deterministically; the bridge was
   // another model expansion coin flip of the kind wave seventeen
   // removed for puff and waste oil.
+  // 2026-11-06 (gathering losses fix): "asleep" appended at the
+  // TAIL. The teen sleep specimens phrase the concept as a state
+  // ("cannot fall asleep before midnight"), and the bare state
+  // word resolved to no group, so the sleep concept never
+  // reached a rung in the vocabulary the asker used. Widening
+  // only: the typed gate table for this group is unchanged.
   ["sleep", "sleeping", "slept", "insomnia", "sleep deprivation",
    "sleep duration", "sleep quality", "sleep restriction",
    "sleep restricted", "chronic sleep restriction", "sleep loss",
-   "short sleep", "sleep deprived"],
+   "short sleep", "sleep deprived", "asleep"],
+  // 2026-11-06 (gathering losses fix): the teen sleep cluster
+  // (TEN1 to TEN4 and kin phrasings) lost at gathering on the
+  // population and the mechanism, not on the sleep concept.
+  // TEN4 resolved NOTHING: "teenagers" in TEN1 reached the rung
+  // as a bare word only, "high school" in TEN2 and TENx3
+  // likewise, and no group joined the asker's population words
+  // to the literature's (adolescent, adolescence, puberty).
+  // This group is that bridge, the wave seventeen pattern: the
+  // asker's words first, then the literature's forms. It is
+  // deliberately NOT family joined to the sleep group and NOT
+  // typed: population is a genuinely distinct concept from
+  // sleep, and the gate keeps counting it on its own.
+  ["teen", "teens", "teenage", "teenager", "teenagers",
+   "adolescent", "adolescents", "adolescence", "puberty",
+   "pubertal", "high school", "high schooler", "high schoolers"],
+  // 2026-11-06 (gathering losses fix): the body clock group,
+  // the mechanism half of the same cluster. TEN4's "body clock"
+  // and TEN3's clock vocabulary resolved to no group, so the
+  // circadian literature (circadian phase, chronotype, delayed
+  // sleep phase) had no deterministic bridge from the asker's
+  // phrase. Bare "clock" is deliberately NOT a member: it
+  // collides with the clock gene and clock drawing literatures,
+  // and the phrase and field forms carry the sense without it.
+  ["body clock", "circadian", "circadian rhythm",
+   "circadian rhythms", "circadian phase", "chronotype",
+   "chronotypes", "delayed sleep phase",
+   "delayed sleep wake phase", "eveningness", "morningness"],
   ["cold", "common cold", "rhinovirus", "upper respiratory infection",
    "upper respiratory tract infection", "respiratory infection"],
   // 2026-11-02 (Wave 1A, fever cluster D2): the fever and
@@ -4543,8 +4583,18 @@ const CONCEPT_GROUPS = [
    "antipyretic", "antipyretics", "body temperature", "set point"],
   ["sick", "sickness", "ill", "illness", "unwell", "infection",
    "infections", "infectious"],
+  // 2026-11-06 (gathering losses fix): the asker's grease words
+  // ride the TAIL. BSF1's "frying grease" and BSFx2's "fryer
+  // grease" resolved to no group, so the substrate concept the
+  // waste oil literature answers ("waste cooking oil", "used
+  // cooking oil") never gathered deterministically; the one on
+  // topic paper sat in the excluded weak list while the pool
+  // filled off topic. Tail only, heads untouched, and the typed
+  // gate table above is unchanged: a gate touch still requires
+  // the group's typed synonyms, so this widens gathering and
+  // scoring without loosening what counts as engagement.
   ["waste oil", "waste cooking oil", "used cooking oil", "cooking oil",
-   "used oil"],
+   "used oil", "grease", "fryer oil", "frying oil"],
   // 2026-11-05 (search fix wave 2, Lane B): the substrate
   // bridge the black soldier fly downstream diagnosis named.
   // People write "scraps" for what they feed the larvae; the

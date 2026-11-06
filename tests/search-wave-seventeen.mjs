@@ -270,11 +270,34 @@ const STANDINS_ONLY = { title: "Heat recovery from fryer oil in commercial kitch
   abstract: "Commercial kitchens discharge fryer oil at high temperature after frying cycles. We measured heat recovery from the oil stream and modelled energy savings for restaurants reusing fryer oil heat in water heating. The oil temperature profile during frying drove the recovery rate." };
 
 await test("one real concept: subject only papers clear, stand in only papers fail", () => {
+  // 2026-11-06 (gathering losses fix) witness update: this
+  // question is a TWO real concept question now, and the
+  // degraded one concept reading no longer applies to it.
+  // When this test was written, "fryer oil" resolved to no
+  // hand group, so the question degraded to its subject
+  // alone and the subject only paper cleared. The gathering
+  // fix puts "fryer oil" in the waste oil group (the wave
+  // seventeen bridge this suite's own table entry names:
+  // the literature writes "waste cooking oil" where people
+  // write "fryer oil"), so the judged set carries the oil
+  // concept beside the subject, and the standing two concept
+  // standard judges both papers: the subject only paper
+  // (larvae on poultry waste, no oil anywhere) now fails,
+  // which is the BSFx2 live failure shape — cited papers on
+  // topic for the organism and silent on the substrate the
+  // question asks about. The guard half is unchanged: the
+  // stand in only paper still fails. A paper engaging both
+  // real concepts clears, pinned below so the stricter
+  // reading cannot overreach into refusing the on topic set.
   const std = citationGateStandard(OIL_Q, OIL_DYN);
-  assert.equal(paperClearsCitationGate(SUBJECT_ONLY, std), true,
-    "the subject only paper still fails the degraded standard");
+  assert.equal(paperClearsCitationGate(SUBJECT_ONLY, std), false,
+    "the subject only paper clears a two concept question it answers only half of");
   assert.equal(paperClearsCitationGate(STANDINS_ONLY, std), false,
     "a paper engaging only bare stand ins still clears");
+  const BOTH_CONCEPTS = { title: "Growth of black soldier fly larvae fed used fryer oil diets",
+    abstract: "Black soldier fly larvae were reared on diets blended with used cooking oil collected as fryer oil from restaurant kitchens. Larval weight gain, survival, and fat content were measured against a control diet without oil." };
+  assert.equal(paperClearsCitationGate(BOTH_CONCEPTS, std), true,
+    "a paper engaging both real concepts no longer clears");
 });
 
 // ═══════════════════════════════════════════════════════════════

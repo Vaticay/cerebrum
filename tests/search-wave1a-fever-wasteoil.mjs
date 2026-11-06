@@ -263,7 +263,23 @@ const BIODIESEL = {
 };
 
 await test("the lane's collision pool counts 2 under the counter's standing reading", () => {
-  assert.equal(countOnTopicPapers([WOUND_CARE, BIODIESEL], WASTE_Q), 2);
+  // 2026-11-06 (gathering losses fix) witness update: the
+  // count is 0 now, by the ordered change in the same wave
+  // family this suite belongs to. When this test was written
+  // the maggot question resolved NO concept groups, so the
+  // counter had no resolved standard to read and credited
+  // each collision paper through its clause. The gathering
+  // fix resolves the question's two concepts (maggots to the
+  // insect group, grease to the waste oil group), and under
+  // the full standard this suite's own W1 section defends,
+  // neither collision paper engages both concepts: the wound
+  // care paper touches the organism alone, the biodiesel
+  // record the substrate alone. A starved reading of 0 is
+  // also what this suite's header asks for: the old partial
+  // credit count is what disarmed the rescue round. The
+  // clause credit doctrine itself is untouched and is still
+  // proven by the compound test below.
+  assert.equal(countOnTopicPapers([WOUND_CARE, BIODIESEL], WASTE_Q), 0);
 });
 
 await test("with clause contexts disabled the count drops the clause credit (compound proof)", () => {
@@ -321,7 +337,15 @@ await test("papers engaging no subject, or the subject alone, still face the maj
   const bioPlain = { ...BIODIESEL };
   assert.equal(topicOverlapFilter(WASTE_Q, [bioPlain]).length, 0,
     "the substrate only biodiesel record survived without engaging the subject");
-  assert.ok(/only shares 2 of the query's 6/.test(bioPlain._filteredReason || ""),
+  // 2026-11-06 (gathering losses fix) witness update: the
+  // removal verdict is unchanged, the judging rule is not.
+  // The question resolved no groups when this reason was
+  // pinned, so the ungrouped majority rule removed the
+  // record ("only shares 2 of the query's 6"). Resolved, the
+  // group touch rule judges it instead: it touches 1 of the
+  // 2 resolved concept groups and not the subject. Same
+  // death, truer reason.
+  assert.ok(/touches only 1 of the query's 2 resolved concept groups/.test(bioPlain._filteredReason || ""),
     "the removal reason changed: " + bioPlain._filteredReason);
   // The maize style collision: a paper engaging the subject
   // word and nothing else of the question still dies.
