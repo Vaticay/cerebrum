@@ -216,7 +216,13 @@ await test("the support record carries counts and ratio from one computation", (
 group("L5-9 — one deadline, per tier fractions of what remains");
 
 await test("tier budgets are fractions of the remainder under the one reserve", () => {
-  assert.equal(FACT_CHECK_RESERVE_MS, 8000);
+  // PIN UPDATED (2026-11-05, synthesis failure wave): the reserve
+  // was recalibrated 8,000 to 6,000 on the Nov 5 live batch's
+  // measurements (the check's full run spent 4,337 ms while the
+  // 8,000 holdback closed the synthesis deadline at 8,500 ms and
+  // a written answer landed on 1 of 30 searches). The fraction
+  // arithmetic below is unchanged.
+  assert.equal(FACT_CHECK_RESERVE_MS, 6000);
   assert.equal(factCheckTierBudgetMs(8000, 4, 3000), 2000);
   // PIN UPDATED (2026-11-02, Wave 1A, F1): the global tier
   // cap rose 2,500 to 4,000, so this slice is the raw

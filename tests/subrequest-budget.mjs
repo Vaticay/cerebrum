@@ -364,8 +364,13 @@ group("the retrieval phase allowance — a hard cap on the phase (2026-10-14)");
 // platform call is made, so the refused grant is never counted
 // and the ledger's total stays equal to the platform's attempts.
 await test("the allowance is derived in one place from the budget constants", () => {
-  assert.equal(SUBREQUEST_RETRIEVAL_ALLOWANCE, 23,
-    "allowance = 50 limit − 5 post retrieval − 15 answer reserve − 7 tail reserve");
+  // PIN UPDATED (2026-11-05, synthesis failure wave): the tail
+  // reserve fell 7 to 6 (its record store share rides the never
+  // refused bookkeeping lane since the fifth panel, so the grant
+  // side reserve for it funded nothing), and the freed share
+  // moved here: allowance 23 to 24.
+  assert.equal(SUBREQUEST_RETRIEVAL_ALLOWANCE, 24,
+    "allowance = 50 limit − 5 post retrieval − 15 answer reserve − 6 tail reserve");
   assert.equal(SUBREQUEST_RETRIEVAL_ALLOWANCE,
     SUBREQUEST_LIMIT - SUBREQUEST_POST_RETRIEVAL_COST - SUBREQUEST_ANSWER_RESERVE - SUBREQUEST_TAIL_RESERVE);
   const ledger = createSubrequestLedger();
@@ -493,12 +498,15 @@ await test("the ceiling counts what was spent before the phase opened", () => {
 await test("retrievalRoom binds the absolute ceiling while the phase is active", () => {
   const ledger = createSubrequestLedger();
   ledger.beginRetrievalPhase();
-  spendN(ledger, 16);
-  // Reserve rule alone: remaining 34 > 15 + 8, the round may start.
-  // Ceiling rule: 16 + 8 crosses the absolute ceiling of 23, it
+  spendN(ledger, 17);
+  // Reserve rule alone: remaining 33 > 15 + 8, the round may start.
+  // Ceiling rule: 17 + 8 crosses the absolute ceiling of 24, it
   // may not. (Corrected contract, 2026-10-14: this test used to
   // spend 20 and cite a phase local allowance of 27 — the shape
-  // the live probe falsified.)
+  // the live probe falsified. PIN UPDATED 2026-11-05, synthesis
+  // failure wave: the ceiling rose 23 to 24 with the tail
+  // reserve recalibration, so the spend here rose 16 to 17 to
+  // keep the same crossing shape.)
   assert.equal(ledger.retrievalRoom(8), false, "the ceiling must trim the round by name");
   assert.equal(ledger.retrievalRoom(5), true, "a round that fits the ceiling still starts");
   assert.equal(ledger.retrievalRoom(0), true);

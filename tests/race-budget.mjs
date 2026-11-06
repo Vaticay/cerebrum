@@ -52,11 +52,15 @@ ok("the probe arithmetic: at the synthesis deadline the window is 1 ms and not v
   const t0 = 1000000;
   const requestDeadline = t0 + 19000;
   const deadline = synthesisDeadlineFor(t0, requestDeadline, true);
-  assert.equal(deadline, t0 + 8500, "synthesis deadline moved");
-  assert.equal(synthesisWindowMs(deadline, t0 + 8499), 1);
-  assert.equal(waveWindowViable(synthesisWindowMs(deadline, t0 + 8499)), false,
+  // PIN UPDATED (2026-11-05, synthesis failure wave): the fact
+  // check reserve fell 8,000 to 6,000, so the synthesis deadline
+  // on a fact check request sits at start + 10,500 (was 8,500).
+  // The window arithmetic this test guards is unchanged.
+  assert.equal(deadline, t0 + 10500, "synthesis deadline moved");
+  assert.equal(synthesisWindowMs(deadline, t0 + 10499), 1);
+  assert.equal(waveWindowViable(synthesisWindowMs(deadline, t0 + 10499)), false,
     "a 1 ms window still counts as viable, so wave 1 would fire legs to die at 1 ms");
-  assert.equal(synthesisWindowMs(deadline, t0 + 9000), 0, "a passed deadline must clamp at zero, never go negative");
+  assert.equal(synthesisWindowMs(deadline, t0 + 11000), 0, "a passed deadline must clamp at zero, never go negative");
 });
 
 ok("a leg timeout is clamped to the synthesis window, not the request budget", () => {
@@ -70,7 +74,10 @@ ok("a leg timeout is clamped to the synthesis window, not the request budget", (
 
 ok("the rescue deadline leaves exactly the fact check reserve behind it", () => {
   const requestDeadline = 1000000 + 19000;
-  assert.equal(FACT_CHECK_RESERVE_MS, 8000);
+  // PIN UPDATED (2026-11-05, synthesis failure wave): the reserve
+  // was recalibrated 8,000 to 6,000; the derivation it feeds here
+  // is unchanged. See FACT_CHECK_RESERVE_MS in search.js.
+  assert.equal(FACT_CHECK_RESERVE_MS, 6000);
   assert.equal(rescueDeadlineFor(requestDeadline, true), requestDeadline - FACT_CHECK_RESERVE_MS,
     "with the check on, the rescue may not spend the check's window");
   assert.equal(rescueDeadlineFor(requestDeadline, false), requestDeadline - 2500,

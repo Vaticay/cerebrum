@@ -486,20 +486,30 @@ await test("on a capped ledger the clinical trio completes before the long tail,
     if (u.includes("efetch")) return new Response(VITD_XML, { status: 200, headers: { "Content-Type": "text/xml" } });
     return jsonRes({});
   };
-  // The platform's real cap (50): retrieval allowance 23, and
-  // the handler's fixed overhead leaves roughly 13 of it when
+  // The platform's real cap (50): retrieval allowance 24 (23
+  // before the 2026-11-05 tail reserve recalibration), and
+  // the handler's fixed overhead leaves roughly 14 of it when
   // rung 1 starts — less than the 15 pair fanout costs, the
   // exact exposure that starved PubMed's late calls before.
   const { data, fetchLog } = await runScenario("does vitamin D help you fight off colds",
     { eutils, settings: { answerLength: "long" } });
   const urls = fetchLog.map((f) => f.url);
   const efetchIdx = urls.findIndex((u) => u.includes("efetch"));
+  // PIN UPDATED (2026-11-05, synthesis failure wave): Crossref
+  // is no longer a long tail source — it joined
+  // FANOUT_PRIORITY_NAMES after the Nov 5 live batch showed it
+  // budget stopped in nearly every production search, so its
+  // URL leaves the tail detector below and its head group
+  // firing is asserted positively instead.
+  const crossrefIdx = urls.findIndex((u) => u.includes("api.crossref.org"));
   const firstTailIdx = urls.findIndex((u) =>
-    u.includes("api.crossref.org") || u.includes("export.arxiv.org") ||
+    u.includes("export.arxiv.org") ||
     u.includes("api.plos.org") || u.includes("api.core.ac.uk") ||
     u.includes("api.openaire.eu") || u.includes("doaj.org") ||
     u.includes("api.base-search.net"));
   assert.ok(efetchIdx >= 0, "PubMed's efetch never fired on the capped run");
+  assert.ok(crossrefIdx >= 0 && crossrefIdx < efetchIdx,
+    "Crossref did not fire with the head group (crossref at " + crossrefIdx + ", efetch at " + efetchIdx + ")");
   assert.ok(firstTailIdx === -1 || efetchIdx < firstTailIdx,
     "a long tail fetcher fired before PubMed completed (efetch at " + efetchIdx + ", first tail at " + firstTailIdx + ")");
   const byName = new Map((data.sourcesQueried || []).map((d) => [d.source, d.count]));

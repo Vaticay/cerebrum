@@ -131,13 +131,15 @@ await test("the ledger headroom a rung prices against is the tighter ceiling dis
   const ledger = createSubrequestLedger();
   ledger.beginRetrievalPhase();
   try {
-    // Fresh ledger: the retrieval ceiling (23) binds before the
-    // invocation total (50) does.
-    assert.equal(retrievalHeadroomOf(ledger), 23);
+    // Fresh ledger: the retrieval ceiling (24) binds before the
+    // invocation total (50) does. (Ceiling 23 to 24 on
+    // 2026-11-05, synthesis failure wave: the tail reserve fell
+    // 7 to 6 and the freed share moved to retrieval.)
+    assert.equal(retrievalHeadroomOf(ledger), 24);
     for (let i = 0; i < 18; i++) ledger.spend();
-    assert.equal(retrievalHeadroomOf(ledger), 5);
+    assert.equal(retrievalHeadroomOf(ledger), 6);
     const plan = planFanoutFunding(ROSTER, retrievalHeadroomOf(ledger));
-    assert.deepEqual(plan.funded, ["europePMC", "pubmed", "openAlex", "openAlexCommon", "crossref"]);
+    assert.deepEqual(plan.funded, ["europePMC", "pubmed", "openAlex", "openAlexCommon", "crossref", "arxiv"]);
   } finally {
     ledger.endRetrievalPhase();
   }

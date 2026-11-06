@@ -158,8 +158,11 @@ await test("the same signals with a top class paper in the set are not class cap
 // ═══════════════════════════════════════════════════════════
 group("Defect 1 — fact check budget path and the did not run statement");
 
-await test("the reserve is 8,000 ms and synthesis still holds it back up front", () => {
-  assert.equal(FACT_CHECK_RESERVE_MS, 8000);
+await test("the reserve is 6,000 ms and synthesis still holds it back up front", () => {
+  // PIN UPDATED (2026-11-05, synthesis failure wave): the reserve
+  // was recalibrated 8,000 to 6,000 on live measurements; see
+  // FACT_CHECK_RESERVE_MS in search.js for the batch evidence.
+  assert.equal(FACT_CHECK_RESERVE_MS, 6000);
   const now = 1000000;
   const deadline = now + 19000;
   assert.equal(synthesisDeadlineFor(now, deadline, true), deadline - 2500 - FACT_CHECK_RESERVE_MS);
@@ -215,8 +218,14 @@ await test("a slow first deep tier cannot burn the whole stage: the light tiers 
     // fractions of the shrinking remainder, and four
     // successive slices at the raised cap sum to exactly
     // the reserve, never past it.
+    // PIN UPDATED (2026-11-05, synthesis failure wave): the
+    // reserve was recalibrated 8,000 to 6,000, so the slice
+    // sequence is now derived from the reserve itself instead
+    // of the old hardcoded 8,000 start; the guarded property
+    // is unchanged.
     const slice = (rem, tiers) => factCheckTierBudgetMs(rem, tiers, FACT_CHECK_TIER_CAP_MS);
-    assert.ok(slice(8000, 4) + slice(6000, 3) + slice(4000, 2) + slice(2000, 1) <= FACT_CHECK_RESERVE_MS,
+    const R = FACT_CHECK_RESERVE_MS;
+    assert.ok(slice(R, 4) + slice(R * 0.75, 3) + slice(R * 0.5, 2) + slice(R * 0.25, 1) <= R,
       "successive tier slices stack past the stage budget");
   } finally {
     globalThis.fetch = realFetch;

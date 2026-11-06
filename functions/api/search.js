@@ -470,9 +470,11 @@ export const DELAYED_RESCUE_MIN_WAIT_MS = 5000;
  * the stage) leaves every earlier stage free to spend the
  * window the gate then pretends exists; reserving up front
  * is the shape that keeps the total handler time bounded by
- * the same request deadline as before. 8,000 ms: the stage's
- * budget plus the post synthesis text passes that run between
- * the synthesis deadline and the stage.
+ * the same request deadline as before. The reserve value
+ * (6,000 ms since the 2026-11-05 recalibration at the
+ * constant below) is the stage's budget plus the post
+ * synthesis text passes that run between the synthesis
+ * deadline and the stage.
  * RAISED 5,000 to 8,000 (2026-10-21, answer integrity lane,
  * audit H4/M1): the Oct 20 live batch still skipped the stage
  * for budget on 2 of 4 AI answers. The reserve only binds the
@@ -496,8 +498,27 @@ export const DELAYED_RESCUE_MIN_WAIT_MS = 5000;
  * check could hold the response seconds past the request
  * ceiling; with the deadline enforced inside the check, the
  * tier caps can no longer stack past the one budget the gate
- * and the reserve are both sized from. */
-export const FACT_CHECK_RESERVE_MS = 8000;
+ * and the reserve are both sized from.
+ * RECALIBRATED 8,000 to 6,000 (2026-11-05, synthesis failure
+ * wave): the 8,000 sizing predates the bounded rescue (Oct 23
+ * race budget lane), which now guarantees a winner lands with
+ * the reserve intact instead of racing unbounded legs past the
+ * synthesis deadline. The Nov 5 live batch (31 plain language
+ * searches on 78577c2) measured what the 8,000 reserve costs
+ * the stages it starves: with the check on, the synthesis
+ * deadline closed 8,500 ms after request start, retrieval and
+ * validation consumed the window on most runs, and a written
+ * AI answer landed on 1 of 30 literature bearing searches
+ * (21 "all legs failed", 2 with no leg ever recorded). The
+ * check's own measured spend on the batch's one full run was
+ * 4,337 ms, inside 6,000 with room; the value stays above the
+ * 5,000 the Oct 21 lane measured skipping the stage, and the
+ * one number contract is untouched: reserve, gate, and stage
+ * deadline all still read this constant. The 2,000 ms returns
+ * to the retrieval slice (4,000 to 6,000 ms), the synthesis
+ * deadline (8,500 to 10,500 ms), and the rescue deadline
+ * (11,000 to 13,000 ms) on fact check requests. */
+export const FACT_CHECK_RESERVE_MS = 6000;
 
 /* PER TIER SLICE INSIDE THE STAGE BUDGET (2026-10-21, answer
  * integrity lane, audit M1): inside deepFactCheck the tiers
@@ -764,10 +785,8 @@ export function retryCloseWindowMs(msLeftMs, factCheckOn) {
 /* Plan the delayed rescue from the recorded attempt trail. Pure over
  * its inputs plus the leg health store, with an injectable clock, so
  * the contract is testable without running the pipeline:
- *   - no recorded leg failures, or a failure set that is not ALL
- *     rate limits (parked-leg skips excluded . they are not failures
- *     of this request), → skip silently (summary null): waiting only
- *     ever helps throttling, never timeouts or content failures.
+ *   - no recorded leg failures (parked-leg skips excluded . they are
+ *     not failures of this request) → skip silently (summary null).
  *   - every failure a daily cap → skip WITH a summary: a short wait
  *     cannot clear a daily cap, and stage health should say the
  *     rescue was considered and stood down, not vanish.
@@ -778,6 +797,21 @@ export function retryCloseWindowMs(msLeftMs, factCheckOn) {
  *     skip with a summary. A leg in a short cooldown is a candidate
  *     only if the cooldown lapses inside the wait; a daily capped
  *     leg is never a candidate.
+ *   - a CHOSEN leg whose own recorded failures include anything a
+ *     wait cannot fix (a timeout, a content failure) → skip
+ *     silently: the retry would run that same leg into that same
+ *     wall. Failures of legs that will NOT be retried never veto
+ *     (2026-11-05, synthesis failure wave): the old rule let any
+ *     leg's timeout stand the rescue down, and on the Nov 5 live
+ *     batch the capped Workers AI leg timed out inside its
+ *     3,000 ms override in all 30 literature bearing searches, so
+ *     the rescue never fired while the legs it would actually
+ *     retry (Groq first) sat rate limited — 21 of 30 searches
+ *     ended "all legs failed" with the rescue unplanned. What a
+ *     wait can fix is judged on the legs that will run.
+ *   - nothing rate limited anywhere and no chosen leg cooling
+ *     down from a rate limit park that lapses inside the wait →
+ *     skip silently: waiting only ever helps throttling.
  *   - otherwise wait, retrying the preferred leg (Groq's main) plus
  *     the roster ranked by recorded wins in this isolate. */
 export function planDelayedRescue(attempts, opts = {}) {
@@ -790,10 +824,7 @@ export function planDelayedRescue(attempts, opts = {}) {
   );
   if (legFailures.length === 0) return { action: "skip", reason: "no leg failures recorded", summary: null };
   const classes = legFailures.map((a) => classifyLegFailure(a.error));
-  if (!classes.every((c) => c === "rate-limit" || c === "daily-cap")) {
-    return { action: "skip", reason: "failure set is not all rate limits", summary: null };
-  }
-  if (!classes.some((c) => c === "rate-limit")) {
+  if (!classes.some((c) => c !== "daily-cap")) {
     return { action: "skip", reason: "daily caps only", summary: "delayed rescue skipped: every failure was a daily cap, which a short wait cannot clear" };
   }
   const waitMs = Math.min(
@@ -838,6 +869,29 @@ export function planDelayedRescue(attempts, opts = {}) {
     const independent = eligible.find(
       (label) => synthesisBucketForLabel(label) !== synthesisBucketForLabel(chosen[0]));
     if (independent) chosen[1] = independent;
+  }
+  // THE WAIT MUST BE ABLE TO HELP THE LEGS THAT WILL RUN
+  // (2026-11-05, synthesis failure wave; see the contract note
+  // above): a chosen leg that itself timed out or failed on
+  // content stands the rescue down, because the retry fires that
+  // same leg; any other leg's timeout or content failure is not
+  // this rescue's problem and no longer vetoes it.
+  const chosenSet = new Set(chosen);
+  const chosenVeto = legFailures.some((a) => {
+    if (!chosenSet.has(a.model)) return false;
+    const c = classifyLegFailure(a.error);
+    return c !== "rate-limit" && c !== "daily-cap";
+  });
+  if (chosenVeto) {
+    return { action: "skip", reason: "a chosen leg failed on something a wait cannot fix", summary: null };
+  }
+  const anyRateLimit = classes.some((c) => c === "rate-limit");
+  const chosenCooling = chosen.some((label) => {
+    const p = legParkInfo(label, nowMs);
+    return !!(p && p.parkClass === "rate-limit" && !legParkInfo(label, nowMs + waitMs));
+  });
+  if (!anyRateLimit && !chosenCooling) {
+    return { action: "skip", reason: "no rate limit to wait out", summary: null };
   }
   return { action: "wait", waitMs, chosen };
 }
@@ -971,20 +1025,27 @@ export function planDelayedRescue(attempts, opts = {}) {
 //     the rung's own bound service spend (~8 of: embedding budget
 //     check 1, vector cache read 3, the batched embedding call 1,
 //     neuron spend 2, rerank telemetry 2, topic recall 1).
-//   SUBREQUEST_TAIL_RESERVE (7) — what wave planning holds back
+//   SUBREQUEST_TAIL_RESERVE (6) — what wave planning holds back
 //     for after the wave: the fact check (1), quota metering (2),
 //     the token spend write (1 — an UPDATE ... RETURNING since
 //     the 2026-10-14 overhead audit folded its confirming
-//     SELECT), the usage record (1), the record store (1), and
-//     one of slack, which in practice absorbs whichever of the
-//     record store's cold isolate table ensure and the priority
-//     slot release lands in the tail — the release is still not
-//     reserved by name, since the queue's stale slot sweep
-//     reclaims a leaked slot on its own when its write is the
-//     one call a spent invocation cannot make.
+//     SELECT), the usage record (1), and one of slack for the
+//     tail's cold isolate ensures. Carried at 7 until 2026-11-05
+//     (synthesis failure wave): the seventh share priced the
+//     record store (1), but the fifth panel moved the store —
+//     and the slot release and stage health writes the slack
+//     also named — onto the bookkeeping lane (spendBookkeeping),
+//     which tallies without ever being refused, so a grant side
+//     reserve for it funds nothing. The freed share moves to
+//     the retrieval allowance (23 to 24) in the ceiling
+//     derivation below; the Nov 5 live batch's ledgers showed
+//     the roster tail (plos, CORE, BASE, pmcFullText, openAire,
+//     preprints) recorded not searched on essentially every
+//     request while the tail's grant passing spend measured at
+//     its priced shares.
 export const SUBREQUEST_LIMIT = 50;
 export const SUBREQUEST_RUNG_COST = 25;
-export const SUBREQUEST_TAIL_RESERVE = 7;
+export const SUBREQUEST_TAIL_RESERVE = 6;
 // The spend between the last gather's return and the synthesis
 // waves that is neither an answer stage share nor tail
 // (2026-10-14, overhead audit). Measured on the live probe (the
@@ -1684,7 +1745,16 @@ export function fanoutPairCost(name) {
  * question is clinical or headroom is short (see runFanoutPairs in
  * gatherPapersBody): the high yield trio for the shape, plus the
  * extra OpenAlex query that rides its slot. */
-export const FANOUT_PRIORITY_NAMES = ["pubmed", "europePMC", "openAlex", "openAlexCommon"];
+/* Crossref joins the priority set (2026-11-05, synthesis failure
+ * wave): its single cheap call was the roster's most consistent
+ * budget casualty — on the Nov 5 live batch its record reads
+ * "stopped on the retrieval budget" in nearly every search,
+ * because in sequenced mode it fired in the tail group after the
+ * head sources' internal follow on calls had spent the ceiling,
+ * and in concurrent mode its first grant raced the same follow
+ * ons. Funded and settled with the head group, its first call
+ * lands before the multipliers' second and third calls. */
+export const FANOUT_PRIORITY_NAMES = ["pubmed", "europePMC", "openAlex", "openAlexCommon", "crossref"];
 /* planFanoutFunding(names, available, opts): price the whole
  * fanout before any fetcher fires, then fund first calls in
  * priority order until the available budget is spent. Priority
@@ -29377,7 +29447,7 @@ async function gatherPapersBody(rawQuery, opts) {
   // before. Results are reassembled in pair order, so
   // recordRungResults labels them by their own pair's name
   // regardless of firing order.
-  const FANOUT_PRIORITY_NAMES = ["pubmed", "europePMC", "openAlex", "openAlexCommon"];
+  const FANOUT_PRIORITY_NAMES = ["pubmed", "europePMC", "openAlex", "openAlexCommon", "crossref"];
   // Priced funding (2026-10-22, L2-2): the rung is budgeted BEFORE
   // it fires. planFanoutFunding prices the whole fanout
   // (FANOUT_PAIR_COSTS) against the ledger's retrieval headroom
@@ -38815,16 +38885,21 @@ async function runSearchPipeline(pctx) {
     }
 
     // DELAYED RESCUE (2026-10-13, fleet hardening; wave 6 in the
-    // attempt trail): when every wave AND the rescue failed and every
-    // recorded leg failure was a rate limit, nothing is broken . the
-    // fleet is throttled, and per-minute buckets refill continuously
+    // attempt trail): when every wave AND the rescue failed and the
+    // legs the retry would run were rate limited, nothing is broken .
+    // the fleet is throttled, and per-minute buckets refill continuously
     // (Groq's are 30 req/min). The immediate rescue retries into the
     // same wall milliseconds later; a bounded wait is the one move
     // that changes the odds. Contract:
-    //   - fires ONLY on an all-rate-limit failure set (parked-leg
-    //     skips excluded . they are not failures of this request, and
-    //     their cause is already recorded). A set containing timeouts
-    //     or content failures never waits: waiting fixes neither.
+    //   - fires when the chosen retry legs' own failures are rate
+    //     limits (parked-leg skips excluded . they are not failures
+    //     of this request, and their cause is already recorded). A
+    //     timeout or content failure OF A CHOSEN LEG never waits:
+    //     waiting fixes neither. Other legs' timeouts no longer
+    //     veto (2026-11-05, synthesis failure wave: the capped
+    //     Workers AI leg's structural 3,000 ms timeout sat in every
+    //     failure set on the Nov 5 batch and stood this rescue down
+    //     on all 21 all-legs-failed searches; see planDelayedRescue).
     //   - if every failure was a DAILY cap, no short wait helps any
     //     leg, so it does not wait and says so.
     //   - it retries the two best-tracked unparked legs (Groq's main

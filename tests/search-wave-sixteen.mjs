@@ -999,7 +999,13 @@ await test("the fact check window is reserved before synthesis (the reserve arit
   // lane): the Oct 20 batch still skipped the stage for
   // budget on late finishing synthesis stages. The arithmetic
   // is pinned against the constant, not a second literal.
-  assert.equal(FACT_CHECK_RESERVE_MS, 8000);
+  // PIN UPDATED (2026-11-05, synthesis failure wave): the
+  // constant was recalibrated to 6,000 on the Nov 5 live
+  // batch (the bounded rescue now lands winners with the
+  // reserve intact, and the check's measured full run spent
+  // 4,337 ms while the 8,000 holdback starved synthesis);
+  // the arithmetic below still reads the constant itself.
+  assert.equal(FACT_CHECK_RESERVE_MS, 6000);
   const now = 1000000;
   const deadline = now + 19000;
   assert.equal(synthesisDeadlineFor(now, deadline, true), deadline - 2500 - FACT_CHECK_RESERVE_MS,

@@ -65,9 +65,14 @@ ok("the slice leaves a viable wave window plus the prep allowance before the syn
   const requestDeadline = t0 + 19000;
   const synth = synthesisDeadlineFor(t0, requestDeadline, true);
   const slice = retrievalDeadlineFor(t0, requestDeadline, true);
-  assert.equal(synth, t0 + 8500, "synthesis deadline moved");
+  // PIN UPDATED (2026-11-05, synthesis failure wave): the fact
+  // check reserve fell 8,000 to 6,000, moving the synthesis
+  // deadline to start + 10,500 and the slice to 6,000 ms. The
+  // relationship this test guards (slice = deadline − wave
+  // window − prep) is unchanged.
+  assert.equal(synth, t0 + 10500, "synthesis deadline moved");
   assert.equal(slice, synth - MIN_WAVE_WINDOW_MS - POST_RETRIEVAL_PREP_MS);
-  assert.equal(slice, t0 + 4000, "with the check on, retrieval's slice ends at 4,000 ms");
+  assert.equal(slice, t0 + 6000, "with the check on, retrieval's slice ends at 6,000 ms");
   assert.ok(POST_RETRIEVAL_PREP_MS >= 1195, "the prep allowance must cover the slowest measured validation (1,195 ms)");
 });
 
@@ -84,7 +89,8 @@ ok("with the check off the slice grows by exactly the reserve", () => {
 ok("the probe 1 reconstruction: a 7,076 ms retrieval can no longer happen inside the slice", () => {
   // Probe 1's retrieval ended at 7,076 ms and synthesis opened
   // with ~685 ms. Under the slice the gather returns at its
-  // deadline (4,000 ms from request start at the latest, plus
+  // deadline (6,000 ms from request start at the latest since
+  // the 2026-11-05 reserve recalibration, 4,000 before it, plus
   // its own floor), so even with the full prep allowance spent
   // the window synthesis opens with is at least the wave
   // minimum the race budget lane set.
@@ -160,9 +166,12 @@ ok("the close clamps at the standard close and floors at zero at the reserve edg
   assert.ok(MIN_RETRY_CLOSE_MS < RETRY_RACE_CLOSE_MS, "the stand down floor must sit under the standard close");
   // The stand down point: with the check on, the repair fires
   // only when the bounded close still gives a leg a real
-  // chance — from 9,750 ms left upward.
-  assert.ok(retryCloseWindowMs(9750, true) >= MIN_RETRY_CLOSE_MS);
-  assert.ok(retryCloseWindowMs(9749, true) < MIN_RETRY_CLOSE_MS);
+  // chance — from 7,750 ms left upward. (PIN UPDATED
+  // 2026-11-05, synthesis failure wave: the point is reserve
+  // 6,000 + margin 250 + the 1,500 floor; it sat at 9,750
+  // when the reserve was 8,000.)
+  assert.ok(retryCloseWindowMs(7750, true) >= MIN_RETRY_CLOSE_MS);
+  assert.ok(retryCloseWindowMs(7749, true) < MIN_RETRY_CLOSE_MS);
 });
 
 ok("the citation repair carries the bounded close and the fact check gate is untouched", () => {

@@ -473,7 +473,20 @@ await test("the wait is inside the 15 to 25 second band and the shape is bounded
   assert.ok(DELAYED_RESCUE_MIN_WAIT_MS >= 1000 && DELAYED_RESCUE_MIN_WAIT_MS < DELAYED_RESCUE_WAIT_MS);
 });
 
-await test("the production trail shape does NOT qualify (timeouts and a too short are in it)", () => {
+await test("the production trail shape qualifies when the chosen legs were the rate limited ones", () => {
+  // PIN UPDATED (2026-11-05, synthesis failure wave): this fixture
+  // used to pin the opposite — the whole failure set had to be
+  // rate limits, so the Workers AI legs' timeout and too short
+  // entries stood the rescue down even though the retry would
+  // never run those legs. The Nov 5 live batch (31 searches on
+  // 78577c2) showed that shape on every all-legs-failed search:
+  // the capped Workers AI leg timed out in all 30 literature
+  // bearing searches, the rescue never fired, and a written
+  // answer landed once. The gate now judges the legs that will
+  // actually retry: here the roster is the two Groq legs, the
+  // preferred one's own failure is the 429, so the wait is
+  // planned. A chosen leg's OWN timeout still stands it down —
+  // the next test pins that half of the old contract.
   resetLegHealth();
   const trail = [
     { wave: 1, model: "google/gemma-4-31b-it:free", ok: false, error: OR_DAILY },
@@ -489,8 +502,24 @@ await test("the production trail shape does NOT qualify (timeouts and a too shor
     nowMs: T0,
     requestDeadlineMs: T0 + 120000,
   });
+  assert.equal(plan.action, "wait");
+  assert.equal(plan.chosen[0], "groq:openai/gpt-oss-120b", "the rate limited preferred leg leads the retry");
+});
+
+await test("a chosen leg's own timeout still stands the rescue down", () => {
+  resetLegHealth();
+  const trail = [
+    { wave: 1, model: "groq:openai/gpt-oss-120b", ok: false, error: TIMEOUT },
+    { wave: 1, model: "gemini:gemini-3.8-flash", ok: false, error: GEMINI_429 },
+  ];
+  const plan = planDelayedRescue(trail, {
+    rosterLabels: ["groq:openai/gpt-oss-120b", "gemini:gemini-3.8-flash"],
+    preferredLabel: "groq:openai/gpt-oss-120b",
+    nowMs: T0,
+    requestDeadlineMs: T0 + 120000,
+  });
   assert.equal(plan.action, "skip");
-  assert.equal(plan.summary, null, "a mixed failure set stands the rescue down silently");
+  assert.equal(plan.summary, null, "the retry would run the timed out leg into the same wall, silently stood down");
 });
 
 await test("a pure 429 set waits, and retries the preferred leg plus one more", () => {
