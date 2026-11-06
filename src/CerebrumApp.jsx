@@ -2378,6 +2378,12 @@ function SignalComposer({
   const runShapeshift = (v) => {
     const s = predictAskMode(v);
     if (!String(v || "").trim()) {
+      /* 2026-11-06 (site debug D2): an emptied box ends the shift. The
+         detected mode was earned by the text that is now gone, so the
+         pre shift mode is restored here — before this, the branch
+         cleared only the badge state and askMode kept the detected
+         mode for every later question. */
+      if (shapeActive) setAskMode(shapePrevRef.current || "explain");
       shapeLockRef.current = false;
       shapePrevRef.current = null;
       setShapeActive(null);
@@ -23468,7 +23474,7 @@ function App({ profileHandle = null } = {}) {
       }
     }
     finally { clearTimeout(askTimeout); if (requestVersion === investigationRequest.current) setBusy(false); }
-  }, [input, attachedImage, busy, turns, allSources, answerLength, factCheck, isMobile, pinnedSources, corrections, evidenceFilter, pushStage, noteRequestId]);
+  }, [input, attachedImage, busy, turns, allSources, answerLength, factCheck, isMobile, pinnedSources, corrections, evidenceFilter, askMode, pushStage, noteRequestId]);
   // Stable indirection for per-turn callbacks: ask changes on every
   // keystroke (it closes over `input`), so anything closing over ask
   // directly defeats React.memo(Turn). TurnRow reads through this ref.
@@ -24096,6 +24102,11 @@ function App({ profileHandle = null } = {}) {
        template plan with it, so the plan can never land on a later,
        unrelated investigation. */
     pendingTemplatePlanRef.current = null;
+    /* 2026-11-06 (site debug D2): a new session starts on the default
+       mode. The composer's badge state dies with its mount, so the
+       reset has to ride here — a mode the shapeshifter detected in
+       the old session must never leak into the new one. */
+    setAskMode("explain");
     setBusy(false); setAskedThisSession(false);
     setTurns([]); setAllSources([]); setPinnedSources([]); setCorrections([]); setInput(""); setError(""); setCmdOpen(false); window.scrollTo({ top: 0, left: 0, behavior: "instant" }); setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 50);
   }
@@ -25220,7 +25231,7 @@ function App({ profileHandle = null } = {}) {
                   return (
                     <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
                       onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
-                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} onSharePaper={handleSharePaper} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[aria-label="Follow-up question"]'); if (el) { el.scrollIntoView({ behavior: scrollBehavior(), block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} onSharePaper={handleSharePaper} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[data-cb-followup="true"]'); if (el) { el.scrollIntoView({ behavior: scrollBehavior(), block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
                     </div>
                   );
                 })}
