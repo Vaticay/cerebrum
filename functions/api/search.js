@@ -42,6 +42,7 @@ import { recordStageHealthAggregate } from "../lib/stageHealthAggregate.js";
 import { authorizeLlmCall, spendTokens, CHEAP_MODEL, checkEmbeddingBudget, spendEmbeddingNeurons, EMBEDDING_NEURON_COST_PER_RERANK } from "../lib/costControl.js";
 import { recordLlmUsage, estimateTokensFromChars } from "../lib/requestLog.js";
 import { semanticRerank } from "../lib/semanticRerank.js";
+import { crossrefNotices, combineRetractionSignals } from "../lib/retraction.js";
 import { SCHOLARLY_SOURCES, SOURCE_COUNT, CORPUS_COUNT, corpusOfSource } from "../lib/product.js";
 
 // ============ CORE UTILITIES ============
@@ -3444,12 +3445,32 @@ async function getText(url, headers = {}, timeoutMs = 4000, retries = 1, ledger 
 
 
 // Check if a DOI has been retracted or has expressions of concern.
-// Uses Crossref's crossmark data, which is authoritative. Keyless.
-// Returns { retracted: bool, concern: bool, updateType: string|null }.
+// Uses Crossref's `updated-by` data: the notices that update this
+// work, deposited by the publisher or asserted by Retraction Watch
+// (Crossref acquired that database in September 2023). Keyless.
+// Returns { retracted, concern, updateType, detail }.
+//
+// 2026-11-06 (Scite audit wave 1): the old version of this function
+// read `update-to`, which lives on the NOTICE record (the notice
+// updates the paper), not on the retracted work itself. Probed live
+// against the Wakefield Lancet paper: its record carries update-to
+// null and an updated-by array holding the 2010 retraction, so the
+// old check could essentially never fire. The parse now runs
+// through functions/lib/retraction.js, and `detail` carries that
+// library's verdict computed on the Crossref channel alone: a
+// retraction asserted here reads as "reported" in the detail until
+// the /api/retractions resolution adds a second channel, so this
+// in path round never overstates. The retracted/concern booleans
+// keep their existing meaning for the synthesis prompt tags and the
+// record. An isolate level memo (the tallies pattern) keeps repeat
+// DOIs from spending the ledger twice in one isolate.
+const retractionMemo = new Map();
 async function checkRetraction(doi, ledger = null) {
-  if (!doi) return { retracted: false, concern: false, updateType: null };
+  if (!doi) return { retracted: false, concern: false, updateType: null, detail: null };
+  const clean = doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim();
+  const memoKey = clean.toLowerCase();
+  if (retractionMemo.has(memoKey)) return retractionMemo.get(memoKey);
   try {
-    const clean = doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").trim();
     const res = await getJSON(
       "https://api.crossref.org/works/" + encodeURIComponent(clean),
       {},
@@ -3458,19 +3479,22 @@ async function checkRetraction(doi, ledger = null) {
       ledger
     );
     const msg = res && res.message;
-    if (!msg) return { retracted: false, concern: false, updateType: null };
-    // Crossref uses `update-to` to indicate this work has been retracted/corrected
-    const updates = msg["update-to"] || [];
-    let retracted = false, concern = false, updateType = null;
-    for (const u of updates) {
-      const t = (u.type || "").toLowerCase();
-      if (t.includes("retract")) { retracted = true; updateType = "retraction"; }
-      else if (t.includes("concern")) { concern = true; updateType = updateType || "expression-of-concern"; }
-      else if (t.includes("correct")) { updateType = updateType || "correction"; }
+    if (!msg) return { retracted: false, concern: false, updateType: null, detail: null };
+    const notices = crossrefNotices(msg);
+    const detail = combineRetractionSignals({ crossref: { notices } });
+    let retracted = false, concern = false, correction = false;
+    for (const n of notices) {
+      if (n.kind === "retraction" || n.kind === "withdrawal") retracted = true;
+      else if (n.kind === "concern") concern = true;
+      else if (n.kind === "correction") correction = true;
     }
-    return { retracted, concern, updateType };
+    const updateType = retracted ? "retraction" : concern ? "expression-of-concern" : correction ? "correction" : null;
+    const out = { retracted, concern, updateType, detail };
+    if (retractionMemo.size > 2000) retractionMemo.clear();
+    retractionMemo.set(memoKey, out);
+    return out;
   } catch {
-    return { retracted: false, concern: false, updateType: null };
+    return { retracted: false, concern: false, updateType: null, detail: null };
   }
 }
 
@@ -3520,6 +3544,7 @@ async function flagRetractions(papers, topN = 8, ledger = null) {
     if (flag.retracted) p.retracted = true;
     if (flag.concern) p.concern = true;
     if (flag.updateType) p.updateType = flag.updateType;
+    if (flag.detail) p.retractionDetail = flag.detail;
   }));
   return { offered, checked: targets.length };
 }
@@ -24805,6 +24830,17 @@ export function buildSearchRecord(input) {
         doi: recordDoiOf(entry),
         url,
         cited: flags[i],
+        // 2026-11-06 (retraction flags wave): the record freezes the
+        // in path Crossref verdict beside the source, so the record
+        // page and the export can mark a retracted paper even before
+        // any live recheck. The booleans keep their existing shape;
+        // retractionDetail is the lib verdict on the Crossref
+        // channel alone (a lone retraction assertion reads
+        // "reported" there, never settled).
+        retracted: !!entry.retracted,
+        concern: !!entry.concern,
+        updateType: entry.updateType || null,
+        retractionDetail: entry.retractionDetail || null,
       };
     });
 
@@ -36263,7 +36299,8 @@ async function runSearchPipeline(pctx) {
 
     // RETRACTION CHECK: flag any of the final evidence papers that have been
     // retracted or carry an expression of concern, via Crossref's keyless
-    // crossmark data. This was fully built (checkRetraction/flagRetractions
+    // updated-by data (2026-11-06: the check used to read the wrong
+    // Crossref field and could not fire; see checkRetraction). This was fully built (checkRetraction/flagRetractions
     // below, plus a matching RETRACTED/EXPRESSION OF CONCERN badge already
     // in BibEntry on the frontend) but never actually called, so the fields
     // it sets (retracted/concern/updateType) were always undefined and
@@ -36508,7 +36545,7 @@ async function runSearchPipeline(pctx) {
     // writes "[3]" meaning its third source while the UI renders a different
     // paper as entry 3. This was silently misattributing citations.
     const toSourceEntry = (paper) => {
-      const { title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType, thinEvidence } = paper || {};
+      const { title, url, journal, authors, year, citations, relevance, type, tldr, retracted, concern, updateType, retractionDetail, thinEvidence } = paper || {};
       return {
         title,
         url,
@@ -36522,6 +36559,7 @@ async function runSearchPipeline(pctx) {
         retracted: !!retracted,
         concern: !!concern,
         updateType: updateType || null,
+        retractionDetail: retractionDetail || null,
         thinEvidence: !!thinEvidence,  // 2026-10-12: was dropped, UI never saw it
         /* 2026-11-06 (site debug, exports fix): the full citation
            record rides along, additively. Until now the served entry

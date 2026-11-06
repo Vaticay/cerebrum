@@ -6678,6 +6678,22 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
   // site and printed code in the rendered bibliography.
   const tallyDois = useMemo(() => (sources || []).map(normalizeSourceDoi), [sources]);
   const tallies = useTallies(tallyDois);
+  const retractions = useRetractions(tallyDois);
+  /* Answer level retraction counts (2026-11-06): cited papers only.
+     A retracted paper in further reading is marked on its own row;
+     a retracted paper the answer leaned on gets this banner too, so
+     the answer never presents it as ordinary support. */
+  const citedRetractionCounts = useMemo(() => {
+    let retracted = 0, reported = 0;
+    for (const s of sources || []) {
+      if (!s || s.uncited) continue;
+      const d = normalizeSourceDoi(s);
+      const v = retractionVerdictFor(s, d ? retractions[d] : null);
+      if (v && v.status === "retracted") retracted += 1;
+      else if (v && v.status === "reported") reported += 1;
+    }
+    return { retracted, reported };
+  }, [sources, retractions]);
   const stmtByDoi = useStatements(tallyDois);
   const bibKinds = useMemo(() => (sources || []).map(bibKindOf), [sources]);
   const bibCounts = useMemo(() => ({
@@ -6829,6 +6845,24 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
           ))}
         </div>
       )}
+      {(citedRetractionCounts.retracted > 0 || citedRetractionCounts.reported > 0) && (
+        <div style={{ border: "1px solid " + P.line, borderLeft: "3px solid " + stanceInk(P, STANCE_TOKENS.retracted), borderRadius: RADIUS.sm, padding: "10px 14px", margin: "10px 0 4px", fontFamily: "var(--cb-font)" }}>
+          {citedRetractionCounts.retracted > 0 && (
+            <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55 }}>
+              {citedRetractionCounts.retracted === 1
+                ? "One of the papers cited in this answer has been retracted. It is marked in the sources below."
+                : citedRetractionCounts.retracted + " of the papers cited in this answer have been retracted. They are marked in the sources below."}
+            </div>
+          )}
+          {citedRetractionCounts.reported > 0 && (
+            <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.55, marginTop: citedRetractionCounts.retracted > 0 ? 4 : 0 }}>
+              {citedRetractionCounts.reported === 1
+                ? "One paper cited in this answer has been reported as retracted by a single source. It is marked in the sources below."
+                : citedRetractionCounts.reported + " papers cited in this answer have been reported as retracted by a single source each. They are marked in the sources below."}
+            </div>
+          )}
+        </div>
+      )}
       {/* Hanging-indent typography lives inside each row's content column —
          the numeral sits in the contract's number gutter, wrapped lines
          align under the text. */}
@@ -6866,7 +6900,7 @@ function Bibliography({ sources, answer = "", query = "", P, accent, citationSty
             return <BibEntry key={i} source={s} index={i + 1} P={P} accent={accent} style={citationStyle} last={pos === rows.length - 1}
               onOpen={() => onOpenPaper(i + 1)} alphaAnchor={anchor} onShare={onSharePaper ? () => onSharePaper(s) : null}
               rel={relOf ? relOf(i + 1) : "supports"} active={activeCite === i + 1} onActivate={onActivateCite}
-              tally={doi && tallies[doi] ? tallies[doi] : null}
+              tally={doi && tallies[doi] ? tallies[doi] : null} retraction={doi && retractions[doi] ? retractions[doi] : null}
               stmt={doi && stmtByDoi[doi] ? stmtByDoi[doi] : null} terms={bibTerms} />;
           });
         })()}
@@ -6992,6 +7026,126 @@ function useTallies(dois) {
     return () => { cancelled = true; };
   }, [key]);
   return tallies;
+}
+
+/* Retraction status for a set of DOIs (2026-11-06, Scite audit
+   wave 1). Mirrors useTallies: one batched fetch per render set,
+   chunked at the endpoint's 20 DOI cap, cached server side at a
+   24 hour TTL in isolate memory and D1, so repeated renders are
+   cheap. The multi signal rule lives in functions/lib/retraction.js
+   and is applied by the endpoint: a paper reads "retracted" only
+   when two independent channels agree, one channel alone reads
+   "reported" and is worded that way everywhere it renders. DOI less
+   papers resolve to nothing here and stay unflagged: unverifiable
+   is not clean, and is also not a flag. */
+function useRetractions(dois) {
+  const [map, setMap] = useState({});
+  const key = useMemo(() => [...new Set((dois || []).filter(Boolean))].sort().join(","), [dois]);
+  useEffect(() => {
+    if (!key) { setMap({}); return; }
+    let cancelled = false;
+    const all = key.split(",");
+    const chunks = [];
+    for (let i = 0; i < all.length; i += 20) chunks.push(all.slice(i, i + 20));
+    Promise.all(chunks.map((c) => fetch("/api/retractions?dois=" + encodeURIComponent(c.join(",")))
+      .then((r) => (r.ok ? r.json() : null)).catch(() => null)))
+      .then((parts) => {
+        if (cancelled) return;
+        const merged = {};
+        for (const j of parts) if (j && j.retractions) Object.assign(merged, j.retractions);
+        setMap(merged);
+      });
+    return () => { cancelled = true; };
+  }, [key]);
+  return map;
+}
+
+function joinRetractionNames(names) {
+  const list = (names || []).filter(Boolean);
+  if (list.length <= 1) return list.join("");
+  if (list.length === 2) return list.join(" and ");
+  return list.slice(0, -1).join(", ") + " and " + list[list.length - 1];
+}
+
+/* The verdict to render for one source: the fetched multi channel
+   verdict wins when it resolved; the detail the search froze into
+   the source (Crossref channel alone, where a lone retraction
+   assertion already reads "reported") is next; the legacy booleans
+   last, mapped to the honest single channel wording. */
+function retractionVerdictFor(source, fetched) {
+  if (fetched && fetched.status && fetched.status !== "unknown") return fetched;
+  const d = source && source.retractionDetail;
+  if (d && d.status && d.status !== "unknown" && d.status !== "none") return d;
+  if (source && source.retracted) return { status: "reported", namedBy: ["Crossref"], notices: [] };
+  if (source && source.concern) return { status: "concern", namedBy: ["Crossref"], notices: [] };
+  return fetched || null;
+}
+
+function retractionFlagMarkdown(source) {
+  const v = retractionVerdictFor(source, null);
+  if (!v) return "";
+  const names = joinRetractionNames(v.namedBy || []);
+  if (v.status === "retracted") return "Retracted." + (names ? " Named by " + names + "." : "");
+  if (v.status === "reported") return "Reported as retracted." + (names ? " Named by " + names + " so far." : "") + " No second source has confirmed it yet.";
+  if (v.status === "concern") return "Expression of concern." + (names ? " Named by " + names + "." : "");
+  if (v.status === "corrected") return "Corrected." + (names ? " A correction notice is on record with " + names + "." : "");
+  return "";
+}
+
+function retractionNoticeLink(notices, status) {
+  const kinds = status === "retracted" || status === "reported" ? ["retraction", "withdrawal"]
+    : status === "concern" ? ["concern"] : status === "corrected" ? ["correction"] : [];
+  const list = Array.isArray(notices) ? notices : [];
+  const n = list.find((x) => kinds.includes(x.kind)) || list[0];
+  if (!n) return null;
+  const label = { retraction: "Retraction notice", withdrawal: "Withdrawal notice", concern: "Concern notice", correction: "Correction notice" }[n.kind] || "Notice";
+  let date = "";
+  if (n.date) {
+    const d = new Date(n.date + "T00:00:00");
+    if (!isNaN(d)) date = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  }
+  const text = date ? label + ", " + date : label;
+  if (!n.noticeDoi) return text;
+  return (
+    <a href={"https://doi.org/" + n.noticeDoi} target="_blank" rel="noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      style={{ color: "inherit", textDecoration: "underline", textUnderlineOffset: "2px" }}>{text}</a>
+  );
+}
+
+/* The flag itself, in the register: caption size, the established
+   stance tints for the head word, plain words, no new colour
+   family, nothing for a clean or unverifiable paper. */
+function RetractionFlag({ verdict, P }) {
+  if (!verdict) return null;
+  const status = verdict.status;
+  if (status !== "retracted" && status !== "reported" && status !== "concern" && status !== "corrected") return null;
+  const names = joinRetractionNames(verdict.namedBy || []);
+  let head, sub, color;
+  if (status === "retracted") {
+    head = "Retracted"; color = stanceInk(P, STANCE_TOKENS.retracted);
+    sub = names ? "Named by " + names + "." : "";
+  } else if (status === "reported") {
+    head = "Reported as retracted"; color = stanceInk(P, STANCE_TOKENS.retracted);
+    sub = names ? "Named by " + names + " so far. No second source has confirmed it yet." : "Named by one source so far. No second source has confirmed it yet.";
+  } else if (status === "concern") {
+    head = "Expression of concern"; color = stanceInk(P, STANCE_TOKENS.concern);
+    sub = names ? "Named by " + names + "." : "";
+  } else {
+    head = "Corrected"; color = P.faint;
+    sub = names ? "A correction notice is on record with " + names + "." : "A correction notice is on record.";
+  }
+  const notice = retractionNoticeLink(verdict.notices, status);
+  return (
+    <div style={{ marginBottom: 4, fontFamily: "var(--cb-font)" }}>
+      <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color }}>{head}</div>
+      {(sub || notice) && (
+        <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 1, lineHeight: 1.5 }}>
+          {sub}{sub && notice ? " " : ""}{notice}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* Citation statements, from our own cached store via /api/statements
@@ -7205,7 +7359,7 @@ function StatementsPanel({ stmt, P, accent }) {
     </div>
   );
 }
-function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {}, tally = null, stmt = null, terms = null, onShare = null }) {
+function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, rel = "supports", active = false, onActivate = () => {}, tally = null, retraction = null, stmt = null, terms = null, onShare = null }) {
   const [copiedOne, setCopiedOne] = useState(false);
   const copyOne = (e) => {
     e.stopPropagation();
@@ -7244,11 +7398,7 @@ function BibEntry({ source, index, P, accent, style, last, onOpen, alphaAnchor, 
         {index}
       </button>
       <div style={{ flex: 1, minWidth: 0 }}>
-        {(source.retracted || source.concern) && (
-          <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: source.retracted ? stanceInk(P, STANCE_TOKENS.retracted) : stanceInk(P, STANCE_TOKENS.concern), marginBottom: 4, fontFamily: "var(--cb-font)" }}>
-            {source.retracted ? "Retracted" : "Expression of concern"}
-          </div>
-        )}
+        <RetractionFlag verdict={retractionVerdictFor(source, retraction)} P={P} />
         {/* NEXT-GEN: the backend flags bibliography entries the answer never
             cites. Label them as further reading rather than letting the
             numbered list imply they back a claim. */}
@@ -9608,6 +9758,8 @@ function searchRecordMarkdown(record) {
       if (id) line += " · " + id;
       line += s.cited ? " · cited in the answer" : " · further reading";
       lines.push(line);
+      const flagLine = retractionFlagMarkdown(s);
+      if (flagLine) lines.push("   " + flagLine);
     }
   } else {
     lines.push("No sources were recorded for this search.");
@@ -9628,6 +9780,9 @@ function searchRecordMarkdown(record) {
    retrieval). */
 function SearchRecordPanel({ t, P }) {
   const record = t && t._record && typeof t._record === "object" ? t._record : null;
+  const recordRetractions = useRetractions(useMemo(
+    () => (record && Array.isArray(record.sources) ? record.sources.map((s) => normalizeSourceDoi(s)) : []),
+    [record]));
   // Wave 1B (lane 2 D1): the coverage sentence reads the canonical
   // counts, carried into the coverage object here from the turn's
   // counts field or the record's stored counts.
@@ -9713,6 +9868,7 @@ function SearchRecordPanel({ t, P }) {
                       {(s.doi || s.url) ? (
                         <span style={{ color: P.faint }}> · {s.doi ? "https://doi.org/" + s.doi : s.url}</span>
                       ) : null}
+                      <RetractionFlag verdict={retractionVerdictFor(s, normalizeSourceDoi(s) ? recordRetractions[normalizeSourceDoi(s)] : null)} P={P} />
                     </div>
                   ))}
                 </div>
@@ -9961,6 +10117,7 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
    citations: one source, one number, everywhere. */
 function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, onOpenPaper, open, onClose }) {
   const sources = t.sources || [];
+  const railRetractions = useRetractions(useMemo(() => sources.map((s) => normalizeSourceDoi(s)), [sources]));
   const closeRef = useRef(null);
   const panelRef = useRef(null);
   const isMobile = useIsMobile();
@@ -10086,11 +10243,7 @@ function EvidenceRail({ t, P, accent, venn, claimSink, activeCite, onActivate, o
           {n}
         </button>
         <div style={{ minWidth: 0 }}>
-          {(s.retracted || s.concern) && (
-            <div style={{ fontSize: FONT_SIZES.caption, fontWeight: 500, color: s.retracted ? stanceInk(P, STANCE_TOKENS.retracted) : stanceInk(P, STANCE_TOKENS.concern), marginBottom: 4, fontFamily: "var(--cb-font)" }}>
-              {s.retracted ? "Retracted" : "Expression of concern"}
-            </div>
-          )}
+          <RetractionFlag verdict={retractionVerdictFor(s, doi ? railRetractions[doi] : null)} P={P} />
           <div style={{ fontSize: 14, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{renderTitleInline(s.title, P)}</div>
           {meta && <div style={{ fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 3, fontFamily: "var(--cb-font)", lineHeight: 1.5 }}>{meta}</div>}
           <div className="cb-kicker" style={{ marginTop: 7 }}>{claimsLine}</div>
@@ -23397,6 +23550,7 @@ function App({ profileHandle = null } = {}) {
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
   };
+  const savedRetractions = useRetractions(useMemo(() => (saved || []).map((sv) => normalizeSourceDoi(sv)), [saved]));
   const visibleSaved = useMemo(() => {
     const q = libraryQuery.trim();
     let list;
@@ -25202,6 +25356,7 @@ function App({ profileHandle = null } = {}) {
   }, [turns]);
   const panelSources = useMemo(() => activeTurnSources.filter((s) => { if (!srcFilter.trim()) return true; const f = srcFilter.toLowerCase(); return (s.title || "").toLowerCase().includes(f) || (s.authors || "").toLowerCase().includes(f) || (s.journal || "").toLowerCase().includes(f); }), [activeTurnSources, srcFilter]);
   const sortedSources = useMemo(() => [...panelSources].sort((a, b) => { if (srcSort === "date") return (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0); if (srcSort === "database") return (a.journal || "").localeCompare(b.journal || ""); return (b.relevance ?? 0) - (a.relevance ?? 0); }), [panelSources, srcSort]);
+  const panelRetractions = useRetractions(useMemo(() => activeTurnSources.map((s) => normalizeSourceDoi(s)), [activeTurnSources]));
   // Bug: SourceCard’s index used to be looked up via
   // `allSources.indexOf(s)` inside the render loop — O(n) per source, O(n²)
   // for the whole list. `sortedSources`/`grouped` reorder the SAME object
@@ -25405,6 +25560,7 @@ function App({ profileHandle = null } = {}) {
           still reads like one. */}
       <a href={safeHref(s.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ ...S.srcTitle, color: hover === "src" + i ? accentInk(P, accent) : P.ink }}>{(s.title ? highlightKeywords(renderCleanTitle(s.title), activeQueryTerms) : s.url)}</a>
       <div style={S.srcMeta}>{[s.authors, formatJournalName(s.journal)].filter(Boolean).join(" · ")}{(() => { const c = formatCitationCount(s.citations, s.year, "citation"); return c ? ` · ${c}` : ""; })()}</div>
+      {(() => { const sd = normalizeSourceDoi(s); return <RetractionFlag verdict={retractionVerdictFor(s, sd ? panelRetractions[sd] : null)} P={P} />; })()}
       <div style={{ ...S.srcRow, gap: 2 }}>
         {/* Pass 5: pill toolbars become text actions — same handlers, no
             pill shells. cb-textbtn already carries the 44px touch target. */}
@@ -26418,6 +26574,15 @@ function App({ profileHandle = null } = {}) {
                                 {isMobile && savedDate ? ` · ${new Date(savedDate).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}` : ""}
                                 {isMobile && usedIn.length > 0 ? ` · ${usedIn.length} investigation${usedIn.length === 1 ? "" : "s"}` : ""}
                               </span>
+                              {(() => {
+                                const sd = normalizeSourceDoi(sv);
+                                const v = retractionVerdictFor(sv, sd ? savedRetractions[sd] : null);
+                                return v ? (
+                                  <span style={{ display: "block", marginTop: 4 }}>
+                                    <RetractionFlag verdict={v} P={P} />
+                                  </span>
+                                ) : null;
+                              })()}
                               {/* Honest legacy label: this paper lived on the
                                   server in readable form before Private Vault.
                                   It says so permanently, in plain words. */}

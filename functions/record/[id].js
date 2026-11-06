@@ -31,6 +31,8 @@
  * the app with the question prefilled; only the comparison is lost.
  */
 
+import { normalizeRetractionDoi, resolveRetractionStatuses } from "../lib/retraction.js";
+
 const BASELINE_KEY = "cb_record_baseline_v1";
 const ID_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,79}$/;
 
@@ -81,6 +83,11 @@ function pageShell(title, bodyHtml) {
     + ".meta{color:rgba(243,243,241,0.72);font-size:14px;overflow-wrap:anywhere;}"
     + ".note{border:1px solid rgba(243,243,241,0.14);border-left:4px solid #c89a3a;background:#101013;padding:10px 14px;}"
     + ".src{margin-bottom:8px;}"
+    + ".srcflag{font-size:14px;line-height:1.55;margin:-4px 0 10px;color:rgba(243,243,241,0.85);}"
+    + ".rf-retracted{color:#d99b86;}"
+    + ".rf-concern{color:#d7c27b;}"
+    + ".rf-corrected{color:rgba(243,243,241,0.72);}"
+    + ".srcflag a{color:inherit;}"
     + ".tag{color:rgba(243,243,241,0.72);font-size:14px;}"
     + "a{color:#e0bd68;}"
     + ".rerun{display:inline-block;margin-top:10px;padding:10px 18px;border:1px solid #c89a3a;border-radius:6px;background:#c89a3a;color:#060606;text-decoration:none;font-size:16px;}"
@@ -182,7 +189,119 @@ function recordBudgetSection(record) {
   return "<h2>Budget</h2>\n<p>" + line + "</p>";
 }
 
-function recordPage(record, url) {
+/* Retraction flags on the record (2026-11-06, Scite audit wave 1).
+ * The verdict rule lives in functions/lib/retraction.js and is the
+ * same one the app renders: "retracted" only on two independent
+ * channels, one channel alone is "reported" and worded that way.
+ * The page resolves the record's DOIs live at serve time (records
+ * are read rarely, and this route is far off the search path), with
+ * an isolate memo at a 24 hour TTL, and falls back to the verdict
+ * the search froze into the record when the live channels cannot
+ * answer. A failure anywhere here degrades to no flag, never to a
+ * broken record page. */
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const recordRetractionMemo = new Map();
+
+function joinRetractionNames(names) {
+  const list = (names || []).filter(Boolean);
+  if (list.length <= 1) return list.join("");
+  if (list.length === 2) return list.join(" and ");
+  return list.slice(0, -1).join(", ") + " and " + list[list.length - 1];
+}
+
+async function fetchJsonTimeout(url, ms = 8000) {
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), ms);
+    const res = await fetch(url, { signal: ctl.signal, headers: { Accept: "application/json" } });
+    clearTimeout(t);
+    if (!res || !res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function retractionVerdictsFor(record) {
+  const byDoi = {};
+  const sources = Array.isArray(record.sources) ? record.sources : [];
+  const dois = [];
+  for (const s of sources) {
+    const d = normalizeRetractionDoi((s && (s.doi || s.url)) || "");
+    if (d && !dois.includes(d)) dois.push(d);
+  }
+  const now = Date.now();
+  const cold = [];
+  for (const d of dois) {
+    const hit = recordRetractionMemo.get(d);
+    if (hit && hit.expiresAt > now) byDoi[d] = hit.data;
+    else cold.push(d);
+  }
+  if (cold.length) {
+    try {
+      const resolved = await resolveRetractionStatuses(cold.slice(0, 40), fetchJsonTimeout);
+      for (const d of cold) {
+        if (resolved[d]) {
+          byDoi[d] = resolved[d];
+          recordRetractionMemo.set(d, { data: resolved[d], expiresAt: now + 24 * 60 * 60 * 1000 });
+        }
+      }
+    } catch { /* flags are an enrichment; the page renders without them */ }
+  }
+  return byDoi;
+}
+
+function verdictForSource(entry, byDoi) {
+  const d = normalizeRetractionDoi((entry && (entry.doi || entry.url)) || "");
+  const live = d ? byDoi[d] : null;
+  if (live && live.status && live.status !== "unknown") return live;
+  const det = entry && entry.retractionDetail;
+  if (det && det.status && det.status !== "unknown" && det.status !== "none") return det;
+  if (entry && entry.retracted) return { status: "reported", namedBy: ["Crossref"], notices: [] };
+  if (entry && entry.concern) return { status: "concern", namedBy: ["Crossref"], notices: [] };
+  return live || null;
+}
+
+function noticeText(verdict) {
+  const kinds = verdict.status === "retracted" || verdict.status === "reported"
+    ? ["retraction", "withdrawal"]
+    : verdict.status === "concern" ? ["concern"] : ["correction"];
+  const notices = Array.isArray(verdict.notices) ? verdict.notices : [];
+  const n = notices.find((x) => kinds.includes(x.kind)) || notices[0];
+  if (!n) return "";
+  const label = { retraction: "Retraction notice", withdrawal: "Withdrawal notice", concern: "Concern notice", correction: "Correction notice" }[n.kind] || "Notice";
+  let when = "";
+  const m = typeof n.date === "string" ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(n.date) : null;
+  if (m) when = ", " + Number(m[3]) + " " + MONTH_NAMES[Number(m[2]) - 1] + " " + m[1];
+  const text = label + when;
+  if (n.noticeDoi) return ' <a href="https://doi.org/' + esc(n.noticeDoi) + '">' + esc(text) + "</a>.";
+  return " " + esc(text) + ".";
+}
+
+function srcFlagHtml(entry, byDoi) {
+  const v = verdictForSource(entry, byDoi);
+  if (!v) return "";
+  const names = joinRetractionNames(v.namedBy || []);
+  if (v.status === "retracted") {
+    return '<p class="srcflag"><span class="rf-retracted"><b>Retracted.</b></span>'
+      + (names ? " Named by " + esc(names) + "." : "") + noticeText(v) + "</p>";
+  }
+  if (v.status === "reported") {
+    return '<p class="srcflag"><span class="rf-retracted"><b>Reported as retracted.</b></span>'
+      + (names ? " Named by " + esc(names) + " so far." : "") + " No second source has confirmed it yet." + noticeText(v) + "</p>";
+  }
+  if (v.status === "concern") {
+    return '<p class="srcflag"><span class="rf-concern"><b>Expression of concern.</b></span>'
+      + (names ? " Named by " + esc(names) + "." : "") + noticeText(v) + "</p>";
+  }
+  if (v.status === "corrected") {
+    return '<p class="srcflag"><span class="rf-corrected"><b>Corrected.</b></span>'
+      + (names ? " A correction notice is on record with " + esc(names) + "." : " A correction notice is on record.") + noticeText(v) + "</p>";
+  }
+  return "";
+}
+
+function recordPage(record, url, retractionByDoi = {}) {
   const parts = [];
   parts.push("<h1>Search record</h1>");
   parts.push('<p class="meta">Permanent link: <a href="' + esc(url) + '">' + esc(url) + "</a></p>");
@@ -288,6 +407,25 @@ function recordPage(record, url) {
 
   parts.push("<h2>Sources</h2>");
   if (Array.isArray(record.sources) && record.sources.length) {
+    // Retraction notes first, at the head of the list, when a paper
+    // the answer actually cited carries one: the record must not
+    // present a retracted paper as ordinary support.
+    const citedVerdicts = record.sources
+      .filter((s) => s && s.cited)
+      .map((s) => verdictForSource(s, retractionByDoi))
+      .filter(Boolean);
+    const citedRetracted = citedVerdicts.filter((v) => v.status === "retracted").length;
+    const citedReported = citedVerdicts.filter((v) => v.status === "reported").length;
+    if (citedRetracted === 1) {
+      parts.push('<p class="note">One of the papers cited in this answer has been retracted. It is marked in the list below.</p>');
+    } else if (citedRetracted > 1) {
+      parts.push('<p class="note">' + citedRetracted + " of the papers cited in this answer have been retracted. They are marked in the list below.</p>");
+    }
+    if (citedReported === 1) {
+      parts.push('<p class="note">One paper cited in this answer has been reported as retracted by a single source. It is marked in the list below.</p>');
+    } else if (citedReported > 1) {
+      parts.push('<p class="note">' + citedReported + " papers cited in this answer have been reported as retracted by a single source each. They are marked in the list below.</p>");
+    }
     const items = record.sources.map((s) => {
       const entry = s && typeof s === "object" ? s : {};
       let line = esc(entry.n != null ? entry.n : "") + ". " + escTitle(entry.title || "Untitled");
@@ -298,7 +436,7 @@ function recordPage(record, url) {
         : (typeof entry.url === "string" && entry.url ? entry.url : "");
       if (link) line += ' · <a href="' + esc(link) + '">' + esc(link) + "</a>";
       line += ' <span class="tag">' + (entry.cited ? "cited in the answer" : "further reading") + "</span>";
-      return '<p class="src">' + line + "</p>";
+      return '<p class="src">' + line + "</p>" + srcFlagHtml(entry, retractionByDoi);
     });
     parts.push(items.join("\n"));
   } else {
@@ -370,7 +508,8 @@ export async function onRequestGet(context) {
       },
     });
   }
-  return new Response(recordPage(record, url.origin + url.pathname), {
+  const retractionByDoi = await retractionVerdictsFor(record);
+  return new Response(recordPage(record, url.origin + url.pathname, retractionByDoi), {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",

@@ -563,6 +563,22 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 );
 
 -- ============================================================
+-- 2026-11-06 — Retraction status cache (Scite audit wave 1).
+-- One row per DOI holding the multi signal verdict JSON from
+-- functions/lib/retraction.js (Crossref updated-by plus Europe PMC
+-- and PubMed types plus OpenAlex is_retracted), resolved by
+-- functions/api/retractions.js, which also creates this table on
+-- first use, so deploys self heal. The TTL is 24 hours: retraction
+-- status changes slowly, and the cache keeps resolution off the
+-- search path entirely.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS retraction_cache (
+  doi        TEXT NOT NULL PRIMARY KEY,
+  payload    TEXT NOT NULL,             -- verdict JSON
+  expires_at INTEGER NOT NULL           -- ms epoch
+);
+
+-- ============================================================
 -- 2026-10-14 — Aggregate stage health (the fleet alarm's data).
 -- One row per (stage, hour bucket): runs that ran, failures, and
 -- did-not-runs from each completed search's stageHealth, rolled
