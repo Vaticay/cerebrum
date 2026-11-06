@@ -543,7 +543,14 @@ export function UIField({ value, onChange, placeholder, P = null, accent, multil
        smaller, so every text input holds 16px on all viewports. */
     ...TYPE.body, fontSize: 16, minWidth: 0, ...style,
   };
-  const common = { value, onChange, placeholder, "aria-label": ariaLabel || placeholder, maxLength, onKeyDown, className: ("cb-field " + className).trim(), style: base };
+  /* The onChange contract is the VALUE, the same one UISelect and SegControl
+     honour: every consumer hands UIField a state setter and reads strings
+     back. The DOM hands this component a change EVENT, so the value is
+     lifted out here. Forwarding the event once stored the event object
+     itself in query state, and the first .trim() on that state crashed the
+     whole screen (Library and Answers filters, 2026-11-06). */
+  const handleChange = (e) => { if (onChange) onChange(e && e.target ? e.target.value : e); };
+  const common = { value, onChange: handleChange, placeholder, "aria-label": ariaLabel || placeholder, maxLength, onKeyDown, className: ("cb-field " + className).trim(), style: base };
   return multiline
     ? <textarea rows={rows} {...common} style={{ ...base, resize: "vertical" }} />
     : <input {...common} />;

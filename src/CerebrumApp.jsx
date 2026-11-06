@@ -22587,8 +22587,11 @@ function App({ profileHandle = null } = {}) {
     const q = historyQuery.trim();
     if (!q) return history;
     const ql = q.toLowerCase();
+    /* A stored turn can be null in an old or interrupted record; the
+       (t && t.q) guard keeps one bad turn from crashing the filter the
+       moment a query misses the title and reaches the turns (2026-11-06). */
     const legacyMatch = (h) => String(h.title || "").toLowerCase().includes(ql)
-      || (h.turns || []).some((t) => String(t.q || "").toLowerCase().includes(ql));
+      || (h.turns || []).some((t) => String((t && t.q) || "").toLowerCase().includes(ql));
     const ids = zkQueryIds(q);
     if (!ids) return history.filter(legacyMatch);
     return history.filter((h) => (h.zkId ? ids.has(h.zkId) : legacyMatch(h)));
@@ -25686,13 +25689,13 @@ function App({ profileHandle = null } = {}) {
                     .map((h, i) => (
                       <div key={h.id} role="listitem" className="cb-lib-item" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "14px 16px", borderTop: i ? `1px solid ${P.line}` : "none", "--cb-lib-i": Math.min(i, 8) }}>
                         <span style={{ flex: "1 1 220px", minWidth: 0 }}>
-                          <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{h.title || "Untitled answer"}</span>
+                          <span style={{ display: "block", fontSize: FONT_SIZES.body, fontWeight: 500, color: P.ink, lineHeight: 1.4, fontFamily: "var(--cb-font)" }}>{typeof h.title === "string" && h.title.trim() ? h.title.trim() : "Untitled answer"}</span>
                           <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 4, fontFamily: "var(--cb-font)" }}>
                             {h.ts ? `${new Date(h.ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · ` : ""}{(h.allSources || []).length} cited paper{(h.allSources || []).length === 1 ? "" : "s"}
                           </span>
                         </span>
                         <UIButton P={P} accent={accent} at={at} size="sm" onClick={() => { sfx(); openHistoryItem(h); }}>Open</UIButton>
-                        <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); parkLibUndo({ historyItem: h, text: `Removed the answer "${h.title || "Untitled answer"}" from your library.` }); sfx(); }}>Remove</UIButton>
+                        <UIButton P={P} accent={accent} at={at} size="sm" variant="ghost" onClick={() => { setHistory((prev) => prev.filter((x) => x.id !== h.id)); parkLibUndo({ historyItem: h, text: `Removed the answer "${typeof h.title === "string" && h.title.trim() ? h.title.trim() : "Untitled answer"}" from your library.` }); sfx(); }}>Remove</UIButton>
                       </div>
                     ))}
                 </div>
