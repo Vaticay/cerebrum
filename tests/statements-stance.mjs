@@ -170,6 +170,11 @@ await test("needsIngest: a live collecting claim is left alone", () => {
   assert.equal(needsIngest({ status: "collecting", fetched_at: now, next_try: 0 }, now), false);
 });
 
+await test("needsIngest: a stale collecting claim is reclaimed", () => {
+  const now = Date.now();
+  assert.equal(needsIngest({ status: "collecting", fetched_at: now - 6 * 60 * 1000, next_try: 0 }, now), true);
+});
+
 // ══════════════════════════════════════════════════════════════════════════
 group("pipeline — payload shaping");
 

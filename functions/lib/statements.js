@@ -45,6 +45,7 @@ export const STATEMENTS_PER_ANCHOR_CAP = 120;
 export const STATEMENTS_RESPONSE_CAP = 40;
 export const STATEMENTS_FRESH_MS = 30 * 24 * 60 * 60 * 1000;
 export const STATEMENTS_THROTTLE_RETRY_MS = 15 * 60 * 1000;
+export const STATEMENTS_CLAIM_TTL_MS = 5 * 60 * 1000;
 export const INGEST_PER_REQUEST_CAP = 5;
 
 const S2_BASE = "https://api.semanticscholar.org/graph/v1";
@@ -93,7 +94,16 @@ export function needsIngest(row, now) {
   if (row.status === "throttled" || row.status === "error") {
     return now >= (row.next_try || 0);
   }
-  return false; /* "collecting" rows are owned by a live run */
+  /* "collecting" rows are owned by a live run, but a claim is a lease,
+   * not a lock: if the runner died mid flight (a waitUntil budget cut
+   * while Semantic Scholar stalled), the claim goes stale and a later
+   * request reclaims the anchor instead of wedging it forever. Proven
+   * live on the first production probe (2026-11-06): the DESeq2 anchor
+   * sat at collecting with a frozen claim stamp while S2 stalled. */
+  if (row.status === "collecting") {
+    return now - (row.fetched_at || 0) > STATEMENTS_CLAIM_TTL_MS;
+  }
+  return false;
 }
 
 function sleep(ms) {
@@ -116,7 +126,7 @@ export async function fetchS2Citations(doi, env, fetchImpl) {
     if (waits[attempt]) await sleep(waits[attempt]);
     let res = null;
     try {
-      res = await doFetch(url, { headers }, 20000);
+      res = await doFetch(url, { headers }, 12000);
     } catch (e) {
       if (attempt === waits.length - 1) return { ok: false, error: safeErr(e) };
       continue;
@@ -149,7 +159,7 @@ export async function fetchS2CitationCount(doi, env, fetchImpl) {
   const key = env && env.SEMANTIC_SCHOLAR_KEY ? String(env.SEMANTIC_SCHOLAR_KEY) : "";
   if (key) headers["x-api-key"] = key;
   try {
-    const res = await doFetch(S2_BASE + "/paper/DOI:" + encodeURIComponent(doi) + "?fields=citationCount", { headers }, 12000);
+    const res = await doFetch(S2_BASE + "/paper/DOI:" + encodeURIComponent(doi) + "?fields=citationCount", { headers }, 8000);
     if (!res || !res.ok) return null;
     const j = await res.json();
     const n = Number(j && j.citationCount);
@@ -209,7 +219,7 @@ export async function ingestAnchor(env, doi, opts = {}) {
   try {
     await env.DB.prepare(
       "INSERT INTO statement_ingest (anchor_doi, status, fetched_at, next_try) VALUES (?1, 'collecting', ?2, 0) " +
-      "ON CONFLICT(anchor_doi) DO UPDATE SET status = 'collecting'"
+      "ON CONFLICT(anchor_doi) DO UPDATE SET status = 'collecting', fetched_at = excluded.fetched_at"
     ).bind(doi, now).run();
   } catch (e) {
     console.error("statements claim failed:", safeErr(e));
@@ -226,8 +236,10 @@ export async function ingestAnchor(env, doi, opts = {}) {
     return { doi, status };
   }
   const rows = shapeStatementRows(doi, payload);
-  const listed = await fetchS2CitationCount(doi, env, opts.fetchImpl);
-  const citationsSeen = listed != null ? listed : (payload.total != null ? payload.total : payload.rows.length);
+  /* The ready state is written BEFORE the citationCount leg: if the
+   * runner is cut after this point, the anchor is already served and
+   * only the coverage total is approximate until the next refresh. */
+  let citationsSeen = payload.total != null ? payload.total : payload.rows.length;
   try {
     await env.DB.prepare("DELETE FROM citation_statements WHERE anchor_doi = ?1").bind(doi).run();
     const stmt = env.DB.prepare(
@@ -250,6 +262,15 @@ export async function ingestAnchor(env, doi, opts = {}) {
       ).bind(doneAt + STATEMENTS_THROTTLE_RETRY_MS, safeErr(e), doi).run();
     } catch {}
     return { doi, status: "error" };
+  }
+  const listed = await fetchS2CitationCount(doi, env, opts.fetchImpl);
+  if (listed != null) {
+    citationsSeen = listed;
+    try {
+      await env.DB.prepare(
+        "UPDATE statement_ingest SET citations_seen = ?1 WHERE anchor_doi = ?2"
+      ).bind(listed, doi).run();
+    } catch {}
   }
   return { doi, status: rows.length ? "ready" : "empty", kept: rows.length, total: citationsSeen };
 }
