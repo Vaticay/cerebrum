@@ -21386,7 +21386,50 @@ export function poolAgeDistribution(papers, nowYear) {
  * applies it to the final cited set (the answer's surviving
  * markers); a judged set with NO cited paper engaging the
  * subject falls to the honest no evidence state regardless
- * of pool size. */
+ * of pool size.
+ *
+ * Family addendum (2026-11-06, gate family diagnosis): a
+ * cited paper ALSO engages the subject when it engages any
+ * judged concept of the subject's authored family
+ * (paperEngagesSubjectFamily below) — the gate's own family
+ * accounting, mirrored, so the serve cannot refuse on a
+ * phrasing the gate was explicitly taught to credit. */
+/* FAMILY ENGAGEMENT AT THE SERVE (2026-11-06, gate family
+ * diagnosis, the BSF4 specimen): the gate's family count in
+ * paperClearsCitationGate credits a paper that engages any
+ * one concept of an authored CONCEPT_GROUP_FAMILIES family
+ * with the family's concepts in the judged set — the
+ * question stated one concept twice, in two phrasings, and
+ * a paper is not required to hit both. The serve's subject
+ * test never received that accounting: it counted only a
+ * direct subjectHit on the subject concept's own vocabulary,
+ * so a winner citing papers the gate admitted on the
+ * family's other phrasing was refused whole (BSF4: the
+ * subject resolved as "used cooking oil", the cited three
+ * spoke the scraps phrasing the gate credited, and the serve
+ * replaced a written on topic answer with no results on
+ * three traced draws). This helper mirrors the gate's
+ * accounting exactly, for the serve: when the subject
+ * flagged concept belongs to an authored family AND at
+ * least two judged concepts belong to that family (the
+ * gate's own present count), a paper engages the subject
+ * when it engages ANY judged concept of the family. No
+ * family membership, no change: every other question's
+ * serve reads exactly the direct test, and the rejected
+ * global loosening stays rejected — a paper engaging no
+ * family concept gains nothing here. With exactly one
+ * authored family in the table, the blast radius is the
+ * waste oil and scraps equivalence alone. */
+export function paperEngagesSubjectFamily(paper, judged, subj) {
+  if (!subj) return false;
+  const fam = conceptGroupFamilyOf(subj);
+  if (fam < 0) return false;
+  const members = (Array.isArray(judged) ? judged : [])
+    .filter((c) => c && conceptGroupFamilyOf(c) === fam);
+  if (members.length < 2) return false;
+  try { return centralConceptHits(paper, members).total >= 1; } catch { return false; }
+}
+
 export function citedSetEngagesSubject(evidencePapers, citedIdx, query, dynLookup) {
   const list = Array.isArray(evidencePapers) ? evidencePapers : [];
   const idxs = [...(citedIdx || [])]
@@ -21427,6 +21470,9 @@ export function citedSetEngagesSubject(evidencePapers, citedIdx, query, dynLooku
       if (centralConceptHits(p, judged).subjectHit) {
         return { judged: true, engaged: true, subjectTerm };
       }
+      if (paperEngagesSubjectFamily(p, judged, subj)) {
+        return { judged: true, engaged: true, subjectTerm };
+      }
     }
     return { judged: true, engaged: false, subjectTerm };
   }
@@ -21461,7 +21507,10 @@ export function citedSetEngagesSubject(evidencePapers, citedIdx, query, dynLooku
 // test citedSetEngagesSubject applies to the cited set (the
 // founding paper index exemption, a binomial or identifier
 // anchor in title or abstract, a subject concept hit on the
-// central path, one touch of the subject group on the legacy
+// central path — or, since 2026-11-06, an engagement with
+// any judged concept of the subject's authored family, the
+// gate's family accounting mirrored — one touch of the
+// subject group on the legacy
 // path). Returns judged false exactly when the serve test
 // itself does not judge (no subject resolves), so a caller can
 // rebuild only over a pool the gate itself vouches for. The
@@ -21495,7 +21544,8 @@ export function subjectEngagingEvidence(papers, query, dynLookup) {
     const subj = judged.find((c) => c && c.subject);
     if (!subj) return { judged: false, subjectTerm: null, papers: [] };
     const engaging = list.filter((p, i) =>
-      engages(p, i + 1, (pp) => centralConceptHits(pp, judged).subjectHit));
+      engages(p, i + 1, (pp) => centralConceptHits(pp, judged).subjectHit
+        || paperEngagesSubjectFamily(pp, judged, subj)));
     return { judged: true, subjectTerm: subj.term || null, papers: engaging };
   }
   if (!ctx.subjectGroup) return { judged: false, subjectTerm: null, papers: [] };
