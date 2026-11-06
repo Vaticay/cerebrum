@@ -13828,6 +13828,12 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
   const [viewingEdition, setViewingEdition] = useState(null);
   const viewingEditionRef = useRef(null);
   const [newEdition, setNewEdition] = useState(false);
+  /* Site debug N1, 2026-11-06: a past edition that fails to load is
+     remembered here, so the error retry asks for that edition again
+     instead of silently reloading the current one, and the edition
+     already on screen stays standing behind a small note. */
+  const [editionNote, setEditionNote] = useState("");
+  const failedEditionRef = useRef(null);
   const [missingSources, setMissingSources] = useState([]);
   // The citation completion leg reports itself in sourceHealth under
   // its own name ("Citation counts"). It is not a section of the
@@ -13904,6 +13910,8 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
             setCitationHealth(data.sourceHealth.find((s) => s && s.source === "Citation counts") || null);
           }
           if (!isBackground) emitNovaActivity("search", "success");
+          failedEditionRef.current = null;
+          setEditionNote("");
           setStatus("ready");
         })
         .catch(() => {
@@ -13922,11 +13930,35 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
 
   const openEdition = (id) => {
     if (!id) return;
+    /* Site debug N1, 2026-11-06: snapshot what is on screen before
+       the fetch. A failed past edition used to replace a working
+       current edition with the full page error; now the snapshot is
+       restored, a note says the asked for edition did not load, and
+       failedEditionRef remembers which edition to retry. The full
+       page error remains for when nothing is on screen to restore. */
+    const snapshot = { items, generatedAt, feedMeta, missingSources, citationHealth, viewingEdition, newEdition, expanded };
+    const failEdition = () => {
+      failedEditionRef.current = id;
+      if (snapshot.items.length > 0) {
+        setItems(snapshot.items);
+        setGeneratedAt(snapshot.generatedAt);
+        setFeedMeta(snapshot.feedMeta);
+        setMissingSources(snapshot.missingSources);
+        setCitationHealth(snapshot.citationHealth);
+        setViewingEdition(snapshot.viewingEdition);
+        setNewEdition(snapshot.newEdition);
+        setExpanded(snapshot.expanded);
+        setEditionNote("That edition did not load. You are still looking at the edition you had open.");
+        setStatus("ready");
+      } else {
+        setStatus("error");
+      }
+    };
     setStatus("loading");
     fetch(`/api/trending?edition=${encodeURIComponent(id)}`)
       .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
       .then(({ ok, data }) => {
-        if (!ok || !data || !Array.isArray(data.items) || data.items.length === 0) { setStatus("error"); return; }
+        if (!ok || !data || !Array.isArray(data.items) || data.items.length === 0) { failEdition(); return; }
         viewingEditionRef.current = id;
         setViewingEdition(id);
         setItems(data.items);
@@ -13938,13 +13970,17 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
           setCitationHealth(data.sourceHealth.find((s) => s && s.source === "Citation counts") || null);
         }
         setExpanded(null);
+        failedEditionRef.current = null;
+        setEditionNote("");
         setStatus("ready");
       })
-      .catch(() => setStatus("error"));
+      .catch(() => failEdition());
   };
   const backToCurrent = () => {
     viewingEditionRef.current = null;
     setViewingEdition(null);
+    failedEditionRef.current = null;
+    setEditionNote("");
     setReloadTick((n) => n + 1);
   };
   const fmtEditionDay = (ts) => new Date(ts).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
@@ -14279,13 +14315,35 @@ function TrendingView({ P, accent, at, isMobile, onAsk, onSaveStory, isStorySave
               not broken, so trying again in a few seconds normally works.
             </div>
             <UIButton P={P} variant="ghost" className="cb-today-ctl"
-              onClick={() => setReloadTick((t) => t + 1)}
+              onClick={() => { const fid = failedEditionRef.current; if (fid) openEdition(fid); else setReloadTick((t) => t + 1); }}
               style={{ minHeight: 48,
                 padding: "12px 22px", borderRadius: RADIUS.sm, cursor: "pointer",
                 fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)",
                 background: accent, color: at, border: "none",
               }}
             >Try again</UIButton>
+          </div>
+        )}
+
+        {/* Site debug N1, 2026-11-06: the note a failed past edition
+            leaves behind, standing over the edition that stayed up.
+            Its Try again asks for the failed edition again. */}
+        {status === "ready" && editionNote && (
+          <div role="status" style={{
+            display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+            margin: "0 0 16px", padding: "10px 14px", borderRadius: RADIUS.md,
+            background: P.surface, border: `1px solid ${P.line}`,
+            fontSize: FONT_SIZES.label, color: P.ink2, lineHeight: 1.5,
+          }}>
+            <span style={{ flex: "1 1 220px" }}>{editionNote}</span>
+            <button type="button" className="cb-today-ctl"
+              onClick={() => { const fid = failedEditionRef.current; if (fid) openEdition(fid); }}
+              style={{ minHeight: 40, padding: "0 16px", borderRadius: RADIUS.sm, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: "transparent", color: P.ink, border: `1px solid ${P.line}` }}
+            >Try again</button>
+            <button type="button" className="cb-today-ctl"
+              onClick={() => { failedEditionRef.current = null; setEditionNote(""); }}
+              style={{ minHeight: 40, padding: "0 16px", borderRadius: RADIUS.sm, cursor: "pointer", fontSize: FONT_SIZES.label, fontWeight: 500, fontFamily: "var(--cb-font)", background: "transparent", color: P.ink2, border: `1px solid ${P.line}` }}
+            >Dismiss</button>
           </div>
         )}
 
@@ -16364,6 +16422,10 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  /* Site debug P1, 2026-11-06: a failed search is its own state, not
+     an empty result list. searchRetry re runs the effect on demand. */
+  const [searchFailed, setSearchFailed] = useState(false);
+  const [searchRetry, setSearchRetry] = useState(0);
   const [messageBusy, setMessageBusy] = useState(() => new Set());
   const searchTimer = useRef(null);
   /* 2026-10-20, tail items 5 and 15: searchSeq is the sequence guard
@@ -16401,6 +16463,7 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
     if (q.length < 2) {
       setResults([]);
       setLoading(false);
+      setSearchFailed(false);
       return;
     }
     setLoading(true);
@@ -16411,16 +16474,28 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
       try {
         const data = await apiDataGet("search-users", { q });
         if (seq !== searchSeq.current) return;
-        setResults(data && Array.isArray(data.items) ? data.items : []);
+        /* Site debug P1, 2026-11-06: apiDataGet returns null on any
+           failure and never throws, so the old ternary converted a
+           failed search into an empty list and the page reported
+           "Nobody matches that" for a search that never ran. A null
+           or malformed payload is a failure now: previous results
+           stay on screen and the failure state offers a retry. */
+        if (data && Array.isArray(data.items)) {
+          setResults(data.items);
+          setSearchFailed(false);
+        } else {
+          setSearchFailed(true);
+        }
       } catch {
         // Keep the previous results; just stop the spinner.
+        if (seq === searchSeq.current) setSearchFailed(true);
       } finally {
         if (seq === searchSeq.current) setLoading(false);
       }
     }, 300);
     searchTimer.current = timerId;
     return () => clearTimeout(timerId);
-  }, [query]);
+  }, [query, searchRetry]);
 
   // Find-or-create a real DM thread (start-thread in functions/api/data.js)
   // before ever touching the Inbox — no more "isn't a real account yet"
@@ -16496,7 +16571,15 @@ function NetworkSearchModal({ P, accent, at, close, onMessage, onOpenProfile = (
           {trimmed.length >= 2 && loading && results.length === 0 && (
             <div className="cb-people-in" style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint }}>Searching…</div>
           )}
-          {trimmed.length >= 2 && !loading && results.length === 0 && (
+          {trimmed.length >= 2 && !loading && searchFailed && (
+            <div className="cb-people-in" style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
+              <div>Search did not load. Check your connection, then try again.</div>
+              <button type="button" onClick={() => setSearchRetry((n) => n + 1)} style={{ marginTop: 10, minHeight: 40, padding: "0 16px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink, cursor: "pointer", fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.label }}>
+                Try again
+              </button>
+            </div>
+          )}
+          {trimmed.length >= 2 && !loading && !searchFailed && results.length === 0 && (
             <div className="cb-people-in" style={{ padding: "24px 12px", textAlign: "center", fontSize: FONT_SIZES.caption, color: P.faint, lineHeight: 1.6 }}>
               Nobody matches that. Check the spelling and try again. Try their full name, their @username, or a topic they work on. They may not be on Cerebrum yet, or they may have chosen not to be findable.
             </div>
@@ -20598,8 +20681,29 @@ function ShellLegalRow({ P }) {
    renders the same links from the same table, on the register
    ground, beside the rail. */
 function ShellLegalPopover({ onClose }) {
+  const popRef = useRef(null);
+  /* Site debug S2, 2026-11-06: onClose arrived as a prop but nothing
+     ever called it, so the popover could only be closed by the shield
+     button that opened it. Outside press and Escape close it now,
+     the way the other shell popovers close. Presses on the shield
+     toggle itself are left to its own click handler. */
+  useEffect(() => {
+    if (!onClose) return undefined;
+    const onDocDown = (e) => {
+      if (popRef.current && popRef.current.contains(e.target)) return;
+      if (e.target && e.target.closest && e.target.closest('button[aria-label="Legal links"]')) return;
+      onClose();
+    };
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("mousedown", onDocDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
   return (
-    <div role="dialog" aria-label="Legal" style={{
+    <div ref={popRef} role="dialog" aria-label="Legal" style={{
       position: "fixed", left: 76, bottom: 12, zIndex: Z.modal,
       background: REGISTER_GROUND, border: `1px solid ${REGISTER_LINE}`,
       borderRadius: RADIUS.lg, padding: "10px 6px", minWidth: 168,
@@ -20787,14 +20891,20 @@ const Sidebar = React.memo(function Sidebar({ P, accent, at, S, view, onNavigate
               : <div aria-hidden="true" style={{ width: 28, borderTop: `1px solid ${REGISTER_LINE}`, margin: "10px 0 4px" }} />)}
             {group.items.map(([key, label, icon]) => {
               const inboxUnread = key === "inbox" ? (threads || []).reduce((n, t) => n + (t.unreadCount || (t.unread ? 1 : 0)), 0) : 0;
+              /* The New search row dispatches "new" (it also resets the
+                 session) but lands on the search view, so its current
+                 page checks run against "search": with the raw key the
+                 row was never marked current on the view it opens
+                 (site debug S1, 2026-11-06). */
+              const activeKey = key === "new" ? "search" : key;
               return (
               /* data-nav: the landing target for the save-to-library flight.
                  A stable hook on the row itself, so the animation never has
                  to guess at the rail's structure. */
               <button key={key} data-nav={key} onClick={() => onNavigate(key)} title={expanded ? undefined : label}
-                style={{ ...itemStyle(key), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
-                aria-current={view === key ? "page" : undefined} aria-label={key === "inbox" && inboxUnread > 0 ? `Inbox, ${inboxUnread} unread` : label} className="cb-shell-navitem"
-                onMouseEnter={hoverIn} onMouseLeave={hoverOut(key)}>
+                style={{ ...itemStyle(activeKey), ...(expanded ? {} : { padding: "11px 0", justifyContent: "center", minWidth: 44, position: "relative" }) }}
+                aria-current={view === activeKey ? "page" : undefined} aria-label={key === "inbox" && inboxUnread > 0 ? `Inbox, ${inboxUnread} unread` : label} className="cb-shell-navitem"
+                onMouseEnter={hoverIn} onMouseLeave={hoverOut(activeKey)}>
                 <span style={{ width: 20, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
                   {icon === "glyph" ? <NovaGlyph size={expanded ? 20 : 24} /> : <Icon name={icon} size={expanded ? 18 : 20} />}
                 </span>
@@ -21706,6 +21816,11 @@ function App({ profileHandle = null } = {}) {
   // Flowchart Studio: null, or { title, nodes, edges, answerText, sources, chartId }.
   // chartId is set when reopening a saved chart; null means "new chart".
   const [flowchartOpen, setFlowchartOpen] = useState(null);
+  /* Site debug D1, 2026-11-06: the page Diagram Studio registers its
+     unsaved work guard here while it is mounted, so shell navigation
+     away from an unsaved diagram asks first, the same guard the
+     dialog form's close and a tab close already had. */
+  const studioNavGuardRef = useRef(null);
   const [flowcharts, setFlowcharts] = useState(() => {
     try { const v = JSON.parse(localStorage.getItem("cb_flowcharts") || "[]"); return Array.isArray(v) ? v : []; }
     catch { return []; }
@@ -22062,6 +22177,12 @@ function App({ profileHandle = null } = {}) {
     try { await apiAuth("logout", {}); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx signOut: await apiAuth('logout', {}); }:", cbErr); }
     setUser(null); setSyncReady(false); setCollections([]);
     setProfile({}); setProfileMeta({ followers: 0, followingCount: 0, badges: [] }); setThreads([]);
+    /* Site debug A1, 2026-11-06: land on the search view, the one
+       view a signed out visitor can stand on. Without this the user
+       stayed on the signed in only page they signed out from
+       (profile, inbox, people, usage) looking at a shell whose data
+       had just been cleared. */
+    setView("search");
     sfx();
   }
 
@@ -22081,6 +22202,9 @@ function App({ profileHandle = null } = {}) {
     try { clearE2EEMemory(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx onAccountDeleted: clearE2EEMemory(); }:", cbErr); }
     setUser(null); setSyncReady(false); setCollections([]); setSaved([]); setHistory([]); setFlowcharts([]);
     setProfile({}); setProfileMeta({ followers: 0, followingCount: 0, badges: [] }); setThreads([]);
+    /* Site debug A1, 2026-11-06: same landing as sign out. A deleted
+       account must not be left standing on a signed in only view. */
+    setView("search");
   }
 
   const [input, setInput] = useState("");
@@ -24317,6 +24441,18 @@ function App({ profileHandle = null } = {}) {
   function handleSidebarNavigate(key) {
     sfx();
     if (isMobile) setSidebarMobileOpen(false);
+    /* Site debug D1, 2026-11-06: leaving the page Diagram Studio for
+       any other destination runs through the studio's unsaved work
+       guard first, the same guard its dialog close uses. The whole
+       dispatch is the guarded action, so a confirmed leave lands
+       exactly where the press asked to go. */
+    if (view === "studio" && key !== "studio" && studioNavGuardRef.current) {
+      studioNavGuardRef.current(() => dispatchSidebarNavigate(key));
+      return;
+    }
+    dispatchSidebarNavigate(key);
+  }
+  function dispatchSidebarNavigate(key) {
     // Commit 99 — belt and braces. Document Mode's overlay used to eat every
     // nav press while it was up, and any future full-screen overlay would do
     // the same silently. Navigation is the one action that must always win,
@@ -24376,7 +24512,22 @@ function App({ profileHandle = null } = {}) {
      duplicate entry. */
   const viewHistoryRef = useRef({ base: null, prev: null });
   useEffect(() => {
-    if (!entered) return;
+    if (!entered) {
+      /* Site debug S3, 2026-11-06: leaving through the logo door ends
+         the navigation session. Without this reset the ref kept the
+         pre door view as prev, so re entry pushed a fresh view layer
+         on top of the stale stack and one Back press resurrected the
+         view the user had abandoned at the door. The ref restarts
+         from a clean base, and every layer still on the stack is
+         released: its history entry stays as padding (depths above
+         it still count on it) but back walks through it in silence
+         instead of restoring a pre door screen. */
+      viewHistoryRef.current = { base: null, prev: null };
+      for (const l of historyNav.layers()) {
+        if (l.alive) historyNav.releaseLayer(l.kind, l.key);
+      }
+      return;
+    }
     const h = viewHistoryRef.current;
     if (h.base === null) { h.base = view; h.prev = view; return; }
     if (view === h.prev) return;
@@ -24444,7 +24595,14 @@ function App({ profileHandle = null } = {}) {
   };
   const handleSidebarCloseMobile = useCallback(() => setSidebarMobileOpen(false), []);
   const handleToggleMute = useCallback(() => setMuted((m) => !m), []);
-  const handleLogoClick = useCallback(() => { sfx(); setEntered(false); setView("search"); }, [sfx]);
+  const handleLogoClick = useCallback(() => {
+    sfx();
+    const goDoor = () => { setEntered(false); setView("search"); };
+    /* Site debug D1, 2026-11-06: the logo is a way out of the studio
+       too, so it goes through the same unsaved work guard. */
+    if (view === "studio" && studioNavGuardRef.current) { studioNavGuardRef.current(goDoor); return; }
+    goDoor();
+  }, [sfx, view]);
   // Commit 66 — stamp savedAt on the way in, so a paper saved in this
   // session has a real timestamp immediately rather than waiting for the
   // next server round-trip to acquire one.
@@ -24700,9 +24858,15 @@ function App({ profileHandle = null } = {}) {
      openHistoryItem, the ledger's own opener. No entry, or no
      nameable question, and the line is absent. */
   const stageGreeting = novaHomeGreetingAt(new Date());
-  const stageLastEntry = history && history.length ? history[0] : null;
-  const stageLastQText = stageLastQ
-    || (stageLastEntry ? tidyQuestionTitle(stageLastEntry.title || (stageLastEntry.turns && stageLastEntry.turns[0] && stageLastEntry.turns[0].q) || "") : "");
+  /* Site debug H1 and H2, 2026-11-06: the resume row is offered only
+     for an entry the substantial rule in lastInvestigationQuestion
+     accepts AND that actually has turns to resume. The old fallback
+     quoted the entry title or first turn when the rule returned "",
+     so a fragment only session ("Ok") still rendered a row; and an
+     entry with a substantial title but zero turns rendered a row
+     whose tap loaded an empty session and went nowhere. */
+  const stageLastEntry = history && history.length && Array.isArray(history[0].turns) && history[0].turns.length ? history[0] : null;
+  const stageLastQText = stageLastQ;
   const stageInquiries = deckHasContent
     ? (ASK_MODE_EXAMPLES[askMode] || []).slice(0, 3)
     : FIRST_RUN_QUESTIONS.slice(0, 3);
@@ -25542,6 +25706,7 @@ function App({ profileHandle = null } = {}) {
             P={P} accent={accent} at={at} isMobile={isMobile}
             tier={proStatus?.tier || (user?.isPro ? "pro" : "free")}
             resetSignal={studioResetNonce}
+            navGuardRef={studioNavGuardRef}
             latestAnswer={(turns.length && turns[turns.length - 1].answer)
               ? { title: turns[turns.length - 1].q || "Your last answer", answerText: turns[turns.length - 1].answer, sources: turns[turns.length - 1].sources || [] }
               : null}
