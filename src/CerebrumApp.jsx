@@ -2693,6 +2693,27 @@ class StreamFallback extends Error {
   constructor(reason) { super("stream fallback: " + reason); this.name = "StreamFallback"; this.reason = reason; }
 }
 
+/* Terminal: the platform killed the worker outright (Cloudflare error
+   1102, resource limits), it did not merely fail the request. The
+   single-fetch fallback would run the same search on the same
+   platform and die the same way, so this error skips the fallback
+   entirely and lands the honest error panel after ONE death instead
+   of two (2026-11-06, site debug hostile inputs H2). Carries the
+   HTTP status and any request id the edge response carried, for the
+   panel's diagnostic caption. */
+class PlatformDeath extends Error {
+  constructor(status, requestId = "") { super("platform death: HTTP " + status); this.name = "PlatformDeath"; this.status = status; this.requestId = requestId; }
+}
+
+/* The platform's own death notice is a tiny plain text body,
+   "error code: 1102". Nothing the app itself serves looks like
+   that: app errors are JSON, and a 200 stream is SSE. Matching the
+   body text (not just the 503 status) keeps an ordinary 5xx from
+   the app on the normal fallback path. */
+function isPlatformDeathBody(text) {
+  return /^error code:\s*1102\b/.test(String(text || "").trim());
+}
+
 /* Pump one SSE response body, dispatching parsed events as
    onEvent(event, data, id). Resolves with the last seen event id. Throws
    the underlying error (AbortError included) on transport failure. */
@@ -2780,7 +2801,23 @@ async function runStreamedSearch({ body, signal, onStageEvent, onConnect, resume
   }
   const ctype = res.headers.get("content-type") || "";
   if (!res.ok || !ctype.includes("text/event-stream")) {
-    try { if (res.body) await res.body.cancel(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx catch: if (res.body) await res.body.cancel(); }:", cbErr); }
+    /* Platform death check (H2): a worker killed by the platform
+       answers with the tiny plain text death notice, not with app
+       JSON. Read the body of a 5xx before discarding it; on the
+       signature, fail fast (PlatformDeath) instead of falling back
+       into a second full search that dies the same way. Any other
+       failure keeps the silent fallback exactly as before. */
+    let bodySpent = false;
+    if (!res.ok && res.status >= 500) {
+      let errText = "";
+      try { errText = await res.text(); bodySpent = true; } catch { errText = ""; }
+      if (isPlatformDeathBody(errText)) {
+        throw new PlatformDeath(res.status, res.headers.get("X-Request-ID") || "");
+      }
+    }
+    if (!bodySpent) {
+      try { if (res.body) await res.body.cancel(); } catch (cbErr) { console.error("[Cerebrum] CerebrumApp.jsx catch: if (res.body) await res.body.cancel(); }:", cbErr); }
+    }
     throw new StreamFallback("bad-response");
   }
   const requestId = res.headers.get("X-Request-ID") || "";
@@ -23911,6 +23948,19 @@ function App({ profileHandle = null } = {}) {
         noteRequestId(streamed.requestId);
       } catch (se) {
         if (se && se.name === "AbortError") throw se;
+        if (se && se.name === "PlatformDeath") {
+          /* The platform killed the worker outright (H2): the
+             single-fetch fallback would run the same search on the
+             same platform and die the same death, doubling the wait
+             in front of a spinner. The honest panel lands now,
+             stamped with the same diagnostic caption every other
+             failure path leaves. */
+          setStreamActive(false); setStreamStage(null);
+          noteRequestId(se.requestId || "");
+          setErrorDetail(`HTTP ${se.status || 503} · ${elapsedS()}s · ${stamp()}${se.requestId ? " · req " + String(se.requestId).slice(0, 8) : ""}`);
+          failSearch("http5xx", { status: se.status || 503, requestId: se.requestId || "", keepDetail: true });
+          return;
+        }
         /* Silent fallback: the single-fetch path, unchanged in shape. */
         setStreamActive(false); setStreamStage(null);
         // Reset: the SSE stream's request id must not be quoted on

@@ -36475,6 +36475,24 @@ async function runSearchPipeline(pctx) {
     // withheld count still reaches the UI via relevanceGatedOut, and the
     // bibliography states it honestly.
     if (useEvidence && evidencePapers.length === 0) useEvidence = false;
+    // Zero gathered is no evidence too (2026-11-06, site debug
+    // hostile inputs H1): serveGateNoEvidence above is only ever
+    // set when a gate or the programmatic passes empty a shelf
+    // that had papers. A run whose retrieval gathered nothing at
+    // all reached this point with the flag unset, so the waves
+    // below fired on the from knowledge path and a model could
+    // ship a written answer over zero citable sources with
+    // responseKind "research", metered as an AI answer, and none
+    // of the no results recovery the client renders for the
+    // honest shape. An empty final evidence set on the standard
+    // path is the no evidence state however it got empty: close
+    // the waves here and let wave 4 build the no results answer,
+    // unmetered. Name search and follow up mode keep the
+    // exemption both gates observe, and a run holding web
+    // references keeps its reference tier.
+    if (!isNameSearch && !isFollowupMode && !useWeb && evidencePapers.length === 0) {
+      serveGateNoEvidence = true;
+    }
     if (foundationalFates) advanceFoundationalFates(foundationalFates, "final-gate", evidencePapers);
 
     // SSE stage 3/6: retrieval + validation + relevance gating are done .

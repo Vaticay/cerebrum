@@ -894,8 +894,21 @@ await test("an open synthesis breaker over an empty shelf ships the honest no ev
     "the top level catch's synthetic request record shipped: " + JSON.stringify(data.stageHealth));
   const synth = (data.stageHealth || []).find((s) => s.name === "synthesis");
   assert.ok(synth, "the synthesis stage record is missing");
-  assert.ok((synth.failedLegs || []).some((l) => /circuit open/i.test(l.error || "")),
-    "the synthesis record does not name the breaker refusals: " + JSON.stringify(synth));
+  // PIN UPDATED (2026-11-06, site debug hostile inputs H1): this
+  // assertion used to require the breaker refusals in failedLegs,
+  // which proved the waves had fired on the empty shelf and been
+  // refused. The H1 fix closes the waves on an empty evidence set
+  // by design (a model writing over zero citable sources was the
+  // defect), so no leg fires and there is no refusal to record;
+  // naming one would fabricate a leg that never ran. The record
+  // now names the true cause instead. The breaker path itself is
+  // unchanged wherever evidence exists: the companion test above
+  // still pins the refusals on a nonempty shelf.
+  assert.equal(synth.ok, false, "the synthesis stage must record failure");
+  assert.equal(synth.skipReason, "no citable evidence",
+    "the record does not name the no evidence cause: " + JSON.stringify(synth));
+  assert.deepEqual(synth.failedLegs, [],
+    "no leg may be recorded as fired on an empty shelf: " + JSON.stringify(synth));
 });
 
 // ═══════════════════════════════════════════════════════════════════
