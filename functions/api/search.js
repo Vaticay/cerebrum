@@ -782,6 +782,34 @@ export function retryCloseWindowMs(msLeftMs, factCheckOn) {
   return Math.max(0, Math.min(RETRY_RACE_CLOSE_MS, left - FACT_CHECK_RESERVE_MS - RETRY_RESERVE_MARGIN_MS));
 }
 
+/* CITATION REPAIR GATE, DERIVED (2026-11-06, 100 percent answer
+ * success lane): the repair's two fire sites gated on a flat
+ * msLeft() > 9000, sized as the FULL 5,000 close plus the 2,500
+ * assembly reserve plus margin. But the close is already bounded
+ * by retryCloseWindowMs above, which shrinks it to whatever the
+ * fact check reserve leaves — so late in a request the flat gate
+ * stood the repair down even when a real, reserve respecting
+ * close window existed. The Nov 6 verification batch on 65d346f
+ * carries the specimens: FEV1 (synthesis winner discarded for
+ * carrying no citations, request spent ~11.5s of its 19s at the
+ * decision point, close would have been ~1,750) and FEV2 (same
+ * shape, ~7s left, close ~750 — still correctly stood down).
+ * The gate is now derived from the close itself: the repair
+ * fires when the bounded close is a real chance (at least
+ * MIN_RETRY_CLOSE_MS) AND the request keeps the 2,500 assembly
+ * reserve after the close is spent. With the fact check on that
+ * opens the repair at 7,750 ms left instead of 9,000; with it
+ * off, at 7,500 (5,000 close + 2,500 assembly) instead of 9,000.
+ * runCitationRetry's own stand down under MIN_RETRY_CLOSE_MS is
+ * unchanged, so a gate opening can never fire a hopeless race. */
+export const CITATION_RETRY_ASSEMBLY_RESERVE_MS = 2500;
+export function citationRetryGateOpen(msLeftMs, factCheckOn) {
+  const left = Math.max(0, Math.floor(Number(msLeftMs) || 0));
+  const closeMs = retryCloseWindowMs(left, factCheckOn);
+  if (closeMs < MIN_RETRY_CLOSE_MS) return false;
+  return left - closeMs >= CITATION_RETRY_ASSEMBLY_RESERVE_MS;
+}
+
 /* Plan the delayed rescue from the recorded attempt trail. Pure over
  * its inputs plus the leg health store, with an injectable clock, so
  * the contract is testable without running the pipeline:
@@ -908,6 +936,110 @@ export function planDelayedRescue(attempts, opts = {}) {
     return { action: "skip", reason: "no rate limit to wait out", summary: null };
   }
   return { action: "wait", waitMs, chosen };
+}
+
+/* PARK EXPIRY RESCUE (2026-11-06, 100 percent answer success
+ * lane): the second, later rescue, planned only after the waves,
+ * the immediate rescue, and the delayed rescue have all failed.
+ * The shape it exists for is the park wall, measured on the Nov 5
+ * post fix batches (SLT4, DRP1, FRS2, FRS5, FRS6 on the 3f934b7
+ * batch accounting): every fast leg either rate limited inside
+ * this request or was ALREADY parked from neighboring traffic —
+ * a rate limit park runs LEG_PARK_RATE_LIMIT_MS (60s) while the
+ * delayed rescue's wait is 20s, so a leg parked early in the
+ * request can never be a delayed rescue candidate, and when the
+ * slow legs are disqualified by their own timeouts no eligible
+ * retry leg remains and the serve degrades to extractive with
+ * the fleet merely throttled, not down.
+ * The one move left is to wait for the park itself to lapse.
+ * Contract, mirroring planDelayedRescue's discipline:
+ *   - candidates are roster legs not disqualified by a failure a
+ *     wait cannot fix (the same disqualification rule), carrying
+ *     a RATE LIMIT park — their own, or their shared bucket's —
+ *     whose lapse falls inside the wait window. A daily cap park
+ *     on the leg or its bucket makes it ineligible outright: an
+ *     hour scale park is not waited out here.
+ *   - the wait ends at the chosen legs' lapse plus a small
+ *     buffer, and the retry plus the 2.5s assembly reserve must
+ *     fit before this phase's own hard bound (requestDeadline +
+ *     PARK_RESCUE_OVERRUN_MS), which keeps the whole request
+ *     inside the web client's 120s ask timeout with room to
+ *     spare. A lapse that cannot fit is not waited for.
+ *   - the two seats prefer different provider buckets, the
+ *     delayed rescue's independent second leg rule.
+ *   - no recorded leg failures, or no parked candidate lapsing
+ *     inside the window → skip; the summary says which, so stage
+ *     health can tell a park wall from a silent fleet.
+ * The park's existence is the evidence a wait helps: unlike the
+ * delayed rescue, no in request rate limit is required, because
+ * the FRS5 specimen's fast legs never fired at all — they were
+ * parked by OTHER requests' 429s before this one began. */
+export const PARK_RESCUE_MAX_WAIT_MS = 60000;
+export const PARK_RESCUE_OVERRUN_MS = 75000;
+export const PARK_RESCUE_LAPSE_BUFFER_MS = 250;
+export function planParkRescue(attempts, opts = {}) {
+  const nowMs = opts.nowMs != null ? opts.nowMs : Date.now();
+  const requestDeadlineMs = opts.requestDeadlineMs != null ? opts.requestDeadlineMs : nowMs;
+  const rosterLabels = Array.isArray(opts.rosterLabels) ? opts.rosterLabels : [];
+  const preferredLabel = opts.preferredLabel || null;
+  const legFailures = (Array.isArray(attempts) ? attempts : []).filter(
+    (a) => a && typeof a.wave === "number" && typeof a.model === "string" && a.ok === false && !a.parked
+  );
+  if (legFailures.length === 0) return { action: "skip", reason: "no leg failures recorded", summary: null };
+  const disqualified = new Set();
+  for (const a of legFailures) {
+    const c = classifyLegFailure(a.error);
+    if (c !== "rate-limit" && c !== "daily-cap") disqualified.add(a.model);
+  }
+  // The lapse instant a label becomes fireable: the later of its
+  // own park and its shared bucket park, or null when it is not
+  // parked at all. A daily cap on either level disqualifies.
+  const lapseFor = (label) => {
+    let lapse = 0;
+    const own = legParkInfo(label, nowMs);
+    if (own) {
+      if (own.parkClass !== "rate-limit") return null;
+      lapse = Math.max(lapse, own.untilMs);
+    }
+    const bucket = bucketParkInfo(label, nowMs);
+    if (bucket) {
+      if (bucket.parkClass !== "rate-limit") return null;
+      lapse = Math.max(lapse, bucket.untilMs);
+    }
+    return lapse > nowMs ? lapse : null;
+  };
+  const ranked = [...new Set(rosterLabels)].sort((a, b) =>
+    ((legHealthSnapshot(b) || {}).successes || 0) - ((legHealthSnapshot(a) || {}).successes || 0));
+  const ordered = [];
+  if (preferredLabel) ordered.push(preferredLabel);
+  for (const label of ranked) if (!ordered.includes(label)) ordered.push(label);
+  const hardBound = requestDeadlineMs + PARK_RESCUE_OVERRUN_MS;
+  const candidates = [];
+  for (const label of ordered) {
+    if (disqualified.has(label)) continue;
+    const lapse = lapseFor(label);
+    if (lapse == null) continue;
+    if (lapse - nowMs > PARK_RESCUE_MAX_WAIT_MS) continue;
+    if (lapse + PARK_RESCUE_LAPSE_BUFFER_MS + DELAYED_RESCUE_RETRY_MS + 2500 > hardBound) continue;
+    candidates.push({ label, lapse });
+  }
+  if (candidates.length === 0) {
+    return { action: "skip", reason: "no park lapses inside the window", summary: "park rescue skipped: no rate limited leg's park lapses inside the wait window" };
+  }
+  candidates.sort((a, b) => a.lapse - b.lapse);
+  const chosen = [candidates[0]];
+  if (candidates.length > 1) {
+    const independent = candidates.find(
+      (c) => synthesisBucketForLabel(c.label) !== synthesisBucketForLabel(chosen[0].label));
+    chosen.push(independent || candidates[1]);
+  }
+  const lapseMs = Math.max(...chosen.map((c) => c.lapse));
+  return {
+    action: "wait",
+    waitMs: Math.max(0, lapseMs + PARK_RESCUE_LAPSE_BUFFER_MS - nowMs),
+    chosen: chosen.map((c) => c.label),
+    lapseMs,
+  };
 }
 
 // ── Per-request subrequest ledger (2026-10-13, third rescore) ────
@@ -38931,19 +39063,26 @@ async function runSearchPipeline(pctx) {
     //     phase's hard bound (requestDeadline + the named overrun).
     //     If even DELAYED_RESCUE_MIN_WAIT_MS does not fit, the wait
     //     is skipped and stage health says so.
-    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {
-      // WAVE TEN (item 15): the delayed roster interleaves the
-      // three buckets instead of listing every OpenRouter model
-      // first, so the success ranked candidates are not nine
-      // same bucket labels deep before a compat leg appears.
-      const rosterLabels = interleaveByBucket([
+    // The rescue roster, shared by the delayed rescue below and
+    // the park expiry rescue behind it (2026-11-06): built once,
+    // before either planner reads it.
+    // WAVE TEN (item 15): the roster interleaves the three
+    // buckets instead of listing every OpenRouter model first,
+    // so the success ranked candidates are not nine same bucket
+    // labels deep before a compat leg appears.
+    const rescueRosterLabels = (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition)
+      ? interleaveByBucket([
         ...(token ? OR_FREE_MODELS.map((m) => ({ label: m, bucket: "openrouter" })) : []),
         ...activeProviders.flatMap((p) => {
           const pm = PROVIDER_MODELS[p.id] || {};
           return [...(pm.w1 || []), ...(pm.w2 || [])].map((m) => ({ label: p.id + ":" + m, bucket: "compat:" + p.id }));
         }),
         ...(cfBound ? [...CF_WAVE1, ...CF_WAVE2].map((m) => ({ label: m, bucket: "workers-ai" })) : []),
-      ]).map((d) => d.label);
+      ]).map((d) => d.label)
+      : [];
+    const rescuePreferredLabel = activeProviders.some((p) => p.id === "groq") ? "groq:openai/gpt-oss-120b" : null;
+    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {
+      const rosterLabels = rescueRosterLabels;
       const delayedPlan = planDelayedRescue(aiAttempts, {
         rosterLabels,
         preferredLabel: activeProviders.some((p) => p.id === "groq") ? "groq:openai/gpt-oss-120b" : null,
@@ -39001,6 +39140,62 @@ async function runSearchPipeline(pctx) {
             recordWin(winner.model);
           } catch (agg) {
             aiAttempts.push({ wave: 6, ok: false, delayedRescue: true, summary: errMsgs(agg) });
+          }
+        }
+      }
+    }
+
+    // PARK EXPIRY RESCUE (2026-11-06, 100 percent answer success
+    // lane; wave 7 in the attempt trail): when the delayed rescue
+    // also failed or stood down and the fast fleet is sitting in
+    // rate limit parks that outlast its 20s wait, wait for the
+    // earliest chosen park to lapse and retry once (see
+    // planParkRescue for the contract). This is the last synthesis
+    // move before the extractive tier: its hard bound keeps the
+    // whole request inside the web client's 120s ask timeout.
+    if (!aiOK && wavesAllowed && !budgetDenied && !skipWavesForDefinition) {
+      const parkPlan = planParkRescue(aiAttempts, {
+        rosterLabels: rescueRosterLabels,
+        preferredLabel: rescuePreferredLabel,
+        nowMs: Date.now(),
+        requestDeadlineMs: requestDeadline,
+      });
+      if (parkPlan.action === "skip" && parkPlan.summary) {
+        aiAttempts.push({ wave: 7, ok: false, parkRescue: true, summary: parkPlan.summary });
+      } else if (parkPlan.action === "wait") {
+        const parkRescueDeadline = requestDeadline + PARK_RESCUE_OVERRUN_MS;
+        const chosen = parkPlan.chosen;
+        aiAttempts.push({ wave: 7, ok: false, parkRescue: true, waitedMs: parkPlan.waitMs, summary: "park rescue: waiting " + parkPlan.waitMs + "ms for rate limit parks to lapse, then retrying " + chosen.join(", ") });
+        await new Promise((res) => setTimeout(res, parkPlan.waitMs));
+        const parkDescriptors = chosen.map((label) => ({
+          label,
+          bucket: label,
+          fetchCost: 1,
+          wave: 7,
+          fire: () => callForLegLabel(label, compactMessages || messages, maxTokens, DELAYED_RESCUE_RETRY_MS),
+        }));
+        const parkWavePlan = planWaveLegs(parkDescriptors, ledger.remaining());
+        for (const d of parkWavePlan.skipped) {
+          aiAttempts.push({ wave: 7, model: d.label, ok: false, ms: 0, budgetSkipped: true, plannedSkip: true, error: SUBREQUEST_EXHAUSTED_REASON });
+        }
+        const parkLegs = parkWavePlan.selected
+          .map((d) => guardedRaceEntry(7, d.label, d.fire))
+          .filter(Boolean);
+        if (parkLegs.length === 0) {
+          aiAttempts.push({ wave: 7, ok: false, parkRescue: true, summary: "park rescue: every chosen leg was still parked at fire time" });
+        } else {
+          try {
+            const winner = await Promise.race([
+              raceBest(parkLegs, query, 1000),
+              new Promise((_, reject) => setTimeout(
+                () => reject(new Error("park-rescue-deadline: retry exceeded the rescue deadline")),
+                Math.max(1, parkRescueDeadline - 2500 - Date.now())
+              )),
+            ]);
+            answer = winner.answer; aiOK = true;
+            recordWin(winner.model);
+          } catch (agg) {
+            aiAttempts.push({ wave: 7, ok: false, parkRescue: true, summary: errMsgs(agg) });
           }
         }
       }
@@ -39206,7 +39401,12 @@ async function runSearchPipeline(pctx) {
       // behind it. So for THIS shape the gate is the request
       // budget alone: msLeft above 9,000 covers the race's
       // 5,000 close window, the 2,500 assembly reserve, and
-      // margin. The quality and minimum support retries keep
+      // margin. (2026-11-06, 100 percent answer success lane:
+      // the flat 9,000 is superseded by the derived gate in
+      // citationRetryGateOpen, which prices the ACTUAL bounded
+      // close plus the same 2,500 assembly reserve; the request
+      // budget alone reasoning of this block stands.) The
+      // quality and minimum support retries keep
       // their synthesis window gates unchanged: their drafts
       // ship when the retry is skipped, an uncited one does
       // not. The ledger tail reserve still applies inside
@@ -39253,7 +39453,7 @@ async function runSearchPipeline(pctx) {
         } catch (cbErr) { console.error("[Cerebrum] search.js if: const r = await Promise.any(:", cbErr); }
         return null;
       };
-      if (!hasCitations && msLeft() > 9000) {
+      if (!hasCitations && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck))) {
         const retried = await runCitationRetry();
         if (retried) answer = retried;
       }
@@ -39370,7 +39570,7 @@ async function runSearchPipeline(pctx) {
       // candidate is accepted only after the same strip and
       // coverage passes run on it: a candidate whose citations
       // do not bind is rejected whole, never dressed up.
-      if (!/\[\d+\]/.test(answer) && !citationRetryAttempted && msLeft() > 9000) {
+      if (!/\[\d+\]/.test(answer) && !citationRetryAttempted && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck))) {
         const retried = await runCitationRetry();
         if (retried) {
           try {

@@ -138,11 +138,16 @@ await test("the bold bar repairs before it rejects (source pins)", () => {
 // ── probe 17: citation retry gating ──
 
 await test("the citation retry is gated on the request budget, and fires after the strips (source pins)", () => {
-  assert.ok(searchSrc.includes("if (!hasCitations && msLeft() > 9000)"),
+  // PIN UPDATED (2026-11-06, 100 percent answer success lane):
+  // the flat msLeft() > 9000 reading is superseded by the
+  // derived citationRetryGateOpen (actual bounded close plus
+  // the assembly reserve); it is still a request budget gate,
+  // still with no synthesis window condition.
+  assert.ok(searchSrc.includes("if (!hasCitations && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck)))"),
     "the pre strip citation retry still carries the synthesis window condition that stood probe 17 down");
   assert.ok(searchSrc.includes("POST STRIP CITATION REPAIR"),
     "no post strip citation repair exists for a draft whose markers all failed to bind");
-  assert.ok(searchSrc.includes("!citationRetryAttempted && msLeft() > 9000"),
+  assert.ok(searchSrc.includes("!citationRetryAttempted && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck))"),
     "the post strip repair is not a single, budget gated attempt");
 });
 

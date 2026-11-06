@@ -1115,8 +1115,13 @@ await test("all three planner stamp sites mark their trims plannedSkip, and the 
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(join(root, "functions/api/search.js"), "utf8");
   const stamps = src.match(/budgetSkipped: true, plannedSkip: true/g) || [];
-  assert.equal(stamps.length, 3,
-    `expected exactly 3 plannedSkip stamp sites (wave, rescue, delayed rescue), found ${stamps.length}`);
+  // PIN UPDATED (2026-11-06, 100 percent answer success lane):
+  // the park expiry rescue's wave plan is a fourth stamping
+  // planner, in the same contract (its trims never raced, so
+  // they carry plannedSkip and separate from failedLegs exactly
+  // like the other three).
+  assert.equal(stamps.length, 4,
+    `expected exactly 4 plannedSkip stamp sites (wave, rescue, delayed rescue, park rescue), found ${stamps.length}`);
   assert.ok(src.includes("a.plannedSkip !== true"),
     "the synthesis record's failedLegs does not exclude planner stamps");
   assert.ok(src.includes("budgetSkippedLegs: synthLegs.filter((a) => a.plannedSkip === true).length"),

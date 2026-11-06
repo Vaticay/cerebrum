@@ -45,6 +45,8 @@ const {
   effectiveRetrievalDeadlineMs,
   settleByDeadline,
   retryCloseWindowMs,
+  citationRetryGateOpen,
+  CITATION_RETRY_ASSEMBLY_RESERVE_MS,
 } = await import(join(root, "functions/api/search.js"));
 const src = await readFile(join(root, "functions/api/search.js"), "utf8");
 
@@ -183,10 +185,37 @@ ok("the citation repair carries the bounded close and the fact check gate is unt
     "the repair has no stand down for a close with no real chance");
   assert.ok(src.includes("msLeft() > FACT_CHECK_RESERVE_MS && !factCheckBudgetSkipped"),
     "the fact check admission gate changed");
-  assert.ok(src.includes('if (!hasCitations && msLeft() > 9000)'),
+  // PIN UPDATED (2026-11-06, 100 percent answer success lane):
+  // the probe 17 flat 9,000 gate is superseded by the derived
+  // gate (citationRetryGateOpen), which prices the actual
+  // bounded close plus the same assembly reserve; the request
+  // budget alone reasoning of probe 17 is unchanged. The two
+  // assertions below pin the new fire sites.
+  assert.ok(src.includes("if (!hasCitations && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck)))"),
     "the probe 17 request budget gate on the pre strip repair changed");
-  assert.ok(src.includes("!citationRetryAttempted && msLeft() > 9000"),
+  assert.ok(src.includes("!citationRetryAttempted && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck))"),
     "the probe 17 request budget gate on the post strip repair changed");
+});
+
+ok("the derived citation repair gate opens exactly where a real close plus the assembly reserve fit", () => {
+  // With the check on, the close floor binds first: the gate
+  // opens at 7,750 ms left (close 1,500, the reserve and margin
+  // intact behind it) and not one millisecond earlier.
+  assert.equal(citationRetryGateOpen(7750, true), true);
+  assert.equal(citationRetryGateOpen(7749, true), false);
+  // The Nov 6 verification batch specimens on 65d346f: FEV1's
+  // uncited winner reached the decision with about 8,000 ms
+  // left (gate now open, close ~1,750); FEV2's had about 7,000
+  // (close ~750, still stood down, correctly).
+  assert.equal(citationRetryGateOpen(8000, true), true);
+  assert.equal(citationRetryGateOpen(7000, true), false);
+  // With the check off the close is the flat standard close, so
+  // the assembly reserve binds: open at 5,000 + 2,500 exactly.
+  assert.equal(citationRetryGateOpen(RETRY_RACE_CLOSE_MS + CITATION_RETRY_ASSEMBLY_RESERVE_MS, false), true);
+  assert.equal(citationRetryGateOpen(RETRY_RACE_CLOSE_MS + CITATION_RETRY_ASSEMBLY_RESERVE_MS - 1, false), false);
+  // A full budget opens under both readings, as the old gate did.
+  assert.equal(citationRetryGateOpen(19000, true), true);
+  assert.equal(citationRetryGateOpen(19000, false), true);
 });
 
 console.log("\ncontinuation-budget: " + passed + " passed");
