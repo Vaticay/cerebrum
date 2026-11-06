@@ -240,7 +240,15 @@ const BASE = {
   WLK3_STRUCTURED: "(glucose OR \"type 2 diabetes\" OR \"type 1 diabetes\" OR \"insulin resistance\" OR \"metabolic syndrome\" OR diabetes OR diabetic) AND meal AND walk",
   WLK3_REBUILT: "(glucose OR \"type 2 diabetes\" OR \"type 1 diabetes\" OR \"insulin resistance\" OR \"metabolic syndrome\" OR diabetes OR diabetic)",
   WLK4_STRUCTURED: "(glucose OR \"type 2 diabetes\" OR \"type 1 diabetes\" OR \"insulin resistance\" OR \"metabolic syndrome\" OR diabetes OR diabetic) AND moving AND spikes AND monitor",
-  SLT4_STRUCTURED: "(heart OR cardiovascular OR cardiac OR myocardial OR coronary OR atherosclerosis OR hypertension) AND (salt OR \"sodium chloride\" OR \"table salt\" OR \"salt intake\" OR \"dietary sodium\" OR salts OR sodium) AND itself AND problem",
+  // Baseline updated 2026-11-06 by the boolean anchor diagnosis R1 land
+  // (parent ruling: the diagnosis governs over this wave 5 snapshot). The
+  // recorded string carried "itself" as an AND rung; the diagnosis proved
+  // with live pool evidence that "itself" is a closed class filler with no
+  // topic content (46,607 hits with it, 159,299 without, topic unchanged),
+  // admitted through the list gap R1 closes. A baseline snapshot does not
+  // protect the bug it happened to record, so the baseline now reads
+  // without "itself AND". Every other baseline in this block is untouched.
+  SLT4_STRUCTURED: "(heart OR cardiovascular OR cardiac OR myocardial OR coronary OR atherosclerosis OR hypertension) AND (salt OR \"sodium chloride\" OR \"table salt\" OR \"salt intake\" OR \"dietary sodium\" OR salts OR sodium) AND problem",
   SLT4_REBUILT: "(heart OR cardiovascular OR cardiac OR myocardial OR coronary OR atherosclerosis OR hypertension) AND (salt OR \"sodium chloride\" OR \"table salt\" OR \"salt intake\" OR \"dietary sodium\" OR salts OR sodium)",
   INV_STRUCTURED: [
     "zorblaxian OR quarnellian OR sugar OR sadness",

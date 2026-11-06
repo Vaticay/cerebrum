@@ -7850,6 +7850,77 @@ export function rebuildStructuredQueryFromGroups(query, dynLookup) {
   return rungs.length ? rungs.join(" AND ") : null;
 }
 
+// Lane C successor (2026-11-06, boolean anchor diagnosis,
+// ~/workspace/cerebrum-boolean-anchor-diagnosis-nov06/report.md):
+// two droppable classes on the composed AND chain, the narrow
+// form proven against all 11 pins the wave 3 centrality attempt
+// broke. The wave 3 form governed the boolean by the gate's
+// central concept list and dropped pinned anchors the gate never
+// names (assay, weeks, catch, the sleep trace phrase group); this
+// form governs nothing by the gate. It removes only rungs that
+// carry no constraint of their own:
+//
+// R1, closed class singletons. A bare singleton rung whose term
+// is a pronoun, quantifier, or reflexive drops. The shipped
+// builder owns closed class machinery (isGateFunctionWord,
+// consulted by the anchor race and the screen since the wave 17
+// hygiene wave), but its list never enumerated these words, and
+// the paths that seat them — the model group singleton path and
+// the phrase anchor scan — never consult that filter: the live
+// specimens shipped "anything" (WLK2) and "itself" (SLT4) as AND
+// requirements the target literature cannot match as topic
+// words. The set below is exactly the closed class the diagnosis
+// proves; content words are never added to it here ("problem"
+// on SLT4 is a content word and stays, a named leftover).
+//
+// R2, duplicate slots. A bare singleton rung whose term already
+// appears as a member of another rung's OR group in the same
+// chain drops: the group already imposes the constraint, and
+// the probes show the pool unchanged (WLK2 shipped both
+// ("ten minutes") and ("ten minute" OR "ten minutes") for one
+// slot). Bare singletons ONLY: group rungs are never candidates,
+// which is what holds the gut byte exact pin, whose gut group
+// ships twice in one chain as two full OR groups.
+//
+// Nothing else drops. Content singletons never drop (pasta on
+// WLK2 stays: every builder visible feature it carries, it
+// shares with the pinned assay, weeks, or catch), and model
+// seated groups never drop (the flour group on SLT4 stays: its
+// builder visible profile is identical to the pinned "easier
+// catch cold" phrase group). Both are filed as known defects in
+// the diagnosis, section 7.
+const BOOLEAN_CLOSED_CLASS_SINGLETONS = new Set([
+  "anything", "everything", "nothing", "something", "anyone", "anybody",
+  "everyone", "everybody", "someone", "somebody", "itself", "themselves",
+  "himself", "herself", "myself", "yourself", "ourselves",
+]);
+
+function dropBooleanWasteRungs(chain) {
+  if (!chain || chain.indexOf(" AND ") === -1) return chain;
+  const rungs = splitTopLevelBoolean(chain, "AND").map((raw) => {
+    const members = booleanRungMembers(raw).map((m) => m.toLowerCase());
+    return { raw, members, singleton: members.length === 1 };
+  });
+  if (rungs.length < 2) return chain;
+  const groupMembers = new Set();
+  for (const r of rungs) {
+    if (!r.singleton) for (const m of r.members) groupMembers.add(m);
+  }
+  const kept = rungs.filter((r) => {
+    if (!r.singleton) return true;
+    const term = r.members[0];
+    // R1: a single word in the closed set. The word shape test
+    // is what keeps phrase singletons out of R1 — a phrase drops
+    // only as a duplicate under R2, never for its content.
+    if (/^[a-z]+$/.test(term) && BOOLEAN_CLOSED_CLASS_SINGLETONS.has(term)) return false;
+    // R2: the slot is already covered by a group rung.
+    if (groupMembers.has(term)) return false;
+    return true;
+  });
+  if (!kept.length) return chain;
+  return kept.map((r) => r.raw).join(" AND ");
+}
+
 export function buildStructuredQuery(query, dynLookup) {
   // If the query names a scientific binomial, wrap it in quotes so search engines
   // treat it as a required phrase. This is what prevents "Populus deltoides"
@@ -8476,7 +8547,12 @@ export function buildStructuredQuery(query, dynLookup) {
   const degradedBare = usablePhraseAnchors.length === 0
     && tokenAnchors.length >= 2
     && tokenAnchors.every((t) => !conceptSetFor(t, dynLookup));
-  return groups.join(degradedBare ? " OR " : " AND ");
+  if (degradedBare) return groups.join(" OR ");
+  // Lane C successor (2026-11-06): the waste rung pass runs on
+  // the composed AND chain, after group seating — the seam the
+  // boolean anchor diagnosis proves. The degraded OR form above
+  // never reaches it: the pass is scoped to AND chains only.
+  return dropBooleanWasteRungs(groups.join(" AND "));
 }
 
 const STOPWORDS = new Set([
