@@ -12742,11 +12742,31 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
     // of any member, in title or abstract. The survival RULE is
     // unchanged (two groups, or the subject group); only what
     // counts as a touch follows the corrected standard.
+    // One combined text stem index per paper for every group
+    // touch this filter judges (2026-11-06, Worker resource
+    // diet lane): textTouchesConceptGroup builds a fresh field
+    // stem index of the same title plus abstract text for
+    // EVERY group it is asked about, and the survival test
+    // below asks twice (all resolved groups, then the subject
+    // group alone), so one paper paid up to eight full
+    // tokenizations of its abstract in this filter alone.
+    // groupTouchesIndex over the one shared index is the
+    // identical test (textTouchesConceptGroup is its wrapper).
+    const hayIndexes = new WeakMap();
+    const hayIndexFor = (p) => {
+      let idx = hayIndexes.get(p);
+      if (!idx) {
+        const hay = ((p.title || "") + " " + (usableAbstract(p) || p.abstract || "")).toLowerCase();
+        idx = fieldStemIndex(hay);
+        hayIndexes.set(p, idx);
+      }
+      return idx;
+    };
     const groupTouches = (p, gs) => {
-      const hay = ((p.title || "") + " " + (usableAbstract(p) || p.abstract || "")).toLowerCase();
+      const idx = hayIndexFor(p);
       // Typed gate sets (2026-10-23, L1-8), same as the gate's
       // own counting, so this filter and the gate stay in lockstep.
-      return gs.filter((g) => textTouchesConceptGroup(hay, gateConceptSetFor(g))).length;
+      return gs.filter((g) => groupTouchesIndex(idx, gateConceptSetFor(g))).length;
     };
     // WAVE EIGHT (2026-10-14, Job 1b): the concept path. The
     // citation standard counts CENTRAL CONCEPTS, and a concept
@@ -12926,7 +12946,7 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
       addSubjectSet(acceptSetsRaw[coreQTerms.indexOf(head)]);
     }
   } catch { /* as above */ }
-  const setTouches = (hay, set) => {
+  const setTouches = (hay, idx, set) => {
     for (const term of set) {
       if (hay.includes(term)) return true;
       // WAVE EIGHT (2026-10-14, Job 1): a stem variant of the
@@ -12934,18 +12954,24 @@ export function topicOverlapFilter(rawQuery, papers, dynLookup) {
       // "sprained" question), counted the way the citation
       // standard counts concept engagement. Substring matching
       // alone could never see it.
-      if (termStemHitInText(hay, term)) return true;
+      // The hit test runs over the paper's one stem index
+      // (2026-11-06, Worker resource diet lane):
+      // termStemHitInText rebuilt that index for every term
+      // of every set, dozens of full tokenizations of the
+      // same text per paper on this path.
+      if (termStemHitInIndex(idx, term)) return true;
     }
     return false;
   };
 
   const survivors = papers.filter((p) => {
     const hay = ((p.title || "") + " " + (p.abstract || "")).toLowerCase();
+    const hayIdx = fieldStemIndex(hay);
     const hitIdx = acceptSets
-      .map((set, i) => (setTouches(hay, set) ? i : -1))
+      .map((set, i) => (setTouches(hay, hayIdx, set) ? i : -1))
       .filter((i) => i >= 0);
     const hitCount = hitIdx.length;
-    const subjectHit = subjectSets.some((set) => setTouches(hay, set));
+    const subjectHit = subjectSets.some((set) => setTouches(hay, hayIdx, set));
     if (hitCount === 0 && !subjectHit) {
       p._filteredReason = "Paper shares none of the query's core topic terms . likely a different research field entirely";
       return false;
@@ -19797,8 +19823,51 @@ export function isClinicalShapeQuery(query) {
   return toks.some((t) => CLINICAL_SHAPE_WORDS.has(t));
 }
 
+/* Per question derivation memo (2026-11-06, Worker resource
+ * diet lane): questionCentralConcepts is a pure derivation
+ * from (query, dynLookup) — the question's concept groups,
+ * subject group and phrase analysis recomputed from the
+ * shipped tables — yet consumers asked for it once per PAPER
+ * (paperTitleEngagesConcepts over the presented shelf above
+ * all), at ~5 ms of CPU per call on a group rich question:
+ * ~125 ms of one 25 paper shelf pass was this derivation
+ * repeated, against ~5 ms for the hit scans it feeds. The
+ * memo returns the identical array; consumers treat the
+ * concepts as read only (the only mutation of a concept
+ * object anywhere in this file is this function's own
+ * construction, before the array is stored). Keyed on the
+ * lookup object plus its size: the one in place lookup
+ * mutation in the codebase only ADDS keys (the gather's
+ * lowercase variant fill), so a grown lookup misses and
+ * rederives. A null lookup uses a small bounded map. */
+const _qccByLookup = new WeakMap();
+const _qccBare = new Map();
+function qccKey(dynLookup, q) {
+  return q + "\u0000" + (dynLookup && typeof dynLookup.size === "number" ? dynLookup.size : -1);
+}
+function qccCacheGet(dynLookup, q) {
+  if (dynLookup && (typeof dynLookup === "object" || typeof dynLookup === "function")) {
+    const per = _qccByLookup.get(dynLookup);
+    return per ? per.get(qccKey(dynLookup, q)) : undefined;
+  }
+  return _qccBare.get(q);
+}
+function qccCacheSet(dynLookup, q, concepts) {
+  if (dynLookup && (typeof dynLookup === "object" || typeof dynLookup === "function")) {
+    let per = _qccByLookup.get(dynLookup);
+    if (!per) { per = new Map(); _qccByLookup.set(dynLookup, per); }
+    if (per.size > 64) per.clear();
+    per.set(qccKey(dynLookup, q), concepts);
+    return;
+  }
+  if (_qccBare.size > 64) _qccBare.clear();
+  _qccBare.set(q, concepts);
+}
+
 export function questionCentralConcepts(query, dynLookup) {
   const q = String(query || "");
+  const cachedQcc = qccCacheGet(dynLookup, q);
+  if (cachedQcc) return cachedQcc;
   const concepts = [];
   const seenTerms = new Set();
   const seenGroups = new Set();
@@ -19978,6 +20047,7 @@ export function questionCentralConcepts(query, dynLookup) {
       }
     }
   }
+  qccCacheSet(dynLookup, q, concepts);
   return concepts;
 }
 
@@ -20025,6 +20095,35 @@ function stemFamilyOf(w) {
  * per token rules below are the original rules verbatim, only
  * the token stems are computed once per field instead of once
  * per term. Pinned by tests/worker-resource-budget.mjs. */
+/* Per paper field index cache (2026-11-06, Worker resource
+ * diet lane): a paper's two field stem indexes are a pure
+ * function of its title and abstract text, yet each gate
+ * consumer rebuilt them — the handler judges one paper at
+ * selection, validation restore, the final gate, the choke
+ * filter, the presented tail and the on topic counts, and a
+ * simulated eight consumer passes over an 88 paper pool
+ * measured ~150 ms of CPU, most of it re tokenizing and re
+ * stemming the same abstracts. The cache is keyed on the
+ * paper object and validated against the exact low texts it
+ * was built from: a stage that rewrites a paper's title or
+ * abstract (or a clone carrying different text) misses and
+ * rebuilds, so a stale index can never judge changed text.
+ * The indexes are the identical fieldStemIndex output, so
+ * every verdict downstream is unchanged. */
+const _paperFieldIndexes = new WeakMap();
+function paperFieldIndexes(paper) {
+  const titleLow = String((paper && paper.title) || "").toLowerCase();
+  const absLow = String(usableAbstract(paper) || (paper && paper.snippet) || "").toLowerCase();
+  if (paper && typeof paper === "object") {
+    const hit = _paperFieldIndexes.get(paper);
+    if (hit && hit.titleLow === titleLow && hit.absLow === absLow) return hit;
+    const fresh = { titleLow, absLow, title: fieldStemIndex(titleLow), abs: fieldStemIndex(absLow) };
+    _paperFieldIndexes.set(paper, fresh);
+    return fresh;
+  }
+  return { titleLow, absLow, title: fieldStemIndex(titleLow), abs: fieldStemIndex(absLow) };
+}
+
 function fieldStemIndex(lowText) {
   const text = String(lowText || "");
   const entries = [];
@@ -20167,11 +20266,8 @@ export function strongCentralConcepts(concepts) {
 
 export function centralConceptHits(paper, concepts) {
   const list = Array.isArray(concepts) ? concepts : [];
-  const titleLow = String((paper && paper.title) || "").toLowerCase();
-  const absLow = String(usableAbstract(paper) || (paper && paper.snippet) || "").toLowerCase();
-  const titleIndex = fieldStemIndex(titleLow);
-  const absIndex = fieldStemIndex(absLow);
-  return aggregateConceptHits(list.map((c) => (c ? conceptFieldHits(titleIndex, absIndex, c) : null)));
+  const idx = paperFieldIndexes(paper);
+  return aggregateConceptHits(list.map((c) => (c ? conceptFieldHits(idx.title, idx.abs, c) : null)));
 }
 
 /* Per concept hit records for one paper, keyed by concept
@@ -20183,9 +20279,8 @@ function conceptHitsCacheFor(paper, state) {
   return (c) => {
     if (!state.records.has(c)) {
       if (!state.indexes) {
-        const titleLow = String((paper && paper.title) || "").toLowerCase();
-        const absLow = String(usableAbstract(paper) || (paper && paper.snippet) || "").toLowerCase();
-        state.indexes = { title: fieldStemIndex(titleLow), abs: fieldStemIndex(absLow) };
+        const idx = paperFieldIndexes(paper);
+        state.indexes = { title: idx.title, abs: idx.abs };
       }
       state.records.set(c, conceptFieldHits(state.indexes.title, state.indexes.abs, c));
     }
@@ -26234,6 +26329,13 @@ function wordTokensWithOffsets(lowText) {
  * through a path the token accounting cannot sight. */
 function conceptOccurrencesInText(lowText, concepts) {
   const tokens = wordTokensWithOffsets(lowText);
+  // One stem index for the whole field (2026-11-06, Worker
+  // resource diet lane): the raw hit test below rebuilt the
+  // field's index twice per concept (termStemHitInText, then
+  // textTouchesConceptGroup, each tokenizing the full text).
+  // termStemHitInIndex and groupTouchesIndex over this one
+  // index are the identical tests those wrappers run.
+  const fieldIndex = fieldStemIndex(lowText);
   const perConcept = concepts.map((c) => {
     const members = [c.term, ...(c.group ? [...c.group] : [])]
       .map((x) => String(x || "").toLowerCase().trim())
@@ -26260,7 +26362,7 @@ function conceptOccurrencesInText(lowText, concepts) {
     return { tokenIdxs, spans };
   });
   return concepts.map((c, ci) => {
-    const rawHit = termStemHitInText(lowText, c.term) || textTouchesConceptGroup(lowText, c.group);
+    const rawHit = termStemHitInIndex(fieldIndex, c.term) || groupTouchesIndex(fieldIndex, c.group);
     if (!rawHit) return { rawHit, hasFree: false, hasFused: false, seen: false };
     const { tokenIdxs, spans } = perConcept[ci];
     const otherHitsAt = (i) => concepts.some((_, cj) => cj !== ci && perConcept[cj].tokenIdxs.has(i));

@@ -53,6 +53,8 @@ const {
   citationGateStandard,
   countOnTopicPapers,
   gateConceptSetFor,
+  paperTitleEngagesConcepts,
+  topicOverlapFilter,
 } = await import(join(root, "functions/api/search.js"));
 const src = await readFile(join(root, "functions/api/search.js"), "utf8");
 
@@ -268,6 +270,36 @@ ok("a full gate pass over 400 mixed papers stays under the worker budget ceiling
   const pool = mixedPool(400);
   const ms = medianMs(() => { let c = 0; for (const p of pool) if (paperClearsCitationGate(p, std)) c++; return c; }, 5);
   assert.ok(ms < 150, `gate pass over 400 mixed papers took ${ms.toFixed(1)} ms (ceiling 150)`);
+});
+
+// ── 4. The diet lane's multiplicity bound (2026-11-06) ──────
+// The Oct 24 fix shared one index inside each consumer, but
+// the consumers themselves still repeated per paper work:
+// paperTitleEngagesConcepts re derived the question's central
+// concepts (~5 ms of table and phrase derivation) for EVERY
+// shelf paper, and every gate consumer rebuilt the paper's
+// field indexes its predecessor had just built. Measured on
+// this machine class (median of 5): one title engagement pass
+// over a 25 paper shelf cost 280 to 342 ms before the diet
+// lane, 11 to 65 ms after; the verdict digest below and the
+// section 2 digest pin that no verdict moved.
+ok("title engagement over a 25 paper shelf stays under the worker budget ceiling", () => {
+  const shelf = mixedPool(25);
+  const ms = medianMs(() => { let c = 0; for (const p of shelf) if (paperTitleEngagesConcepts(p, QUERY, null)) c++; return c; }, 5);
+  assert.ok(ms < 150, `paperTitleEngagesConcepts over 25 papers took ${ms.toFixed(1)} ms (ceiling 150)`);
+});
+
+ok("the topic filter survivor digest is unchanged on the mixed pool", () => {
+  const survivors = topicOverlapFilter(QUERY, mixedPool(88), null);
+  assert.equal(survivors.length, 36, "topic filter survivors changed");
+});
+
+ok("the diet lane's shared derivations and indexes are wired", () => {
+  assert.ok(src.includes("function paperFieldIndexes(paper)"), "the per paper field index cache is gone");
+  assert.ok(src.includes("qccCacheGet(dynLookup, q)"), "the per question derivation memo is gone");
+  assert.ok(src.includes("groupTouchesIndex(idx, gateConceptSetFor(g))"), "the topic filter no longer shares one index across groups");
+  assert.ok(src.includes("termStemHitInIndex(idx, term)"), "the singleton topic filter path no longer shares one index across terms");
+  assert.ok(src.includes("termStemHitInIndex(fieldIndex, c.term)"), "the occurrence scan no longer shares one index across concepts");
 });
 
 ok("the handler wires the shared index and the per concept gate records", () => {
