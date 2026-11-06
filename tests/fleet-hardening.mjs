@@ -43,10 +43,6 @@ const {
   legHealthSnapshot,
   resetLegHealth,
   planDelayedRescue,
-  planParkRescue,
-  PARK_RESCUE_MAX_WAIT_MS,
-  PARK_RESCUE_OVERRUN_MS,
-  PARK_RESCUE_LAPSE_BUFFER_MS,
   cfLegTimeoutMs,
   cfCompletionBudget,
   compatLegTimeoutMs,
@@ -696,114 +692,6 @@ await test("the delayed rescue is planned before the synthesis stage closes", ()
   assert.ok(src.includes("delayedRescue: true"), "wave 6 attempts are marked as the delayed rescue");
 });
 
-group("park expiry rescue (2026-11-06, 100 percent answer success lane)");
-
-await test("the park wall: fast legs parked past the delayed wait are waited out to their lapse", () => {
-  resetLegHealth();
-  // Both fast legs 429'd at T0 and sit in the 60s park; the slow
-  // Workers AI leg timed out and is disqualified from the seats.
-  recordLegOutcome("groq:openai/gpt-oss-120b", false, GROQ_429, T0);
-  recordLegOutcome("gemini:gemini-3.8-flash", false, GEMINI_429, T0);
-  const attempts = [
-    { wave: 1, model: "groq:openai/gpt-oss-120b", ok: false, error: GROQ_429 },
-    { wave: 1, model: "gemini:gemini-3.8-flash", ok: false, error: GEMINI_429 },
-    { wave: 1, model: "@cf/openai/gpt-oss-20b", ok: false, error: "@cf/openai/gpt-oss-20b: timed out" },
-  ];
-  const plan = planParkRescue(attempts, {
-    rosterLabels: ["groq:openai/gpt-oss-120b", "gemini:gemini-3.8-flash", "@cf/openai/gpt-oss-20b"],
-    preferredLabel: "groq:openai/gpt-oss-120b",
-    // 12s in: the delayed rescue has already stood down (its 20s
-    // wait ends 28s before the parks lapse at 60s).
-    nowMs: T0 + 12000,
-    requestDeadlineMs: T0 + 19000,
-  });
-  assert.equal(plan.action, "wait");
-  assert.equal(plan.waitMs, 60000 + PARK_RESCUE_LAPSE_BUFFER_MS - 12000, "the wait ends at the lapse plus the buffer");
-  assert.equal(plan.chosen[0], "groq:openai/gpt-oss-120b", "the preferred leg leads");
-  assert.ok(plan.chosen.includes("gemini:gemini-3.8-flash"), "the second seat is an independent bucket");
-  assert.ok(!plan.chosen.includes("@cf/openai/gpt-oss-20b"), "the timed out leg holds no seat");
-});
-
-await test("a leg parked by neighboring traffic is a candidate even when it never fired here (the FRS5 shape)", () => {
-  resetLegHealth();
-  // Another request's 429 parked Groq's main leg 30s ago; this
-  // request's only recorded failure is the slow leg's timeout.
-  recordLegOutcome("groq:openai/gpt-oss-120b", false, GROQ_429, T0 - 30000);
-  const attempts = [
-    { wave: 1, model: "@cf/openai/gpt-oss-20b", ok: false, error: "@cf/openai/gpt-oss-20b: timed out" },
-    { wave: 2, model: "groq:openai/gpt-oss-120b", ok: false, ms: 0, parked: true, error: "parked (rate limit cooldown)" },
-  ];
-  const plan = planParkRescue(attempts, {
-    rosterLabels: ["groq:openai/gpt-oss-120b", "@cf/openai/gpt-oss-20b"],
-    preferredLabel: "groq:openai/gpt-oss-120b",
-    nowMs: T0 + 10000,
-    requestDeadlineMs: T0 + 19000,
-  });
-  assert.equal(plan.action, "wait");
-  assert.equal(plan.waitMs, 30000 + PARK_RESCUE_LAPSE_BUFFER_MS - 10000);
-  assert.deepEqual(plan.chosen, ["groq:openai/gpt-oss-120b"]);
-});
-
-await test("a daily cap park is never waited out", () => {
-  resetLegHealth();
-  recordLegOutcome("groq:openai/gpt-oss-120b", false, OR_DAILY, T0);
-  const attempts = [{ wave: 1, model: "groq:openai/gpt-oss-120b", ok: false, error: OR_DAILY }];
-  const plan = planParkRescue(attempts, {
-    rosterLabels: ["groq:openai/gpt-oss-120b"],
-    preferredLabel: "groq:openai/gpt-oss-120b",
-    nowMs: T0 + 12000,
-    requestDeadlineMs: T0 + 19000,
-  });
-  assert.equal(plan.action, "skip");
-  assert.ok(plan.summary && plan.summary.includes("no rate limited leg"), "the stand down is named");
-});
-
-await test("a timeout park is not a rate limit park and is never waited out", () => {
-  resetLegHealth();
-  recordLegOutcome("@cf/openai/gpt-oss-20b", false, "@cf/openai/gpt-oss-20b: timed out", T0);
-  recordLegOutcome("@cf/openai/gpt-oss-20b", false, "@cf/openai/gpt-oss-20b: timed out", T0 + 1000);
-  const attempts = [
-    { wave: 1, model: "groq:openai/gpt-oss-120b", ok: false, error: GROQ_429 },
-    { wave: 1, model: "@cf/openai/gpt-oss-20b", ok: false, error: "@cf/openai/gpt-oss-20b: timed out" },
-  ];
-  const plan = planParkRescue(attempts, {
-    rosterLabels: ["@cf/openai/gpt-oss-20b"],
-    preferredLabel: null,
-    nowMs: T0 + 12000,
-    requestDeadlineMs: T0 + 19000,
-  });
-  assert.equal(plan.action, "skip");
-});
-
-await test("a lapse that cannot fit before the phase hard bound is not waited for", () => {
-  resetLegHealth();
-  // The park was set 50s into a request whose deadline landmarks
-  // are long past: lapse at +110s, retry cannot fit by deadline
-  // + the park overrun.
-  recordLegOutcome("groq:openai/gpt-oss-120b", false, GROQ_429, T0 + 50000);
-  const attempts = [{ wave: 1, model: "groq:openai/gpt-oss-120b", ok: false, error: GROQ_429 }];
-  const plan = planParkRescue(attempts, {
-    rosterLabels: ["groq:openai/gpt-oss-120b"],
-    preferredLabel: "groq:openai/gpt-oss-120b",
-    nowMs: T0 + 55000,
-    requestDeadlineMs: T0 + 19000,
-  });
-  assert.equal(plan.action, "skip");
-  assert.ok(PARK_RESCUE_MAX_WAIT_MS >= 55000, "the skip came from the hard bound fit check, not the wait cap");
-});
-
-await test("no recorded failures stands the park rescue down silently", () => {
-  resetLegHealth();
-  const plan = planParkRescue([], {
-    rosterLabels: ["groq:openai/gpt-oss-120b"],
-    preferredLabel: "groq:openai/gpt-oss-120b",
-    nowMs: T0,
-    requestDeadlineMs: T0 + 19000,
-  });
-  assert.equal(plan.action, "skip");
-  assert.equal(plan.summary, null);
-});
-
 group("delayed rescue first fire (2026-11-06, 100 percent answer success lane)");
 
 await test("the window starved trail first fires the best two unparked legs with no wait", () => {
@@ -881,16 +769,6 @@ await test("the handler attests wavesNeverFired from the attempt trail (source p
   assert.ok(src.includes("wavesNeverFired: !anyLegFired"), "the delayed planner does not receive the attestation");
   assert.ok(src.includes("!a.plannedSkip && !a.parked && !a.budgetSkipped"), "the attestation counts stamps and skips as fires");
   assert.ok(src.includes("delayedPlan.firstFire"), "the trail does not name a first fire");
-});
-
-await test("the park rescue is wired after the delayed rescue, as wave 7, before the stage closes", () => {
-  const delayedIdx = src.indexOf("planDelayedRescue(aiAttempts");
-  const parkIdx = src.indexOf("planParkRescue(aiAttempts");
-  const stageIdx = src.indexOf('name: "synthesis",');
-  assert.ok(parkIdx > delayedIdx, "the park rescue is planned after the delayed rescue");
-  assert.ok(stageIdx > parkIdx, "the park plan lands in the trail before stage health is computed");
-  assert.ok(src.includes("parkRescue: true"), "wave 7 attempts are marked as the park rescue");
-  assert.ok(src.includes("requestDeadline + PARK_RESCUE_OVERRUN_MS"), "the phase hard bound is the deadline plus the named overrun");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

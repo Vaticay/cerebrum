@@ -891,10 +891,11 @@ await test("search.js gates all four AI waves on the Pro gate", async () => {
   // behind the same lever, so the count is six and every one of
   // them must stay gated.
   // PIN UPDATED (2026-11-06, 100 percent answer success lane):
-  // the park expiry rescue (wave 7) is a seventh gated AI stage
-  // in the same shape. It burns inference like every other wave,
-  // so it sits behind the same lever; the count is seven.
-  assert.equal(waveGuards.length, 7, `expected 7 gated wave guards, found ${waveGuards.length}`);
+  // the park expiry rescue briefly made this seven gated guards;
+  // it was reverted the same day on measured negative evidence
+  // (two live batches, every park wait's retry re rate limited,
+  // zero conversions), so the count stands at six again.
+  assert.equal(waveGuards.length, 6, `expected 6 gated wave guards, found ${waveGuards.length}`);
   assert.ok(src.includes("const wavesAllowed = aiSynthesisAllowed && !serveGateNoEvidence;"),
     "the wave lever no longer derives from the Pro gate authorization");
   assert.match(src, /aiQuota:\s*\{/, "search response missing aiQuota");
