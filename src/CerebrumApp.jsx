@@ -17569,7 +17569,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   // Find in document: the current query, the match offsets, and which
   // match the reader is on.
   const [findQuery, setFindQuery] = useState("");
-  const [findState, setFindState] = useState(null); // { count, current }
+  const [findState, setFindState] = useState(null); // { count, current, capped }
   // Which mark's note editor is open. Notes render as text by default;
   // a permanently expanded editor under every mark made the list a
   // wall of empty boxes.
@@ -17595,6 +17595,10 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   const docSavePendingRef = useRef(false);
   const [scrollSaveTick, setScrollSaveTick] = useState(0);
   const readBodyRef = useRef(null);
+  /* A jump asked for while the reader is in the Source view: the read
+     body is not mounted there, so the jump is held here and run by the
+     effect below once the switch to Read has mounted it. */
+  const pendingJumpRef = useRef(null);
   const docBFileRef = useRef(null);
   const compareAbort = useRef(null);
   const qaAbort = useRef(null);
@@ -17663,6 +17667,25 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
         throw new Error("Couldn't find readable text in that HTML file. Try a different file, or paste the text directly instead.");
       }
       return text;
+    }
+    /* Type gate (2026-11-06 fix): the plain branch used to return the
+       raw text of ANY other file, so a dropped PNG, spreadsheet, or
+       ebook was ingested as a document full of binary garbage and
+       shelved, and an empty file returned "" and wiped the open
+       document with no error. Only the types the file picker itself
+       offers are documents; anything else is refused here, before
+       openDocument is called, so the open document stays untouched.
+       Empty and near empty text files are refused the same way the
+       PDF and HTML branches refuse unreadable extractions. */
+    const isPlainText = file.type === "text/plain" || file.type === "text/markdown" || /\.(txt|md|markdown)$/i.test(name);
+    if (!isPlainText) {
+      throw new Error("That file type is not supported. Documents can be PDF, HTML, plain text, or Markdown files. Export the text or copy it and paste it directly instead.");
+    }
+    if (!raw || !raw.trim()) {
+      throw new Error("That file is empty, so nothing was opened. The document you were reading is unchanged.");
+    }
+    if (raw.trim().length < 20) {
+      throw new Error("Couldn't find readable text in that file. Try a different file, or paste the text directly instead.");
     }
     return raw;
   };
@@ -18343,7 +18366,17 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
   };
   const jumpToTextOffset = (offset, len) => {
     const body = readBodyRef.current;
-    if (!body || typeof document === "undefined") return;
+    if (!body) {
+      /* The read body mounts only in the Read view, and Source is the
+         default view, so a jump from the evidence trail used to die
+         here silently. Hold the jump and switch views; the effect
+         below runs it once the body exists. (2026-11-06 fix.) */
+      if (typeof document !== "undefined" && sourceView !== "read") {
+        pendingJumpRef.current = { offset, len };
+        setSourceView("read");
+      }
+      return;
+    }
     try {
       const walker = document.createTreeWalker(body, 4); // 4 = SHOW_TEXT
       let acc = 0;
@@ -18365,6 +18398,15 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
       }
     } catch { /* find is a nicety; a failure just leaves the reader where they are */ }
   };
+  /* Run a jump that was requested from the Source view once the Read
+     view has mounted the read body (see jumpToTextOffset above). */
+  useEffect(() => {
+    if (sourceView !== "read") return;
+    const pending = pendingJumpRef.current;
+    if (!pending) return;
+    pendingJumpRef.current = null;
+    jumpToTextOffset(pending.offset, pending.len);
+  }, [sourceView]);
   const focusDocAsk = () => {
     if (summary) setRightTab("qa");
     setTimeout(() => {
@@ -18382,9 +18424,14 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
     const matches = [];
     let idx = hay.indexOf(q);
     while (idx >= 0 && matches.length < 500) { matches.push(idx); idx = hay.indexOf(q, idx + Math.max(1, q.length)); }
-    if (!matches.length) { setFindState({ query: q, count: 0, current: 0 }); return; }
+    /* The 500 match navigation bound stays, but it is no longer
+       presented as the total (2026-11-06 fix): when the loop stopped
+       at the bound with a further match waiting, the counter says so
+       and renders "500+" instead of a false exact count. */
+    const capped = matches.length >= 500 && idx >= 0;
+    if (!matches.length) { setFindState({ query: q, count: 0, current: 0, capped: false }); return; }
     const cur = findState && findState.query === q ? (findState.current + dir + matches.length) % matches.length : 0;
-    setFindState({ query: q, count: matches.length, current: cur });
+    setFindState({ query: q, count: matches.length, current: cur, capped });
     jumpToTextOffset(matches[cur], q.length);
   };
   const scrollToHighlight = (h) => {
@@ -18589,7 +18636,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               </button>
               {findState && (
                 <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", gap: 8, alignItems: "center" }}>
-                  {findState.count === 0 ? "No matches" : `${findState.current + 1} of ${findState.count}`}
+                  {findState.count === 0 ? "No matches" : `${findState.current + 1} of ${findState.count}${findState.capped ? "+" : ""}`}
                   {findState.count > 1 && (
                     <>
                       <button type="button" onClick={() => runFind(-1)} aria-label="Previous match" style={{ minHeight: 44, padding: "4px 9px", borderRadius: RADIUS.md, border: `1px solid ${P.line}`, background: "transparent", color: P.ink2, fontWeight: 500, cursor: "pointer" }}>Prev</button>
@@ -18603,7 +18650,7 @@ function NotebookMode({ P, accent, at, close, asPage = false, user, proStatus, o
               <nav aria-label="Document outline" className="cb-doc-outline" style={{ marginBottom: 16, border: `1px solid ${P.line}`, borderRadius: RADIUS.md, padding: "10px 12px" }}>
                 <div style={{ ...docEyebrow, marginBottom: 8 }}>Outline</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                  {docOutline.slice(0, 16).map((o) => (
+                  {docOutline.map((o) => (
                     <button key={o.seg} type="button" className="cb-doc-outline-btn" onClick={() => scrollToSegment(o.seg)}
                       style={{ minHeight: 48, textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: "6px 8px", fontSize: FONT_SIZES.caption, fontWeight: 500, color: P.ink2, fontFamily: "var(--cb-font)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {o.title}

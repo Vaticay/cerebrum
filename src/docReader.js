@@ -90,6 +90,12 @@ export function extractHtmlText(html) {
     const c = Number(n);
     return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : "";
   });
+  // Hex entities (&#x2019; and kin) are what saved web pages actually
+  // carry; without this pass they survived as literal text.
+  s = s.replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => {
+    const c = parseInt(h, 16);
+    return c > 0 && c < 0x110000 ? String.fromCodePoint(c) : "";
+  });
   s = s.replace(/[ \t\f\v\u00a0]+/g, " ");
   s = s.replace(/ ?\n ?/g, "\n");
   s = s.replace(/\n{3,}/g, "\n\n");
@@ -362,10 +368,25 @@ function groupPdfLines(items) {
 }
 
 function pdfLinesToText(lines) {
-  let out = "";
-  let previous = null;
+  /* Dehyphenation (2026-11-06 fix): typeset text breaks words across
+     lines with a trailing hyphen ("atten-" / "tion"), and the split
+     token then defeats Find and reads as two fragments. Join such a
+     pair back into one line, dropping the hyphen, when the next line
+     starts with a lowercase letter. A hyphen anywhere else, and a
+     break before a capital, is the author's own and stays as printed. */
+  const joined = [];
   for (const line of lines || []) {
     if (!line.text) continue;
+    const prev = joined[joined.length - 1];
+    if (prev && /[-\u00AD]$/.test(prev.text) && /^\p{Ll}/u.test(line.text)) {
+      prev.text = prev.text.slice(0, -1) + line.text;
+      continue;
+    }
+    joined.push({ ...line });
+  }
+  let out = "";
+  let previous = null;
+  for (const line of joined) {
     if (previous) {
       const gap = previous.y - line.y;
       out += gap > Math.max(previous.size, line.size) * 1.7 ? "\n\n" : "\n";
@@ -376,14 +397,8 @@ function pdfLinesToText(lines) {
   return out;
 }
 
-function findPdfColumnSplit(items) {
-  if (!items || items.length < 4) return null;
-  const pageLeft = Math.min(...items.map((item) => item.x));
-  const pageRight = Math.max(...items.map((item) => item.endX));
-  const pageWidth = pageRight - pageLeft;
-  if (!Number.isFinite(pageWidth) || pageWidth < 80) return null;
-  const detectionItems = items.filter((item) => item.endX - item.x <= pageWidth * 0.58);
-  const intervals = (detectionItems.length >= 4 ? detectionItems : items).map((item) => [item.x, item.endX]).sort((a, b) => a[0] - b[0]);
+function detectPdfColumnSplit(detectionItems, pageLeft, pageWidth) {
+  const intervals = detectionItems.map((item) => [item.x, item.endX]).sort((a, b) => a[0] - b[0]);
   const merged = [];
   for (const interval of intervals) {
     const last = merged[merged.length - 1];
@@ -397,14 +412,46 @@ function findPdfColumnSplit(items) {
     const gap = gapEnd - gapStart;
     const split = (gapStart + gapEnd) / 2;
     if (gap < Math.max(7, pageWidth * 0.025)) continue;
-    if (split < pageLeft + pageWidth * 0.22 || split > pageRight - pageWidth * 0.22) continue;
-    const countItems = detectionItems.length >= 4 ? detectionItems : items;
-    const leftCount = countItems.filter((item) => item.endX <= gapStart + 0.5).length;
-    const rightCount = countItems.filter((item) => item.x >= gapEnd - 0.5).length;
+    if (split < pageLeft + pageWidth * 0.22 || split > pageLeft + pageWidth * 0.78) continue;
+    const leftCount = detectionItems.filter((item) => item.endX <= gapStart + 0.5).length;
+    const rightCount = detectionItems.filter((item) => item.x >= gapEnd - 0.5).length;
     if (leftCount < 2 || rightCount < 2) continue;
     if (!best || gap > best.gap) best = { split, gap, gapStart, gapEnd };
   }
   return best;
+}
+
+function findPdfColumnSplit(items) {
+  if (!items || items.length < 4) return null;
+  const pageLeft = Math.min(...items.map((item) => item.x));
+  const pageRight = Math.max(...items.map((item) => item.endX));
+  const pageWidth = pageRight - pageLeft;
+  if (!Number.isFinite(pageWidth) || pageWidth < 80) return null;
+  const narrow = items.filter((item) => item.endX - item.x <= pageWidth * 0.58);
+  const detectionItems = narrow.length >= 4 ? narrow : items;
+  const split = detectPdfColumnSplit(detectionItems, pageLeft, pageWidth);
+  if (split) return split;
+  /* Spanning lines (2026-11-06 fix): a short centered line, an
+     affiliation or a full width footnote, crosses the middle of the
+     page and, in the interval merge above, joins the two columns
+     into one interval, erasing the gutter entirely. With no split
+     found the page falls back to single column grouping and the
+     columns interleave line by line. A line that crosses the page
+     middle carries no evidence about where the gutter is, and
+     pdfItemsToText already treats such lines as bands once a split
+     exists, so when the first pass finds nothing, retry without
+     them. The retry only runs when the spanning lines are a small
+     minority of the page: on a genuinely single column page most
+     lines cross the middle, and there is no gutter to recover. */
+  const center = pageLeft + pageWidth / 2;
+  const crossesMiddle = (item) => item.x < center && item.endX > center;
+  const spanningCount = items.filter(crossesMiddle).length;
+  if (!spanningCount || spanningCount > items.length / 4) return null;
+  const unspannedNarrow = items
+    .filter((item) => !crossesMiddle(item))
+    .filter((item) => item.endX - item.x <= pageWidth * 0.58);
+  if (unspannedNarrow.length < 4) return null;
+  return detectPdfColumnSplit(unspannedNarrow, pageLeft, pageWidth);
 }
 
 function pdfColumnRegionText(items) {
@@ -519,7 +566,23 @@ export function docTitleOf(text) {
   const lines = String(text || "")
     .split("\n")
     .map((l) => l.trim());
-  const idx = lines.findIndex((l) => l.length > 12 && !isFrontMatterLine(l));
+  /* Short titles (2026-11-06 fix): a real title can be shorter than
+     the length floor in the scan below ("On Sleep", "Dream Work"),
+     and the flat floor shelved such documents under their first body
+     sentence, because the scan simply skipped the short line and
+     landed on the body. So the first content line gets its chance
+     first: it wins at any length when it stands the way a title
+     stands, set off by a blank line, no sentence ending punctuation,
+     and body text after it. The front matter screen runs first, so
+     a short metadata line never takes the slot. */
+  let idx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l || isFrontMatterLine(l)) continue;
+    if (l.length >= 3 && l.length <= 12 && !/[.!?]$/.test(l) && lines[i + 1] === "" && lines.slice(i + 2).some((x) => x)) idx = i;
+    break;
+  }
+  if (idx < 0) idx = lines.findIndex((l) => l.length > 12 && !isFrontMatterLine(l));
   if (idx < 0) return "Untitled document";
   let title = lines[idx];
   /* Wrapped titles (2026-10-19, M35): PDF text wraps a real title
