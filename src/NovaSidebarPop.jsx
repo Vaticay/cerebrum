@@ -358,6 +358,19 @@ export default function NovaSidebarPop({ searchRunning = false, inCall = false, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pop]);
 
+  /* If the user opens the Nova tab mid pop by any route other
+     than clicking her, the visit has been answered, so it ends
+     quietly here: no dismissal recorded, no ignore recorded,
+     and the budget constants and the start probes above are
+     untouched (site debug fix lane, 2026-11-06). Without this,
+     a pop already in flight followed the user onto the Nova
+     tab and finished its visit beside the Nova home's own
+     header figure, two Novas on one screen. */
+  useEffect(() => {
+    if (novaOpen && popRef.current) endPop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [novaOpen]);
+
   /* Escape dismisses her, and counts as a dismissal. */
   useEffect(() => {
     if (!pop) return;

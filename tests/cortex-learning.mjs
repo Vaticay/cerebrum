@@ -58,6 +58,7 @@ const WANTED = [
   "CORTEX_TAGLINE", "RANK_LADDER", "rankForXp", "topicMasteryLevel",
   "DAY_MS", "FADING_AFTER_DAYS", "MASTERED_FADING_AFTER_DAYS",
   "lessonLastActivityMs", "isLessonFading", "fadingLessons", "buildReviewSessionCards",
+  "benchSittingsToday", "recordBenchSitting", "reviewBenchServedLessonIds", "stampLessonsRevisited",
   "OPENER_STYLES", "lessonOpenerStyle",
   "LEARNING_PATHS", "CATALOG", "TOPIC_COURSES", "topicPathFor", "INTERACTIVE_KINDS", "isInteractiveCard",
   "flattenPathLessons", "isLessonUnlocked", "pathProgress", "pathPaceFor",
@@ -202,6 +203,7 @@ const {
   INTERACTIVE_KINDS, CORTEX_TAGLINE, RANK_LADDER, rankForXp, topicMasteryLevel,
   FADING_AFTER_DAYS, MASTERED_FADING_AFTER_DAYS, lessonLastActivityMs, isLessonFading,
   fadingLessons, buildReviewSessionCards, OPENER_STYLES, lessonOpenerStyle,
+  benchSittingsToday, recordBenchSitting, reviewBenchServedLessonIds, stampLessonsRevisited,
   todayKey, cortexLoopProblem,
   SPARKS_RATES, SPARKS_NEVER_BUYS, emptyLoop, loopForDay,
   buildDailyQuests, questState, recordLoopEvent, settleQuestPayouts,
@@ -3076,6 +3078,45 @@ await test("the review session serves due cards first, then fading lessons only"
   for (const c of out.slice(2)) assert.ok(fadingCards.has(c), "the session pulled a card from a lesson that is not fading");
   assert.equal(buildReviewSessionCards({ progress: { lessons: {} }, dueCards: [], seed: 4, paths: LEARNING_PATHS, now: NOW }).length, 0,
     "nothing due and nothing fading should build an empty session");
+});
+
+await test("the review bench remembers its sittings: a repeat pays the replay scale and the fading pool drains", () => {
+  const NOW = Date.parse("2026-10-20T00:00:00.000Z");
+  const DAY = "2026-10-20";
+  /* The sitting count rides the profile: a fresh profile has
+     none, each finished sitting moves the next one down the
+     same replay scale a real course replay gets, and a record
+     from another day counts as none. */
+  let profile = {};
+  assert.equal(benchSittingsToday(profile, DAY), 0, "a fresh profile should carry no bench sittings");
+  assert.equal(lessonXpScale(benchSittingsToday(profile, DAY)), 1, "the first sitting of the day pays full scale");
+  profile = recordBenchSitting(profile, DAY);
+  assert.equal(benchSittingsToday(profile, DAY), 1);
+  assert.equal(lessonXpScale(benchSittingsToday(profile, DAY)), 0.5, "the second identical sitting pays the replay scale");
+  assert.equal(scaleXp(20, lessonXpScale(benchSittingsToday(profile, DAY))), 10, "the finish bonus halves with it");
+  profile = recordBenchSitting(profile, DAY);
+  assert.equal(lessonXpScale(benchSittingsToday(profile, DAY)), 0, "the third sitting of the day pays nothing");
+  assert.equal(benchSittingsToday(profile, "2026-10-21"), 0, "yesterday's sittings do not carry into today");
+
+  /* The pool drains: two lessons fading, the bench serves one
+     of them, and stamping what was served leaves only the other
+     still fading, its record otherwise exactly as play left it. */
+  let prog = { lessons: {}, lastPathId: "", lastLessonId: "" };
+  prog = applyLessonResult(prog, path0, flat0[0].id, 20);
+  prog = applyLessonResult(prog, path0, flat0[1].id, 20);
+  const aged = new Date(NOW - 5 * 86400000).toISOString();
+  prog.lessons[flat0[0].id].lastAt = aged;
+  prog.lessons[flat0[1].id].lastAt = aged;
+  assert.equal(fadingLessons(LEARNING_PATHS, prog, NOW).length, 2, "both aged lessons should read as fading");
+  const served = reviewBenchServedLessonIds(flat0[0].cards.filter(isInteractiveCard), prog, LEARNING_PATHS, NOW);
+  assert.deepEqual([...served], [flat0[0].id], "only the lesson whose cards are in the session counts as served");
+  const stamped = stampLessonsRevisited(prog, served, NOW);
+  const remaining = fadingLessons(LEARNING_PATHS, stamped, NOW);
+  assert.equal(remaining.length, 1, "the served lesson should leave the fading pool");
+  assert.equal(remaining[0].lesson.id, flat0[1].id, "the unserved lesson should still be fading");
+  assert.equal(stamped.lessons[flat0[0].id].best, 20, "the stamp must not rewrite the lesson's score");
+  assert.equal(stamped.lessons[flat0[0].id].completions, prog.lessons[flat0[0].id].completions, "the stamp must not count as another completion");
+  assert.equal(prog.lessons[flat0[0].id].lastAt, aged, "stamping returns a new record instead of mutating the old one");
 });
 
 await test("the opener rhythm rotates by position and only opens visual where a visual exists", () => {

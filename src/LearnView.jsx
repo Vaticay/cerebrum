@@ -12017,6 +12017,65 @@ export function buildReviewSessionCards({ progress, dueCards = [], seed = 1, lim
   return [...duePart, ...picks].slice(0, limit);
 }
 
+/* ── the review bench's memory (site debug fix lane, 2026-11-06) ──
+   The bench course is rebuilt from nothing on every tap, so it
+   used to carry no memory of its own sittings: the Player seeded
+   its replay scale from an empty record and every sitting paid
+   full price forever, and nothing stamped the fading lessons it
+   served as revisited, so the pool that fills the bench never
+   drained. The containment gives the bench the smallest memory
+   that closes both halves, carried on records that already
+   exist: the day's sitting count rides the learner profile, and
+   the revisit stamp writes the same lastAt field the fading
+   check already reads, on the builtin progress record. */
+
+/* How many bench sittings the learner has already finished
+   today, from the profile's bench record. A record left over
+   from any other day counts as none. */
+export function benchSittingsToday(profile, dayKey) {
+  const rec = profile && profile.benchReview;
+  if (!rec || rec.day !== dayKey) return 0;
+  const n = Math.floor(rec.count || 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/* The profile with one more finished bench sitting today. */
+export function recordBenchSitting(profile, dayKey) {
+  return { ...(profile || {}), benchReview: { day: dayKey, count: benchSittingsToday(profile, dayKey) + 1 } };
+}
+
+/* Which fading lessons a built bench session actually serves:
+   the ones whose own cards sit in the session, matched by
+   reference, since the session builder passes fading cards
+   through untouched while due cards arrive as copies. */
+export function reviewBenchServedLessonIds(cards, progress, paths = null, now = Date.now()) {
+  const pool = paths || [...LEARNING_PATHS, ...TOPIC_COURSES];
+  const inSession = new Set(cards || []);
+  return fadingLessons(pool, progress, now)
+    .filter(({ lesson }) => (lesson.cards || []).some((c) => inSession.has(c)))
+    .map(({ lesson }) => lesson.id);
+}
+
+/* The builtin progress with the named lessons stamped as
+   studied now: only the last study day moves, so a stamped
+   lesson stops reading as fading while its score, its mastery,
+   and its completion count stay exactly what real play left
+   there. Records for lessons that are not finished are left
+   alone, since only finished lessons can be fading. */
+export function stampLessonsRevisited(progress, lessonIds, now = Date.now()) {
+  const ids = [...new Set((lessonIds || []).filter(Boolean))];
+  if (!ids.length || !progress || !progress.lessons) return progress;
+  const store = { ...progress.lessons };
+  let changed = false;
+  for (const id of ids) {
+    const rec = store[id];
+    if (!rec || !rec.done) continue;
+    store[id] = { ...rec, lastAt: new Date(now).toISOString() };
+    changed = true;
+  }
+  return changed ? { ...progress, lessons: store } : progress;
+}
+
 /* ── lesson rhythm: the opener rotates by position ─────────────────
    Lesson shape used to be identical everywhere, so lesson twelve
    felt like lesson one. The opener framing now rotates with the
@@ -15165,6 +15224,27 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     setBuiltinProgress(next);
   };
 
+  /* A finished review bench sitting (site debug fix lane,
+     2026-11-06): count the sitting on the profile, so the next
+     bench built today seeds its replay scale from it, and stamp
+     the fading lessons this sitting served as revisited, so the
+     pool that fills the bench drains. The Player fires this
+     through onLessonDone for the bench course only; the bench
+     course has no stored course record and no builtin path
+     record of its own to write to. */
+  const handleBenchDone = (servedLessonIds) => {
+    setProfile((prev) => {
+      const p = recordBenchSitting(prev || loadProfile(), todayKey());
+      saveProfile(p);
+      return p;
+    });
+    if (servedLessonIds && servedLessonIds.length) {
+      const next = stampLessonsRevisited(loadBuiltinProgress(), servedLessonIds);
+      saveBuiltinProgress(next);
+      setBuiltinProgress(next);
+    }
+  };
+
   /* ── the daily session bundle (reviewer consensus, 2026-10-14) ──
      Daily practice is one bundled session in a fixed order: a
      short review warmup drawn from due spaced review items, then
@@ -15278,10 +15358,18 @@ export default function LearnView({ P, accent, at, onNavigate }) {
     const seed = Number(todayKey().replace(/[^0-9]/g, "")) || 1;
     const cards = buildReviewSessionCards({ progress: builtinProgress, dueCards, seed, paths: [...LEARNING_PATHS, ...TOPIC_COURSES] });
     if (!cards.length) return;
+    /* The bench's memory (site debug fix lane, 2026-11-06): the
+       course is seeded with today's finished sitting count, so
+       the Player prices a repeat sitting at the same replay
+       scale a real course replay gets, and the screen carries
+       the fading lessons this session serves, so finishing the
+       sitting can stamp them revisited. */
+    const sittings = benchSittingsToday(profile, todayKey());
     setScreen({
       name: "player", fromPath: false,
-      course: { id: "review-bench", title: "Review session", lessons: [{ id: "review-bench", title: "Review session", subtitle: "The questions and lessons that are due, brought back while they can still be fixed", cards }], doneLessons: [] },
+      course: { id: "review-bench", title: "Review session", lessons: [{ id: "review-bench", title: "Review session", subtitle: "The questions and lessons that are due, brought back while they can still be fixed", cards }], doneLessons: [], xpCompletions: sittings ? { "review-bench": sittings } : {} },
       startLesson: 0,
+      benchLessonIds: reviewBenchServedLessonIds(cards, builtinProgress, [...LEARNING_PATHS, ...TOPIC_COURSES]),
     });
   };
 
@@ -15421,7 +15509,9 @@ export default function LearnView({ P, accent, at, onNavigate }) {
             handleBuiltinLessonDone(screen.course.pathId, lesson, pct);
             if (screen.bundleStage === "lesson") setBundleStageDone((s) => ({ ...s, lesson: true }));
           }
-          : undefined}
+          : screen.course && screen.course.id === "review-bench"
+            ? () => handleBenchDone(screen.benchLessonIds)
+            : undefined}
         onReviewDone={screen.course && screen.course.builtin
           ? (lessonId) => handleBuiltinReviewDone(screen.course.pathId, lessonId)
           : undefined}
