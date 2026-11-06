@@ -506,7 +506,16 @@ await test("the production trail shape qualifies when the chosen legs were the r
   assert.equal(plan.chosen[0], "groq:openai/gpt-oss-120b", "the rate limited preferred leg leads the retry");
 });
 
-await test("a chosen leg's own timeout still stands the rescue down", () => {
+await test("a timed out leg is passed over and the rate limited leg is retried alone", () => {
+  // PIN REWRITTEN (2026-11-05, synthesis failure wave, second
+  // form): the first shipped form of the chosen leg gate stood
+  // the whole rescue down when a chosen leg had timed out; the
+  // same night's post fix batch showed the timed out legs
+  // (Workers AI, NVIDIA) taking the second seat by track record
+  // on 13 searches whose fast legs were all rate limited, so
+  // disqualification now happens during selection: the timed
+  // out preferred leg loses its seat and the rate limited leg
+  // is retried on its own.
   resetLegHealth();
   const trail = [
     { wave: 1, model: "groq:openai/gpt-oss-120b", ok: false, error: TIMEOUT },
@@ -518,8 +527,38 @@ await test("a chosen leg's own timeout still stands the rescue down", () => {
     nowMs: T0,
     requestDeadlineMs: T0 + 120000,
   });
-  assert.equal(plan.action, "skip");
-  assert.equal(plan.summary, null, "the retry would run the timed out leg into the same wall, silently stood down");
+  assert.equal(plan.action, "wait");
+  assert.deepEqual(plan.chosen, ["gemini:gemini-3.8-flash"],
+    "the timed out leg held no seat and the rate limited leg was retried");
+});
+
+await test("the Nov 5 post fix stand down shape now waits on the rate limited legs", () => {
+  // The exact failure shape of BUR1, SLT4, WLK1 and FRS4 on the
+  // 3f934b7 batch: three fast 429s, then the capped Workers AI
+  // leg's timeout and NVIDIA's timeout in the later waves.
+  // Under both earlier gates the rescue stood down (globally,
+  // then by the chosen pair); with selection level
+  // disqualification the retry seats go to rate limited legs.
+  resetLegHealth();
+  const trail = [
+    { wave: 1, model: "groq:openai/gpt-oss-120b", ok: false, error: GROQ_429 },
+    { wave: 1, model: "gemini:gemini-3.8-flash", ok: false, error: GEMINI_429 },
+    { wave: 1, model: "mistral:mistral-small-latest", ok: false, error: 'mistral:mistral-small-latest: HTTP 429 . {"object":"error","message":"Rate limit exceeded","type":"rate_limit_exceeded"}' },
+    { wave: 2, model: "@cf/openai/gpt-oss-20b", ok: false, error: TIMEOUT },
+    { wave: 3, model: "nvidia/nemotron-3-ultra-550b-a55b:free", ok: false, error: TIMEOUT },
+  ];
+  const plan = planDelayedRescue(trail, {
+    rosterLabels: ["@cf/openai/gpt-oss-20b", "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "groq:openai/gpt-oss-120b", "gemini:gemini-3.8-flash", "mistral:mistral-small-latest",
+      "gemini:gemini-3.5-flash-lite"],
+    preferredLabel: "groq:openai/gpt-oss-120b",
+    nowMs: T0,
+    requestDeadlineMs: T0 + 120000,
+  });
+  assert.equal(plan.action, "wait");
+  assert.equal(plan.chosen[0], "groq:openai/gpt-oss-120b");
+  assert.ok(!plan.chosen.includes("@cf/openai/gpt-oss-20b"), "the timed out Workers AI leg held a retry seat");
+  assert.ok(!plan.chosen.includes("nvidia/nemotron-3-ultra-550b-a55b:free"), "the timed out NVIDIA leg held a retry seat");
 });
 
 await test("a pure 429 set waits, and retries the preferred leg plus one more", () => {

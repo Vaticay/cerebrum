@@ -797,21 +797,28 @@ export function retryCloseWindowMs(msLeftMs, factCheckOn) {
  *     skip with a summary. A leg in a short cooldown is a candidate
  *     only if the cooldown lapses inside the wait; a daily capped
  *     leg is never a candidate.
- *   - a CHOSEN leg whose own recorded failures include anything a
- *     wait cannot fix (a timeout, a content failure) → skip
- *     silently: the retry would run that same leg into that same
- *     wall. Failures of legs that will NOT be retried never veto
- *     (2026-11-05, synthesis failure wave): the old rule let any
- *     leg's timeout stand the rescue down, and on the Nov 5 live
- *     batch the capped Workers AI leg timed out inside its
- *     3,000 ms override in all 30 literature bearing searches, so
- *     the rescue never fired while the legs it would actually
- *     retry (Groq first) sat rate limited — 21 of 30 searches
- *     ended "all legs failed" with the rescue unplanned. What a
- *     wait can fix is judged on the legs that will run.
- *   - nothing rate limited anywhere and no chosen leg cooling
- *     down from a rate limit park that lapses inside the wait →
- *     skip silently: waiting only ever helps throttling.
+ *   - a leg whose own recorded failures include anything a wait
+ *     cannot fix (a timeout, a content failure) is DISQUALIFIED
+ *     from the retry seats and the next ranked candidate takes
+ *     its place (2026-11-05, synthesis failure wave): the
+ *     original rule let any leg's timeout stand the whole rescue
+ *     down, and on the Nov 5 baseline batch the capped Workers
+ *     AI leg timed out inside its 3,000 ms override in all 30
+ *     literature bearing searches, so the rescue never fired
+ *     while the legs it would retry sat rate limited. The first
+ *     shipped form judged the wait on the finally chosen pair
+ *     only; the same night's post fix batch showed the pair's
+ *     second seat repeatedly landing on the timed out Workers
+ *     AI or NVIDIA legs (their isolate track records outrank the
+ *     clean legs), standing the rescue down on 13 more searches
+ *     whose fast legs were all rate limited — so disqualification
+ *     now happens during selection, not after it.
+ *   - no chosen leg's bucket failed on a rate limit and no
+ *     chosen leg is cooling down from a rate limit park that
+ *     lapses inside the wait → skip silently: waiting only ever
+ *     helps throttling, and only for a leg that will actually
+ *     run (the bucket is the throttle unit, so a sibling's 429
+ *     counts for the leg that shares its cap).
  *   - otherwise wait, retrying the preferred leg (Groq's main) plus
  *     the roster ranked by recorded wins in this isolate. */
 export function planDelayedRescue(attempts, opts = {}) {
@@ -834,11 +841,22 @@ export function planDelayedRescue(attempts, opts = {}) {
   if (waitMs < DELAYED_RESCUE_MIN_WAIT_MS) {
     return { action: "skip", reason: "wait does not fit", summary: "delayed rescue skipped: the wait does not fit before the rescue deadline" };
   }
+  // DISQUALIFICATION (2026-11-05, synthesis failure wave; see
+  // the contract note above): a leg whose own failures tonight
+  // include a class a wait cannot fix is passed over for the
+  // retry seats entirely.
+  const disqualified = new Set();
+  for (const a of legFailures) {
+    const c = classifyLegFailure(a.error);
+    if (c !== "rate-limit" && c !== "daily-cap") disqualified.add(a.model);
+  }
   const ranked = [...new Set(rosterLabels)].sort((a, b) =>
     ((legHealthSnapshot(b) || {}).successes || 0) - ((legHealthSnapshot(a) || {}).successes || 0));
   const candidates = [];
-  if (preferredLabel) candidates.push(preferredLabel);
-  for (const label of ranked) if (!candidates.includes(label)) candidates.push(label);
+  if (preferredLabel && !disqualified.has(preferredLabel)) candidates.push(preferredLabel);
+  for (const label of ranked) {
+    if (!candidates.includes(label) && !disqualified.has(label)) candidates.push(label);
+  }
   const eligible = candidates.filter((label) => {
     const parkNow = legParkInfo(label, nowMs);
     if (parkNow && parkNow.parkClass === "daily-cap") return false;
@@ -870,27 +888,23 @@ export function planDelayedRescue(attempts, opts = {}) {
       (label) => synthesisBucketForLabel(label) !== synthesisBucketForLabel(chosen[0]));
     if (independent) chosen[1] = independent;
   }
-  // THE WAIT MUST BE ABLE TO HELP THE LEGS THAT WILL RUN
-  // (2026-11-05, synthesis failure wave; see the contract note
-  // above): a chosen leg that itself timed out or failed on
-  // content stands the rescue down, because the retry fires that
-  // same leg; any other leg's timeout or content failure is not
-  // this rescue's problem and no longer vetoes it.
-  const chosenSet = new Set(chosen);
-  const chosenVeto = legFailures.some((a) => {
-    if (!chosenSet.has(a.model)) return false;
-    const c = classifyLegFailure(a.error);
-    return c !== "rate-limit" && c !== "daily-cap";
-  });
-  if (chosenVeto) {
-    return { action: "skip", reason: "a chosen leg failed on something a wait cannot fix", summary: null };
-  }
-  const anyRateLimit = classes.some((c) => c === "rate-limit");
+  // THE WAIT MUST BE ABLE TO HELP A LEG THAT WILL RUN
+  // (2026-11-05, synthesis failure wave): some chosen leg's
+  // BUCKET failed on a rate limit tonight (the bucket is the
+  // throttle unit — a sibling leg that was never attempted
+  // still shares the cap that 429'd, the case the parked leg
+  // contract pins), or some chosen leg is cooling down from a
+  // rate limit park that lapses inside the wait. Anything else
+  // means the wait buys nothing.
+  const chosenBuckets = new Set(chosen.map((label) => synthesisBucketForLabel(label)));
+  const chosenRateLimited = legFailures.some(
+    (a) => classifyLegFailure(a.error) === "rate-limit" &&
+      chosenBuckets.has(synthesisBucketForLabel(a.model)));
   const chosenCooling = chosen.some((label) => {
     const p = legParkInfo(label, nowMs);
     return !!(p && p.parkClass === "rate-limit" && !legParkInfo(label, nowMs + waitMs));
   });
-  if (!anyRateLimit && !chosenCooling) {
+  if (!chosenRateLimited && !chosenCooling) {
     return { action: "skip", reason: "no rate limit to wait out", summary: null };
   }
   return { action: "wait", waitMs, chosen };
@@ -38891,15 +38905,19 @@ async function runSearchPipeline(pctx) {
     // (Groq's are 30 req/min). The immediate rescue retries into the
     // same wall milliseconds later; a bounded wait is the one move
     // that changes the odds. Contract:
-    //   - fires when the chosen retry legs' own failures are rate
-    //     limits (parked-leg skips excluded . they are not failures
-    //     of this request, and their cause is already recorded). A
-    //     timeout or content failure OF A CHOSEN LEG never waits:
-    //     waiting fixes neither. Other legs' timeouts no longer
-    //     veto (2026-11-05, synthesis failure wave: the capped
-    //     Workers AI leg's structural 3,000 ms timeout sat in every
-    //     failure set on the Nov 5 batch and stood this rescue down
-    //     on all 21 all-legs-failed searches; see planDelayedRescue).
+    //   - fires when a leg that will actually run in the retry
+    //     failed on a rate limit (parked-leg skips excluded . they
+    //     are not failures of this request, and their cause is
+    //     already recorded). A leg whose own failures include a
+    //     timeout or a content failure is disqualified from the
+    //     retry seats during selection (2026-11-05, synthesis
+    //     failure wave: the original every failure gate let the
+    //     capped Workers AI leg's structural 3,000 ms timeout
+    //     stand this rescue down on all 21 all-legs-failed
+    //     searches on the Nov 5 baseline batch, and the first
+    //     shipped pair level form still lost 13 more to the
+    //     timed out legs' track records taking the second seat;
+    //     see planDelayedRescue).
     //   - if every failure was a DAILY cap, no short wait helps any
     //     leg, so it does not wait and says so.
     //   - it retries the two best-tracked unparked legs (Groq's main
