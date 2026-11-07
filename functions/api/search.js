@@ -23865,7 +23865,7 @@ export function buildCoverageNote(sourcesQueried) {
   // eight failures and name only five of them.
   const groups = [
     ["did-not-respond", "didn't respond"],
-    ["budget-stopped", "stopped on the retrieval budget"],
+    ["budget-stopped", "stopped when the search reached its working limit"],
     ["not-searched", "not searched because the budget ran out"],
   ];
   const parts = [];

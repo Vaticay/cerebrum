@@ -1707,7 +1707,11 @@ await test("D3: the coverage note names every failed source under its honest sta
     ...(typeof d.error === "string" && /subrequest|budget/i.test(d.error) ? { budgetStopped: true } : {}),
   })));
   assert.ok(note.includes("3 of 14 databases didn't respond (crossref, semanticScholar, biorxiv)"), "did not respond group wrong: " + note);
-  assert.ok(note.includes("2 of 14 databases stopped on the retrieval budget (CORE, BASE)"), "budget stopped group wrong: " + note);
+  /* PIN UPDATED 2026-11-07 (record wording cleanup): the budget
+     stop's grouped label is the plain form now; "retrieval budget"
+     was internal machinery vocabulary on a reader facing sentence.
+     Same group, same names, same count: only the wording moved. */
+  assert.ok(note.includes("2 of 14 databases stopped when the search reached its working limit (CORE, BASE)"), "budget stopped group wrong: " + note);
   assert.ok(note.includes("3 of 14 databases not searched because the budget ran out (pmcFullText, openAire, preprints)"), "not searched group wrong: " + note);
   assert.ok(note.includes("built from the 6 that did"), "answered count wrong: " + note);
   assert.ok(!searchSrc.includes('failed.map((s) => s.source).filter(Boolean).slice(0, 5)'), "the five name cap is still in buildCoverageNote");
@@ -1721,7 +1725,9 @@ await test("D3: the coverage note names every failed source under its honest sta
     .then((res) => res.text())
     .then((html) => {
       assert.ok(html.includes("crossref: did not respond"), "page does not name a plain failure as did not respond");
-      assert.ok(html.includes("CORE: stopped on the retrieval budget"), "page does not name the budget stop");
+      /* PIN UPDATED 2026-11-07 (record wording cleanup): the page's
+         budget stop wording is plain now, as in the note above. */
+      assert.ok(html.includes("CORE: stopped when the search reached its working limit"), "page does not name the budget stop");
       assert.ok(html.includes("pmcFullText: not searched"), "page does not name the never searched state");
       assert.ok(html.includes("Kept by the relevance floor (the shelf): 25"), "page funnel lacks the shelf line");
       assert.ok(html.includes("Cited in the answer: 1"), "page funnel lacks the cited line");
@@ -1734,7 +1740,9 @@ await test("D3 client: diagnostics builds its Databases row from sourcesQueried,
   const diag = appSrc.slice(diagAt, diagAt + 7000);
   assert.ok(!diag.includes("t.coverageNote"), "diagnostics still prefers the coverage note");
   assert.match(diag, /no answer from \$\{missingDidNotRespond\.join/, "the did not respond group is not built from sourcesQueried");
-  assert.match(diag, /stopped on the retrieval budget: \$\{missingBudgetStopped\.join/, "the budget stopped group is missing");
+  /* PIN UPDATED 2026-11-07 (record wording cleanup): the diagnostics
+     budget group carries the plain wording now. */
+  assert.match(diag, /stopped when the search reached its working limit: \$\{missingBudgetStopped\.join/, "the budget stopped group is missing");
   assert.match(diag, /not searched because the budget ran out: \$\{missingNotSearched\.join/, "the not searched group is missing");
 });
 
@@ -1801,7 +1809,9 @@ await test("D8 correct fix F8: mixed rung states and budget stops label honestly
   const note = buildCoverageNote([mixed, budgetMixed,
     { source: "europePMC", ok: true, count: 5 }]);
   assert.ok(note.includes("1 of 3 databases didn't respond (crossref)"), "note groups the mixed rung source wrong: " + note);
-  assert.ok(note.includes("1 of 3 databases stopped on the retrieval budget (CORE)"), "note groups the budget stop wrong: " + note);
+  /* PIN UPDATED 2026-11-07 (record wording cleanup): plain budget
+     stop wording, as above. */
+  assert.ok(note.includes("1 of 3 databases stopped when the search reached its working limit (CORE)"), "note groups the budget stop wrong: " + note);
   const rec = buildSearchRecord({
     ...FEVER_INPUT,
     databases: [mixed, budgetMixed],
@@ -1815,7 +1825,9 @@ await test("D8 correct fix F8: mixed rung states and budget stops label honestly
     .then((res) => res.text())
     .then((html) => {
       assert.ok(html.includes("crossref: did not respond"), "page mislabels the mixed rung source");
-      assert.ok(html.includes("CORE: stopped on the retrieval budget"), "page mislabels the budget stopped source");
+      /* PIN UPDATED 2026-11-07 (record wording cleanup): plain budget
+         stop wording, as above. */
+      assert.ok(html.includes("CORE: stopped when the search reached its working limit"), "page mislabels the budget stopped source");
     });
 });
 

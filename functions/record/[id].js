@@ -140,6 +140,51 @@ function recordStagePlain(name) {
     ? RECORD_STAGE_PLAIN[name] : null;
 }
 
+/* The Model section's plain sentence (2026-11-07, record wording
+ * cleanup). The stored synthesisModel is the winning leg's raw
+ * label: a provider prefix plus the vendor's model slug
+ * ("gemini:gemini-3.5-flash-lite"), a bare OpenRouter name
+ * ("google/gemma-4-26b-a4b-it:free"), or a bare Workers AI name
+ * ("@cf/meta/llama-3.3-70b-instruct-fp8-fast"). Those strings are
+ * machinery text on a public page, the one diagnostic field the
+ * cold demo maps never claimed, so they never print in prose. What
+ * the label does prove is the model line that wrote the answer,
+ * read with the same vocabulary the search handler itself uses
+ * for checker exclusion (factCheckModelFamily in
+ * functions/api/search.js): strip a known provider prefix, then
+ * match the family token. A family hit renders "Written by a
+ * Gemini model." and claims nothing more specific. A label no
+ * family matches renders the generic honest sentence: the field
+ * is only set when an AI model wrote the answer, so that sentence
+ * is always true and invents no name. A null field keeps the
+ * existing no synthesis sentence at the render site. The raw
+ * label stays in the record as data (?format=json); only the
+ * prose is screened, the standing rule for this page. The in app
+ * record panel and the Markdown export mirror this helper in
+ * src/CerebrumApp.jsx. */
+const RECORD_MODEL_FAMILY_PLAIN = [
+  ["gemma", "Gemma"],
+  ["gemini", "Gemini"],
+  ["llama", "Llama"],
+  ["gpt-oss", "GPT OSS"],
+  ["nemotron", "Nemotron"],
+  ["mistral", "Mistral"],
+];
+const RECORD_MODEL_PROVIDER_PREFIXES = ["groq", "gemini", "mistral", "nvidia", "cerebras", "github", "pollinations", "groq2", "gemini2", "sambanova"];
+
+function recordModelPlain(label) {
+  if (typeof label !== "string" || !label.trim()) return null;
+  let m = label.trim().toLowerCase();
+  const sep = m.indexOf(":");
+  if (sep > 0 && RECORD_MODEL_PROVIDER_PREFIXES.includes(m.slice(0, sep))) {
+    m = m.slice(sep + 1);
+  }
+  for (const [token, name] of RECORD_MODEL_FAMILY_PLAIN) {
+    if (m.includes(token)) return "Written by a " + name + " model.";
+  }
+  return "Written by an AI model.";
+}
+
 /* One stored trace outcome's category, from the outcome token
  * alone. Unknown outcomes land in "failed", whose wording is the
  * generic honest line. */
@@ -458,9 +503,12 @@ function recordPage(record, url, retractionByDoi = {}) {
       // source carrying notSearched was never searched, and one
       // whose recorded error is the retrieval budget was stopped
       // by that budget; neither is a source that did not respond.
+      // 2026-11-07 (record wording cleanup): the budget stop's
+      // wording is plain now, in the budget section's own
+      // vocabulary; "retrieval budget" was internal machinery.
       const state = entry.ok
         ? esc(entry.count) + " paper" + (entry.count === 1 ? "" : "s") + " returned"
-        : (entry.budgetStopped === true || (typeof entry.error === "string" && /subrequest|budget/i.test(entry.error))) ? "stopped on the retrieval budget"
+        : (entry.budgetStopped === true || (typeof entry.error === "string" && /subrequest|budget/i.test(entry.error))) ? "stopped when the search reached its working limit"
         : Number(entry.attempts) > 0 ? "did not respond"
         : Number(entry.notSearched) > 0 ? "not searched"
         : "did not respond";
@@ -507,7 +555,7 @@ function recordPage(record, url, retractionByDoi = {}) {
 
   parts.push("<h2>Model</h2>");
   parts.push("<p>" + (record.synthesisModel
-    ? esc(record.synthesisModel)
+    ? esc(recordModelPlain(record.synthesisModel))
     : "No AI synthesis model ran for this answer.") + "</p>");
 
   parts.push("<h2>Sources</h2>");

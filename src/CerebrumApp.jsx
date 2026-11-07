@@ -9675,6 +9675,43 @@ function recordStagePlain(name) {
     ? RECORD_STAGE_PLAIN[name] : null;
 }
 
+/* The Model row's plain sentence, mirroring recordModelPlain on
+   the permanent record page (2026-11-07, record wording cleanup).
+   The stored synthesisModel is the winning leg's raw label
+   (a provider prefix plus the vendor's model slug, a bare
+   OpenRouter name, or a bare Workers AI name): machinery text
+   that never prints in prose. The label proves the model line
+   that wrote the answer, read with the same family vocabulary
+   the search handler uses for checker exclusion; a family hit
+   renders "Written by a Gemini model.", and a label no family
+   matches renders the generic honest sentence, which is always
+   true because the field is only set when an AI model wrote the
+   answer. Null or empty input returns null and the caller keeps
+   its own no synthesis wording. The raw label stays in the
+   record as data (the export's JSON block); only prose screens. */
+const RECORD_MODEL_FAMILY_PLAIN = [
+  ["gemma", "Gemma"],
+  ["gemini", "Gemini"],
+  ["llama", "Llama"],
+  ["gpt-oss", "GPT OSS"],
+  ["nemotron", "Nemotron"],
+  ["mistral", "Mistral"],
+];
+const RECORD_MODEL_PROVIDER_PREFIXES = ["groq", "gemini", "mistral", "nvidia", "cerebras", "github", "pollinations", "groq2", "gemini2", "sambanova"];
+
+function recordModelPlain(label) {
+  if (typeof label !== "string" || !label.trim()) return null;
+  let m = label.trim().toLowerCase();
+  const sep = m.indexOf(":");
+  if (sep > 0 && RECORD_MODEL_PROVIDER_PREFIXES.includes(m.slice(0, sep))) {
+    m = m.slice(sep + 1);
+  }
+  for (const [token, name] of RECORD_MODEL_FAMILY_PLAIN) {
+    if (m.includes(token)) return "Written by a " + name + " model.";
+  }
+  return "Written by an AI model.";
+}
+
 /* A stage's plain name for the answer diagnostics rows, with a
    generic honest fallback for a name the map does not know. */
 function stagePlain(name) {
@@ -9858,11 +9895,15 @@ function recordHealthLine(record) {
 }
 
 /* One database outcome's short label: its paper count when it
-   answered, else its honest failure state (lane 2 D3). */
+   answered, else its honest failure state (lane 2 D3).
+   2026-11-07 (record wording cleanup): the budget stop's short
+   label is plain now; the old two word form named the machinery,
+   and the label doubles as the match key in AnswerDiagnostics,
+   which moved with it. */
 function databaseOutcomeLabel(d) {
   if (!d || typeof d !== "object") return "";
   if (d.ok) return String(d.count != null ? d.count : 0);
-  if (d.budgetStopped === true || (typeof d.error === "string" && /subrequest|budget/i.test(d.error))) return "budget stopped";
+  if (d.budgetStopped === true || (typeof d.error === "string" && /subrequest|budget/i.test(d.error))) return "stopped at the limit";
   if (Number(d.attempts) > 0) return "no response";
   if (Number(d.notSearched) > 0) return "not searched";
   return "no response";
@@ -9929,9 +9970,11 @@ function searchRecordMarkdown(record) {
       // Wave 1B (lane 2 D3): a source that was never searched or
       // was stopped by the budget is labelled as what it was,
       // never as one that did not respond.
+      // 2026-11-07 (record wording cleanup): the budget stop's
+      // wording matches the record page's plain form now.
       const state = d.ok ? `${d.count} paper${d.count === 1 ? "" : "s"} returned`
         : Number(d.notSearched) > 0 ? "not searched"
-        : (typeof d.error === "string" && /subrequest|budget/i.test(d.error)) ? "stopped on the retrieval budget"
+        : (typeof d.error === "string" && /subrequest|budget/i.test(d.error)) ? "stopped when the search reached its working limit"
         : "did not respond";
       lines.push(`${i + 1}. ${d.source}: ` + state);
     });
@@ -9968,7 +10011,7 @@ function searchRecordMarkdown(record) {
     lines.push("");
   }
   lines.push("## Model");
-  lines.push(record.synthesisModel ? String(record.synthesisModel) : "No AI synthesis model ran for this answer.");
+  lines.push(record.synthesisModel ? recordModelPlain(record.synthesisModel) : "No AI synthesis model ran for this answer.");
   lines.push("");
   lines.push("## Sources");
   if (Array.isArray(record.sources) && record.sources.length) {
@@ -10060,7 +10103,7 @@ function SearchRecordPanel({ t, P }) {
             {/* Wave 1B (lane 2 D7): the fact check trace as one
                 compressed line naming each tier and outcome. */}
             {recordFactCheckTraceLine(record) && sectionRow("Fact check", recordFactCheckTraceLine(record))}
-            {sectionRow("Model", record.synthesisModel || "Drafted from sources")}
+            {sectionRow("Model", record.synthesisModel ? recordModelPlain(record.synthesisModel) : "Drafted from sources")}
             {recordHealthLine(record) && sectionRow("Health", recordHealthLine(record))}
             {/* The permalink, or the honest absence of one. A record
                 rebuilt on a cache serve was never stored, so it has
@@ -10225,7 +10268,7 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
   // budget stopped sources were never sources that did not
   // respond, and no count here may exceed the names printed.
   const missingDidNotRespond = dbOutcomes ? dbOutcomes.filter((x) => !x.ok && databaseOutcomeLabel(x) === "no response").map((x) => x.source).filter(Boolean) : [];
-  const missingBudgetStopped = dbOutcomes ? dbOutcomes.filter((x) => !x.ok && databaseOutcomeLabel(x) === "budget stopped").map((x) => x.source).filter(Boolean) : [];
+  const missingBudgetStopped = dbOutcomes ? dbOutcomes.filter((x) => !x.ok && databaseOutcomeLabel(x) === "stopped at the limit").map((x) => x.source).filter(Boolean) : [];
   const missingNotSearched = dbOutcomes ? dbOutcomes.filter((x) => !x.ok && databaseOutcomeLabel(x) === "not searched").map((x) => x.source).filter(Boolean) : [];
   // Wave 1B (lane 2 D2): cited and further reading come from the
   // same partition the header uses (partitionSources, the not
@@ -10253,7 +10296,7 @@ function AnswerDiagnostics({ t, P, interactive, onShowAutopsy }) {
       k: "Databases",
       v: `${okCount} of ${dbOutcomes.length} answered` +
         (missingDidNotRespond.length ? `, no answer from ${missingDidNotRespond.join(", ")}` : "") +
-        (missingBudgetStopped.length ? `, stopped on the retrieval budget: ${missingBudgetStopped.join(", ")}` : "") +
+        (missingBudgetStopped.length ? `, stopped when the search reached its working limit: ${missingBudgetStopped.join(", ")}` : "") +
         (missingNotSearched.length ? `, not searched because the budget ran out: ${missingNotSearched.join(", ")}` : ""),
     });
   }
