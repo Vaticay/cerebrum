@@ -12874,6 +12874,20 @@ function ShareCardButton({ model, P, accent }) {
           drawnTitle = wrapped.slice(0, 3);
         }
       }
+      /* The honest end of the shrink (2026-11-06, exports
+         leftovers lane, catalog 13): a title that still wraps
+         past three lines at the floor used to lose every word
+         beyond the third line with no sign anything was cut.
+         The last drawn line now ends with an ellipsis the card
+         admits to, rebuilt word by word at the drawn size so
+         the marker itself still fits the line width. */
+      if (drawnTitle.length < wrapped.length) {
+        const kept = drawnTitle.slice();
+        let tail = kept[kept.length - 1];
+        while (tail.includes(" ") && ctx.measureText(tail + " …").width > 900) tail = tail.slice(0, tail.lastIndexOf(" "));
+        kept[kept.length - 1] = tail + " …";
+        drawnTitle = kept;
+      }
       const stack = stackFor(titleTop, drawnTitle);
       /* kind line, riding 70 above the title block wherever
          the layout put it */
@@ -12893,8 +12907,15 @@ function ShareCardButton({ model, P, accent }) {
         ctx.fillStyle = "rgba(232, 228, 220, 0.66)";
         let subSize = 30;
         ctx.font = "400 " + subSize + "px 'Source Serif 4', Georgia, 'Times New Roman', serif";
-        const subText = extra.join(" · ");
+        let subText = extra.join(" · ");
         while (ctx.measureText(subText).width > 940 && subSize > 20) { subSize -= 2; ctx.font = "400 " + subSize + "px 'Source Serif 4', Georgia, 'Times New Roman', serif"; }
+        /* Still too wide at the floor: the subline truncates
+           with the same admitted ellipsis as the title rather
+           than printing past the card edges (catalog 13). */
+        if (ctx.measureText(subText).width > 940) {
+          while (subText.includes(" ") && ctx.measureText(subText + " …").width > 940) subText = subText.slice(0, subText.lastIndexOf(" "));
+          subText += " …";
+        }
         ctx.fillText(subText, 540, stack.extraBaseline);
       }
       /* two stats, cream pills side by side, shrunk as a pair
@@ -12908,6 +12929,28 @@ function ShareCardButton({ model, P, accent }) {
           statSize -= 2;
           ctx.font = "500 " + statSize + "px 'Inter Tight', 'Segoe UI', sans-serif";
           widths = stats.map((s) => ctx.measureText(s).width + 56);
+          total = widths.reduce((a, b) => a + b, 0) + (stats.length - 1) * 20;
+        }
+        /* The pair keeps shrinking past the old 22px floor
+           until it fits the card (catalog 13); at a hard 14px
+           floor an extreme label truncates inside its own pill
+           with the admitted ellipsis instead of spilling past
+           the card edges. */
+        while (total > 1000 && statSize > 14) {
+          statSize -= 2;
+          ctx.font = "500 " + statSize + "px 'Inter Tight', 'Segoe UI', sans-serif";
+          widths = stats.map((s) => ctx.measureText(s).width + 56);
+          total = widths.reduce((a, b) => a + b, 0) + (stats.length - 1) * 20;
+        }
+        if (total > 1000) {
+          const pillBudget = (1000 - (stats.length - 1) * 20) / stats.length - 56;
+          for (let i = 0; i < stats.length; i++) {
+            if (widths[i] - 56 <= pillBudget) continue;
+            let t = stats[i];
+            while (t.length > 1 && ctx.measureText(t + "…").width > pillBudget) t = t.slice(0, -1);
+            stats[i] = t + "…";
+            widths[i] = ctx.measureText(stats[i]).width + 56;
+          }
           total = widths.reduce((a, b) => a + b, 0) + (stats.length - 1) * 20;
         }
         let px = 540 - total / 2;

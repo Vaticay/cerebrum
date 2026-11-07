@@ -144,8 +144,20 @@ function decodeBibTeXRaw(raw) {
   });
   // \ae \ss \o style commands
   s = s.replace(/\\(ae|AE|oe|OE|ss|aa|AA|o|O|l|L|ij|IJ|dh|DH|th|TH)\b/g, (m, cmd) => LATEX_COMMANDS[cmd] || m);
-  // Em/en dashes, tildes, escaped specials
-  s = s.replace(/---/g, "—").replace(/--/g, "–").replace(/~/g, " ").replace(/\\([&%$#_])/g, "$1");
+  // Text commands the writer itself emits for backslash, tilde, and
+  // caret (src/citationExport.js BIB_ESCAPES), with or without the
+  // empty group. Decoded before the accent pass so the caret and
+  // tilde forms are not misread as accent commands (2026-11-06,
+  // exports leftovers lane, catalog 12).
+  s = s.replace(/\\textbackslash(\{\})?/g, "\u0001")
+    .replace(/\\textasciitilde(\{\})?/g, "\u0002")
+    .replace(/\\textasciicircum(\{\})?/g, "\u0003");
+  // Em/en dashes, tildes, escaped specials (the brace pair included:
+  // the writer escapes \{ and \}, and until 2026-11-06 this pass left
+  // the backslash standing in the reimported title, catalog 12)
+  s = s.replace(/---/g, "—").replace(/--/g, "–").replace(/~/g, " ").replace(/\\([&%$#_{}])/g, "$1");
+  // Restore the protected characters decoded above
+  s = s.replace(/\u0001/g, "\\").replace(/\u0002/g, "~").replace(/\u0003/g, "^");
   // Strip any leftover grouping braces
   s = s.replace(/[{}]/g, "");
   return s;
