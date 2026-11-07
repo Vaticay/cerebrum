@@ -729,6 +729,73 @@ export function crossrefAttemptBudget(deadlineMs, nowMs) {
   return { timeoutMs: remaining, retries: 0, expired: false };
 }
 
+/* FANOUT TAIL WINDOW (2026-11-07, retrieval breadth fix): the
+ * sequenced fanout settled its priority head against the full
+ * absolute retrieval deadline before the tail fired at all, so
+ * one hung head member spent the tail's whole slice: on
+ * 2026-11-07 Europe PMC degraded upstream (503s past ten
+ * seconds), the head settle returned at the deadline in 25 of
+ * 27 records, and zero of the ten tail sources answered in
+ * every one of the 37 records on disk where Europe PMC was cut.
+ * The head now settles against a sub deadline that protects a
+ * tail window at the end of the slice, so the tail always gets
+ * time to answer in. The head loses nothing it could have
+ * kept: settleByDeadline records outcomes as they land without
+ * cancelling the fetches, and the runner re reads the head
+ * promises against the full deadline after the tail settles,
+ * so a slow head member that lands inside the full slice still
+ * counts. The floor keeps a rung whose slice is already mostly
+ * spent (the effective deadline can floor a rung at
+ * MIN_RETRIEVAL_SLICE_MS) from handing the head less than
+ * MIN_HEAD_WINDOW_MS of its own. A null deadline (no slice
+ * named) keeps the plain allSettled behavior untouched. */
+export const TAIL_WINDOW_MS = 2000;
+export const MIN_HEAD_WINDOW_MS = 1500;
+export function fanoutHeadDeadlineMs(deadlineMs, nowMs) {
+  if (deadlineMs == null || !Number.isFinite(Number(deadlineMs))) return null;
+  const dl = Number(deadlineMs);
+  const protectedPoint = dl - TAIL_WINDOW_MS;
+  const floorPoint = Number(nowMs) + MIN_HEAD_WINDOW_MS;
+  return Math.max(Math.min(protectedPoint, dl), Math.min(floorPoint, dl));
+}
+
+/* EUROPE PMC SLICE BOUNDING (2026-11-07, retrieval breadth
+ * fix): Europe PMC gets the deadline sized attempt budgeting
+ * Crossref has had since 2026-11-05. Its fetcher budget was a
+ * fixed 4,000 ms timeout with one retry (worst case about
+ * 8,300 ms) plus up to two sequential fallback forms, against a
+ * slice of about 5,300 ms at fire time: on a slow day its first
+ * call alone could never fit, and the retry and fallback forms
+ * spent subrequests on results the settle had already cut away
+ * unread. The leg now derives its attempt budget from the
+ * deadline its caller settles against, with Crossref's
+ * arithmetic as the starting point (kept as its own helper so
+ * the two legs' budgets can diverge later without touching
+ * each other): the full budget when the remainder holds it,
+ * and below that one attempt per form sized to fit, because
+ * this leg chains up to three forms where Crossref fires one
+ * call, so the forms behind a slow first form need the room
+ * more than its retry does. Fallback forms fire only while
+ * slice remains for them. An already spent deadline records
+ * the deadline outcome itself instead of firing into a cut.
+ * No deadline named (the author branch, the foundational
+ * lane, every caller outside the retrieval slice) keeps the
+ * fetcher's historic budget untouched. */
+export function europePMCAttemptBudget(deadlineMs, nowMs) {
+  if (deadlineMs == null || !Number.isFinite(Number(deadlineMs))) return null;
+  const remaining = Number(deadlineMs) - Number(nowMs);
+  if (remaining <= 0) return { timeoutMs: 0, retries: 0, expired: true };
+  if (remaining >= 8600) return { timeoutMs: 4000, retries: 1, expired: false };
+  if (remaining >= 3600) {
+    // One form only: two attempts at this size plus the
+    // backoff would still fit the slice, but the leg chains
+    // up to three forms and the forms behind this one need
+    // the room more than a retry of a slow first form does.
+    return { timeoutMs: Math.floor((remaining - 300) / 2), retries: 0, expired: false };
+  }
+  return { timeoutMs: remaining, retries: 0, expired: false };
+}
+
 /* RETRY RACE CLOSE (2026-10-14, wave sixteen, eighth panel,
  * Infrastructure defect 2): after a synthesis winner lands,
  * the post winner retries (quality, citation, minimum
@@ -8844,6 +8911,20 @@ export function fetcherStructuredFallback(query, opts) {
 }
 
 export async function europePMC(query, limit = 8, ledger = null, opts = {}) {
+  // Slice bounding (2026-11-07, retrieval breadth fix): when
+  // the caller names the deadline this call settles against,
+  // each form's attempt budget is derived from what is left of
+  // it (see europePMCAttemptBudget). A spent deadline records
+  // the deadline outcome without firing, and a fallback form
+  // fires only while slice remains for it: the settle would
+  // cut a late form unread either way, and firing only spends
+  // the subrequest. No deadline named keeps the historic
+  // budget (4,000 ms, one retry, every form) untouched.
+  const budgetForNextForm = () => europePMCAttemptBudget(opts && opts.deadlineMs, Date.now());
+  const sliceAlive = () => {
+    const b = budgetForNextForm();
+    return !b || !b.expired;
+  };
   // Trust the query we were given. The retrieval ladder passes progressively
   // simpler forms . if this function silently rebuilds them, the ladder can't
   // work. Fall back to the structured/organism forms when the given query
@@ -8893,12 +8974,17 @@ export async function europePMC(query, limit = 8, ledger = null, opts = {}) {
     const url =
       "https://www.ebi.ac.uk/europepmc/webservices/rest/search?" +
       new URLSearchParams(params);
-    const data = await getJSON(url, {}, 4000, 1, ledger);
+    const budget = budgetForNextForm();
+    if (budget && budget.expired) {
+      throw new Error("retrieval deadline: source did not answer inside the retrieval slice");
+    }
+    const data = await getJSON(url, {}, budget ? budget.timeoutMs : 4000,
+      budget ? budget.retries : 1, ledger);
     return data && data.resultList && data.resultList.result ? data.resultList.result : [];
   };
   try {
     let rows = await runSearch(query);
-    if (fetcherRowsNeedFallback(rows, query)) {
+    if (fetcherRowsNeedFallback(rows, query) && sliceAlive()) {
       const structured = fetcherStructuredFallback(query, opts);
       if (structured && structured !== query) {
         const structuredRows = await runSearch(structured).catch(() => null);
@@ -8908,7 +8994,7 @@ export async function europePMC(query, limit = 8, ledger = null, opts = {}) {
         }
       }
     }
-    if (fetcherRowsNeedFallback(rows, query)) {
+    if (fetcherRowsNeedFallback(rows, query) && sliceAlive()) {
       const { orgPhrases, hasOrganism } = splitOrganismTopic(query);
       if (hasOrganism) {
         const orgRows = await runSearch(
@@ -29812,8 +29898,13 @@ async function gatherPapersBody(rawQuery, opts) {
     // the runner's one re ask (runFanoutPairs) can hand the same
     // pair a fresh, short deadline without rebuilding the pairs.
     const crossrefAsk = { deadlineMs: _retrievalDeadlineMs };
+    // Europe PMC deadline holder (2026-11-07, retrieval
+    // breadth fix): the same holder pattern, read at fire time,
+    // so the leg's attempt budgeting always sees the deadline
+    // the runner settles against.
+    const epmcAsk = { deadlineMs: _retrievalDeadlineMs };
     const pairs = [
-      { name: "europePMC", fetch: () => europePMC(boolQ, 12, ledger, { structuredQuery: booleanQuery }) },
+      { name: "europePMC", fetch: () => europePMC(boolQ, 12, ledger, { structuredQuery: booleanQuery, deadlineMs: epmcAsk.deadlineMs }), epmcAsk },
       { name: "pubmed", fetch: () => pubmed(pubmedQ, 12, ncbiKey, ledger, { structuredQuery: booleanQuery }) },
       { name: "openAlex", fetch: () => openAlex(bare, 12, openAlexKey, ledger) },
       ...(bareCommon ? [{ name: "openAlexCommon", fetch: () => openAlex(bareCommon, 12, openAlexKey, ledger) }] : []),
@@ -29894,8 +29985,75 @@ async function gatherPapersBody(rawQuery, opts) {
     } else {
       const head = fundedPairs.filter((p) => FANOUT_PRIORITY_NAMES.includes(p.name));
       const tail = fundedPairs.filter((p) => !FANOUT_PRIORITY_NAMES.includes(p.name));
-      const headResults = await _settle(head.map(fire));
+      // Tail window (2026-11-07, retrieval breadth fix): the
+      // head settles against a sub deadline that protects the
+      // tail's window at the end of the slice, so one hung head
+      // member cannot spend the tail's share. The head promises
+      // are kept and re read against the full deadline once the
+      // tail has settled: settleByDeadline never cancelled
+      // them, so a slow head member that lands inside the full
+      // slice replaces its sub deadline cut, exactly like a
+      // first ask that answered late but in time. With no
+      // deadline named the head deadline is the deadline
+      // itself and this is the old behavior unchanged.
+      const headPromises = head.map(fire);
+      const headDeadline = fanoutHeadDeadlineMs(_retrievalDeadlineMs, Date.now());
+      let headResults = await settleByDeadline(headPromises, headDeadline);
       const tailResults = await _settle(tail.map(fire));
+      if (headDeadline != null && Number(headDeadline) < Number(_retrievalDeadlineMs)) {
+        const reread = await settleByDeadline(headPromises, _retrievalDeadlineMs);
+        headResults = headResults.map((r, i) => (
+          r && r.status === "rejected" && reread[i] && reread[i].status === "fulfilled"
+            ? reread[i]
+            : r
+        ));
+        // Europe PMC self heal (2026-11-07, retrieval breadth
+        // fix): a funded Europe PMC slot still recorded cut
+        // after the re read is the fetcher exhausting its own
+        // slice sized attempts, which no runner side re read can
+        // recover, because the promise itself already settled as
+        // the exhausted attempt shape. When its first ask was
+        // the slice truncated rung ask (the pair's epmcAsk
+        // deadline was the now passed _retrievalDeadlineMs), ONE
+        // fresh ask fires with a full fresh window so the
+        // fetcher re derives a budget from the whole window and
+        // can work its forms, exactly the funding Crossref's re
+        // ask has had since 2026-11-05. Narrow like that re
+        // ask: the funded slot only, the same two cut shapes,
+        // only while the ledger still has retrieval room and
+        // the gather's own time budget still has the window to
+        // spend, and bounded by a fresh EUROPEPMC_REASK window
+        // that fits inside POST_RETRIEVAL_PREP_MS, so the
+        // gather's promise still resolves before the gather
+        // start plus GATHER_PAPERS_BUDGET_MS its callers
+        // assume. A re asked result replaces the cut slot in
+        // the head mapping, so the record folds it as the
+        // pair's outcome, exactly like a first ask that
+        // answered.
+        try {
+          const epPair = fundedPairs.find((p) => p && p.name === "europePMC");
+          const epIdx = epPair ? head.indexOf(epPair) : -1;
+          const cutEp = epIdx >= 0 ? headResults[epIdx] : null;
+          const epSliceCut = !!cutEp && (
+            (cutEp.status === "rejected" && cutEp.reason &&
+              /retrieval deadline/.test(String(cutEp.reason.message || cutEp.reason))) ||
+            (cutEp.status === "fulfilled" && Array.isArray(cutEp.value) &&
+              cutEp.value.length === 0 && typeof cutEp.value.fetchError === "string" &&
+              /retrieval deadline|abort/i.test(cutEp.value.fetchError))
+          );
+          const epAsk = epPair && epPair.epmcAsk;
+          if (epSliceCut && epAsk &&
+              Number(epAsk.deadlineMs) === Number(_retrievalDeadlineMs) &&
+              (!ledger || typeof ledger.retrievalRoom !== "function" || ledger.retrievalRoom() > 0) &&
+              Date.now() - _searchStart < GATHER_PAPERS_BUDGET_MS - CROSSREF_REASK_WINDOW_MS) {
+            epAsk.deadlineMs = Date.now() + CROSSREF_REASK_WINDOW_MS;
+            const reAsked = await settleByDeadline([fire(epPair)], epAsk.deadlineMs);
+            if (reAsked && reAsked[0] && reAsked[0].status === "fulfilled") {
+              headResults[epIdx] = reAsked[0];
+            }
+          }
+        } catch { /* a failed self heal keeps the cut outcome */ }
+      }
       const byPair = new Map();
       head.forEach((p, i) => byPair.set(p, headResults[i]));
       tail.forEach((p, i) => byPair.set(p, tailResults[i]));
