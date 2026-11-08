@@ -53,7 +53,7 @@ export const MARKETING_PAGES = {
           "Diagram Studio: turn an answer, a paper, or your own steps into one clear diagram, and export it as SVG, PNG, or a text outline.",
           "Investigations and Library: save papers, questions, and threads into collections you can revisit.",
           "Watched topics: watch a subject from the end of an answer, and your home screen counts the new papers indexed on it since you last looked.",
-          "Nova: taught lessons on a topic you pick, with practice activities, daily practice, and progress you can export as a file you keep.",
+          "Nova Field Notes: her dated notebook of short entries, one question per entry, with reviews that come back around and a shelf that fills as you finish threads.",
           "Private Vault: optional end to end encrypted sync for your saved work, with a 24 word recovery phrase only you hold.",
         ],
       },
@@ -92,12 +92,12 @@ export const MARKETING_PAGES = {
         ],
       },
       {
-        h: "Nova: learn the topic, lesson by lesson",
+        h: "Nova: Field Notes, her notebook",
         widget: "nova-figure",
-        p: "Nova teaches the topic itself, in plain language, and never asks you to read a paper. Pick a topic from six shelves of science, or start from a subject you care about, and Nova lays out a path of short lessons that teach the ideas first. The practice then checks what the lessons taught: quizzes, fill in the blank cards, true or false checks, and matching and ordering activities. A daily practice session brings back what is due for review. A streak counts the days you practice, and two freezes cover the days you miss.",
+        p: "Nova keeps a running notebook, and learning is working through it with her. Each entry is dated, short, and written in her own voice: what she read, what she makes of it, and what is still open. One question comes with each entry, written when the entry was written, and its answer explains rather than repeats. Entries you have read come back around as reviews on a widening schedule. A streak counts the days you read, and finishing a thread puts one object on her shelf, where it stays.",
         list: [
-          "Progress lives in this browser only: your courses, streak, and practice history are stored on your device, not in an account, and there is no cloud copy.",
-          "Export saves your Nova progress as one file you keep. Import that file in another browser and your progress comes with you.",
+          "Reading progress lives in this browser: the entries you have read, your review schedule, and your streak are stored on your device, not in an account, and there is no cloud copy.",
+          "The notebook itself is written once and kept, so it reads the same on a good day and on a day when nothing else is working.",
         ],
       },
       {
@@ -174,7 +174,7 @@ export const MARKETING_PAGES = {
           "Every free answer carries the coverage line and the full Search record, permanent link and JSON form included, the same as any other answer.",
           "Any compatible AI assistant can call Cerebrum through the MCP endpoint at https://askcerebrum.org/mcp, free included.",
           "A free account can watch up to 40 topics, and the home screen counts the new papers indexed on each one.",
-          "Nova is included: taught lessons on the topics you pick, daily practice, and progress stored in your browser that exports as a file you keep.",
+          "Nova Field Notes are included: her dated notebook, one question per entry, reviews that come back around, and reading progress stored in your browser.",
         ],
       },
       {

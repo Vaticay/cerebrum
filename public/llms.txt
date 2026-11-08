@@ -35,10 +35,10 @@
 - Features: saved sources and collections, side by side comparison of
   investigations, views of how sources relate to each other, diagram studio,
   bibliography export (Excel, BibTeX, APA, MLA, Chicago, Vancouver).
-- Nova: a learning companion that teaches short lessons on a topic in
-  plain language, with quizzes on what each lesson taught and daily
-  practice with spaced review. Progress is stored in the visitor's own
-  browser and can be exported and imported as a file the visitor keeps.
+- Nova: a learning companion who keeps a dated notebook, Field Notes.
+  Each entry is short teaching prose in plain language with one
+  question, and read entries come back around as reviews on a widening
+  schedule. Reading progress is stored in the visitor's own browser.
   There is no account sync and no cloud copy.
 - MCP: AI assistants can call Cerebrum through the endpoint at
   https://askcerebrum.org/mcp. Search results carry their Search record

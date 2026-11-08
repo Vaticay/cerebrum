@@ -111,6 +111,8 @@ import {DiagramStudio, Dialog, cbMotionOff, ChromeHeader, ModalChrome, fcSvgStri
 import { InboxView, ReportConductModal, PaperSharePicker, paperAttachmentFromSource } from "./inbox.jsx";
 import { SettingsView } from "./settings.jsx";
 import LearnView from "./LearnView.jsx";
+import FieldNotesView from "./FieldNotesView.jsx";
+import { notebookLineFor, paperHasNote } from "./fieldNotes.js";
 import NovaEgg from "./NovaEgg.jsx";
 import NovaSidebarPop from "./NovaSidebarPop.jsx";
 import { createCourseFromResults, saveLearnCourse, emitNovaActivity, NovaLive } from "./LearnView.jsx";
@@ -1341,18 +1343,6 @@ function todayLabel() {
    users are scientists, and a fake number is the fastest way to lose one. */
 
 const TOPIC_STOP = /^(explain the science behind|tell me about|what's new in|whats|what's|what|how|why|when|where|who|which|is|are|does|do|did|can|could|should|would|will|explain|summarize|the|a|an)\b[\s:,-]*/i;
-// A subject pronoun the question words leave stranded at the head of
-// what remains (2026-11-08, burnout replay diagnosis): "How can I
-// fight graduate school burnout" strips its question words and then
-// stops at "I", so the watched topic stored was "I fight graduate
-// school burnout". The pronoun is scaffolding too. Its pattern is
-// the pronoun itself, one auxiliary verb when one follows it, and a
-// "to" when the auxiliary leaves one behind ("What can I do to
-// reduce stress" must come out as "reduce stress", not "to reduce
-// stress"). Applied only when question scaffolding was actually
-// stripped first, so a phrase that opens with a pronoun on its own
-// keeps it.
-const TOPIC_SUBJECT_STOP = /^(i|we|you|they|he|she)\b(?:\s+(?:do|does|did|can|could|should|would|will|am|is|are|was|were|have|has|had)\b)?(?:\s+to\b)?[\s:,-]*/i;
 function deriveTopic(q) {
   let t = (q || "").toString().trim();
   // Strip the question scaffolding so what gets watched is the subject
@@ -1360,18 +1350,7 @@ function deriveTopic(q) {
   // ("how does the gut microbiome influence brain function?") — otherwise
   // two people watching the same subject store two different rows and the
   // literature query gets narrower for no reason.
-  let strippedScaffolding = false;
-  for (let i = 0; i < 4; i++) {
-    const next = t.replace(TOPIC_STOP, "");
-    if (next !== t) strippedScaffolding = true;
-    t = next;
-  }
-  if (strippedScaffolding) {
-    t = t.replace(TOPIC_SUBJECT_STOP, "");
-    // An auxiliary the pronoun pattern did not take (or one it
-    // exposed) is scaffolding again, so the strip runs once more.
-    for (let i = 0; i < 4; i++) t = t.replace(TOPIC_STOP, "");
-  }
+  for (let i = 0; i < 4; i++) t = t.replace(TOPIC_STOP, "");
   t = t.replace(/[?!.]+\s*$/, "").replace(/\s+/g, " ").trim();
   const words = t.split(" ");
   if (words.length > 10) t = words.slice(0, 10).join(" ");
@@ -11127,15 +11106,12 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
         { id: "yes", label: "Yes, useful", icon: "thumb-up", hint: vote === "up" ? "Marked" : undefined, onClick: () => castVote("up") },
         { id: "no", label: "No, missed", icon: "thumb-down", hint: vote === "down" ? "Marked" : undefined, onClick: () => castVote("down") },
       ] : []),
-      ...(done && interactive && sources.length >= 2 && t.answer && t.answer.length > 200 ? [{
-        id: "course", label: "Turn into course", icon: "cortex", hint: "Nova",
-        onClick: () => {
-          const c = createCourseFromResults(t.q, t.sources, t.answer, t.literatureConflicts);
-          if (!c) { toast("Not enough cited findings in this answer to build a course yet", { tone: "error" }); return; }
-          saveLearnCourse(c);
-          toast("Course saved. Find it in Learn.");
-          if (onShowLearn) onShowLearn();
-        },
+      ...(done && interactive && t.answer && t.answer.length > 200 ? [{
+        /* Field Notes (Nov 8, 2026): the old turn into course item is
+           retired with the generated course machine. The menu now
+           points at Nova notebook, which is where learning lives. */
+        id: "fieldnotes", label: "Open Field Notes", icon: "cortex", hint: "Nova",
+        onClick: () => { if (onShowLearn) onShowLearn(); },
       }] : []),
       ...(done && interactive && t.answer && t.answer.length > 200 ? [{
         id: "simplify",
@@ -11873,6 +11849,9 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       {interactive && done && t.responseKind === "no-results" && (
         <ZeroResultsRecovery t={t} P={P} accent={accent} evidenceFilter={evidenceFilter} onClearFilterAndRetry={onClearFilterAndRetry} onRelated={onRelated} />
       )}
+      {interactive && done && (() => { const nl = notebookLineFor((t.q || "") + " " + (t.sources || []).map((x) => x.title || "").join(" ")); return nl ? (
+        <p style={{ fontFamily: "var(--cb-serif)", fontSize: FONT_SIZES.body, lineHeight: 1.6, color: P.ink2, margin: "22px 0 0" }}>{nl.line}{onShowLearn ? <>{" "}<button onClick={() => onShowLearn()} style={{ background: "none", border: "none", color: accentInk(P, accent), cursor: "pointer", fontSize: FONT_SIZES.body, fontFamily: "var(--cb-serif)", padding: 0, textDecoration: "underline" }}>Read the entry</button></> : null}</p>
+      ) : null; })()}
       {/* Next steps (2026-10-19, S2 / M20): one block, one visual
           language, one plain heading. The suggested chips, the related
           questions, the discovery chips and Watch this topic used to
@@ -26882,6 +26861,9 @@ function App({ profileHandle = null } = {}) {
                                   </span>
                                 ) : null;
                               })()}
+                              {(() => { const fn = paperHasNote(sv); return fn ? (
+                                <span style={{ display: "block", fontSize: FONT_SIZES.caption, color: accentInk(P, accent), marginTop: 4, lineHeight: 1.5, fontFamily: "var(--cb-font)" }}>Nova has a field note on this · {fn.threadTitle}</span>
+                              ) : null; })()}
                               {/* Honest legacy label: this paper lived on the
                                   server in readable form before Private Vault.
                                   It says so permanently, in plain words. */}
@@ -27570,7 +27552,11 @@ function App({ profileHandle = null } = {}) {
       )}
       {view === "learn" && (
         <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}>
-          <LearnView
+          {/* Field Notes (Nov 8, 2026): the Nova tab mounts the
+              notebook now. The old LearnView home is retired as a
+              surface; its module stays for the pieces other modules
+              import from it. */}
+          <FieldNotesView
             P={P} accent={accent} at={at}
             onNavigate={(v) => setView(v)}
           />
