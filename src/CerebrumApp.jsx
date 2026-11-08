@@ -1341,6 +1341,18 @@ function todayLabel() {
    users are scientists, and a fake number is the fastest way to lose one. */
 
 const TOPIC_STOP = /^(explain the science behind|tell me about|what's new in|whats|what's|what|how|why|when|where|who|which|is|are|does|do|did|can|could|should|would|will|explain|summarize|the|a|an)\b[\s:,-]*/i;
+// A subject pronoun the question words leave stranded at the head of
+// what remains (2026-11-08, burnout replay diagnosis): "How can I
+// fight graduate school burnout" strips its question words and then
+// stops at "I", so the watched topic stored was "I fight graduate
+// school burnout". The pronoun is scaffolding too. Its pattern is
+// the pronoun itself, one auxiliary verb when one follows it, and a
+// "to" when the auxiliary leaves one behind ("What can I do to
+// reduce stress" must come out as "reduce stress", not "to reduce
+// stress"). Applied only when question scaffolding was actually
+// stripped first, so a phrase that opens with a pronoun on its own
+// keeps it.
+const TOPIC_SUBJECT_STOP = /^(i|we|you|they|he|she)\b(?:\s+(?:do|does|did|can|could|should|would|will|am|is|are|was|were|have|has|had)\b)?(?:\s+to\b)?[\s:,-]*/i;
 function deriveTopic(q) {
   let t = (q || "").toString().trim();
   // Strip the question scaffolding so what gets watched is the subject
@@ -1348,7 +1360,18 @@ function deriveTopic(q) {
   // ("how does the gut microbiome influence brain function?") — otherwise
   // two people watching the same subject store two different rows and the
   // literature query gets narrower for no reason.
-  for (let i = 0; i < 4; i++) t = t.replace(TOPIC_STOP, "");
+  let strippedScaffolding = false;
+  for (let i = 0; i < 4; i++) {
+    const next = t.replace(TOPIC_STOP, "");
+    if (next !== t) strippedScaffolding = true;
+    t = next;
+  }
+  if (strippedScaffolding) {
+    t = t.replace(TOPIC_SUBJECT_STOP, "");
+    // An auxiliary the pronoun pattern did not take (or one it
+    // exposed) is scaffolding again, so the strip runs once more.
+    for (let i = 0; i < 4; i++) t = t.replace(TOPIC_STOP, "");
+  }
   t = t.replace(/[?!.]+\s*$/, "").replace(/\s+/g, " ").trim();
   const words = t.split(" ");
   if (words.length > 10) t = words.slice(0, 10).join(" ");

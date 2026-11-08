@@ -294,6 +294,61 @@ function recordHealthNote(record) {
   return "";
 }
 
+/* Why writing failed, in plain words (2026-11-08, burnout replay
+ * diagnosis). Records stored since the synthesis verdict was added
+ * to buildSearchRecord carry `synthesisSkipReason`, the stage's own
+ * internal taxonomy string, and `synthesisFailedLegs`, counts of the
+ * failed writing attempts by kind. The stored reason never prints
+ * raw: each known value maps to one plain sentence about what
+ * happened, an unknown value gets the generic honest sentence, and
+ * a record without the field gets no note at all, so older records
+ * render exactly as they did before the field existed. The failed
+ * legs summary prints as counts and kinds only. No model label and
+ * no raw error text is stored in the summary, so none can print. */
+function recordSynthesisFailureNote(record) {
+  const reason = typeof record.synthesisSkipReason === "string"
+    ? record.synthesisSkipReason.trim() : "";
+  if (!reason) return "";
+  let line;
+  if (reason === "all legs failed") {
+    line = "Writing the answer was tried, but every writing service failed or did not answer in time, so the answer was assembled from source excerpts.";
+  } else if (reason === "budget" || reason === "subrequest budget exhausted") {
+    line = "Writing the answer did not finish, because the search had reached its working limit, so the answer was assembled from source excerpts.";
+  } else if (reason === "gate") {
+    line = "Writing the answer was not tried, because this account was not cleared for a written answer on this search, so the answer was assembled from source excerpts.";
+  } else if (reason === "answer had no citations") {
+    line = "A written draft was set aside because it did not cite its sources, so the answer was assembled from source excerpts.";
+  } else if (reason === "no citable evidence") {
+    line = "No paper cleared the bar to be cited, so there was no evidence a written answer could rest on.";
+  } else if (reason === "drafts rejected downstream") {
+    line = "A written draft was produced, but a later check set it aside, so the answer was assembled from source excerpts.";
+  } else if (reason === "no legs recorded") {
+    line = "No writing service was recorded as having run for this search, so the answer was assembled from source excerpts.";
+  } else if (reason === "definition") {
+    line = "The writing services did not run for this search, because the question was handled as a definition lookup.";
+  } else if (reason.startsWith("the cited set did not engage")) {
+    line = "The answer was rebuilt, because the papers it first cited did not engage the subject of the question.";
+  } else {
+    line = "Writing the answer did not complete for this search, so the answer was assembled from source excerpts.";
+  }
+  const legs = record.synthesisFailedLegs;
+  if (legs && typeof legs === "object" && Number.isFinite(legs.total) && legs.total > 0) {
+    const kinds = [];
+    const counted = (n, oneText, manyText) => (n === 1 ? oneText : manyText.replace(/\{n\}/g, String(n)));
+    if (legs.rateLimited > 0) kinds.push(counted(legs.rateLimited, "1 was at its usage limit", "{n} were at their usage limits"));
+    if (legs.timedOut > 0) kinds.push(counted(legs.timedOut, "1 did not answer in time", "{n} did not answer in time"));
+    if (legs.serverError > 0) kinds.push(counted(legs.serverError, "1 answered with a server error", "{n} answered with a server error"));
+    if (legs.budgetStopped > 0) kinds.push(counted(legs.budgetStopped, "1 stopped at the working limit", "{n} stopped at the working limit"));
+    if (legs.other > 0) kinds.push(counted(legs.other, "1 failed for another reason", "{n} failed for other reasons"));
+    if (kinds.length) {
+      line += " Of the writing services that were tried, "
+        + (legs.total === 1 ? "1 failed" : legs.total + " failed")
+        + ": " + kinds.join(", ") + ".";
+    }
+  }
+  return line;
+}
+
 /* The claim check's tier trace (2026-10-14, wave sixteen,
  * eighth panel, Trust): the record's JSON carried factCheckTrace
  * since wave thirteen, but this page — the reader facing health
@@ -457,6 +512,8 @@ function recordPage(record, url, retractionByDoi = {}) {
   parts.push('<p class="meta">Permanent link: <a href="' + esc(url) + '">' + esc(url) + "</a></p>");
   const healthNote = recordHealthNote(record);
   if (healthNote) parts.push('<p class="note">' + esc(healthNote) + "</p>");
+  const synthesisFailureNote = recordSynthesisFailureNote(record);
+  if (synthesisFailureNote) parts.push('<p class="note">' + esc(synthesisFailureNote) + "</p>");
 
   parts.push("<h2>Question</h2>");
   parts.push("<p>" + esc(record.question || "") + "</p>");

@@ -24939,6 +24939,45 @@ export function buildSearchRecord(input) {
       ? input.degraded
       : healthRaw ? stageHealthDegraded(healthRaw) : null;
 
+    // The synthesis stage's own verdict (2026-11-08, burnout replay
+    // diagnosis): failedStages above keeps only the stage NAME, so a
+    // stored record could say writing failed but never why, and a
+    // signed in failure of the fleet capacity shape was undiagnosable
+    // from its own saved record. The record now also keeps the
+    // synthesis entry's skipReason verbatim (it is an internal
+    // taxonomy string; the record page renders it through a plain
+    // language map and never prints it raw) plus a compact summary
+    // of the failed legs: counts by failure kind only. No model
+    // labels and no raw error text ride along, because neither is a
+    // fact a reader can use and the labels are machinery. Both
+    // fields stay null when the stage recorded no reason, so a
+    // written answer's record and every older record keep exactly
+    // the shape they had. Additive under record version 2, like
+    // every other late field here.
+    let synthesisSkipReason = null;
+    let synthesisFailedLegs = null;
+    try {
+      const synthEntry = healthRaw
+        ? healthRaw.find((s) => s && s.name === "synthesis")
+        : null;
+      if (synthEntry && typeof synthEntry.skipReason === "string" && synthEntry.skipReason.trim()) {
+        synthesisSkipReason = synthEntry.skipReason.trim().slice(0, 200);
+        if (Array.isArray(synthEntry.failedLegs) && synthEntry.failedLegs.length > 0) {
+          const summary = { total: 0, rateLimited: 0, timedOut: 0, serverError: 0, budgetStopped: 0, other: 0 };
+          for (const leg of synthEntry.failedLegs.slice(0, 12)) {
+            const err = String((leg && leg.error) || "");
+            summary.total++;
+            if (/429|rate.?limit/i.test(err)) summary.rateLimited++;
+            else if (/subrequest|budget/i.test(err)) summary.budgetStopped++;
+            else if (/timed?\s?out|timeout|deadline/i.test(err)) summary.timedOut++;
+            else if (/\b5\d\d\b|unavailable|overloaded/i.test(err)) summary.serverError++;
+            else summary.other++;
+          }
+          synthesisFailedLegs = summary.total > 0 ? summary : null;
+        }
+      }
+    } catch { synthesisSkipReason = null; synthesisFailedLegs = null; }
+
     const flags = recordCitedFlags(sources || [], input.answer);
     // One definition of cited everywhere: when a source list exists,
     // the funnel count is the number of entries whose cited flag is
@@ -25306,6 +25345,8 @@ export function buildSearchRecord(input) {
       ledger,
       degraded: recordDegraded,
       failedStages,
+      ...(synthesisSkipReason ? { synthesisSkipReason } : {}),
+      ...(synthesisFailedLegs ? { synthesisFailedLegs } : {}),
       sources: recordSources,
       ...(recordMinSupport ? { minSupport: recordMinSupport } : {}),
       ...(recordCoverageSummary ? { coverageSummary: recordCoverageSummary } : {}),
