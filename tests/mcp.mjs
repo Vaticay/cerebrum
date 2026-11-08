@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const mcp = await import(join(root, "functions/api/mcp.js"));
 const rootMcp = await import(join(root, "functions/mcp.js"));
-const { handleRpcMessage, parseJsonRpcText, formatSearchToolResult, formatTrendingToolResult, TOOLS, onRequest } = mcp;
+const { handleRpcMessage, parseJsonRpcText, formatSearchToolResult, formatTrendingToolResult, formatStatementsToolResult, formatReceptionToolResult, TOOLS, onRequest } = mcp;
 
 let passed = 0;
 const failures = [];
@@ -74,6 +74,77 @@ const fakeRunners = {
   trendingRunner: async () => TRENDING_PAYLOAD,
 };
 
+// Statements fixtures (2026-11-07, MCP statements extension), shaped
+// exactly as functions/lib/statements.js readStatements returns them:
+// a ready paper with counts over the full held set (kept 120) and a
+// page of two sentences, a paper still collecting, and one whose
+// collection settled empty. A DOI absent from the map is one the
+// store has never seen, which the read reports as collecting.
+const STATEMENTS_PAYLOAD = {
+  "10.1038/nmeth.4197": {
+    status: "ready",
+    counts: { supporting: 0, contradicting: 1, mentioning: 119 },
+    citingPapers: 95,
+    totalCitations: 1000,
+    kept: 120,
+    fetchedAt: 1792000000000,
+    items: [
+      {
+        sentence: "We reimplemented the method following the published protocol.",
+        stance: "mentioning",
+        intents: ["methodology"],
+        influential: false,
+        section: null,
+        citing: { title: "A follow up methods paper", year: 2021, doi: "10.1000/citing.1" },
+      },
+      {
+        sentence: "Our results contradict the original finding under the same conditions.",
+        stance: "contradicting",
+        intents: ["background"],
+        influential: true,
+        section: null,
+        citing: { title: "A replication attempt", year: 2023, doi: "10.1000/citing.2" },
+      },
+    ],
+  },
+  "10.1000/still.collecting": {
+    status: "collecting", counts: null, citingPapers: 0, totalCitations: 0, kept: 0, fetchedAt: null, items: [],
+  },
+  "10.1000/settled.empty": {
+    status: "empty", counts: null, citingPapers: 0, totalCitations: 12, kept: 0, fetchedAt: 1792000000000, items: [],
+  },
+};
+
+const COLLECTING_ENTRY = {
+  status: "collecting", counts: null, citingPapers: 0, totalCitations: 0, kept: 0, fetchedAt: null, items: [],
+};
+
+const TALLY_PAYLOAD = { supporting: 3, contradicting: 1, mentioning: 40, total: 44, citingPublications: 41 };
+
+const RETRACTION_NONE = {
+  status: "none",
+  namedBy: [],
+  channels: ["Crossref", "Europe PMC", "OpenAlex"],
+  notices: [],
+};
+
+const RETRACTION_RETRACTED = {
+  status: "retracted",
+  namedBy: ["Retraction Watch", "Europe PMC"],
+  channels: ["Crossref", "Europe PMC", "OpenAlex"],
+  notices: [{ kind: "retraction", date: "2010-02-02", noticeDoi: "10.1016/s0140-6736(10)60175-7", via: "Retraction Watch" }],
+};
+
+const statementsFakeRunner = async (dois) =>
+  Object.fromEntries(dois.map((d) => [d, STATEMENTS_PAYLOAD[d] || COLLECTING_ENTRY]));
+
+const extendedFakeRunners = {
+  ...fakeRunners,
+  statementsRunner: statementsFakeRunner,
+  talliesRunner: async () => TALLY_PAYLOAD,
+  retractionRunner: async () => RETRACTION_NONE,
+};
+
 const rpc = (method, params, id = 1) => ({ jsonrpc: "2.0", id, method, ...(params !== undefined ? { params } : {}) });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -123,31 +194,50 @@ await test("ping returns an empty result", async () => {
   assert.equal(res.id, "abc");
 });
 
-await test("tools/list contains both tools with input schemas", async () => {
+await test("tools/list contains all four tools with input schemas", async () => {
+  // Pin updated 2026-11-07 (MCP statements extension): the list now
+  // carries get_statements and get_reception_report beside the two
+  // original tools. The original tools' schema assertions below are
+  // unchanged from the two tool era.
   const res = await handleRpcMessage(rpc("tools/list"), fakeRunners);
-  assert.equal(res.result.tools.length, 2);
+  assert.equal(res.result.tools.length, 4);
   const byName = Object.fromEntries(res.result.tools.map((t) => [t.name, t]));
   assert.ok(byName.search_literature, "search_literature missing");
   assert.ok(byName.get_trending, "get_trending missing");
+  assert.ok(byName.get_statements, "get_statements missing");
+  assert.ok(byName.get_reception_report, "get_reception_report missing");
   const schema = byName.search_literature.inputSchema;
   assert.equal(schema.type, "object");
   assert.deepEqual(schema.required, ["query"]);
   assert.equal(schema.properties.query.type, "string");
   assert.equal(byName.get_trending.inputSchema.type, "object");
+  const gs = byName.get_statements.inputSchema;
+  assert.equal(gs.type, "object");
+  assert.equal(gs.properties.doi.type, "string");
+  assert.equal(gs.properties.dois.type, "array");
+  assert.equal(gs.properties.dois.items.type, "string");
+  assert.equal(byName.get_reception_report.inputSchema.type, "object");
+  assert.deepEqual(byName.get_reception_report.inputSchema.required, ["doi"]);
+  assert.equal(byName.get_reception_report.inputSchema.properties.doi.type, "string");
   for (const t of res.result.tools) assert.ok(t.description && t.description.length > 20, "tool needs a real description");
 });
 
-await test("tools/list carries a title and the full annotation set for both tools", async () => {
+await test("tools/list carries a title and the full annotation set for every tool", async () => {
   // Directory requirement: Anthropic requires a title and the
   // applicable hints on every tool, and OpenAI's scan imports them
   // from this response. The values are the ones drafted in
   // docs/mcp-listing/claude-listing.json, and they are true of the
   // tools: both only read, neither is destructive, and both reach
   // the open scholarly web rather than a closed data set.
+  // Pin updated 2026-11-07 (MCP statements extension): the two new
+  // tools carry the same title and annotation standard, drafted and
+  // verified the same way, and this test now covers all four.
   const res = await handleRpcMessage(rpc("tools/list"), fakeRunners);
   const byName = Object.fromEntries(res.result.tools.map((t) => [t.name, t]));
   assert.equal(byName.search_literature.title, "Search the literature");
   assert.equal(byName.get_trending.title, "Today in Science");
+  assert.equal(byName.get_statements.title, "Citation statements for a paper");
+  assert.equal(byName.get_reception_report.title, "Reception report for a paper");
   const expected = { readOnlyHint: true, destructiveHint: false, openWorldHint: true };
   for (const t of res.result.tools) {
     assert.deepEqual(t.annotations, expected, `annotations wrong on ${t.name}`);
@@ -432,7 +522,7 @@ function schemaProblems(schema, value, path = "$") {
 
 const toolByName = (name) => TOOLS.find((t) => t.name === name);
 
-await test("both tools declare an outputSchema in tools/list", async () => {
+await test("every tool declares an outputSchema in tools/list", async () => {
   const res = await handleRpcMessage(rpc("tools/list"), fakeRunners);
   for (const t of res.result.tools) {
     assert.ok(t.outputSchema && t.outputSchema.type === "object", `${t.name} declares no outputSchema`);
@@ -525,6 +615,334 @@ await test("a trending result ships structuredContent mirroring its text groupin
 });
 
 // ═══════════════════════════════════════════════════════════════════
+group("tools/call get_statements (2026-11-07)");
+
+await test("a ready DOI returns its counts and its sentences with both labels", async () => {
+  let seenDois = null;
+  const runners = {
+    ...extendedFakeRunners,
+    statementsRunner: async (dois) => { seenDois = dois; return statementsFakeRunner(dois); },
+  };
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_statements", arguments: { doi: "10.1038/nmeth.4197" } }, 31), runners);
+  assert.deepEqual(seenDois, ["10.1038/nmeth.4197"]);
+  assert.equal(res.result.isError, false);
+  const text = res.result.content[0].text;
+  assert.ok(text.includes("Paper: 10.1038/nmeth.4197"), "paper heading missing");
+  assert.ok(text.includes("Status: ready."), "ready status missing");
+  assert.ok(text.includes("0 supporting, 1 contradicting, 119 mentioning"), "stance counts missing");
+  assert.ok(text.includes("Cerebrum holds 120 citing sentences from 95 citing papers"),
+    "the held count must be the full kept count, not the page size");
+  assert.ok(text.includes("Semantic Scholar lists 1000 citations"), "coverage total missing");
+  assert.ok(text.includes("We reimplemented the method following the published protocol."), "first sentence missing");
+  assert.ok(text.includes("Stance: mentioning."), "our stance label missing");
+  assert.ok(text.includes("Purpose: methodology."), "the Semantic Scholar purpose label missing");
+  assert.ok(text.includes("From: A follow up methods paper, 2021."), "citing paper attribution missing");
+  assert.ok(text.includes("Stance: contradicting."), "second sentence stance missing");
+  assert.ok(text.includes("Marked influential by Semantic Scholar."), "influential marker missing");
+  assert.ok(text.includes("Showing the first 2 of 120 held sentences."), "page note missing");
+  const sc = res.result.structuredContent;
+  assert.ok(sc, "structuredContent missing");
+  assert.deepEqual(schemaProblems(toolByName("get_statements").outputSchema, sc), []);
+  assert.equal(sc.papers.length, 1);
+  assert.equal(sc.papers[0].status, "ready");
+  assert.deepEqual(sc.papers[0].counts, { supporting: 0, contradicting: 1, mentioning: 119 });
+  assert.equal(sc.papers[0].heldSentences, 120);
+  assert.equal(sc.papers[0].citingPapers, 95);
+  assert.equal(sc.papers[0].totalCitations, 1000);
+  assert.deepEqual(sc.papers[0].sentences[0], {
+    sentence: "We reimplemented the method following the published protocol.",
+    stance: "mentioning",
+    purposes: ["methodology"],
+    influential: false,
+    citingTitle: "A follow up methods paper",
+    citingYear: 2021,
+    citingDoi: "10.1000/citing.1",
+  });
+  assert.ok(!/confidence/i.test(text), "no numeric confidence may appear in the text");
+});
+
+await test("a collecting DOI is reported as collecting, never dressed as empty or zero", async () => {
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_statements", arguments: { doi: "10.1000/still.collecting" } }, 32), extendedFakeRunners);
+  assert.equal(res.result.isError, false);
+  const text = res.result.content[0].text;
+  assert.ok(text.includes("Status: collecting."), "collecting status missing");
+  assert.ok(text.includes("This is not an empty result."), "the not empty disclaimer missing");
+  assert.ok(!text.includes("supporting"), "a collecting paper must not print stance counts");
+  const paper = res.result.structuredContent.papers[0];
+  assert.equal(paper.status, "collecting");
+  assert.equal(paper.counts, null, "a collecting paper ships counts null, not zeros");
+  assert.deepEqual(paper.sentences, []);
+  assert.equal(paper.heldSentences, 0);
+  assert.deepEqual(schemaProblems(toolByName("get_statements").outputSchema, res.result.structuredContent), []);
+});
+
+await test("an unknown DOI reads collecting, not an error and not an empty success", async () => {
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_statements", arguments: { doi: "10.9999/never.seen" } }, 33), extendedFakeRunners);
+  assert.equal(res.error, undefined);
+  assert.equal(res.result.isError, false);
+  assert.equal(res.result.structuredContent.papers[0].status, "collecting");
+  assert.ok(res.result.content[0].text.includes("Status: collecting."));
+});
+
+await test("a settled empty DOI says empty and nothing more", async () => {
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_statements", arguments: { doi: "10.1000/settled.empty" } }, 34), extendedFakeRunners);
+  assert.equal(res.result.isError, false);
+  const text = res.result.content[0].text;
+  assert.ok(text.includes("Status: empty."), "empty status missing");
+  assert.ok(!text.includes("Citing sentences:"), "an empty paper lists no sentences");
+  const paper = res.result.structuredContent.papers[0];
+  assert.equal(paper.status, "empty");
+  assert.equal(paper.counts, null);
+  assert.deepEqual(paper.sentences, []);
+});
+
+await test("a list of DOIs answers in the order asked, deduped and normalized", async () => {
+  let seenDois = null;
+  const runners = {
+    ...extendedFakeRunners,
+    statementsRunner: async (dois) => { seenDois = dois; return statementsFakeRunner(dois); },
+  };
+  const res = await handleRpcMessage(rpc("tools/call", {
+    name: "get_statements",
+    arguments: { dois: ["10.1000/settled.empty", "https://doi.org/10.1038/NMETH.4197", "10.1000/settled.empty", "junk"] },
+  }, 35), runners);
+  assert.equal(res.result.isError, false);
+  assert.deepEqual(seenDois, ["10.1000/settled.empty", "10.1038/nmeth.4197"],
+    "DOIs must be normalized, deduped, and unusable entries dropped");
+  assert.deepEqual(res.result.structuredContent.papers.map((p) => p.doi), ["10.1000/settled.empty", "10.1038/nmeth.4197"]);
+  assert.deepEqual(res.result.structuredContent.papers.map((p) => p.status), ["empty", "ready"]);
+});
+
+await test("get_statements without a usable DOI yields -32602", async () => {
+  for (const args of [{}, { doi: "   " }, { doi: "not a doi" }, { dois: [] }, { dois: ["junk", 42] }, undefined]) {
+    const params = args === undefined ? { name: "get_statements" } : { name: "get_statements", arguments: args };
+    const res = await handleRpcMessage(rpc("tools/call", params), extendedFakeRunners);
+    assert.equal(res.error.code, -32602, `expected -32602 for ${JSON.stringify(args)}`);
+  }
+});
+
+await test("a failing statements runner yields a tool error, not an RPC error", async () => {
+  const runners = { ...extendedFakeRunners, statementsRunner: async () => { throw new Error("store down"); } };
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_statements", arguments: { doi: "10.1038/nmeth.4197" } }), runners);
+  assert.equal(res.error, undefined);
+  assert.equal(res.result.isError, true);
+  assert.ok(res.result.content[0].text.includes("could not be reached"));
+});
+
+await test("with no runner and no route to one, get_statements reports itself unavailable", async () => {
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_statements", arguments: { doi: "10.1038/nmeth.4197" } }), fakeRunners);
+  assert.equal(res.result.isError, true);
+  assert.ok(res.result.content[0].text.includes("not available from this endpoint"));
+});
+
+await test("the default statements runner reads the D1 store through readStatements", async () => {
+  // A minimal in memory D1 stand in: exec creates the tables,
+  // prepare answers the two read queries from seeded rows. This
+  // proves the production read path (env binding present, no HTTP)
+  // end to end through the protocol, including the counts the read
+  // computes over the held rows.
+  const ingestRows = [{
+    anchor_doi: "10.1000/held.one", status: "ready", fetched_at: 1792000000000,
+    next_try: 0, citations_seen: 55, statements_kept: 2,
+  }];
+  // The store read orders its rows in SQL (influential first, then
+  // newest citing year); the fake stands in for that ordering by
+  // returning the rows pre sorted, as the real database would.
+  const stmtRows = [
+    {
+      anchor_doi: "10.1000/held.one", citing_id: "S2B", citing_doi: "10.1000/citer.b",
+      citing_title: "Citer B", citing_year: 2024, context: "The results support the original claim.",
+      intents: JSON.stringify(["result"]), influential: 1, stance: "supporting", section: null,
+    },
+    {
+      anchor_doi: "10.1000/held.one", citing_id: "S2A", citing_doi: "10.1000/citer.a",
+      citing_title: "Citer A", citing_year: 2022, context: "The method was reused as published.",
+      intents: JSON.stringify(["methodology"]), influential: 0, stance: "mentioning", section: null,
+    },
+  ];
+  const stmtFor = (rows) => {
+    const s = { bind: () => s, all: async () => ({ results: rows }), first: async () => rows[0] || null, run: async () => ({}) };
+    return s;
+  };
+  const fakeDb = {
+    exec: async () => ({}),
+    prepare: (sql) => {
+      if (sql.includes("statement_ingest")) return stmtFor(ingestRows);
+      if (sql.includes("citation_statements")) return stmtFor(stmtRows);
+      return stmtFor([]);
+    },
+    batch: async () => [],
+  };
+  const res = await handleRpcMessage(
+    rpc("tools/call", { name: "get_statements", arguments: { doi: "10.1000/held.one" } }, 36),
+    {},
+    { env: { DB: fakeDb } }
+  );
+  assert.equal(res.result.isError, false);
+  const paper = res.result.structuredContent.papers[0];
+  assert.equal(paper.status, "ready");
+  assert.deepEqual(paper.counts, { supporting: 1, contradicting: 0, mentioning: 1 });
+  assert.equal(paper.heldSentences, 2);
+  assert.equal(paper.citingPapers, 2);
+  assert.equal(paper.totalCitations, 55);
+  assert.equal(paper.sentences.length, 2);
+  assert.equal(paper.sentences[0].stance, "supporting", "the read orders influential first");
+  // A DOI the seeded store does not hold reads collecting.
+  const res2 = await handleRpcMessage(
+    rpc("tools/call", { name: "get_statements", arguments: { doi: "10.1000/not.held" } }, 37),
+    {},
+    { env: { DB: fakeDb } }
+  );
+  assert.equal(res2.result.structuredContent.papers[0].status, "collecting");
+});
+
+// ═══════════════════════════════════════════════════════════════════
+group("tools/call get_reception_report (2026-11-07)");
+
+await test("a full report joins statements, tallies, and a silent clean retraction read", async () => {
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_reception_report", arguments: { doi: "10.1038/nmeth.4197" } }, 41), extendedFakeRunners);
+  assert.equal(res.result.isError, false);
+  const text = res.result.content[0].text;
+  assert.ok(text.includes("Reception report for 10.1038/nmeth.4197"), "report heading missing");
+  assert.ok(text.includes("Citation statements held by Cerebrum: 0 supporting, 1 contradicting, 119 mentioning"),
+    "statement counts missing from the report");
+  assert.ok(text.includes("across 120 held sentences"), "held sentence count missing");
+  assert.ok(text.includes("Reception tallies via scite.ai: 3 supporting, 1 contradicting, 40 mentioning, across 41 citing publications."),
+    "tally line missing or misshaped");
+  assert.ok(!text.includes("Retraction status:"), "a clean read must print no retraction line at all");
+  assert.ok(!text.includes("not retracted"), "a clean read must never be worded as not retracted");
+  const sc = res.result.structuredContent;
+  assert.deepEqual(schemaProblems(toolByName("get_reception_report").outputSchema, sc), []);
+  assert.equal(sc.doi, "10.1038/nmeth.4197");
+  assert.equal(sc.statementsStatus, "ready");
+  assert.deepEqual(sc.statementCounts, { supporting: 0, contradicting: 1, mentioning: 119 });
+  assert.deepEqual(sc.tallies, TALLY_PAYLOAD);
+  assert.equal(sc.retraction.status, "none");
+  assert.deepEqual(sc.retraction.channels, ["Crossref", "Europe PMC", "OpenAlex"]);
+});
+
+await test("a settled retraction is named with its channels and its notice", async () => {
+  const runners = { ...extendedFakeRunners, retractionRunner: async () => RETRACTION_RETRACTED };
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_reception_report", arguments: { doi: "10.1016/s0140-6736(97)11096-0" } }, 42), runners);
+  assert.equal(res.result.isError, false);
+  const text = res.result.content[0].text;
+  assert.ok(text.includes("Retraction status: retracted, named by Retraction Watch and Europe PMC."),
+    "settled retraction wording missing");
+  const sc = res.result.structuredContent;
+  assert.equal(sc.retraction.status, "retracted");
+  assert.deepEqual(sc.retraction.namedBy, ["Retraction Watch", "Europe PMC"]);
+  assert.equal(sc.retraction.notices.length, 1);
+  assert.equal(sc.retraction.notices[0].kind, "retraction");
+  assert.equal(sc.retraction.notices[0].via, "Retraction Watch");
+  assert.equal(sc.retraction.notices[0].date, "2010-02-02");
+  assert.deepEqual(schemaProblems(toolByName("get_reception_report").outputSchema, sc), []);
+});
+
+await test("a single channel report stays reported, never settled", async () => {
+  const reported = {
+    status: "reported",
+    namedBy: ["Crossref"],
+    channels: ["Crossref"],
+    notices: [{ kind: "retraction", date: "2024-05-01", noticeDoi: null, via: "Crossref" }],
+  };
+  const runners = { ...extendedFakeRunners, retractionRunner: async () => reported };
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_reception_report", arguments: { doi: "10.1038/nmeth.4197" } }, 43), runners);
+  const text = res.result.content[0].text;
+  assert.ok(text.includes("reported as retracted by Crossref, one channel only, so the report is not settled."),
+    "single channel wording missing");
+  assert.ok(!text.includes("Retraction status: retracted"), "a single channel must not settle the wording");
+  assert.equal(res.result.structuredContent.retraction.status, "reported");
+  assert.equal(res.result.structuredContent.retraction.notices[0].noticeDoi, null);
+});
+
+await test("an unanswered retraction check reads unknown, and a collecting paper says so", async () => {
+  const runners = {
+    ...extendedFakeRunners,
+    retractionRunner: async () => ({ status: "unknown", namedBy: [], channels: [], notices: [] }),
+  };
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_reception_report", arguments: { doi: "10.1000/still.collecting" } }, 44), runners);
+  assert.equal(res.result.isError, false);
+  const text = res.result.content[0].text;
+  assert.ok(text.includes("Citation statements held by Cerebrum: still collecting, so no counts yet."),
+    "collecting statements line missing");
+  assert.ok(text.includes("Retraction status: unknown."), "unknown retraction wording missing");
+  const sc = res.result.structuredContent;
+  assert.equal(sc.statementsStatus, "collecting");
+  assert.equal(sc.statementCounts, null);
+  assert.equal(sc.retraction.status, "unknown");
+});
+
+await test("a failing leg degrades into its honest empty state, never failing the report", async () => {
+  const runners = {
+    ...extendedFakeRunners,
+    talliesRunner: async () => { throw new Error("scite down"); },
+    statementsRunner: async () => { throw new Error("store down"); },
+  };
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_reception_report", arguments: { doi: "10.1038/nmeth.4197" } }, 45), runners);
+  assert.equal(res.error, undefined);
+  assert.equal(res.result.isError, false);
+  const text = res.result.content[0].text;
+  assert.ok(text.includes("the statements store could not be read"), "failed statements leg not worded honestly");
+  assert.ok(text.includes("Reception tallies via scite.ai: not available for this paper."), "failed tallies leg not worded honestly");
+  const sc = res.result.structuredContent;
+  assert.equal(sc.statementsStatus, "unavailable");
+  assert.equal(sc.tallies, null);
+  assert.equal(sc.retraction.status, "none", "the surviving leg still answers");
+});
+
+await test("get_reception_report without a usable DOI yields -32602", async () => {
+  for (const args of [{}, { doi: " " }, { doi: "nope" }, { doi: 42 }, undefined]) {
+    const params = args === undefined ? { name: "get_reception_report" } : { name: "get_reception_report", arguments: args };
+    const res = await handleRpcMessage(rpc("tools/call", params), extendedFakeRunners);
+    assert.equal(res.error.code, -32602, `expected -32602 for ${JSON.stringify(args)}`);
+  }
+});
+
+await test("with no leg reachable at all, the report tool reports itself unavailable", async () => {
+  const res = await handleRpcMessage(rpc("tools/call", { name: "get_reception_report", arguments: { doi: "10.1038/nmeth.4197" } }), fakeRunners);
+  assert.equal(res.result.isError, true);
+  assert.ok(res.result.content[0].text.includes("not available from this endpoint"));
+});
+
+await test("the default tallies and retraction runners read their endpoints by DOI", async () => {
+  const seenUrls = [];
+  const fetchImpl = async (url) => {
+    seenUrls.push(String(url));
+    if (String(url).includes("/api/tallies")) {
+      return { ok: true, status: 200, json: async () => ({ tallies: { "10.1038/nmeth.4197": TALLY_PAYLOAD } }) };
+    }
+    if (String(url).includes("/api/retractions")) {
+      return { ok: true, status: 200, json: async () => ({ retractions: { "10.1038/nmeth.4197": RETRACTION_RETRACTED } }) };
+    }
+    throw new Error("unexpected fetch " + url);
+  };
+  const runners = { statementsRunner: statementsFakeRunner, fetchImpl };
+  const res = await handleRpcMessage(
+    rpc("tools/call", { name: "get_reception_report", arguments: { doi: "10.1038/nmeth.4197" } }, 46),
+    runners,
+    { origin: "https://askcerebrum.org" }
+  );
+  assert.equal(res.result.isError, false);
+  assert.deepEqual(res.result.structuredContent.tallies, TALLY_PAYLOAD);
+  assert.equal(res.result.structuredContent.retraction.status, "retracted");
+  assert.equal(seenUrls.length, 2);
+  assert.ok(seenUrls.every((u) => u.includes("dois=10.1038%2Fnmeth.4197")), "both legs asked for the one DOI");
+});
+
+await test("the formatters stand alone: statements and reception from raw shapes", () => {
+  const out = formatStatementsToolResult(STATEMENTS_PAYLOAD, ["10.1038/nmeth.4197", "10.1000/still.collecting"]);
+  assert.equal(out.isError, false);
+  assert.equal(out.structuredContent.papers.length, 2);
+  assert.equal(out.structuredContent.papers[1].counts, null);
+  const bare = formatStatementsToolResult(null, ["10.1000/anything"]);
+  assert.equal(bare.structuredContent.papers[0].status, "collecting", "a missing payload reads collecting, not empty");
+  const report = formatReceptionToolResult({ doi: "10.1000/x", statements: null, tallies: null, retraction: null });
+  assert.equal(report.structuredContent.statementsStatus, "unavailable");
+  assert.equal(report.structuredContent.retraction.status, "unknown");
+  assert.deepEqual(schemaProblems(toolByName("get_reception_report").outputSchema, report.structuredContent), []);
+});
+
+// ═══════════════════════════════════════════════════════════════════
 group("Protocol errors and notifications");
 
 await test("unknown method yields -32601", async () => {
@@ -580,7 +998,7 @@ await test("the root wrapper re exports the same handler", () => {
   assert.equal(rootMcp.onRequest, onRequest);
 });
 
-await test("GET returns a human readable description naming both tools", async () => {
+await test("GET returns a human readable description naming every tool", async () => {
   const res = await onRequest({ request: new Request("https://askcerebrum.org/api/mcp", { method: "GET" }), env: {}, runners: fakeRunners });
   assert.equal(res.status, 200);
   const body = await res.json();
@@ -588,7 +1006,9 @@ await test("GET returns a human readable description naming both tools", async (
   assert.equal(body.protocolVersion, "2025-03-26");
   assert.equal(body.icon, "https://askcerebrum.org/icon-512.png", "GET description lost the server icon");
   assert.equal(body.documentationUrl, "https://askcerebrum.org/features", "GET description lost the documentation address");
-  assert.deepEqual(body.tools.map((t) => t.name), ["search_literature", "get_trending"]);
+  // Pin updated 2026-11-07 (MCP statements extension): the
+  // description is generated from TOOLS, so it now names four.
+  assert.deepEqual(body.tools.map((t) => t.name), ["search_literature", "get_trending", "get_statements", "get_reception_report"]);
 });
 
 await test("POST round trips initialize and tools/call", async () => {

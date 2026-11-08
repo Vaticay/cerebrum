@@ -23,6 +23,7 @@
 
 import { corsHeaders, clientIp, privacyKey, json } from "../lib/http.js";
 import { checkRateLimit, checkRateLimitMemoryOnly } from "../lib/rateLimit.js";
+import { normalizeDoi, readStatements } from "../lib/statements.js";
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MCP_SERVER_INFO = { name: "cerebrum", version: "1.0.0" };
@@ -66,15 +67,42 @@ export const MCP_MAX_BODY_BYTES = 32_000;
 const MCP_USER_AGENT = "Cerebrum MCP 1.0.0 (https://askcerebrum.org)";
 const TRENDING_PER_SECTION = 5;
 
+// The list cap for get_statements, matching MAX_DOIS in
+// functions/api/statements.js: one call can never ask the store for
+// more papers than the endpoint itself serves at once.
+const STATEMENTS_MAX_DOIS = 20;
+
+// The stance counts shape both new tools ship, declared once so the
+// two output schemas cannot drift apart. Null is the honest state
+// for a paper whose sentences are not ready, so the counts ship as
+// an object or as null, in the type list idiom the older schemas
+// use. Counts only: the statements program's standing rule is no
+// numeric confidence anywhere.
+const STANCE_COUNTS_SCHEMA = {
+  type: ["object", "null"],
+  properties: {
+    supporting: { type: "integer" },
+    contradicting: { type: "integer" },
+    mentioning: { type: "integer" },
+  },
+  required: ["supporting", "contradicting", "mentioning"],
+  additionalProperties: false,
+};
+
 // Tool titles and annotations are the values drafted in
 // docs/mcp-listing/claude-listing.json for the directory submissions,
-// verified against what the tools actually do. Both tools only read:
-// neither writes, deletes, or changes any state. Both reach the open
-// scholarly web (search queries the public indexes, trending serves
-// the current edition built from live sources), so both are open
-// world in the MCP sense. Anthropic's directory requires a title and
+// verified against what the tools actually do. Every tool only
+// reads: none writes, deletes, or changes any state. Every tool
+// reaches the open scholarly web (search queries the public indexes,
+// trending serves the current edition built from live sources, and
+// the statements and reception tools serve what Cerebrum and its
+// sources collected from that same web), so all are open world in
+// the MCP sense. Anthropic's directory requires a title and
 // the applicable hints on every tool, and OpenAI's submission scan
-// imports them from this response.
+// imports them from this response. The two tools added on 2026-11-07
+// (get_statements, get_reception_report) are drafted to the same
+// standard and verified the same way; the listing package itself is
+// untouched, as submissions stay parked.
 export const TOOLS = [
   {
     name: "search_literature",
@@ -197,6 +225,141 @@ export const TOOLS = [
         itemCount: { type: "integer" },
       },
       required: ["edition", "sections", "itemCount"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_statements",
+    title: "Citation statements for a paper",
+    description:
+      "Look up what later papers say about a paper, in the citing sentences Cerebrum has collected and classified for it. Returns, for each DOI, whether its sentences are ready, still being collected, or settled empty, the counts by stance, and the sentences themselves, each with two separate labels: the stance Cerebrum assigned and the purpose Semantic Scholar recorded. A paper still being collected is reported as collecting, never as holding nothing.",
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        doi: {
+          type: "string",
+          description: "One DOI for the paper to look up. Give either doi or dois, not both.",
+        },
+        dois: {
+          type: "array",
+          items: { type: "string" },
+          description: "Several DOIs to look up in one call, up to 20. Give either doi or dois, not both.",
+        },
+      },
+      additionalProperties: false,
+    },
+    // The structured twin of the text result, in the same discipline
+    // as the two older tools: every fact the text block states is
+    // also shipped as data under this schema. A collecting paper
+    // ships counts null and no sentences, so the data can never be
+    // misread as an empty result.
+    outputSchema: {
+      type: "object",
+      properties: {
+        papers: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              doi: { type: "string" },
+              status: { type: "string" },
+              counts: STANCE_COUNTS_SCHEMA,
+              heldSentences: { type: "integer" },
+              citingPapers: { type: "integer" },
+              totalCitations: { type: "integer" },
+              sentences: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    sentence: { type: "string" },
+                    stance: { type: "string" },
+                    purposes: { type: "array", items: { type: "string" } },
+                    influential: { type: "boolean" },
+                    citingTitle: { type: ["string", "null"] },
+                    citingYear: { type: ["integer", "null"] },
+                    citingDoi: { type: ["string", "null"] },
+                  },
+                  required: ["sentence", "stance", "purposes", "influential", "citingTitle", "citingYear", "citingDoi"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["doi", "status", "counts", "heldSentences", "citingPapers", "totalCitations", "sentences"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["papers"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_reception_report",
+    title: "Reception report for a paper",
+    description:
+      "Build the standing reception report for one paper: the citation statement counts Cerebrum holds for it, the reception tallies served via scite.ai, and its retraction status under the multi signal rule, where a paper counts as retracted only when at least two of the three checking channels agree. A clean read prints no retraction line at all, and a status no channel could settle is reported as unknown.",
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    inputSchema: {
+      type: "object",
+      properties: {
+        doi: {
+          type: "string",
+          description: "The DOI of the paper to report on.",
+        },
+      },
+      required: ["doi"],
+      additionalProperties: false,
+    },
+    // The structured twin of the text report. The retraction block
+    // always ships, carrying the rule's own status word; the text
+    // block is the one that stays silent on a clean read.
+    outputSchema: {
+      type: "object",
+      properties: {
+        doi: { type: "string" },
+        statementsStatus: { type: "string" },
+        statementCounts: STANCE_COUNTS_SCHEMA,
+        heldSentences: { type: "integer" },
+        tallies: {
+          type: ["object", "null"],
+          properties: {
+            supporting: { type: "integer" },
+            contradicting: { type: "integer" },
+            mentioning: { type: "integer" },
+            total: { type: "integer" },
+            citingPublications: { type: "integer" },
+          },
+          required: ["supporting", "contradicting", "mentioning", "total", "citingPublications"],
+          additionalProperties: false,
+        },
+        retraction: {
+          type: "object",
+          properties: {
+            status: { type: "string" },
+            namedBy: { type: "array", items: { type: "string" } },
+            channels: { type: "array", items: { type: "string" } },
+            notices: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  kind: { type: "string" },
+                  date: { type: ["string", "null"] },
+                  noticeDoi: { type: ["string", "null"] },
+                  via: { type: "string" },
+                },
+                required: ["kind", "date", "noticeDoi", "via"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["status", "namedBy", "channels", "notices"],
+          additionalProperties: false,
+        },
+      },
+      required: ["doi", "statementsStatus", "statementCounts", "heldSentences", "tallies", "retraction"],
       additionalProperties: false,
     },
   },
@@ -526,6 +689,220 @@ export function formatTrendingToolResult(data) {
   return { content: [{ type: "text", text }], structuredContent: structuredTrendingContent(edition, sections), isError: false };
 }
 
+// ── Statements and reception shaping ───────────────────────────────
+// The data twins of the two tools added on 2026-11-07, built in the
+// same single pass discipline as the search and trending twins:
+// whatever the text states, the structured object states as data,
+// and the outputSchema declared in TOOLS is the contract. The
+// statements store read (functions/lib/statements.js) already
+// shapes each paper's entry; these helpers only render it, and they
+// hold the program's honesty rules at this surface: a paper that is
+// still collecting ships counts null and no sentences, so it can
+// never be read as an empty result, and nothing anywhere carries a
+// numeric confidence.
+
+function intOrZero(v) {
+  return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+}
+
+function statementCountsOf(entry) {
+  const c = isObject(entry && entry.counts) ? entry.counts : null;
+  if (!c) return null;
+  return {
+    supporting: intOrZero(c.supporting),
+    contradicting: intOrZero(c.contradicting),
+    mentioning: intOrZero(c.mentioning),
+  };
+}
+
+function structuredStatementSentence(item) {
+  const it = isObject(item) ? item : {};
+  const citing = isObject(it.citing) ? it.citing : {};
+  return {
+    sentence: String(it.sentence || ""),
+    stance: typeof it.stance === "string" && it.stance ? it.stance : "mentioning",
+    purposes: Array.isArray(it.intents) ? it.intents.filter((x) => typeof x === "string" && x) : [],
+    influential: it.influential === true,
+    citingTitle: typeof citing.title === "string" && citing.title ? citing.title : null,
+    citingYear: Number.isInteger(citing.year) ? citing.year : null,
+    citingDoi: typeof citing.doi === "string" && citing.doi ? citing.doi : null,
+  };
+}
+
+// One paper's entry, shaped for either tool. Only a ready entry
+// carries counts and sentences: the store read caps the sentence
+// page it returns, and heldSentences reports the full held count so
+// the page size is never mistaken for the whole.
+function structuredStatementPaper(doi, entry) {
+  const e = isObject(entry) ? entry : {};
+  const status = typeof e.status === "string" && e.status ? e.status : "collecting";
+  const ready = status === "ready";
+  const items = ready && Array.isArray(e.items) ? e.items : [];
+  return {
+    doi,
+    status,
+    counts: ready ? statementCountsOf(e) : null,
+    heldSentences: ready ? (Number.isInteger(e.kept) ? e.kept : items.length) : 0,
+    citingPapers: ready ? intOrZero(e.citingPapers) : 0,
+    totalCitations: intOrZero(e.totalCitations),
+    sentences: items.map(structuredStatementSentence),
+  };
+}
+
+function statementPaperTextLines(p) {
+  const lines = [`Paper: ${p.doi}`];
+  if (p.status === "ready") {
+    const c = p.counts || { supporting: 0, contradicting: 0, mentioning: 0 };
+    lines.push(
+      `Status: ready. Cerebrum holds ${p.heldSentences} citing sentence${p.heldSentences === 1 ? "" : "s"} ` +
+      `from ${p.citingPapers} citing paper${p.citingPapers === 1 ? "" : "s"}: ` +
+      `${c.supporting} supporting, ${c.contradicting} contradicting, ${c.mentioning} mentioning.`
+    );
+    if (p.totalCitations > 0) {
+      lines.push(
+        `Semantic Scholar lists ${p.totalCitations} citations for this paper in total; ` +
+        `sentences exist only where the full text of a citing paper was parsed.`
+      );
+    }
+    if (p.sentences.length) {
+      lines.push("Citing sentences:");
+      for (const s of p.sentences) {
+        let line = `- "${s.sentence}" Stance: ${s.stance}.`;
+        if (s.purposes.length) line += ` Purpose: ${s.purposes.join(", ")}.`;
+        const from = [];
+        if (s.citingTitle) from.push(s.citingTitle);
+        if (s.citingYear) from.push(String(s.citingYear));
+        if (from.length) line += ` From: ${from.join(", ")}.`;
+        if (s.influential) line += " Marked influential by Semantic Scholar.";
+        lines.push(line);
+      }
+      if (p.heldSentences > p.sentences.length) {
+        lines.push(`Showing the first ${p.sentences.length} of ${p.heldSentences} held sentences.`);
+      }
+    }
+  } else if (p.status === "empty") {
+    lines.push("Status: empty. The collection for this paper finished and held no citing sentences.");
+  } else if (p.status === "unavailable") {
+    lines.push("Status: unavailable. The statements store could not be read for this paper.");
+  } else {
+    lines.push(
+      "Status: collecting. Cerebrum is still gathering the citing sentences for this paper, " +
+      "so nothing can be reported yet. This is not an empty result."
+    );
+  }
+  return lines;
+}
+
+// Shape a statements store read (the map readStatements returns, or
+// the /api/statements payload's statements member) into a tool
+// result covering the DOIs asked for, in the order asked.
+export function formatStatementsToolResult(data, dois) {
+  const d = isObject(data) ? data : {};
+  const order = Array.isArray(dois) && dois.length ? dois : Object.keys(d);
+  const papers = order.map((doi) => structuredStatementPaper(doi, d[doi]));
+  const text = papers.map((p) => statementPaperTextLines(p).join("\n")).join("\n\n");
+  return { content: [{ type: "text", text }], structuredContent: { papers }, isError: false };
+}
+
+function structuredRetraction(verdict) {
+  const v = isObject(verdict) ? verdict : {};
+  const notices = Array.isArray(v.notices) ? v.notices : [];
+  return {
+    status: typeof v.status === "string" && v.status ? v.status : "unknown",
+    namedBy: Array.isArray(v.namedBy) ? v.namedBy.filter((x) => typeof x === "string" && x) : [],
+    channels: Array.isArray(v.channels) ? v.channels.filter((x) => typeof x === "string" && x) : [],
+    notices: notices.map((n) => {
+      const o = isObject(n) ? n : {};
+      return {
+        kind: String(o.kind || "other"),
+        date: typeof o.date === "string" && o.date ? o.date : null,
+        noticeDoi: typeof o.noticeDoi === "string" && o.noticeDoi ? o.noticeDoi : null,
+        via: String(o.via || ""),
+      };
+    }),
+  };
+}
+
+// The retraction wording every surface renders, from the multi
+// signal rule in functions/lib/retraction.js: two channels agreeing
+// settles "retracted"; one channel is "reported", with the source
+// named; a clean read (status none) prints nothing at all, never
+// "not retracted"; no channel answering is unknown.
+function retractionTextLines(retraction) {
+  const named = retraction.namedBy.join(" and ");
+  switch (retraction.status) {
+    case "retracted":
+      return [`Retraction status: retracted, named by ${named}.`];
+    case "reported":
+      return [`Retraction status: reported as retracted by ${named}, one channel only, so the report is not settled.`];
+    case "concern":
+      return [`Retraction status: an expression of concern stands for this paper, named by ${named}.`];
+    case "corrected":
+      return [`Retraction status: a correction is on record for this paper, named by ${named}.`];
+    case "unknown":
+      return ["Retraction status: unknown. No checking channel could answer for this paper."];
+    default:
+      return [];
+  }
+}
+
+// Compose one paper's reception report from its three legs. The
+// caller passes the statements entry for the DOI (or null when that
+// leg could not answer), the scite tally object (or null), and the
+// retraction verdict (or null). Each leg degrades into its own
+// honest empty state instead of failing the report, matching how
+// the app's reading surfaces treat these feeds.
+export function formatReceptionToolResult(data) {
+  const d = isObject(data) ? data : {};
+  const doi = String(d.doi || "");
+  const entry = isObject(d.statements) ? d.statements : { status: "unavailable" };
+  const paper = structuredStatementPaper(doi, entry);
+  const t = isObject(d.tallies) ? d.tallies : null;
+  const tallies = t
+    ? {
+        supporting: intOrZero(t.supporting),
+        contradicting: intOrZero(t.contradicting),
+        mentioning: intOrZero(t.mentioning),
+        total: intOrZero(t.total),
+        citingPublications: intOrZero(t.citingPublications),
+      }
+    : null;
+  const retraction = structuredRetraction(d.retraction);
+  const structured = {
+    doi,
+    statementsStatus: paper.status,
+    statementCounts: paper.counts,
+    heldSentences: paper.heldSentences,
+    tallies,
+    retraction,
+  };
+
+  const sections = [`Reception report for ${doi}`];
+  if (paper.status === "ready" && paper.counts) {
+    sections.push(
+      `Citation statements held by Cerebrum: ${paper.counts.supporting} supporting, ` +
+      `${paper.counts.contradicting} contradicting, ${paper.counts.mentioning} mentioning, ` +
+      `across ${paper.heldSentences} held sentence${paper.heldSentences === 1 ? "" : "s"}.`
+    );
+  } else if (paper.status === "empty") {
+    sections.push("Citation statements held by Cerebrum: the collection for this paper settled empty.");
+  } else if (paper.status === "unavailable") {
+    sections.push("Citation statements held by Cerebrum: the statements store could not be read.");
+  } else {
+    sections.push("Citation statements held by Cerebrum: still collecting, so no counts yet.");
+  }
+  if (tallies) {
+    sections.push(
+      `Reception tallies via scite.ai: ${tallies.supporting} supporting, ${tallies.contradicting} contradicting, ` +
+      `${tallies.mentioning} mentioning, across ${tallies.citingPublications} citing publications.`
+    );
+  } else {
+    sections.push("Reception tallies via scite.ai: not available for this paper.");
+  }
+  sections.push(...retractionTextLines(retraction));
+  return { content: [{ type: "text", text: sections.join("\n\n") }], structuredContent: structured, isError: false };
+}
+
 // ── Runners ──────────────────────────────────────────────────────────
 // A runner performs one upstream call and returns the parsed JSON (or a
 // fetch Response, which is normalised here). Tests inject fakes. The
@@ -565,6 +942,53 @@ export function createDefaultRunners(origin, fetchImpl) {
       });
       return normalizeRunnerResult(res);
     },
+    // Read only by construction. When the request carries the D1
+    // binding, the runner performs the exact store read the
+    // /api/statements endpoint performs (readStatements touches
+    // nothing else), so an MCP call can never schedule the
+    // endpoint's waitUntil ingestion or spend anything upstream.
+    // Without a binding it falls back to a plain GET on the
+    // endpoint from this isolate, a call path that carries no
+    // waitUntil and so cannot schedule ingestion either.
+    statementsRunner: async (dois, ctx) => {
+      const env = (ctx && ctx.env) || null;
+      if (env && env.DB) {
+        return readStatements(env, dois);
+      }
+      const qs = dois.map((d) => encodeURIComponent(d)).join(",");
+      const res = await doFetch(base + "/api/statements?dois=" + qs, {
+        method: "GET",
+        headers: { Accept: "application/json", "User-Agent": MCP_USER_AGENT },
+      });
+      const payload = await normalizeRunnerResult(res);
+      return isObject(payload) && isObject(payload.statements) ? payload.statements : {};
+    },
+    // Tallies live in the tallies function's own isolate memory
+    // cache, so a same origin GET is the only read that reuses it,
+    // the same pattern the search and trending runners set.
+    talliesRunner: async (doi) => {
+      const res = await doFetch(base + "/api/tallies?dois=" + encodeURIComponent(doi), {
+        method: "GET",
+        headers: { Accept: "application/json", "User-Agent": MCP_USER_AGENT },
+      });
+      const payload = await normalizeRunnerResult(res);
+      const t = isObject(payload) && isObject(payload.tallies) ? payload.tallies[doi] : null;
+      return isObject(t) ? t : null;
+    },
+    // The retraction verdict comes from the cached serving path of
+    // functions/lib/retraction.js (the /api/retractions endpoint,
+    // isolate memory in front of a D1 cache), never recomputed per
+    // call. A payload without the DOI reads as the rule's own
+    // unknown state.
+    retractionRunner: async (doi) => {
+      const res = await doFetch(base + "/api/retractions?dois=" + encodeURIComponent(doi), {
+        method: "GET",
+        headers: { Accept: "application/json", "User-Agent": MCP_USER_AGENT },
+      });
+      const payload = await normalizeRunnerResult(res);
+      const v = isObject(payload) && isObject(payload.retractions) ? payload.retractions[doi] : null;
+      return isObject(v) ? v : { status: "unknown", namedBy: [], channels: [], notices: [] };
+    },
   };
 }
 
@@ -585,6 +1009,39 @@ function pickTrendingRunner(runners, context) {
   if (runners && typeof runners.getTrending === "function") return runners.getTrending;
   const origin = (context && context.origin) || (runners && runners.origin) || "";
   if (origin) return createDefaultRunners(origin, runners && runners.fetchImpl).trendingRunner;
+  return null;
+}
+
+// The statements picker also accepts the request env as a route to
+// the default runner, because its read path is the D1 store itself:
+// with a binding present it needs no origin at all.
+function pickStatementsRunner(runners, context) {
+  if (runners && typeof runners.statementsRunner === "function") return runners.statementsRunner;
+  if (runners && typeof runners.statements === "function") return runners.statements;
+  if (runners && typeof runners.getStatements === "function") return runners.getStatements;
+  const origin = (context && context.origin) || (runners && runners.origin) || "";
+  const env = (context && context.env) || (runners && runners.env) || null;
+  if ((env && env.DB) || origin) {
+    return createDefaultRunners(origin, runners && runners.fetchImpl).statementsRunner;
+  }
+  return null;
+}
+
+function pickTalliesRunner(runners, context) {
+  if (runners && typeof runners.talliesRunner === "function") return runners.talliesRunner;
+  if (runners && typeof runners.tallies === "function") return runners.tallies;
+  if (runners && typeof runners.getTallies === "function") return runners.getTallies;
+  const origin = (context && context.origin) || (runners && runners.origin) || "";
+  if (origin) return createDefaultRunners(origin, runners && runners.fetchImpl).talliesRunner;
+  return null;
+}
+
+function pickRetractionRunner(runners, context) {
+  if (runners && typeof runners.retractionRunner === "function") return runners.retractionRunner;
+  if (runners && typeof runners.retraction === "function") return runners.retraction;
+  if (runners && typeof runners.getRetraction === "function") return runners.getRetraction;
+  const origin = (context && context.origin) || (runners && runners.origin) || "";
+  if (origin) return createDefaultRunners(origin, runners && runners.fetchImpl).retractionRunner;
   return null;
 }
 
@@ -637,6 +1094,84 @@ async function callTool(id, params, runners, context) {
         isError: true,
       });
     }
+  }
+
+  if (name === "get_statements") {
+    const rawList = [];
+    if (typeof args.doi === "string" && args.doi.trim()) rawList.push(args.doi);
+    if (Array.isArray(args.dois)) {
+      for (const d of args.dois) if (typeof d === "string" && d.trim()) rawList.push(d);
+    }
+    const dois = [];
+    const seen = new Set();
+    for (const raw of rawList) {
+      const doi = normalizeDoi(raw);
+      if (doi && !seen.has(doi)) {
+        seen.add(doi);
+        dois.push(doi);
+      }
+      if (dois.length >= STATEMENTS_MAX_DOIS) break;
+    }
+    if (!dois.length) {
+      return rpcError(id, -32602, "Invalid params: missing required argument doi or dois");
+    }
+    const runner = pickStatementsRunner(runners, context);
+    if (!runner) {
+      return rpcResult(id, {
+        content: [{ type: "text", text: "Cerebrum citation statements are not available from this endpoint right now." }],
+        isError: true,
+      });
+    }
+    try {
+      const data = await normalizeRunnerResult(await runner(dois, context));
+      if (!isObject(data)) throw new Error("statements returned no usable payload");
+      return rpcResult(id, formatStatementsToolResult(data, dois));
+    } catch {
+      return rpcResult(id, {
+        content: [{ type: "text", text: "Cerebrum citation statements could not be reached. Try again in a moment." }],
+        isError: true,
+      });
+    }
+  }
+
+  if (name === "get_reception_report") {
+    const doi = typeof args.doi === "string" ? normalizeDoi(args.doi) : null;
+    if (!doi) return rpcError(id, -32602, "Invalid params: missing required argument doi");
+    const statementsRunner = pickStatementsRunner(runners, context);
+    const talliesRunner = pickTalliesRunner(runners, context);
+    const retractionRunner = pickRetractionRunner(runners, context);
+    if (!statementsRunner && !talliesRunner && !retractionRunner) {
+      return rpcResult(id, {
+        content: [{ type: "text", text: "Cerebrum reception reports are not available from this endpoint right now." }],
+        isError: true,
+      });
+    }
+    // Each leg degrades on its own: a leg that cannot answer leaves
+    // its section in its honest empty state (still collecting, not
+    // available, unknown) rather than failing the whole report,
+    // matching how the app's own surfaces treat these feeds.
+    let statements = null;
+    if (statementsRunner) {
+      try {
+        const map = await normalizeRunnerResult(await statementsRunner([doi], context));
+        if (isObject(map) && isObject(map[doi])) statements = map[doi];
+      } catch {}
+    }
+    let tallies = null;
+    if (talliesRunner) {
+      try {
+        const t = await normalizeRunnerResult(await talliesRunner(doi, context));
+        if (isObject(t)) tallies = t;
+      } catch {}
+    }
+    let retraction = null;
+    if (retractionRunner) {
+      try {
+        const v = await normalizeRunnerResult(await retractionRunner(doi, context));
+        if (isObject(v)) retraction = v;
+      } catch {}
+    }
+    return rpcResult(id, formatReceptionToolResult({ doi, statements, tallies, retraction }));
   }
 
   return rpcError(id, -32602, "Invalid params: unknown tool");
