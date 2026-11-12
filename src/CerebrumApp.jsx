@@ -3617,6 +3617,13 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
   const fullText = !!(src && (src.fullText || src.hasFullText || src.oaFullText));
   const meta = src ? [src.journal, src.year].filter(Boolean).join(" · ") : "";
   const snippet = src ? String(src.tldr || src.abstract || "").trim() : "";
+  /* Deep read is only offered when the drawer would have something
+     fuller to show: the record's own text, or a full text read behind
+     it. A record with neither gets the plain sentence below instead of
+     a button. Until 2026-11-12 the button rendered in every state and
+     its click landed on a default no op in TurnInner, because the App
+     never passed an opener after PaperDrawer was removed in Oct 2026. */
+  const hasFuller = !!(snippet || fullText);
   /* All hooks stay above the early return: the sheet's drag state is
      declared unconditionally, used only on the mobile branch. */
   const dragYRef = useRef(0);
@@ -3721,11 +3728,17 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
               </div>}
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {hasFuller ? (
             <UIButton P={P} variant="ghost" onClick={() => onOpen(n)} style={{ minHeight: 44,
               background: accent, border: "none", color: "#0a0c10", cursor: "pointer",
               borderRadius: RADIUS.md, padding: "6px 16px", fontSize: 14, fontWeight: 500, fontFamily: "var(--cb-font)",
               display: "inline-flex", alignItems: "center", gap: 6,
             }}>Deep read <Icon name="arrowRight" size={13} /></UIButton>
+            ) : (
+            <span style={{ fontSize: 14, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", minHeight: 44 }}>
+              No fuller text for this record.
+            </span>
+            )}
             {src.url && (
               <a href={safeHref(src.url)} target="_blank" rel="noopener noreferrer" style={{
                 textDecoration: "none", border: "1px solid " + P.line2, color: P.ink2,
@@ -3806,11 +3819,17 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
           </div>}
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {hasFuller ? (
         <button onClick={() => onOpen(n)} style={{ minHeight: 44,
           background: accent, border: "none", color: "#0a0c10", cursor: "pointer",
           borderRadius: RADIUS.sm, padding: "6px 16px", fontSize: FONT_SIZES.caption, fontWeight: 500, fontFamily: "var(--cb-font)",
           display: "inline-flex", alignItems: "center", gap: 6,
         }}>Deep read <Icon name="arrowRight" size={11} /></button>
+        ) : (
+        <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)", display: "inline-flex", alignItems: "center", minHeight: 44 }}>
+          No fuller text for this record.
+        </span>
+        )}
         {src.url && (
           <a href={safeHref(src.url)} target="_blank" rel="noopener noreferrer" style={{
             textDecoration: "none", border: "1px solid " + P.line2, color: P.ink2,
@@ -3821,6 +3840,94 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
       </div>
     </div>,
     document.body
+  );
+}
+
+
+/* PAPER DRAWER, the Deep read surface, restored 2026-11-12.
+
+   The original drawer was removed on 2026-10-09 (a94020d) and its
+   state and setters followed on 2026-10-16, but every caller kept
+   calling the opener: CitationPeek's Deep read buttons, the
+   bibliography rows, the evidence rail. The App never passed an
+   opener again, so those clicks landed on TurnInner's default no op
+   and Deep read did nothing on every record in every state, proven
+   live on 2026-11-12 against two named papers from a dream answer.
+   This restore is deliberately leaner than the original: no
+   methodology tab (its parser is gone from the tree) and no scoped
+   ask box (it fed on source.abstract, which the search response no
+   longer carries). What it shows is everything the record actually
+   holds, unclamped, and when the record holds no text it says so
+   plainly instead of dressing an empty page up as a reading view. */
+function PaperDrawer({ P, accent, source, close }) {
+  if (!source) return null;
+  const fullText = !!(source.fullText || source.hasFullText || source.oaFullText);
+  const body = String(source.abstract || source.tldr || "").trim();
+  const summary = String(source.tldr || "").trim();
+  return (
+    <ModalChrome drawer P={P} accent={accent} onClose={close}
+      label={source.title || "Paper details"}
+      eyebrow="Deep Read"
+      title={source.title ? renderCleanTitle(source.title) : "Untitled paper"}
+      actions={source.url ? (
+        <a href={safeHref(source.url)} target="_blank" rel="noreferrer"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            background: accent, color: accentText(accent), fontWeight: 500,
+            fontSize: FONT_SIZES.small, fontFamily: "var(--cb-font)",
+            padding: "12px 16px", borderRadius: RADIUS.md, textDecoration: "none",
+          }}>
+          Open full paper <Icon name="arrowUpRight" size={14} />
+        </a>
+      ) : null}>
+      <div className="cb-fade">
+        {summary && summary !== body && (
+          <p style={{ fontSize: FONT_SIZES.subhead, lineHeight: 1.5, color: P.ink, fontFamily: "var(--cb-font)", margin: "0 0 14px", letterSpacing: TYPE.heading.letterSpacing }}>
+            {summary}
+          </p>
+        )}
+        <div style={{ marginBottom: 18 }}>
+          {source.authors && <div style={{ fontSize: FONT_SIZES.small, color: P.ink, fontWeight: 500, marginBottom: 8, lineHeight: 1.5 }}>{source.authors}</div>}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            {source.journal && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{source.journal}</span>}
+            {source.year && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{source.year}</span>}
+            <span style={{
+              fontSize: FONT_SIZES.caption, fontWeight: 500, borderRadius: RADIUS.pill, padding: "2px 8px",
+              background: fullText ? withAlpha(accent, 0.12) : withAlpha(P.ink, 0.07),
+              color: fullText ? accentInk(P, accent) : P.faint,
+              border: "1px solid " + (fullText ? withAlpha(accent, 0.26) : P.line),
+            }}>{fullText ? "Full text read" : "Abstract only"}</span>
+            {typeof source.citations === "number" && source.citations > 0 && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{formatCitationCount(source.citations, source.year, "citation")}</span>}
+          </div>
+          {doiHref(source) && (
+            <div style={{ fontFamily: "var(--cb-font)", fontSize: FONT_SIZES.caption, color: P.faint, marginTop: 10 }}>
+              DOI&nbsp;
+              <a href={doiHref(source)} target="_blank" rel="noopener noreferrer"
+                style={{ color: accentInk(P, accent), textDecoration: "underline", textUnderlineOffset: "2px", overflowWrap: "anywhere" }}>
+                {doiHref(source).replace(/^https?:\/\//, "")}
+              </a>
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: FONT_SIZES.micro, fontWeight: 500, letterSpacing: "normal", textTransform: "none", color: P.faint, fontFamily: "var(--cb-font)", marginBottom: 10 }}>Abstract</div>
+          {body ? (
+            <div style={{ fontSize: FONT_SIZES.body, color: P.ink, lineHeight: 1.75, fontFamily: "var(--cb-font)" }}>
+              {body}
+            </div>
+          ) : fullText ? (
+            <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-font)" }}>
+              This paper was read in full when the answer was built. The full text itself is not kept with the record, so the place to read it is the paper itself, linked above.
+            </div>
+          ) : (
+            <div style={{ fontSize: FONT_SIZES.body, color: P.faint, lineHeight: 1.7, fontFamily: "var(--cb-font)" }}>
+              No fuller text for this record. The search returned no abstract for it, and no full text was read.
+            </div>
+          )}
+        </div>
+      </div>
+    </ModalChrome>
   );
 }
 
@@ -23935,7 +24042,18 @@ function App({ profileHandle = null } = {}) {
      exists anywhere in the tree, so its state is gone too. Source cards
      and the answer paper openers used to set it, and it fed
      anyOverlayOpen, so a click froze the page behind a drawer that
-     never rendered. Its setters are removed until a drawer returns. */
+     never rendered. Its setters are removed until a drawer returns.
+     2026-11-12: the drawer has returned (see PaperDrawer above), so
+     its state returns with it. The years between are the Deep read
+     defect: the callers never stopped calling the opener, and with no
+     state and no prop passed they landed on a default no op. */
+  const [drawerSource, setDrawerSource] = useState(null);
+  /* The one real paper opener. Stable so React.memo on TurnRow holds:
+     it reads only the turn it is handed and the drawer setter. */
+  const handleOpenPaper = useCallback((t, n) => {
+    const s = t && t.sources && t.sources[n - 1];
+    if (s) setDrawerSource(s);
+  }, []);
   const [focusedSourceIdx, setFocusedSourceIdx] = useState(-1);
   const [evidenceFilter, setEvidenceFilter] = useState("all");
   /* Pass 3 (2026-09-17): the provenance line's dialog — the full wired
@@ -24889,7 +25007,7 @@ function App({ profileHandle = null } = {}) {
   // happens once when the first overlay opens and the restore happens once
   // when the last one closes, with the scroll offset from the first open.
   const anyOverlayOpen = cmdOpen || mobilePanel || sidebarMobileOpen
-    || authOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt
+    || authOpen || compareOpen || !!networkGraphSources || !!timelineSources || !!autopsyTurn || !!evidenceTableSources || !!importPrompt || !!drawerSource
     // The consent gate must lock body scroll too — otherwise a first-time
     // visitor (or anyone whose legal cookie expired) gets a fixed overlay
     // over a scrollable page, and the body can be left overflow:hidden
@@ -26470,7 +26588,7 @@ function App({ profileHandle = null } = {}) {
                   return (
                     <div key={t.id ?? ti} className={diveAscend ? "cb-turn-ascend" : undefined}
                       onAnimationEnd={diveAscend ? (e) => { if (e.target === e.currentTarget) setDiveAscendId(null); } : undefined}>
-                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} onSharePaper={handleSharePaper} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[data-cb-followup="true"]'); if (el) { el.scrollIntoView({ behavior: scrollBehavior(), block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
+                      <TurnRow t={t} askRef={askRef} P={P} accent={accent} at={at} S={S} typewriter={typewriter} busyNow={busy} last={ti === turns.length - 1} user={user} autoRead={autoplay && askedThisSession} onWatchChanged={stableOnWatchChanged} hoverCite={hoverCite} setHoverCite={setHoverCite} onRelated={stableOnRelated} citationStyle={citationStyle} setCitationStyle={setCitationStyle} onShowAutopsy={setAutopsyTurn} onShowFlowchart={stableOnShowFlowchart} onRequireAuth={stableOnRequireAuth} onSharePaper={handleSharePaper} onOpenPaper={handleOpenPaper} saveState={saveState} retrySave={retrySave} onSaveInvestigation={pinInvestigationForTurn} onOpenDocumentMode={() => setView("document")} onShowLearn={() => setView("learn")} onFollowUp={() => { const el = document.querySelector('input[data-cb-followup="true"]'); if (el) { el.scrollIntoView({ behavior: scrollBehavior(), block: "center" }); setTimeout(() => { try { el.focus({ preventScroll: true }); } catch { el.focus(); } }, 350); } }} evidenceFilter={evidenceFilter} onClearFilterAndRetry={(q) => { setEvidenceFilter("all"); askRef.current?.(q, { evidenceFilter: "all" }); }} />
                     </div>
                   );
                 })}
@@ -27775,7 +27893,13 @@ function App({ profileHandle = null } = {}) {
           here, commented out after the component was removed from the
           tree. Its state and setters are gone too, so nothing can freeze
           the page behind a drawer that never renders. Restore all three
-          together if the drawer ever returns. */}
+          together if the drawer ever returns.
+          2026-11-12: all three are restored together, as that note
+          required. Component above, state and opener beside
+          focusedSourceIdx, render here. */}
+      {drawerSource && (
+        <PaperDrawer P={P} accent={accent} source={drawerSource} close={() => setDrawerSource(null)} />
+      )}
       {/* Commit 71 — see .cb-grain / .cb-vignette. Rendered near the end so
           they sit above the page but below modals and the consent gate. */}
       {/* Commit 82 — both texture layers now follow the Appearance >

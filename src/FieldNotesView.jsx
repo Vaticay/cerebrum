@@ -16,7 +16,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { RADIUS } from "./designSystem.jsx";
 import { accentInk } from "./appUtils.js";
 import { NovaLive, emitNovaActivity, loadNovaQuirks, saveNovaQuirks, recordNovaVisit } from "./LearnView.jsx";
-import { FIELD_NOTE_THREADS, fieldNoteEntries, notebookForFleet, scheduleEntryReview, threadProgress, FIELD_NOTES_TAGLINE } from "./fieldNotes.js";
+import { FIELD_NOTE_THREADS, fieldNoteEntries, entryIsToday, notebookForFleet, scheduleEntryReview, threadProgress, FIELD_NOTES_TAGLINE } from "./fieldNotes.js";
 import { useOnlineStatus } from "./useOnlineStatus.js";
 
 const FN_READ_KEY = "cerebrum-fieldnotes-read";
@@ -217,7 +217,7 @@ export default function FieldNotesView({ P, accent, at, onNavigate }) {
               borderRadius: RADIUS.sm, padding: "16px 18px", cursor: "pointer", color: P.ink, fontFamily: "var(--cb-font)",
               background: i === 0 ? (P.raised || P.bg) : P.panel || P.bg,
             }}>
-              <span style={{ fontSize: 13, color: ink }}>{i === 0 ? "Today · " : ""}{entry.dateLabel} · {entry.threadTitle}</span>
+              <span style={{ fontSize: 13, color: ink }}>{i === 0 && entryIsToday(entry) ? "Today · " : ""}{entry.dateLabel} · {entry.threadTitle}</span>
               <span style={{ display: "block", ...serif, fontSize: 21, fontWeight: 500, marginTop: 5 }}>{entry.title}</span>
               <span style={{ display: "block", fontSize: 15, color: P.ink2, marginTop: 5, lineHeight: 1.5 }}>{entry.body.split(". ")[0]}.</span>
               <span style={{ display: "block", fontSize: 13, color: ink, marginTop: 8 }}>{readIds.includes(entry.id) ? "Read · one question answered" : "Unread · one question waiting"}</span>

@@ -205,5 +205,19 @@ await test("the notebook home shows shelf and streak, and no XP", () => {
   assert.ok(!/\bXP\b/.test(home), "XP leaked into the notebook surface");
 });
 
+group("Today label (2026-11-12 fix)");
+await test("the Today word follows the entry date, not its position", () => {
+  const newest = entries[0];
+  assert.ok(newest && newest.date, "seed set has no dated first entry");
+  const [y, m, d] = newest.date.split("-").map(Number);
+  const sameDay = new Date(y, m - 1, d);
+  const dayAfter = new Date(y, m - 1, d + 1);
+  assert.equal(fn.entryIsToday(newest, sameDay), true, "an entry dated today must read as today");
+  assert.equal(fn.entryIsToday(newest, dayAfter), false, "an entry dated before today must not read as today");
+  assert.equal(fn.entryIsToday(null, sameDay), false, "a missing entry is never today");
+  assert.ok(learnSrc.includes("entryIsToday(entry)"), "the notebook home does not gate the Today word on the entry date");
+  assert.ok(!learnSrc.includes('i === 0 ? "Today'), "the old position only Today prefix is back");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

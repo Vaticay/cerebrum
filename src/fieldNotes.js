@@ -263,6 +263,17 @@ export function fieldNoteEntries(threads = FIELD_NOTE_THREADS) {
   return out.sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
+/* The Today word on the newest entry is earned by the date, never by
+   position. Before 2026-11-12 the view printed it for whichever entry
+   sat first, so the Nov 8 entry still called itself Today on Nov 9 and
+   would have kept doing so forever. The day argument is injectable so
+   the suite can pin both cases without waiting for the calendar. */
+export function entryIsToday(entry, d = new Date()) {
+  if (!entry || !entry.date || !(d instanceof Date) || Number.isNaN(d.getTime())) return false;
+  const key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  return entry.date === key;
+}
+
 export function wordCount(text) {
   return String(text || "").trim().split(/\s+/).filter(Boolean).length;
 }
