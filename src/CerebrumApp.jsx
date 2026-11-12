@@ -9217,8 +9217,14 @@ function JumpRail({ items, P, accent, onJump, isMobile, onFollowUp = null }) {
     document.addEventListener("keydown", onKey);
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
   }, [moreOpen]);
-  const primary = items.slice(0, 3);
-  const overflow = items.slice(3);
+  // Simplification (Nov 12): the first three seats go to sections that
+  // actually have content for this answer, in their existing order.
+  // Empty sections keep their place under More instead of holding a top
+  // seat (an answer with no videos showed a dead Videos tab while its
+  // Fact check hid behind More).
+  const filled = items.filter((it) => it.status !== "empty");
+  const primary = filled.slice(0, 3);
+  const overflow = items.filter((it) => !primary.includes(it));
   const tabBtn = (it) => (
     <button
       key={it.id} type="button" onClick={() => onJump(it.id)}
