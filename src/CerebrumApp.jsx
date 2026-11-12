@@ -3612,11 +3612,15 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
      Backdrop tap, grabber drag-down, Escape, and a 44px close button all
      dismiss it; focus, trap, and Escape semantics belong to the Dialog
      primitive it renders through (see the mobile branch below). */
-  /* "Full text" is only claimed when the retrieval actually had it. A
-     missing flag means abstract, not unknown-so-assume-the-best. */
+  /* "Full text" is only claimed when the retrieval actually had it.
+     The pill below is three state and reads the same fields the body
+     reads: a full text flag, else the record's own text, else nothing.
+     Until 2026-11-12 the pill read the flags alone and said "Abstract
+     only" over a body saying no abstract was returned. */
   const fullText = !!(src && (src.fullText || src.hasFullText || src.oaFullText));
   const meta = src ? [src.journal, src.year].filter(Boolean).join(" · ") : "";
   const snippet = src ? String(src.tldr || src.abstract || "").trim() : "";
+  const pillLabel = fullText ? "Full text read" : snippet ? "Abstract only" : "No abstract returned";
   /* Deep read is only offered when the drawer would have something
      fuller to show: the record's own text, or a full text read behind
      it. A record with neither gets the plain sentence below instead of
@@ -3700,7 +3704,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
               background: fullText ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)"),
               color: fullText ? accentInk(P, accent) : P.faint,
               border: "1px solid " + (fullText ? withAlpha(accent, 0.26) : P.line),
-            }}>{fullText ? "Full text read" : "Abstract only"}</span>
+            }}>{pillLabel}</span>
             <button onClick={onClose} aria-label="Close source preview" style={{
               marginLeft: "auto", background: "none", border: "none", color: P.faint,
               cursor: "pointer", width: 44, height: 44, display: "inline-flex",
@@ -3783,7 +3787,7 @@ function CitationPeek({ n, sources, P, accent, onOpen, onClose, isMobile }) {
           background: fullText ? withAlpha(accent, 0.12) : (P.dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.05)"),
           color: fullText ? accentInk(P, accent) : P.faint,
           border: "1px solid " + (fullText ? withAlpha(accent, 0.26) : P.line),
-        }}>{fullText ? "Full text read" : "Abstract only"}</span>
+        }}>{pillLabel}</span>
         {isMobile && (
           <button onClick={onClose} aria-label="Close" style={{
             marginLeft: "auto", background: "none", border: "none", color: P.faint,
@@ -3863,6 +3867,7 @@ function PaperDrawer({ P, accent, source, close }) {
   if (!source) return null;
   const fullText = !!(source.fullText || source.hasFullText || source.oaFullText);
   const body = String(source.abstract || source.tldr || "").trim();
+  const pillLabel = fullText ? "Full text read" : body ? "Abstract only" : "No abstract returned";
   const summary = String(source.tldr || "").trim();
   return (
     <ModalChrome drawer P={P} accent={accent} onClose={close}
@@ -3896,7 +3901,7 @@ function PaperDrawer({ P, accent, source, close }) {
               background: fullText ? withAlpha(accent, 0.12) : withAlpha(P.ink, 0.07),
               color: fullText ? accentInk(P, accent) : P.faint,
               border: "1px solid " + (fullText ? withAlpha(accent, 0.26) : P.line),
-            }}>{fullText ? "Full text read" : "Abstract only"}</span>
+            }}>{pillLabel}</span>
             {typeof source.citations === "number" && source.citations > 0 && <span style={{ fontSize: FONT_SIZES.caption, color: P.faint, fontFamily: "var(--cb-font)" }}>{formatCitationCount(source.citations, source.year, "citation")}</span>}
           </div>
           {doiHref(source) && (

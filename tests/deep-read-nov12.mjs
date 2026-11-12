@@ -76,5 +76,24 @@ await test("no new user visible string carries a dash character", () => {
   }
 });
 
+group("The pill agrees with the body (2026-11-12 follow up)");
+await test("the peek pill is three state, driven by the same fields the body uses", () => {
+  assert.ok(appSrc.includes('const pillLabel = fullText ? "Full text read" : snippet ? "Abstract only" : "No abstract returned";'), "peek pill does not read the snippet for its middle state");
+});
+await test("both peek forms render that shared pill label", () => {
+  const peeks = appSrc.match(/\}>{pillLabel}<\/span>/g) || [];
+  assert.equal(peeks.length, 3, "expected the mobile peek, the desktop peek, and the drawer to all render pillLabel, found " + peeks.length);
+});
+await test("the drawer pill is three state, driven by its own body text", () => {
+  assert.ok(appSrc.includes('const pillLabel = fullText ? "Full text read" : body ? "Abstract only" : "No abstract returned";'), "drawer pill does not read its body for its middle state");
+});
+await test("no pill anywhere asserts an abstract from the full text flags alone", () => {
+  const twoState = appSrc.match(/fullText \? "Full text read" : "Abstract only"/g) || [];
+  assert.equal(twoState.length, 0, "a two state pill render survived, found " + twoState.length);
+});
+await test("the no text pill state carries no dash character", () => {
+  assert.ok(!/[-–—]/.test("No abstract returned"), "dash character in the no text pill state");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
