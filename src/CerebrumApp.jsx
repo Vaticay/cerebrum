@@ -27699,10 +27699,12 @@ function App({ profileHandle = null } = {}) {
       )}
       {view === "learn" && (
         <Reveal style={{ ...S.pageView, background: P.bg }} deps={[view]}>
-          {/* Field Notes (Nov 8, 2026): the Nova tab mounts the
-              notebook now. The old LearnView home is retired as a
-              surface; its module stays for the pieces other modules
-              import from it. */}
+          {/* The Bench (Nov 12, 2026): the Nova tab mounts her
+              bench now. The Nov 8 Field Notes notebook survives
+              inside it as her bench notes, the record of sittings.
+              The old LearnView home stays retired as a surface; its
+              module stays for the pieces other modules import from
+              it. */}
           <FieldNotesView
             P={P} accent={accent} at={at}
             onNavigate={(v) => setView(v)}

@@ -35,9 +35,12 @@
 - Features: saved sources and collections, side by side comparison of
   investigations, views of how sources relate to each other, diagram studio,
   bibliography export (Excel, BibTeX, APA, MLA, Chicago, Vancouver).
-- Nova: a learning companion who keeps a dated notebook, Field Notes.
-  Each entry is short teaching prose in plain language with one
-  question, and read entries come back around as reviews on a widening
+- Nova: a learning companion with a bench in her lab that you can
+  visit. Sit with her and examine real results together. She opens by
+  telling you what changed in your library and your questions since
+  your last visit, from what your browser holds. Each sitting becomes
+  a short dated record in plain language with one question, and
+  finished sittings come back around as reviews on a widening
   schedule. Reading progress is stored in the visitor's own browser.
   There is no account sync and no cloud copy.
 - MCP: AI assistants can call Cerebrum through the endpoint at

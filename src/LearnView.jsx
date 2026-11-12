@@ -3200,7 +3200,7 @@ function NovaCelebrateFigure({ size = 128 }) {
    visit id comes from the host, so the guard compares
    visits, not mounts. */
 const novaArrivalMemory = { reviewsVisit: null };
-function NovaLive({ state = "greeting", size = 48, framing = "bust", surface = null, screenTopics = null, reviewDue = 0, onStartReview = null, visitId = null, bubbleVariant = undefined }) {
+function NovaLive({ state = "greeting", size = 48, framing = "bust", surface = null, screenTopics = null, reviewDue = 0, onStartReview = null, visitId = null, bubbleVariant = undefined, residentFigure = false }) {
   const [gaze, setGaze] = useState(null);
   const [lift, setLift] = useState(false);
   const [lean, setLean] = useState({ x: 0, y: 0, r: 0 });
@@ -3793,7 +3793,7 @@ function NovaLive({ state = "greeting", size = 48, framing = "bust", surface = n
           pulses her mouth from its talking flag. */}
       <NovaRive state={shownState} size={size} framing={framing} scanning={activityState === "thinking"}
         appState={appStateForActivity(activityState)} sleepStage={sleepStage} pokeN={pokeCount} pointer={pointer}
-        idleMs={Date.now() - lastActivity.current} speech={speech} reducedMotion={reducedRef.current} bubbleVariant={bubbleVariant} />
+        idleMs={Date.now() - lastActivity.current} speech={speech} reducedMotion={reducedRef.current} bubbleVariant={bubbleVariant} residentFigure={residentFigure} />
     </span>
   );
 }

@@ -184,7 +184,16 @@ await test("the seams are unchanged: canvas routing, the glyph below 120, the li
   assert.ok(riveSrc.includes('from "./NovaFigure.jsx"'), "the canvas no longer imports the figure");
   assert.ok(riveSrc.includes("<NovaFigure"), "the canvas no longer renders the figure");
   assert.ok(riveSrc.includes("NovaGlyph"), "the small size routing lost the approved glyph");
-  assert.ok(riveSrc.includes("size < 120"), "the glyph threshold moved: below 120 is the glyph's, by the audit ruling");
+  assert.ok(riveSrc.includes("size < 120"), "the glyph threshold moved: below 120 is the glyph's for ordinary mounts, by the audit ruling");
+  /* 2026-11-12, rewritten with The Bench staging, per the
+     presence plan's instruction that the November 1 glyph pins
+     be named and deliberately rewritten in the same change that
+     moves the routing: resident speaker mounts (a mount passing
+     residentFigure, first used by the Bench tab) are exempt from
+     the glyph substitution, so she renders as her cropped face
+     where she speaks. Ordinary mounts and nav chrome keep the
+     glyph below 120, exactly as the assertion above still pins. */
+  assert.ok(riveSrc.includes("!props.residentFigure"), "the resident speaker exemption from the glyph routing is missing");
   assert.ok(!riveSrc.includes("@rive-app"), "the Rive runtime is back in the wiring");
   assert.ok(figureSrc.includes('viewBox="0 0 480 640"'), "the figure canvas changed under the seam");
   assert.ok(figureSrc.includes("data-expression={expression}"), "the figure no longer keys off the expression");

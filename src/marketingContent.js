@@ -53,7 +53,7 @@ export const MARKETING_PAGES = {
           "Diagram Studio: turn an answer, a paper, or your own steps into one clear diagram, and export it as SVG, PNG, or a text outline.",
           "Investigations and Library: save papers, questions, and threads into collections you can revisit.",
           "Watched topics: watch a subject from the end of an answer, and your home screen counts the new papers indexed on it since you last looked.",
-          "Nova Field Notes: her dated notebook of short entries, one question per entry, with reviews that come back around and a shelf that fills as you finish threads.",
+          "Nova and The Bench: visit Nova in her lab and examine real results with her. She keeps dated session records, one question per sitting, with reviews that come back around and a shelf that fills as you finish threads.",
           "Private Vault: optional end to end encrypted sync for your saved work, with a 24 word recovery phrase only you hold.",
         ],
       },
@@ -92,12 +92,12 @@ export const MARKETING_PAGES = {
         ],
       },
       {
-        h: "Nova: Field Notes, her notebook",
+        h: "Nova: The Bench",
         widget: "nova-figure",
-        p: "Nova keeps a running notebook, and learning is working through it with her. Each entry is dated, short, and written in her own voice: what she read, what she makes of it, and what is still open. One question comes with each entry, written when the entry was written, and its answer explains rather than repeats. Entries you have read come back around as reviews on a widening schedule. A streak counts the days you read, and finishing a thread puts one object on her shelf, where it stays.",
+        p: "Nova works at a bench in her lab, and learning is sitting down at it with her. She is there in person when you arrive, and she tells you what changed in your library and your questions since your last visit, from what this browser holds. She puts one result on the bench and the two of you examine it together. Each sitting is written up as a dated record in her own voice: what she read, what she makes of it, and what is still open. One question comes with each sitting, and its answer explains rather than repeats. Sittings you have finished come back around as reviews on a widening schedule. A streak counts the days you visit, and finishing a thread puts one object on her shelf, where it stays.",
         list: [
-          "Reading progress lives in this browser: the entries you have read, your review schedule, and your streak are stored on your device, not in an account, and there is no cloud copy.",
-          "The notebook itself is written once and kept, so it reads the same on a good day and on a day when nothing else is working.",
+          "Bench memory lives in this browser: the papers you saved, the questions you asked, your sitting records, your review schedule, and your streak are stored on your device, not in an account, and there is no cloud copy.",
+          "Her bench notes are written once and kept, so they read the same on a good day and on a day when nothing else is working.",
         ],
       },
       {
@@ -174,7 +174,7 @@ export const MARKETING_PAGES = {
           "Every free answer carries the coverage line and the full Search record, permanent link and JSON form included, the same as any other answer.",
           "Any compatible AI assistant can call Cerebrum through the MCP endpoint at https://askcerebrum.org/mcp, free included.",
           "A free account can watch up to 40 topics, and the home screen counts the new papers indexed on each one.",
-          "Nova Field Notes are included: her dated notebook, one question per entry, reviews that come back around, and reading progress stored in your browser.",
+          "Nova and The Bench are included: visit her in her lab, examine results together, one question per sitting, reviews that come back around, and your progress stored in your browser.",
         ],
       },
       {

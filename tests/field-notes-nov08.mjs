@@ -184,11 +184,17 @@ await test("the old turn into course menu item is retired", () => {
 });
 
 group("Public copy");
-await test("public copy sells Field Notes, not lessons or quizzes", () => {
-  assert.ok(marketingSrc.includes("Field Notes"), "marketing copy not updated");
+await test("public copy sells The Bench, not lessons or quizzes", () => {
+  /* 2026-11-12, rewritten with The Bench ship: public copy moved
+     from Field Notes wording to Bench wording in the same ship
+     that replaced the tab, so these pins now guard the Bench
+     framing and the absence of the retired notebook framing. */
+  assert.ok(marketingSrc.includes("The Bench"), "marketing copy not updated");
+  assert.ok(!marketingSrc.includes("Nova Field Notes"), "marketing still sells the retired notebook framing");
   assert.ok(!marketingSrc.includes("true or false checks"), "marketing still sells the banned form");
   assert.ok(!marketingSrc.includes("taught lessons on a topic you pick"), "marketing still sells lessons");
-  assert.ok(llmsSrc.includes("Field Notes"), "llms copy not updated");
+  assert.ok(llmsSrc.includes("bench in her lab"), "llms copy not updated");
+  assert.ok(!llmsSrc.includes("dated notebook, Field Notes"), "llms still sells the retired notebook framing");
   assert.ok(!llmsSrc.includes("quizzes on what each lesson taught"), "llms still sells quizzes");
 });
 

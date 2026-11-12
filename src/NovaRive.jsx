@@ -23,21 +23,20 @@
      the bank and the pure mapping helpers the controller
      imports.
    - The renderer itself: NovaRive is the figure surface and
-     nothing else. The rendered figure is the drop in
-     NovaFigure.jsx: a sphere of dark water carrying six
-     gill filaments and a gold wire, settled by the owner's
-     ruling of 2026-10-31, which picked Claude's build of
-     the bubble form he ordered after the standing rig (the
-     2026-10-29 rebuild) and every figure before it failed
-     his eye. The rig retired with that ruling; this seam
-     did not change: the drop consumes the same feeds under
-     the same names, and the composition, dialog, and brain
-     around it are untouched. The .riv file remains in
-     public/ as the retired asset; it renders nowhere. There
-     is no second surface behind the figure, and no runtime
-     or wasm is fetched for her any more: the self hosted
-     Rive wasm wiring that stood here from 2026-10-15
-     retired with the asset it served.
+     nothing else. The rendered figure is the restored
+     axolotl in NovaFigure.jsx: the revision 3 model sheet
+     drawing in her coat, recolored to the register, glasses
+     restroked with ink outlines and a bright gold lit rim.
+     The owner's order of 2026-11-02 retired the drop form
+     that stood here briefly and restored this figure; this
+     seam did not change with either form: she consumes the
+     same feeds under the same names, and the composition,
+     dialog, and brain around it are untouched. The .riv file
+     remains in public/ as the retired asset; it renders
+     nowhere. There is no second surface behind the figure,
+     and no runtime or wasm is fetched for her any more: the
+     self hosted Rive wasm wiring that stood here from
+     2026-10-15 retired with the asset it served.
 
    Palette discipline: the code side visuals here stay in
    the house palette only. The speech bubble itself lives in
@@ -406,16 +405,25 @@ function NovaCanvas(props) {
   const talkingNow = speech ? !!speech.talking : false;
 
   /* The small mark (audit wave step 8, 2026-11-01): below 120px
-     the drop renders as the flat glyph (NovaGlyph.jsx, the
-     locked values) inside the caller's own framing box, so no
-     caller's layout moves; the bubble still renders beside it
-     exactly as it does beside the figure. The band from 120 to
-     200 keeps the drop as it renders today, and 200 and above
-     is untouched. The one exclusion is the flow mount, the
-     search home's greeting figure: the home's Nova is held for
-     the owner's ruling (steps 3 and 7), so this routing does
-     not decide her there. */
-  const smallMark = size < 120 && !flowMount;
+     she renders as the flat glyph (NovaGlyph.jsx, the locked
+     values) inside the caller's own framing box, so no caller's
+     layout moves; the bubble still renders beside it exactly as
+     it does beside the figure. The band from 120 to 200 keeps
+     the figure as it renders today, and 200 and above is
+     untouched. The flow mount, the search home's greeting
+     figure, was the first exclusion: the home's Nova is held
+     for the owner's ruling (steps 3 and 7), so this routing
+     does not decide her there.
+     The resident speaker exemption (2026-11-12, staged with The
+     Bench and not yet shipped): a mount that passes
+     residentFigure is a place where she is the speaker, not a
+     nav mark, so the glyph substitution retires for that mount
+     and her cropped face renders at speaker sizes, the way the
+     bust framing already crops her at 200 and below. Nav icons
+     and other chrome mounts pass nothing and stay glyphs. The
+     Bench tab is the first mount to opt in; other surfaces opt
+     in only under the presence plan's own ship order. */
+  const smallMark = size < 120 && !flowMount && !props.residentFigure;
 
   /* Framing. "full" and "panel" give the figure a box in its
      own proportions: the canvas is 480 by 640 and the drop
