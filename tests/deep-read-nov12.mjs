@@ -95,5 +95,21 @@ await test("the no text pill state carries no dash character", () => {
   assert.ok(!/[-–—]/.test("No abstract returned"), "dash character in the no text pill state");
 });
 
+group("The Compare replay is wired too (2026-11-13 residual)");
+await test("CompareModal accepts a paper opener, defaulting to the no op only when unwired", () => {
+  assert.ok(appSrc.includes("function CompareModal({ P, accent, at, S, history, close, onOpenPaper = () => {} })"), "CompareModal takes no opener");
+});
+await test("the App render passes the real opener into CompareModal", () => {
+  assert.ok(appSrc.includes("<CompareModal P={P} accent={accent} at={at} S={S} history={history} close={() => setCompareOpen(false)} onOpenPaper={handleOpenPaper} />"), "CompareModal render site never receives handleOpenPaper, the residual defect shape");
+});
+await test("the Compare Turn render forwards the opener to its rows", () => {
+  assert.ok(appSrc.includes("interactive={false} onOpenPaper={onOpenPaper} />"), "the non interactive Turn render in CompareModal does not forward onOpenPaper");
+});
+await test("no Turn render is left without an opener", () => {
+  const turns = appSrc.match(/<Turn key=\{t\.id \?\? ti\}/g) || [];
+  assert.equal(turns.length, 1, "expected exactly the one raw Turn render, in CompareModal, found " + turns.length);
+  assert.ok(appSrc.includes("onOpenPaper={handleOpenPaper}"), "the answer view opener wiring is gone");
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

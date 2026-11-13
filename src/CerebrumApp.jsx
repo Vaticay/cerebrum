@@ -12428,7 +12428,7 @@ function CollectionsModal({ P, accent, at, S, saved, collections, onCreateCollec
 // two: past three-plus and the useful comparison ("did these two questions
 // get consistent answers?") turns into a horizontal-scrolling mess instead
 // of something actually readable.
-function CompareModal({ P, accent, at, S, history, close }) {
+function CompareModal({ P, accent, at, S, history, close, onOpenPaper = () => {} }) {
   const [leftId, setLeftId] = useState(history[0]?.id || "");
   const [rightId, setRightId] = useState(history[1]?.id || "");
   const left = history.find((h) => h.id === leftId);
@@ -12447,7 +12447,12 @@ function CompareModal({ P, accent, at, S, history, close }) {
         // state here to wire "Continue the investigation" / "Source
         // network" up to, so Turn hides those controls entirely instead of
         // rendering buttons that quietly do nothing when clicked.
-        <Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} last={ti === entry.turns.length - 1} hoverCite={null} setHoverCite={noop} citationStyle="apa" setCitationStyle={noop} interactive={false} />
+        // The paper openers are the exception (2026-11-13): the evidence
+        // rail, evidence map, and bibliography rows are not gated on
+        // interactive, so they get the App level opener and open the same
+        // Deep Read drawer the answer view uses. Before this they fell
+        // back to TurnInner's default no op and did nothing in silence.
+        <Turn key={t.id ?? ti} t={t} P={P} accent={accent} at={at} S={S} last={ti === entry.turns.length - 1} hoverCite={null} setHoverCite={noop} citationStyle="apa" setCitationStyle={noop} interactive={false} onOpenPaper={onOpenPaper} />
       )) : <div style={{ fontSize: FONT_SIZES.label, color: P.faint, textAlign: "center", padding: "60px 0" }}>Pick an investigation to compare.</div>}
     </div>
   );
@@ -27826,7 +27831,7 @@ function App({ profileHandle = null } = {}) {
           onSkip={() => { setSaved([]); setHistory([]); setImportPrompt(null); setSyncReady(true); }}
         />
       )}
-      {compareOpen && <CompareModal P={P} accent={accent} at={at} S={S} history={history} close={() => setCompareOpen(false)} />}
+      {compareOpen && <CompareModal P={P} accent={accent} at={at} S={S} history={history} close={() => setCompareOpen(false)} onOpenPaper={handleOpenPaper} />}
       {networkGraphSources && <SourceNetworkGraph P={P} accent={accent} at={at} sources={networkGraphSources} close={() => setNetworkGraphSources(null)} />}
       {timelineSources && <LiteratureTimeline P={P} accent={accent} at={at} turn={timelineSources} close={() => setTimelineSources(null)} />}
       {autopsyTurn && <QueryAutopsy turn={autopsyTurn} P={P} accent={accent} close={() => setAutopsyTurn(null)} onStress={(o) => askRef.current?.(autopsyTurn.q, o)} busy={busy} />}
