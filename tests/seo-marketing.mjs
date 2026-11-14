@@ -216,7 +216,11 @@ const NEW_FEATURE_HEADINGS = [
   "Built for researchers without a library",
 ];
 const NEW_FAQ_QUESTIONS = [
-  "What is the Search record?",
+  // 2026-11-14 (simplification dedup): the features FAQ entry "What
+  // is the Search record?" was cut because the page already explains
+  // the record in its feature list and its own section; the entry
+  // left this list with it. The pricing FAQ below still carries the
+  // not Pro only answer, and the features section pins still hold.
   "Can I use Cerebrum from inside ChatGPT or Claude?",
   "Are the Search record and MCP access Pro only?",
 ];
@@ -241,6 +245,10 @@ t("features page presents MCP access with the copyable endpoint", () => {
   assert.ok(featuresJson.includes("https://askcerebrum.org/mcp"), "endpoint address missing from features copy");
   assert.ok(featuresJson.includes("search_literature"), "search_literature tool not named");
   assert.ok(featuresJson.includes("get_trending"), "get_trending tool not named");
+  // 2026-11-14: the endpoint has served four tools since the MCP
+  // extension shipped 2026-11-07; the page named only two until now.
+  assert.ok(featuresJson.includes("get_statements"), "get_statements tool not named");
+  assert.ok(featuresJson.includes("get_reception_report"), "get_reception_report tool not named");
   assert.ok(pricingJson.includes("https://askcerebrum.org/mcp"), "endpoint address missing from pricing copy");
 });
 
@@ -542,6 +550,14 @@ t("Nova is present on the public pages, described honestly", () => {
   assert.ok(aboutJson.includes("Nova"), "about copy never mentions Nova");
   assert.ok(featuresJson.includes("no cloud copy"), "features Nova copy must deny cloud storage plainly");
   assert.ok(aboutJson.includes("not synced to an account"), "about Nova copy must deny account sync plainly");
+  // 2026-11-14: the About Nova block (src/legalContent.js) still sold
+  // the retired lessons product a full ship after The Bench replaced
+  // it, because the Bench ship's copy pass never touched that module.
+  // These pins keep the About block on the Bench framing.
+  assert.ok(aboutJson.includes("The Bench"), "about Nova copy does not name The Bench");
+  assert.ok(!aboutJson.includes("quizzes"), "about Nova copy still sells quizzes");
+  assert.ok(!aboutJson.includes("fill in the blank"), "about Nova copy still sells fill in the blank cards");
+  assert.ok(!aboutJson.includes("short lessons"), "about Nova copy still sells short lessons");
   assert.ok(llmsTxt.includes("Nova"), "llms.txt never mentions Nova");
 });
 

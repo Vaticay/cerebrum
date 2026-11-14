@@ -180,7 +180,7 @@ await test("the answer surface renders the notebook line and the Library mark", 
 });
 await test("the old turn into course menu item is retired", () => {
   assert.ok(!appSrc.includes("Turn into course"), "course menu item still offered");
-  assert.ok(appSrc.includes("Open Field Notes"), "field notes menu item missing");
+  assert.ok(appSrc.includes("Open The Bench"), "bench menu item missing");
 });
 
 group("Public copy");

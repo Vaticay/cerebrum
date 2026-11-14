@@ -11249,9 +11249,10 @@ function TurnInner({ t, P, accent, at, S, typewriter, last = false, autoRead = f
       ] : []),
       ...(done && interactive && t.answer && t.answer.length > 200 ? [{
         /* Field Notes (Nov 8, 2026): the old turn into course item is
-           retired with the generated course machine. The menu now
-           points at Nova notebook, which is where learning lives. */
-        id: "fieldnotes", label: "Open Field Notes", icon: "cortex", hint: "Nova",
+           retired with the generated course machine. The menu points
+           at the learn view, which mounts The Bench (Nov 12, 2026),
+           so the label names The Bench. The id stays "fieldnotes". */
+        id: "fieldnotes", label: "Open The Bench", icon: "cortex", hint: "Nova",
         onClick: () => { if (onShowLearn) onShowLearn(); },
       }] : []),
       ...(done && interactive && t.answer && t.answer.length > 200 ? [{
@@ -12168,7 +12169,7 @@ const TurnRow = React.memo(function TurnRow({ t, askRef, ...rest }) {
    hype, no dashes, nothing that sounds generated. */
 function Beta2Announcement({ P, accent, at, onClose, onTryLearn }) {
   const items = [
-    { title: "Nova is new", body: "Pick a topic and Nova teaches it in short lessons, with quick quizzes on what was taught and XP as you go. It lives in the sidebar, and on phones it has its own tab." },
+    { title: "Nova works at The Bench", body: "Visit Nova in her lab and examine a real result with her. She puts one result on the bench, one question comes with each sitting, and finished sittings come back around as reviews. Finishing a thread puts one object on her shelf, where it stays." },
     { title: "Search got tougher", body: "Questions with several parts used to come back with no sources at all. They return real sources now, and an answer is never built on zero papers." },
     { title: "Answers read easier", body: "Wider pages, calmer backgrounds, and plainer wording across the whole site." },
     { title: "One intro clip is gone", body: "A background clip that should never have shipped was still playing behind the door. It is out, and every remaining clip has been checked frame by frame." },

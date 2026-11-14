@@ -70,10 +70,6 @@ export const MARKETING_PAGES = {
         p: "A summary on its own asks to be trusted. A record can be checked. When your methods section has to say how the literature was found, the Search record is the thing you point to: the search itself, documented and kept, instead of a result you have to take on faith.",
       },
       {
-        h: "A stated budget behind every search",
-        p: "Every search also runs on a stated budget of platform calls, the requests Cerebrum makes to databases and models while it works: 50 in total, divided before the search starts. Up to 23 calls gather papers, 5 cover the work that follows gathering, 5 validate candidate papers, 5 authorize the answer, 5 write it, and 7 are held for the closing steps, fact checking, metering, and storing the record. The plan closes exactly (23 + 5 + 5 + 5 + 5 + 7 = 50), and the total is a hard cap enforced while the search runs, so no stage can spend the search past it. The spending is published rather than hidden: every search response carries its ledger, the calls each stage used against the limit of 50, and the same ledger is frozen into the Search record, so what an answer cost is as checkable as what it rests on.",
-      },
-      {
         h: "Watch a topic and we count the new papers",
         p: "At the end of an answer, the Watch this topic button starts tracking the subject of that answer, not the wording of one question. Your home screen then carries a Topics you're watching card. For every topic it counts, from Europe PMC, the papers indexed since you last looked, and shows the count beside the topic. Cerebrum can also send a browser notification when new papers land on a watched topic. Open a topic and the count clears while Cerebrum asks what is new in it and summarizes the most recent findings. When nothing new has been published, the count stays at zero and the card says nothing new yet. The counts are real literature counts, never invented to pull you back.",
         list: [
@@ -88,6 +84,8 @@ export const MARKETING_PAGES = {
           "Endpoint: https://askcerebrum.org/mcp",
           "search_literature: a cited answer from the literature for a research question you give it.",
           "get_trending: the current Today in Science edition, headlines grouped by section with links.",
+          "get_statements: the citing sentences Cerebrum has collected for a paper, with counts by stance and each sentence carrying two separate labels.",
+          "get_reception_report: one combined report on a paper, its reception tallies and its retraction status under the multi signal rule.",
           "When a search stores a record, the result carries the Search record with it: the permanent link to the record page, the question as asked, and the source and database counts.",
         ],
       },
@@ -103,10 +101,6 @@ export const MARKETING_PAGES = {
       {
         h: "Built for researchers without a library",
         p: "Serious research happens far from any campus. Independent and unaffiliated researchers, clinicians between posts, engineers, writers, and graduates whose library access ended with their degree read the same literature and hit the same paywalls. Searching and AI answers need no account. A free account carries the same allowances on any device and adds document reads, and free answers carry the same coverage line and Search record, permanent link included, as any other answer. The core work is free.",
-      },
-      {
-        h: "When no papers come back",
-        p: "If no papers are retrieved for a question, Cerebrum says so plainly rather than inventing sources. A confident guess dressed up as science is worse than an honest \u201cnothing found.\u201d",
       },
       {
         h: "What nothing found looks like",
@@ -138,12 +132,8 @@ export const MARKETING_PAGES = {
         a: "Not to search, and not for AI answers: anonymous use is metered by network up to the same 50 AI answers every 5 days. A free account carries those allowances under your name on any device, adds 3 document reads and 1 saved diagram every 5 days (document reads and saved diagrams need an account), and syncs what you save: articles, collections, history, and your Pro status.",
       },
       {
-        q: "What is the Search record?",
-        a: "A frozen account of one search that ships with the answer: the question as asked, the queries that ran, every database and how much it returned, the funnel, the model that wrote the answer, and the source list with each paper marked cited or further reading. Every record gets a permanent page of its own on askcerebrum.org, so you can link to it from your notes or your methods draft and anyone can open it. Add ?format=json to that address and the same record comes back as JSON. Ask the question again from the record and the new run is compared with the earlier one, naming the sources added and dropped. You can also copy it or download it from under any answer.",
-      },
-      {
         q: "Can I use Cerebrum from inside ChatGPT or Claude?",
-        a: "Yes. Cerebrum runs a live MCP endpoint at https://askcerebrum.org/mcp. A compatible assistant can call search_literature for a cited answer from the literature, or get_trending for the current Today in Science edition. Search results carry their Search record with them, permanent link included.",
+        a: "Yes. Cerebrum runs a live MCP endpoint at https://askcerebrum.org/mcp. A compatible assistant can call search_literature for a cited answer from the literature, get_trending for the current Today in Science edition, get_statements for the citing sentences Cerebrum has collected for a paper, with counts by stance and each sentence carrying two separate labels, or get_reception_report for one combined report on a paper, its reception tallies and its retraction status under the multi signal rule. Search results carry their Search record with them, permanent link included.",
       },
       {
         q: "Can Cerebrum tell me when new papers appear on a topic?",
