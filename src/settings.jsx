@@ -1874,10 +1874,18 @@ function ConfigStatus({ P, accent }) {
    applied, then replaces each store the file carries. A store the
    file does not carry is left exactly as it stands, so a file can
    never half replace the workspace or leave a stale copy of a store
-   it did carry standing beside the imported one. */
+   it did carry standing beside the imported one.
+   Bench state joined the document on 2026-11-15: the Nova section
+   above still carries only the retired Learn record, so a workspace
+   export silently dropped every Bench session and review state even
+   though the import confirm names Nova progress. The bench section
+   now carries the five keys Nova keeps at The Bench, in the exact
+   shapes the stores keep them, planned field by field and applied
+   all or nothing by applyWorkspaceBenchState below. */
 const WORKSPACE_INBOX_DRAFTS_KEY = "cb_inbox_drafts_v1";
 const WORKSPACE_INBOX_OUTBOX_KEY = "cb_inbox_outbox_v1";
 const WORKSPACE_LEARN_KEYS = { courses: "cerebrum-learn2-courses", claims: "cerebrum-learn2-claims", profile: "cerebrum-learn2-profile", progress: "cerebrum-learn2-progress", sound: "cerebrum-learn2-sound" };
+const WORKSPACE_BENCH_KEYS = { sessions: "cerebrum-bench-sessions", lastVisit: "cerebrum-bench-lastvisit", read: "cerebrum-fieldnotes-read", reviews: "cerebrum-fieldnotes-reviews", days: "cerebrum-fieldnotes-days" };
 
 function workspaceIsPlainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
 function workspaceReadJSON(key, fallback) {
@@ -1912,6 +1920,26 @@ export function readWorkspaceLearnState() {
   };
 }
 
+/* The Bench state as Nova keeps it in this browser, in the stored
+   shapes themselves: sessions and reviews are JSON objects keyed by
+   entry, read and days are JSON lists, and the last visit stamp is
+   the raw number string the Bench writes, carried as it stands. */
+export function readWorkspaceBenchState() {
+  const sessions = workspaceReadJSON(WORKSPACE_BENCH_KEYS.sessions, {});
+  const reviews = workspaceReadJSON(WORKSPACE_BENCH_KEYS.reviews, {});
+  const read = workspaceReadJSON(WORKSPACE_BENCH_KEYS.read, []);
+  const days = workspaceReadJSON(WORKSPACE_BENCH_KEYS.days, []);
+  let lastVisit = "";
+  try { lastVisit = localStorage.getItem(WORKSPACE_BENCH_KEYS.lastVisit) || ""; } catch { lastVisit = ""; }
+  return {
+    sessions: workspaceIsPlainObject(sessions) ? sessions : {},
+    lastVisit: typeof lastVisit === "string" ? lastVisit : "",
+    read: Array.isArray(read) ? read : [],
+    reviews: workspaceIsPlainObject(reviews) ? reviews : {},
+    days: Array.isArray(days) ? days : [],
+  };
+}
+
 /* Assemble the workspace document from its parts. Every store is
    written even when empty, so an import of this file replaces every
    store wholesale, empty ones included. */
@@ -1931,6 +1959,7 @@ export function buildWorkspaceDocument(parts) {
       outbox: workspaceIsPlainObject(inbox.outbox) ? inbox.outbox : {},
     },
     nova: workspaceIsPlainObject(p.nova) ? p.nova : null,
+    bench: workspaceIsPlainObject(p.bench) ? p.bench : null,
     preferences: workspaceIsPlainObject(p.preferences) ? p.preferences : {},
   };
 }
@@ -1970,6 +1999,26 @@ export function planWorkspacePreferences(p) {
   return out;
 }
 
+/* Validate an imported bench section field by field, against the
+   shapes the Bench stores keep. A field that is absent or fails its
+   check is simply not in the result: that store is left alone,
+   never guessed at. The last visit stamp is carried as the raw
+   string the Bench writes; a number is accepted and written back
+   in that same string shape. Returns null when no field survives,
+   so a section holding nothing readable plans as no bench section
+   at all. */
+export function planWorkspaceBenchState(b) {
+  if (!workspaceIsPlainObject(b)) return null;
+  const out = {};
+  if (workspaceIsPlainObject(b.sessions)) out.sessions = b.sessions;
+  if (typeof b.lastVisit === "string" && (b.lastVisit === "" || Number.isFinite(Number(b.lastVisit)))) out.lastVisit = b.lastVisit;
+  else if (typeof b.lastVisit === "number" && Number.isFinite(b.lastVisit)) out.lastVisit = String(b.lastVisit);
+  if (Array.isArray(b.read) && b.read.every((x) => typeof x === "string")) out.read = b.read;
+  if (workspaceIsPlainObject(b.reviews)) out.reviews = b.reviews;
+  if (Array.isArray(b.days) && b.days.every((x) => typeof x === "string")) out.days = b.days;
+  return Object.keys(out).length ? out : null;
+}
+
 /* Validate a parsed workspace file into an import plan. Only the
    stores the file actually carries enter the plan, each checked to
    the shape its store keeps. A file carrying no recognizable store
@@ -1992,10 +2041,55 @@ export function planWorkspaceImport(data) {
     if (Object.keys(inbox).length) plan.inbox = inbox;
   }
   if (workspaceIsPlainObject(data.nova)) plan.nova = data.nova;
+  const bench = planWorkspaceBenchState(data.bench);
+  if (bench) plan.bench = bench;
   if (workspaceIsPlainObject(data.preferences)) plan.preferences = planWorkspacePreferences(data.preferences);
-  const stores = ["saved", "history", "collections", "diagrams", "profile", "inbox", "nova", "preferences"];
+  const stores = ["saved", "history", "collections", "diagrams", "profile", "inbox", "nova", "bench", "preferences"];
   if (!stores.some((k) => k in plan)) return { ok: false, error: "That file does not look like a Cerebrum workspace file. Nothing was imported." };
   return plan;
+}
+
+/* Write a planned bench section to its five stores, all of it or
+   none of it, the same transaction shape applyCortexImport uses:
+   the prior value of every key is snapshotted first, each write is
+   read back, and any failure restores every key, so a half written
+   Bench is never reported as imported. Only the stores the section
+   carries are written; a store it does not carry is left exactly
+   as it stands. Storage is any localStorage shaped object, which
+   keeps the transaction testable without a DOM. */
+export function applyWorkspaceBenchState(bench, storage) {
+  const store = storage || (typeof localStorage !== "undefined" ? localStorage : null);
+  if (!store || typeof store.getItem !== "function" || typeof store.setItem !== "function") {
+    return { ok: false, error: "This browser would not store the import. Nothing was imported." };
+  }
+  if (!workspaceIsPlainObject(bench)) return { ok: true };
+  const entries = [];
+  if (workspaceIsPlainObject(bench.sessions)) entries.push([WORKSPACE_BENCH_KEYS.sessions, JSON.stringify(bench.sessions)]);
+  if (typeof bench.lastVisit === "string") entries.push([WORKSPACE_BENCH_KEYS.lastVisit, bench.lastVisit]);
+  if (Array.isArray(bench.read)) entries.push([WORKSPACE_BENCH_KEYS.read, JSON.stringify(bench.read)]);
+  if (workspaceIsPlainObject(bench.reviews)) entries.push([WORKSPACE_BENCH_KEYS.reviews, JSON.stringify(bench.reviews)]);
+  if (Array.isArray(bench.days)) entries.push([WORKSPACE_BENCH_KEYS.days, JSON.stringify(bench.days)]);
+  let prior;
+  try { prior = entries.map(([key]) => [key, store.getItem(key)]); }
+  catch { return { ok: false, error: "This browser would not store the import. Nothing was imported." }; }
+  const rollback = () => {
+    for (const [key, raw] of prior) {
+      try {
+        if (raw == null) { if (typeof store.removeItem === "function") store.removeItem(key); }
+        else store.setItem(key, raw);
+      } catch { /* rollback is best effort; the failure is reported either way */ }
+    }
+  };
+  for (const [key, raw] of entries) {
+    try {
+      store.setItem(key, raw);
+      if (store.getItem(key) !== raw) throw new Error("stored value did not read back");
+    } catch {
+      rollback();
+      return { ok: false, error: "The Bench part of the import could not be fully saved in this browser, so none of it was changed. Your existing Bench progress is untouched." };
+    }
+  }
+  return { ok: true };
 }
 
 function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, flowcharts, setFlowcharts, profile, setProfile, vaultCtl, proStatus, onOpenPro, onProChanged, onRegisterPasskey }) {
@@ -3200,7 +3294,11 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                      just the library and preferences: collections,
                      diagrams, the account profile, inbox drafts and
                      outbox, and the Nova learning record as the
-                     versioned Nova progress document itself. */
+                     versioned Nova progress document itself. The
+                     bench section (2026-11-15) carries the Bench
+                     state the Nova section never held: sessions,
+                     reviews, read marks, days, and the last visit
+                     stamp, in their stored shapes. */
                   const workspace = buildWorkspaceDocument({
                     version: APP_VERSION_LABEL,
                     exported: new Date().toISOString(),
@@ -3210,6 +3308,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       outbox: workspaceReadJSON(WORKSPACE_INBOX_OUTBOX_KEY, {}),
                     },
                     nova: buildCortexExport(readWorkspaceLearnState(), new Date()),
+                    bench: readWorkspaceBenchState(),
                     preferences: { paletteName, accentName, customAccent, answerLength, factCheck: factCheck ? "1" : "0", muted: muted ? "1" : "0", soundMode, citationStyle, animationMode, dataDensity, animSpeed, highContrast: highContrast ? "1" : "0", fontSize, reducedTransparency: reducedTransparency ? "1" : "0", autoplay: autoplay ? "1" : "0", dyslexicFont: dyslexicFont ? "1" : "0", lineSpacing, focusHighlight: focusHighlight ? "1" : "0", typewriter: typewriter ? "1" : "0", readingProfile, notify, ttsVoice },
                   });
                   const blob = new Blob([JSON.stringify(workspace, null, 2)], { type: "application/json" });
@@ -3238,7 +3337,7 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                       let data;
                       try { data = JSON.parse(reader.result); }
                       catch { toast("Couldn't import that file. It isn't valid workspace JSON.", { tone: "error" }); return; }
-                      if (!window.confirm("Replace your current workspace (library, history, collections, diagrams, profile, Nova progress, inbox drafts, preferences) with this file? This can't be undone.")) return;
+                      if (!window.confirm("Replace your current workspace (library, history, collections, diagrams, profile, Nova progress, Bench sessions and reviews, inbox drafts, preferences) with this file? This can't be undone.")) return;
                       try {
                         const plan = planWorkspaceImport(data);
                         if (!plan.ok) { toast(plan.error, { tone: "error" }); return; }
@@ -3264,6 +3363,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
                         if (novaState) {
                           const appliedNova = applyCortexImport(novaState, localStorage);
                           if (!appliedNova.ok) { toast(appliedNova.error, { tone: "error" }); return; }
+                        }
+                        /* The bench section applies as one transaction
+                           of its own, after the Nova document: a file
+                           with no bench section never reaches this line,
+                           so older files leave Bench state untouched. */
+                        if (plan.bench) {
+                          const appliedBench = applyWorkspaceBenchState(plan.bench, localStorage);
+                          if (!appliedBench.ok) { toast(appliedBench.error, { tone: "error" }); return; }
                         }
                         // Export writes preferences; restore them too so an
                         // import actually brings the workspace back whole.

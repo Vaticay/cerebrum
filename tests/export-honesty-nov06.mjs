@@ -13,7 +13,12 @@
  *    promise, and import left the old browser's other stores
  *    standing. The document now carries every store, the Nova
  *    section is the versioned Nova progress document, and import
- *    replaces each store the file carries, wholesale.
+ *    replaces each store the file carries, wholesale. Extended
+ *    2026-11-15: the Nova section holds only the retired Learn
+ *    record, so Bench sessions and review state were still dropped;
+ *    the bench section now carries the five Bench keys in their
+ *    stored shapes, with a round trip pin and a no bench section
+ *    pin below.
  *  - Catalog 8: an answer whose sectioniser yields zero printable
  *    blocks exported as a PDF with a silently empty body. The PDF
  *    now falls back to plain text blocks.
@@ -158,9 +163,9 @@ const LEARN_NAMES = [
 ];
 const SETTINGS_NAMES = [
   "READING_PROFILES", "READING_PROFILE_KEYS",
-  "WORKSPACE_INBOX_DRAFTS_KEY", "WORKSPACE_INBOX_OUTBOX_KEY", "WORKSPACE_LEARN_KEYS",
-  "workspaceIsPlainObject", "workspaceReadJSON", "readWorkspaceLearnState",
-  "buildWorkspaceDocument", "planWorkspacePreferences", "planWorkspaceImport",
+  "WORKSPACE_INBOX_DRAFTS_KEY", "WORKSPACE_INBOX_OUTBOX_KEY", "WORKSPACE_LEARN_KEYS", "WORKSPACE_BENCH_KEYS",
+  "workspaceIsPlainObject", "workspaceReadJSON", "readWorkspaceLearnState", "readWorkspaceBenchState",
+  "buildWorkspaceDocument", "planWorkspacePreferences", "planWorkspaceBenchState", "planWorkspaceImport", "applyWorkspaceBenchState",
 ];
 
 const storage = makeStorage();
@@ -188,9 +193,9 @@ storage.setItem("cb_inbox_outbox_v1", JSON.stringify(SEEDED_OUTBOX));
 const ws = runInVm(
   declChunks(learnSrc, LEARN_NAMES) + "\n" + declChunks(settingsSrc, SETTINGS_NAMES),
   { localStorage: storage },
-  ["buildCortexExport", "parseCortexImport", "applyCortexImport", "readWorkspaceLearnState", "buildWorkspaceDocument", "planWorkspaceImport"]
+  ["buildCortexExport", "parseCortexImport", "applyCortexImport", "readWorkspaceLearnState", "readWorkspaceBenchState", "buildWorkspaceDocument", "planWorkspaceImport", "applyWorkspaceBenchState"]
 );
-const { buildCortexExport, parseCortexImport, applyCortexImport, readWorkspaceLearnState, buildWorkspaceDocument, planWorkspaceImport } = ws;
+const { buildCortexExport, parseCortexImport, applyCortexImport, readWorkspaceLearnState, readWorkspaceBenchState, buildWorkspaceDocument, planWorkspaceImport, applyWorkspaceBenchState } = ws;
 
 const SEEDED_COLLECTION = { id: "col-1", name: "Reading list", paperKeys: ["paper-a"], createdAt: 42 };
 const SEEDED_DIAGRAM = { id: "fc-1", title: "Sleep pathway", nodes: [], edges: [], updatedAt: 7 };
@@ -282,6 +287,115 @@ await test("workspace import turns the dyslexic font on through the font loader"
     "applying an imported dyslexic font preference does not run the loader a manual toggle runs");
   assert.ok(settingsSrc.includes("buildCortexExport(readWorkspaceLearnState(), new Date())"),
     "the workspace export does not build its Nova section from the live learn state");
+});
+
+/* Bench state in the workspace document (2026-11-15). The Nova
+   section carries only the retired Learn record, so until this fix
+   an export dropped every Bench session and review state while the
+   import confirm named Nova progress. The bench section carries
+   the five Bench keys in their stored shapes: sessions and reviews
+   as JSON objects, read and days as JSON lists, and the last visit
+   stamp as the raw number string the Bench writes. */
+const SEEDED_BENCH = {
+  sessions: { "entry-sleep-1": { openedAt: 1730000000000, answeredAt: 1730000060000, correct: true, updatedAt: 1730000060000 } },
+  lastVisit: "1730000060000",
+  read: ["entry-sleep-1", "entry-dreams-2"],
+  reviews: { "entry-sleep-1": { step: 1, dueAt: 1730259260000, attempts: 1, lastCorrect: true } },
+  days: ["2026-11-05", "2026-11-06"],
+};
+const BENCH_STORAGE_KEYS = {
+  sessions: "cerebrum-bench-sessions", lastVisit: "cerebrum-bench-lastvisit",
+  read: "cerebrum-fieldnotes-read", reviews: "cerebrum-fieldnotes-reviews", days: "cerebrum-fieldnotes-days",
+};
+function seedBenchState() {
+  storage.setItem(BENCH_STORAGE_KEYS.sessions, JSON.stringify(SEEDED_BENCH.sessions));
+  storage.setItem(BENCH_STORAGE_KEYS.lastVisit, SEEDED_BENCH.lastVisit);
+  storage.setItem(BENCH_STORAGE_KEYS.read, JSON.stringify(SEEDED_BENCH.read));
+  storage.setItem(BENCH_STORAGE_KEYS.reviews, JSON.stringify(SEEDED_BENCH.reviews));
+  storage.setItem(BENCH_STORAGE_KEYS.days, JSON.stringify(SEEDED_BENCH.days));
+}
+function benchRaw() {
+  return {
+    sessions: storage.getItem(BENCH_STORAGE_KEYS.sessions),
+    lastVisit: storage.getItem(BENCH_STORAGE_KEYS.lastVisit),
+    read: storage.getItem(BENCH_STORAGE_KEYS.read),
+    reviews: storage.getItem(BENCH_STORAGE_KEYS.reviews),
+    days: storage.getItem(BENCH_STORAGE_KEYS.days),
+  };
+}
+const SEEDED_BENCH_RAW = {
+  sessions: JSON.stringify(SEEDED_BENCH.sessions),
+  lastVisit: SEEDED_BENCH.lastVisit,
+  read: JSON.stringify(SEEDED_BENCH.read),
+  reviews: JSON.stringify(SEEDED_BENCH.reviews),
+  days: JSON.stringify(SEEDED_BENCH.days),
+};
+
+await test("the bench state reader returns the five Bench stores in their stored shapes", () => {
+  seedBenchState();
+  assert.deepEqual(plain(readWorkspaceBenchState()), SEEDED_BENCH);
+});
+
+await test("round trip: the document carries the bench section, and a cleared Bench state comes back whole", () => {
+  seedBenchState();
+  const doc = buildWorkspaceDocument({
+    version: "test-version",
+    exported: "2026-11-15T00:00:00.000Z",
+    saved: [], history: [], collections: [], diagrams: [], profile: {},
+    inbox: { drafts: {}, outbox: {} },
+    nova: null,
+    bench: readWorkspaceBenchState(),
+    preferences: {},
+  });
+  assert.deepEqual(plain(doc.bench), SEEDED_BENCH, "the bench section is missing from the workspace file");
+
+  // Clear every Bench store, the way a fresh browser starts.
+  for (const key of Object.values(BENCH_STORAGE_KEYS)) storage.removeItem(key);
+  assert.deepEqual(benchRaw(), { sessions: null, lastVisit: null, read: null, reviews: null, days: null });
+
+  const plan = planWorkspaceImport(JSON.parse(JSON.stringify(doc)));
+  assert.equal(plan.ok, true, "the plan refused a workspace file carrying a bench section");
+  assert.deepEqual(plain(plan.bench), SEEDED_BENCH, "the bench section did not survive the plan");
+
+  const applied = applyWorkspaceBenchState(plan.bench, storage);
+  assert.equal(applied.ok, true, "the bench section did not apply");
+  assert.deepEqual(benchRaw(), SEEDED_BENCH_RAW, "the Bench stores were not restored exactly, raw stamp included");
+  assert.deepEqual(plain(readWorkspaceBenchState()), SEEDED_BENCH, "the restored Bench state does not read back as seeded");
+});
+
+await test("a file with no bench section leaves Bench state untouched", () => {
+  seedBenchState();
+  const before = benchRaw();
+  // The module level workspaceDoc above was built before the bench
+  // section existed in the export, so it carries bench as null.
+  const plan = planWorkspaceImport(JSON.parse(JSON.stringify(workspaceDoc)));
+  assert.equal(plan.ok, true);
+  assert.ok(!("bench" in plan), "a file with no bench section must not plan a Bench change");
+  assert.deepEqual(benchRaw(), before, "planning an old file changed Bench state");
+  // A file carrying only a bench section is still a workspace file.
+  const benchOnly = planWorkspaceImport({ bench: SEEDED_BENCH });
+  assert.equal(benchOnly.ok, true, "a bench only file was refused");
+  assert.deepEqual(plain(benchOnly.bench), SEEDED_BENCH);
+});
+
+await test("a malformed bench section is refused field by field, never applied whole", () => {
+  const plan = planWorkspaceImport({ bench: { sessions: [1, 2], lastVisit: "not a stamp", read: "entry-1", reviews: { "entry-9": { step: 0 } }, days: [1, 2] } });
+  assert.equal(plan.ok, true);
+  assert.deepEqual(plain(plan.bench), { reviews: { "entry-9": { step: 0 } } },
+    "only the field shaped like its store may enter the plan");
+  assert.equal(planWorkspaceImport({ bench: { sessions: [] } }).ok, false,
+    "a bench section with no readable field is not a workspace file on its own");
+  assert.equal(planWorkspaceImport({ bench: "sessions" }).ok, false,
+    "a bench section that is not an object is not a workspace file on its own");
+});
+
+await test("the settings handlers wire the bench section through export and import", () => {
+  assert.ok(settingsSrc.includes("bench: readWorkspaceBenchState(),"),
+    "the workspace export does not build its bench section from the live Bench state");
+  assert.ok(settingsSrc.includes("applyWorkspaceBenchState(plan.bench, localStorage)"),
+    "the workspace import does not apply a planned bench section");
+  assert.ok(settingsSrc.includes("Bench sessions and reviews"),
+    "the import confirm does not name the Bench state the file now replaces");
 });
 
 // ══════════════════════════════════════════════════════════════════
