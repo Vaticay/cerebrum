@@ -21065,6 +21065,26 @@ export function subjectEngagingRescue(paper, gateCtx) {
   try {
     if (!paperClearsCitationGate(p, std)) return false;
     const hits = centralConceptHits(p, gateJudgedConcepts(std));
+    // Abstract less records (2026-11-15, gate trace lane): the
+    // citation standard itself satisfies its depth requirement
+    // from the title for a paper that has no abstract (the
+    // 2026-10-21 amendment in paperClearsCitationGate: for an
+    // abstract less paper the title is the only claim there is,
+    // so engagement in the title satisfies the depth requirement
+    // in the abstract's place). This test demanded an abstract
+    // engagement on top of that, so an abstract less paper the
+    // standard cleared, with its score inside this band, could
+    // be refused on a condition the standard had already waived
+    // — the live SLT4 specimen: the dietary salt paper cleared
+    // the standard (gateAudit standard true), sat at topical
+    // 23.857 inside the band, and was excluded on the floor
+    // alone because its record carried no abstract for the
+    // second judged concept to engage in. For an abstract less
+    // paper, title engagement stands in the abstract's place
+    // here exactly as it does at the gate. Papers with
+    // abstracts are judged exactly as before.
+    const hasAbstract = String(usableAbstract(p) || "").trim().length > 0;
+    if (!hasAbstract) return hits.inTitle >= 1;
     return hits.total >= 2 && hits.inAbstract >= 1;
   } catch { return false; }
 }
