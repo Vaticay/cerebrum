@@ -9455,7 +9455,7 @@ function classifyIntent(query, history) {
     .filter((w) => !historyText.includes(w.toLowerCase()));
   const introducesNewTopic = newProperNouns.length >= 2; // 2+ new capitalized words = probably new topic
 
-  if (introducesNewTopic) return { kind: "new" };
+  if (introducesNewTopic) return { kind: "new", backRef: hasBackRef };
 
   // `meta: true` marks the highest-confidence followup signal . the user is
   // explicitly commenting on the PREVIOUS turn ("you forgot...", "you
@@ -9466,11 +9466,18 @@ function classifyIntent(query, history) {
   // will, since "you forgot to provide BSFL papers" is ABOUT the omission,
   // not a restatement of the topic.
   if (isMeta || (hasBackRef && (isFollowupOpener || shortReply))) {
-    return { kind: "followup", meta: isMeta };
+    return { kind: "followup", meta: isMeta, backRef: hasBackRef };
   }
-  if (isFollowupOpener && shortReply) return { kind: "followup", meta: false };
+  if (isFollowupOpener && shortReply) return { kind: "followup", meta: false, backRef: hasBackRef };
 
-  return { kind: "new" };
+  // `backRef` rides on the new verdict too: a message can carry an
+  // explicit back reference ("do it", "that effect") yet miss the
+  // followup conditions above on length alone. The handler's
+  // substance check decides whether that reference is real (a
+  // context dependent follow up) or incidental (a new question that
+  // happens to contain a pronoun) . see the rescue at the verdict
+  // site. (2026-11-15, follow up trace lane.)
+  return { kind: "new", backRef: hasBackRef };
 }
 
 // ── QUESTION-TYPE CLASSIFICATION (2026-10-07 search-intelligence upgrade) ──
@@ -34973,7 +34980,38 @@ async function runSearchPipeline(pctx) {
     // about human memory and forgetting. A named embedded person or an
     // explicit "more papers" request still forces a fresh search either way
     // (those are unambiguous regardless of phrasing).
-    const strongFollowupSignal = intent.kind === "correction" || (intent.kind === "followup" && intent.meta === true);
+    // 2026-11-15 (follow up trace lane): a followup verdict that rests
+    // on an explicit back reference is the classifier's core signal,
+    // in the same class as the correction and meta verdicts above. A
+    // follow up that asks a NEW ANGLE on the same subject ("how much
+    // of it should someone take then" after a melatonin answer)
+    // necessarily introduces new angle words, so the word count
+    // override fired on exactly the messages the back reference had
+    // already classified, threw the context away, and sent the raw
+    // pronoun text into retrieval as the search topic (live proof,
+    // 2026-11-15: that follow up searched its own wording, the word
+    // melatonin appears zero times in its payload, shelf 11 gated to
+    // 0). The override still applies to followup verdicts with no
+    // back reference, and a named person or an explicit more papers
+    // request still forces a fresh search either way.
+    const strongFollowupSignal = intent.kind === "correction" || (intent.kind === "followup" && intent.meta === true) || (intent.kind === "followup" && intent.backRef === true);
+    // The mirror case (same lane): the classifier's followup
+    // conditions require a short message or an opener, so a longer
+    // follow up whose only signals are its back references ("how
+    // often do you need to do it to get that effect", 11 words,
+    // references "do it" and "that effect", no opener) comes back
+    // "new" and is searched standalone . live, it searched the word
+    // "often" as a mandatory constraint and gated its whole shelf
+    // out. When such a message introduces essentially no substance
+    // of its own (the hasNewSubstance check above: fewer than two
+    // new content words against the previous user turn), the back
+    // reference is the message's meaning, so the verdict is repaired
+    // to followup here, where the substance evidence exists. A new
+    // question that merely contains a pronoun brings its own
+    // substance words and stays new.
+    if (intent.kind === "new" && intent.backRef === true && !hasNewSubstance && Array.isArray(body.history) && body.history.length > 0) {
+      intent.kind = "followup";
+    }
     let forceNewSearch = !asksAboutExistingSources && (!!embeddedNameInFollowup || (hasNewSubstance && !strongFollowupSignal) || wantsMorePapers);
     let isFollowupMode = !forceNewSearch
       && (intent.kind === "followup" || intent.kind === "correction")
@@ -35232,6 +35270,17 @@ async function runSearchPipeline(pctx) {
             .join(" ");
         }
       }
+
+      // The effective query this run actually searches is the deep
+      // query, and the rest of the pipeline must judge the run
+      // against it (the preservation audit's one authority rule).
+      // This branch never assigned searchQuery, so it stayed the
+      // raw follow up text: the query analysis, and every standard
+      // derived from it, described a question nobody searched, and
+      // the programmatic passes below judged the anchored shelf
+      // against the fragment and emptied it (2026-11-15, follow up
+      // trace lane).
+      searchQuery = deepQuery;
 
       // Launch a parallel deep search for NEW sources (15 second timeout)
       let deepPapers = [];
@@ -36095,7 +36144,16 @@ async function runSearchPipeline(pctx) {
     // a research shaped answer over no papers.
     let passesEmptiedShelf = false;
     if (!isNameSearch && papers.length > 0) {
-      papers = programmaticValidationPasses(query, papers, _dynForValidation);
+      // Follow up mode judges the shelf against the effective
+      // query (searchQuery, assigned in the follow up branch to
+      // the merged deep query): the raw follow up text is a
+      // context dependent fragment, and the passes emptying the
+      // anchored shelf against it is what turned every follow up
+      // into "no citable evidence" even when retrieval had
+      // resolved the context (2026-11-15, follow up trace lane).
+      // Fresh searches keep judging against the user's own words,
+      // exactly as before.
+      papers = programmaticValidationPasses(isFollowupMode ? searchQuery : query, papers, _dynForValidation);
       if (papers.length === 0) passesEmptiedShelf = true;
       // Retrieval failure accounting (2026-11-02, search fix
       // wave, Lane B Group B): a shelf the passes emptied was
@@ -36497,7 +36555,14 @@ async function runSearchPipeline(pctx) {
       const evidenceBeforeValidation = evidencePapers;
       const validationStage = await runStage(
         "validation",
-        () => llmValidatePapers(query, evidencePapers, openRouterKey(env), _dynForValidation, env, validationDiag, undefined, ledger),
+        // Follow up mode validates against the effective query
+        // for the same reason as the programmatic passes above:
+        // the validator's own pre filter re runs those passes on
+        // its input, and its prompt judges papers against the
+        // question it is handed, so the raw follow up fragment
+        // would empty the evidence set a second time here
+        // (2026-11-15, follow up trace lane).
+        () => llmValidatePapers(isFollowupMode ? searchQuery : query, evidencePapers, openRouterKey(env), _dynForValidation, env, validationDiag, undefined, ledger),
         { timeoutMs: 6000, fallback: evidencePapers, health: stageHealth }
       );
       evidencePapers = validationStage.value || evidencePapers;
@@ -42845,7 +42910,15 @@ async function runSearchPipeline(pctx) {
           const tokens = aiOK
             ? estimateTokensFromChars(messagesChars(compactMessages || messages)) + estimateTokensFromChars(typeof answer === "string" ? answer.length : 0)
             : 0;
-          const dbs = publicSourcesQueried().length;
+          // publicSourcesQueried() is null when the run carries no
+          // retrieval diag . the deep follow up branch builds its
+          // result without one, so every follow up mode run that
+          // reached this assembly died here on a null dereference
+          // and served the request stage failure shape instead of
+          // its answer (proven live and locally, 2026-11-15, follow
+          // up trace lane). The count is an estimate input; zero is
+          // the honest value when no diag recorded the fanout.
+          const dbs = (publicSourcesQueried() || []).length;
           const retrievalWh = 0.04 + dbs * 0.005;
           const low = (tokens * 0.1) / 3600 * 1.3 + retrievalWh;
           const high = (tokens * 0.5) / 3600 * 1.3 + retrievalWh;

@@ -897,7 +897,16 @@ group("reorder — the cheap validation passes run before the evidence cut");
 // both orders over a shelf shaped like the production draw.
 
 await test("the handler runs the programmatic passes on the shelf before the gate and cut", () => {
-  const applyIdx = src.indexOf("papers = programmaticValidationPasses(query, papers, _dynForValidation);");
+  // 2026-11-15 (follow up trace lane): in follow up mode both the
+  // pre cut passes and the validator judge against the effective
+  // query (searchQuery, the merged question the branch actually
+  // searched), because the raw follow up text is a context
+  // dependent fragment and judging the anchored shelf against it
+  // emptied the shelf on every follow up. Fresh searches still
+  // judge against the user's own words (query), exactly as this
+  // pin originally required; the call shapes below carry the
+  // follow up exception explicitly.
+  const applyIdx = src.indexOf("papers = programmaticValidationPasses(isFollowupMode ? searchQuery : query, papers, _dynForValidation);");
   assert.ok(applyIdx > 0, "the pre cut application is missing from the handler");
   // Wave seven: the selection gate is the per paper binding —
   // citablePapers computed through paperIsCitable over the post
@@ -910,7 +919,7 @@ await test("the handler runs the programmatic passes on the shelf before the gat
     "llmValidatePapers must compose the same helper, not a second implementation"
   );
   assert.ok(
-    src.includes("llmValidatePapers(query, evidencePapers,"),
+    src.includes("llmValidatePapers(isFollowupMode ? searchQuery : query, evidencePapers,"),
     "the LLM validation stage must still judge the selected evidence set"
   );
 });
