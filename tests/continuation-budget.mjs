@@ -193,8 +193,19 @@ ok("the citation repair carries the bounded close and the fact check gate is unt
   // assertions below pin the new fire sites.
   assert.ok(src.includes("if (!hasCitations && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck)))"),
     "the probe 17 request budget gate on the pre strip repair changed");
-  assert.ok(src.includes("!citationRetryAttempted && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck))"),
+  // PIN UPDATED (2026-11-16, citationless trace lane): the post
+  // strip fire condition was restructured into named site2Wanted
+  // and site2GateOpen constants so the citationDiag readings can
+  // name which half closed. The gate itself is unchanged: wanted
+  // still requires no markers and no prior attempt, the gate is
+  // still citationRetryGateOpen on the request budget alone, and
+  // the repair fires only when both hold.
+  assert.ok(src.includes("const site2Wanted = !/\\[\\d+\\]/.test(answer) && !citationRetryAttempted;"),
+    "the post strip repair no longer requires no markers and no prior attempt");
+  assert.ok(src.includes("const site2GateOpen = site2Wanted && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck));"),
     "the probe 17 request budget gate on the post strip repair changed");
+  assert.ok(src.includes("if (site2Wanted && site2GateOpen) {"),
+    "the post strip repair does not fire on the wanted and gate pair");
 });
 
 ok("the derived citation repair gate opens exactly where a real close plus the assembly reserve fit", () => {

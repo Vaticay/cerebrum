@@ -147,7 +147,19 @@ await test("the citation retry is gated on the request budget, and fires after t
     "the pre strip citation retry still carries the synthesis window condition that stood probe 17 down");
   assert.ok(searchSrc.includes("POST STRIP CITATION REPAIR"),
     "no post strip citation repair exists for a draft whose markers all failed to bind");
-  assert.ok(searchSrc.includes("!citationRetryAttempted && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck))"),
+  // PIN UPDATED (2026-11-16, citationless trace lane): the post
+  // strip condition was restructured into named site2Wanted and
+  // site2GateOpen constants so the citationDiag readings can name
+  // which half closed (markers remain or a retry already ran,
+  // versus the budget gate). The semantics are unchanged: wanted
+  // still requires no markers and no prior attempt, the gate is
+  // still citationRetryGateOpen on the request budget, and the
+  // repair still fires only when both hold.
+  assert.ok(searchSrc.includes("const site2Wanted = !/\\[\\d+\\]/.test(answer) && !citationRetryAttempted;"),
+    "the post strip repair no longer requires no markers and no prior attempt");
+  assert.ok(searchSrc.includes("const site2GateOpen = site2Wanted && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck));"),
+    "the post strip repair is not gated on the request budget");
+  assert.ok(searchSrc.includes("if (site2Wanted && site2GateOpen) {"),
     "the post strip repair is not a single, budget gated attempt");
 });
 

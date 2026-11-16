@@ -17128,6 +17128,13 @@ export function publicStageHealth(stageHealth) {
       // a zero support degrade, naming the check mode behind
       // the zero (deep, terms, or flags).
       if (s.zeroSupportCheckMode) o.zeroSupportCheckMode = String(s.zeroSupportCheckMode);
+      // Citationless win instrumentation (2026-11-16): the four
+      // citation block readings ride the synthesis entry so a
+      // citationless serve names its own case in the payload:
+      // whether the winning draft arrived cited, how many markers
+      // the strips left, what each repair site did, and the time
+      // left at the flip. Present only when the block ran.
+      if (s.citationDiag) o.citationDiag = s.citationDiag;
     }
     return o;
   });
@@ -39907,6 +39914,18 @@ async function runSearchPipeline(pctx) {
     // is handed to the wave 4 extractive tier. The synthesis stage
     // record and the extractive closing line both name it.
     let uncitedAnswerFallback = false;
+    // Citationless win instrumentation (2026-11-16, citationless
+    // trace lane): the Nov 15 live diagnosis found six probes
+    // where exactly one draft completed and was discarded for
+    // carrying no citations, and the record could not separate
+    // the three cases (the draft arrived uncited, the strips
+    // removed every marker, or the repair gate closed / the
+    // repair failed) because nothing recorded the draft's marker
+    // state, either repair site's outcome, or the time left at
+    // the flip. citationDiag carries those four readings on the
+    // synthesis stage entry. No draft text is stored and no
+    // behavior changes: this records, it does not decide.
+    let citationDiag = null;
     // An AI answer with zero citations to the shelf is defective at
     // ANY length. The old rule retried only a SHORT uncited answer
     // and accepted a long one outright ("the model chose not to
@@ -39919,6 +39938,13 @@ async function runSearchPipeline(pctx) {
     // extractive tier builds the shipped answer from the papers.
     if (aiOK && useEvidence && evidencePapers.length > 0) {
       const hasCitations = /\[\d+\]/.test(answer);
+      citationDiag = {
+        draftHadMarkers: hasCitations,
+        markersAfterStrips: null,
+        retrySite1: hasCitations ? "not-needed" : "not-run",
+        retrySite2: "not-run",
+        msLeftAtFlip: null,
+      };
       // CITATION REPAIR GATE (2026-10-22, extractive fallback
       // lane, probe 17): the retry used to require its close
       // window to fit before the synthesis deadline on top of
@@ -39989,7 +40015,17 @@ async function runSearchPipeline(pctx) {
       };
       if (!hasCitations && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck))) {
         const retried = await runCitationRetry();
-        if (retried) answer = retried;
+        if (retried) {
+          answer = retried;
+          citationDiag.retrySite1 = "fired-recovered";
+        } else {
+          // A null retry either fired and produced no cited draft
+          // (the attempted flag is set) or stood itself down on
+          // its close window after the gate opened.
+          citationDiag.retrySite1 = citationRetryAttempted ? "fired-failed" : "stood-down-close";
+        }
+      } else if (!hasCitations) {
+        citationDiag.retrySite1 = "gate-closed";
       }
 
       // ============ CITATION SUPPORT STRIP ============
@@ -40104,7 +40140,14 @@ async function runSearchPipeline(pctx) {
       // candidate is accepted only after the same strip and
       // coverage passes run on it: a candidate whose citations
       // do not bind is rejected whole, never dressed up.
-      if (!/\[\d+\]/.test(answer) && !citationRetryAttempted && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck))) {
+      // The marker count the strips themselves left, read before
+      // the post strip repair below: this is the reading that
+      // separates a cited draft the strips emptied from one that
+      // arrived uncited.
+      citationDiag.markersAfterStrips = (answer.match(/\[\d+\]/g) || []).length;
+      const site2Wanted = !/\[\d+\]/.test(answer) && !citationRetryAttempted;
+      const site2GateOpen = site2Wanted && citationRetryGateOpen(msLeft(), !!(settings && settings.factCheck));
+      if (site2Wanted && site2GateOpen) {
         const retried = await runCitationRetry();
         if (retried) {
           try {
@@ -40125,10 +40168,22 @@ async function runSearchPipeline(pctx) {
               answer = candidate;
               unsupportedStripped = candStripped.removed;
               conceptDemoted = candDemoted;
+              citationDiag.retrySite2 = "fired-recovered";
             }
           } catch { /* a failed repair pass leaves the flip below standing */ }
         }
+        if (citationDiag.retrySite2 === "not-run") {
+          // The race fired (the attempted flag is the receipt) but
+          // no candidate survived acceptance, or the retry stood
+          // itself down on its close window after the gate opened.
+          citationDiag.retrySite2 = citationRetryAttempted ? "fired-failed" : "stood-down-close";
+        }
+      } else {
+        citationDiag.retrySite2 = !site2Wanted
+          ? (/\[\d+\]/.test(answer) ? "not-needed" : "already-attempted")
+          : "gate-closed";
       }
+      citationDiag.msLeftAtFlip = msLeft();
       // The flip (defect 2): whatever reaches this point with zero
       // citations . the draft never had any and the retry could not
       // fix it, or the strips above removed every marker because
@@ -40337,6 +40392,16 @@ async function runSearchPipeline(pctx) {
       budgetSkippedLegs: synthLegs.filter((a) => a.plannedSkip === true).length,
       parkedLegs: synthLegs.filter((a) => a.parked === true).length,
     });
+    // Citationless win instrumentation (2026-11-16): attach the
+    // citation block's four readings to the synthesis entry just
+    // pushed, when the block ran. Done as a post push assignment
+    // so the entry literal above keeps its shape; the field is
+    // absent entirely when the block never ran (no draft reached
+    // the citation passes), which is itself the reading.
+    if (citationDiag) {
+      const synthEntry = stageHealth[stageHealth.length - 1];
+      if (synthEntry && synthEntry.name === "synthesis") synthEntry.citationDiag = citationDiag;
+    }
     if (!aiOK && !skipWavesForDefinition) {
       aiAttempts.push({ diagnostics: {
         hasOpenRouterKey: !!token,
