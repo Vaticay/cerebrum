@@ -251,7 +251,14 @@ const BASE = {
   SLT4_STRUCTURED: "(heart OR cardiovascular OR cardiac OR myocardial OR coronary OR atherosclerosis OR hypertension) AND (salt OR \"sodium chloride\" OR \"table salt\" OR \"salt intake\" OR \"dietary sodium\" OR salts OR sodium) AND problem",
   SLT4_REBUILT: "(heart OR cardiovascular OR cardiac OR myocardial OR coronary OR atherosclerosis OR hypertension) AND (salt OR \"sodium chloride\" OR \"table salt\" OR \"salt intake\" OR \"dietary sodium\" OR salts OR sodium)",
   INV_STRUCTURED: [
-    "zorblaxian OR quarnellian OR sugar OR sadness",
+    // First entry updated 2026-11-16 (FRS3 retrieval fix):
+    // the question speaks the real word "sugar", which now
+    // heads a hand concept group, so its executed form seats
+    // the sugar rung ANDed with the invented anchors instead
+    // of the loose OR list. The non firing protection is
+    // unchanged: the invented anchors still starve the rung,
+    // and the other three invented forms are byte identical.
+    "(sugar OR \"table sugar\" OR \"dietary sugar\" OR \"added sugar\" OR \"added sugars\" OR \"sugar intake\" OR sugars) AND zorblaxian AND quarnellian AND sadness",
     "flimbrated OR ankle OR drinking OR velvetic",
     "(sleep OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\" OR \"sleep restriction\" OR \"sleep restricted\" OR \"chronic sleep restriction\") AND (ocean OR oceanic OR marine OR sea OR seawater OR pelagic OR benthic) AND cycles AND whistle",
     "kitchen OR beetles OR recharge OR plugged",
@@ -310,7 +317,15 @@ await test("non firing: the booleans for FEV1, FEV4, WLK3, WLK4, SLT4 and INV1 t
   assert.equal(rebuildStructuredQueryFromGroups(FEV1_Q, null), BASE.FEV1_STRUCTURED);
   assert.equal(rebuildStructuredQueryFromGroups(WLK3_Q, null), BASE.WLK3_REBUILT);
   assert.equal(rebuildStructuredQueryFromGroups(SLT4_Q, null), BASE.SLT4_REBUILT);
-  assert.equal(rebuildStructuredQueryFromGroups(INV_QS[0], null), null);
+  // Updated 2026-11-16 (FRS3 retrieval fix): INV_QS[0] speaks
+  // the real word "sugar", which now heads a hand group, so
+  // the rebuild returns that group's rung instead of null.
+  // The rebuild contract is unchanged (a question resolving
+  // one group rebuilds to that rung, as one group questions
+  // always have); the question simply stopped resolving zero
+  // groups when sugar gained its group.
+  assert.equal(rebuildStructuredQueryFromGroups(INV_QS[0], null),
+    "(sugar OR \"table sugar\" OR \"dietary sugar\" OR \"added sugar\" OR \"added sugars\" OR \"sugar intake\" OR sugars)");
   assert.equal(rebuildStructuredQueryFromGroups(INV_QS[1], null), null);
   assert.equal(rebuildStructuredQueryFromGroups(INV_QS[2], null),
     "(sleep OR \"sleep deprivation\" OR \"sleep duration\" OR \"sleep quality\" OR \"sleep restriction\" OR \"sleep restricted\" OR \"chronic sleep restriction\") AND (ocean OR oceanic OR marine OR sea OR seawater OR pelagic OR benthic)");

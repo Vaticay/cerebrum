@@ -5014,6 +5014,53 @@ const CONCEPT_GROUPS = [
   // the wave seventeen pattern.
   ["salt", "salts", "sodium", "sodium chloride", "table salt",
    "salt intake", "dietary sodium"],
+  // Sugar and hyperactivity (2026-11-16, FRS3 retrieval fix):
+  // the gate trace (~/workspace/cerebrum-gate-trace-nov15)
+  // proved the FRS3 specimen ("does sugar make kids hyper")
+  // died upstream of the gate. Its shelf was nine collision
+  // papers and every clear was correct; the answering
+  // literature (the sucrose challenge trials and the Wolraich
+  // 1995 meta analysis) was never gathered, because neither
+  // of the question's two concepts had a group at all: the
+  // deterministic fallback carried "hypers" for hyper and
+  // nothing for sugar, and only 2 of 14 databases answered
+  // that draw. These two groups are the salt pattern beside
+  // them: the asker's word first, then the forms the
+  // literature itself uses, so one authoring bridges the
+  // structured rungs, the topic filter, the scorer, and the
+  // gate at once. Deliberate exclusions, each load bearing:
+  // "glucose" stays out of the sugar group (its dominant
+  // sense is blood sugar, a different concept, and the
+  // diabetes literature would engage this question's subject
+  // on it); bare "activity" stays out of the hyperactivity
+  // group ("physical activity" is a token match away in
+  // every lifestyle abstract, so the phrase forms carry the
+  // activity sense instead); cognition stays out (the trials
+  // measure it beside behaviour, but it is not the concept
+  // the asker named). The behaviour and activity members
+  // are WIDENING members, typed related in
+  // CONCEPT_GROUP_RELATIONS below, never gate satisfaction:
+  // the sucrose challenge literature measures the concept
+  // in behaviour vocabulary (Wolraich 1995, the answering
+  // meta analysis for this exact question, never uses the
+  // word hyperactivity at all), so the rungs and the filter
+  // need those words to gather and keep that literature;
+  // but on the specimen's own shelf, three sugar sweetened
+  // beverage papers use "behavior" for planned behaviour
+  // theory, parent modelling, and consumption behaviour,
+  // and two of them sit inside the rescue band, so a flat
+  // reading would have certified perception studies as
+  // engaging hyperactivity. The prefix collisions the trace
+  // named (hypertriglyceridemia, hyperparathyroidism) gain
+  // nothing here: engagement matching is whole token for
+  // single words, neither word is a member or a token in
+  // either group, and neither paper engages the sugar
+  // group, so both still engage at most one concept and
+  // still clear, pinned in tests/search-frs3-fix-nov16.mjs.
+  ["sugar", "sugars", "sucrose", "table sugar", "dietary sugar",
+   "added sugar", "added sugars", "sugar intake", "sugary"],
+  ["hyper", "hyperactivity", "hyperactive", "behavior", "behaviour",
+   "behavioral", "behavioural", "activity level", "activity levels"],
   // Respiratory
   ["lung", "lungs", "pulmonary", "respiratory", "airway", "alveolar",
    "bronchial", "asthma", "copd", "pneumonia"],
@@ -5078,6 +5125,25 @@ export const CONCEPT_GROUP_RELATIONS = [
       "oxidoreductase", "oxidoreductases", "phenoloxidase", "laccase", "peroxidase"],
     broader: [],
     related: [],
+  },
+  {
+    // 2026-11-16 (FRS3 retrieval fix): the hyperactivity
+    // group's behaviour and activity members are the sucrose
+    // challenge literature's measurement vocabulary, carried
+    // for widening only. A gate touch requires the concept's
+    // own words: in the beverage literature "behavior" names
+    // consumption behaviour, planned behaviour theory, and
+    // parent modelling far more often than it names a
+    // hyperactivity outcome, and the FRS3 shelf carries all
+    // three of those uses on papers the gate correctly
+    // refused. Typed related, they gather the challenge
+    // trials without certifying the perception studies.
+    head: "hyper",
+    synonyms: ["hyper", "hyperactivity", "hyperactive"],
+    narrower: [],
+    broader: [],
+    related: ["behavior", "behaviour", "behavioral", "behavioural",
+      "activity level", "activity levels"],
   },
 ];
 

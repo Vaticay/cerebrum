@@ -208,7 +208,18 @@ await test("TENx1 and TENx3 seat teen and sleep together", () => {
 group("Controls: byte exact, unchanged");
 
 await test("WLK3 control shape", () => {
-  assert.equal(buildStructuredQuery(WLK3), "short OR blood OR sugar OR walk");
+  // Witness updated 2026-11-16 (FRS3 retrieval fix): the
+  // question speaks the word "sugar" (in "blood sugar"), and
+  // sugar now heads a hand group, so the word resolves and
+  // seats a rung where the loose OR form stood before. The
+  // control's protection is intact in substance: the on
+  // point WLK literature carries the token "sugar" itself
+  // ("blood sugar"), so the rung admits it, the looser
+  // cascade rungs are untouched, and the retrieval breadth
+  // suite's mocked WLK run passes unchanged. Pinned at the
+  // new byte form so any further move is a named event.
+  assert.equal(buildStructuredQuery(WLK3),
+    "(sugar OR \"table sugar\" OR \"dietary sugar\" OR \"added sugar\" OR \"added sugars\" OR \"sugar intake\" OR sugars) AND short AND blood AND walk");
 });
 
 await test("SLT4 deterministic form", () => {
@@ -225,9 +236,20 @@ await test("FEV2 form carries fever, no entomology group", () => {
     "(bug OR \"stomach bug\" OR \"viral infection\" OR \"bacterial infection\" OR bugs OR pathogen OR pathogens)");
 });
 
-await test("INV1 stays groupless and clean", () => {
-  assert.deepEqual(questionConceptGroups(INV1), []);
-  assert.equal(buildStructuredQuery(INV1), "zorblaxian OR quarnellian OR sugar OR moss");
+await test("INV1 resolves only the sugar group its own words speak, and stays clean", () => {
+  // Witness updated 2026-11-16 (FRS3 retrieval fix): INV1
+  // speaks one real word, "sugar", and sugar now heads a
+  // hand group, so the question resolves exactly that group
+  // and no other. The protection this pin exists for is
+  // unchanged: the invented anchors still AND the sugar rung
+  // in the structured query, so gathering starves exactly as
+  // before, and the invented terms resolve nothing.
+  assert.deepEqual(questionConceptGroups(INV1).map((g) => [...g]), [
+    ["sugar", "sugars", "sucrose", "table sugar", "dietary sugar",
+     "added sugar", "added sugars", "sugar intake", "sugary"],
+  ]);
+  assert.equal(buildStructuredQuery(INV1),
+    "(sugar OR \"table sugar\" OR \"dietary sugar\" OR \"added sugar\" OR \"added sugars\" OR \"sugar intake\" OR sugars) AND zorblaxian AND quarnellian AND moss");
 });
 
 await test("BSF4 serve shape: gate concepts unchanged, tail rides its oil rung only", () => {
