@@ -26392,6 +26392,11 @@ export function buildNoResultsPayload({ query, sourcesQueried, rungsTried, gated
       pushCount(rc.noConcept, "paper engaged none of the central concepts in the question", "papers engaged none of the central concepts in the question");
       pushCount(rc.shortOfStandard, "paper engaged some central concepts but fell short of the citation standard", "papers engaged some central concepts but fell short of the citation standard");
       pushCount(rc.applicationOnly, "paper engaged the topic only as an application on a mechanism question", "papers engaged the topic only as an application on a mechanism question");
+      // Gate audit honesty (2026-11-16): papers the method
+      // tier binding withheld are counted under their own
+      // cause, so the accounting still covers every withheld
+      // paper and never files them under a floor they cleared.
+      pushCount(rc.methodTierBinding, "paper cleared the citation standard but was withheld by the method tier binding on a measurement question", "papers cleared the citation standard but were withheld by the method tier binding on a measurement question");
     }
     let line;
     if (reasonPhrases.length > 0) {
@@ -36328,6 +36333,16 @@ async function runSearchPipeline(pctx) {
     // from both gates themselves.
     let serveGateNoEvidence = passesEmptiedShelf;
     let citablePapers = [];
+    // Gate audit honesty (2026-11-16): when the method tier
+    // binding below empties the citable set, the emptied papers
+    // are remembered here so the gate audit builder can name
+    // the binding as their exclusion cause. Without this the
+    // audit recorded those papers with standard true and empty
+    // reasons (the MNP2 specimen in the 2026-11-15 gate trace),
+    // and its counts filed them under the relevance floor they
+    // had in fact cleared. Record only; the binding itself is
+    // unchanged.
+    let methodTierEmptiedPapers = null;
     // Wave ten (items 1 and 2): the gate audit object, filled
     // when the citation layer empties (or nearly empties) a
     // gathered pool; carried into the search record.
@@ -36366,6 +36381,7 @@ async function runSearchPipeline(pctx) {
         // serving a production paper as the method answer.
         if (measurementIntent && citablePapers.length > 0
             && citablePapers.every((p) => paperMethodTier(p) === 0)) {
+          methodTierEmptiedPapers = new Set(citablePapers);
           citablePapers = [];
         }
         serveGateNoEvidence = citablePapers.length === 0;
@@ -36450,6 +36466,17 @@ async function runSearchPipeline(pctx) {
               else reasons.push("engages " + hits.total + " central concept" + (hits.total === 1 ? "" : "s") + ", short of the citation standard");
               if (stdNow.mechanismShape && paperApplicationOnly(p)) { applicationOnly = true; reasons.push("application or delivery only engagement on a mechanism question"); }
             }
+            // Gate audit honesty (2026-11-16): a paper the
+            // method tier binding emptied was excluded by the
+            // binding, not by anything above — it cleared the
+            // standard (and the rescue, if it needed it) and
+            // was citable until the binding fired. Name the
+            // binding first, so standard true never sits beside
+            // an empty or misleading reason list (the MNP2
+            // specimen in the 2026-11-15 gate trace).
+            if (methodTierEmptiedPapers && methodTierEmptiedPapers.has(p)) {
+              reasons.unshift("emptied by the method tier binding: measurement question, no citable paper above method tier 0");
+            }
             return { paper: p, rel, gateRel, std, legacy, reasons, hitsTotal, applicationOnly };
           });
           const alreadyCitable = new Set(citablePapers);
@@ -36464,10 +36491,15 @@ async function runSearchPipeline(pctx) {
           // then the floor, which collects the papers the
           // standard cleared but whose score the subject
           // engaging rescue did not admit).
-          const excludedReasonCounts = { belowFloor: 0, noConcept: 0, shortOfStandard: 0, applicationOnly: 0 };
+          const excludedReasonCounts = { belowFloor: 0, noConcept: 0, shortOfStandard: 0, applicationOnly: 0, methodTierBinding: 0 };
           for (const r of rows) {
             if (alreadyCitable.has(r.paper)) continue;
-            if (!r.std && r.applicationOnly) excludedReasonCounts.applicationOnly++;
+            // Gate audit honesty (2026-11-16): a paper the
+            // method tier binding emptied is counted under the
+            // binding, its operative cause — not under the
+            // relevance floor, which it cleared (MNP2).
+            if (methodTierEmptiedPapers && methodTierEmptiedPapers.has(r.paper)) excludedReasonCounts.methodTierBinding++;
+            else if (!r.std && r.applicationOnly) excludedReasonCounts.applicationOnly++;
             else if (!r.std && r.hitsTotal === 0) excludedReasonCounts.noConcept++;
             else if (!r.std) excludedReasonCounts.shortOfStandard++;
             else excludedReasonCounts.belowFloor++;
@@ -36480,6 +36512,15 @@ async function runSearchPipeline(pctx) {
           const seenTitles = new Set();
           const excludedRows = [];
           for (const r of rows.slice().sort((a, b) => b.rel - a.rel)) {
+            // Gate audit honesty (2026-11-16): the counts above
+            // already skip papers in the citable set; the list
+            // now does too. A paper the run judged citable is
+            // not an exclusion, and listing it as one put the
+            // audit at war with the serve it describes (the
+            // SLT4 specimen after the 2026-11-15 rescue fix:
+            // the record cited the NCCT paper and listed it as
+            // excluded in the same breath).
+            if (alreadyCitable.has(r.paper)) continue;
             const key = String(r.paper.title || "").toLowerCase().trim();
             if (!key || seenTitles.has(key)) continue;
             seenTitles.add(key);
