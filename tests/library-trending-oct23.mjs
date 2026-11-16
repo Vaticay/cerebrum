@@ -128,7 +128,7 @@ await test("saved sync reads the response counts and reports skips by count", ()
 // ══════════════════════════════════════════════════════════════════════════
 group("one Library, three tabs");
 
-await test("the Library is one page with Papers and answers, Diagram Studio, and Collections tabs", () => {
+await test("the Library is one page with Papers and answers, Saved diagrams, and Collections tabs", () => {
   assert.ok(appSrc.includes('role="tablist" aria-label="Library sections"'), "no Library tab bar");
   assert.ok(appSrc.includes('libraryTab === "collections"'), "no Collections tab");
   assert.ok(!appSrc.includes('{view === "collections"'), "the standalone Collections page still exists");
@@ -139,7 +139,12 @@ await test("the Library is one page with Papers and answers, Diagram Studio, and
 await test("the header count and the tab counts are one accounting", () => {
   assert.ok(appSrc.includes("count={saved.length + history.length + flowcharts.length}"), "the header count is not the whole record count");
   assert.ok(appSrc.includes('{ key: "papers", label: "Papers and answers", count: saved.length + history.length }'), "the Papers tab does not count papers and answers together");
-  assert.ok(appSrc.includes('{ key: "maps", label: "Diagram Studio", count: flowcharts.length }'), "the diagram tab does not carry the one Diagram Studio name");
+  // 2026-11-16 (simplification audit item 8): the Library tab lists saved
+  // diagrams only, while the rail Diagrams entry opens the Diagram Studio
+  // editor itself, so the tab is named for what it holds. The old pin
+  // asserted the tab carried the Diagram Studio name; that collision is
+  // what this rename removes.
+  assert.ok(appSrc.includes('{ key: "maps", label: "Saved diagrams", count: flowcharts.length }'), "the diagram tab does not carry the Saved diagrams name");
 });
 
 await test("answers are first class records from the investigations store", () => {

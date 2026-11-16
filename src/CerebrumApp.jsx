@@ -23853,7 +23853,7 @@ function App({ profileHandle = null } = {}) {
   };
   const [libraryQuery, setLibraryQuery] = useState("");
   const [librarySort, setLibrarySort] = useState("recent");
-  /* One Library, three tabs: Papers and answers, Diagram Studio, Collections. The old
+  /* One Library, three tabs: Papers and answers, Saved diagrams, Collections. The old
      Collections page and the Exports category fold in here: maps and
      collections are tabs of this page, and export receipts are a
      short recent activity list at the foot of the Papers tab. */
@@ -26831,7 +26831,7 @@ function App({ profileHandle = null } = {}) {
             <div role="tablist" aria-label="Library sections" className="cb-lib-tabs" style={{ display: "flex", flexWrap: "wrap", border: `1px solid ${P.line}`, borderRadius: RADIUS.lg, background: P.surface, marginBottom: SP.xl, overflow: "hidden" }}>
               {[
                 { key: "papers", label: "Papers and answers", count: saved.length + history.length },
-                { key: "maps", label: "Diagram Studio", count: flowcharts.length },
+                { key: "maps", label: "Saved diagrams", count: flowcharts.length },
                 { key: "collections", label: "Collections", count: collections.length },
               ].map((c, i) => {
                 const on = libraryTab === c.key;

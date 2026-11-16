@@ -322,7 +322,7 @@ export default function FieldNotesView({ P, accent, at, onNavigate }) {
               }}>
                 <span style={{ fontSize: 13, color: ink }}>{i === 0 && entryIsToday(entry) ? "Today · " : ""}{entry.dateLabel} · {entry.threadTitle}</span>
                 <span style={{ display: "block", ...serif, fontSize: 21, fontWeight: 500, marginTop: 5 }}>{entry.title}</span>
-                <span style={{ display: "block", fontSize: 15, color: P.ink2, marginTop: 5, lineHeight: 1.5 }}>{entry.body.split(". ")[0]}.</span>
+                <span style={{ display: "block", fontSize: 16, color: P.ink2, marginTop: 5, lineHeight: 1.5 }}>{entry.body.split(". ")[0]}.</span>
                 <span style={{ display: "block", fontSize: 13, color: ink, marginTop: 8 }}>
                   {rec && rec.answeredAt ? "Session · " + (recLabel || entry.dateLabel) + (rec.correct ? " · that one stuck" : " · still loose, it will come back around")
                     : readIds.includes(entry.id) ? "Read · one question answered"
