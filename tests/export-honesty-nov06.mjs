@@ -398,6 +398,40 @@ await test("the settings handlers wire the bench section through export and impo
     "the import confirm does not name the Bench state the file now replaces");
 });
 
+/* Clear everything and The Bench (2026-11-17). The five Bench
+   stores live in localStorage, written by bench.js and
+   FieldNotesView outside the sessions, saved, and history setters
+   the Clear everything handler drives, so the clear left every
+   Bench store standing while the button read Clear everything:
+   proven live on a guest pass, where the Bench kept its streak,
+   its counters, and both sessions after the clear and a reload.
+   The pins seed the five stores, run the clear machinery the
+   handler calls, and check the handler and its dialog by source,
+   the style this suite uses for component handlers. */
+await test("Clear everything removes the five Bench stores", () => {
+  seedBenchState();
+  const clearWs = runInVm(
+    declChunks(settingsSrc, ["WORKSPACE_BENCH_KEYS", "clearWorkspaceBenchState"]),
+    { localStorage: storage },
+    ["clearWorkspaceBenchState"]
+  );
+  clearWs.clearWorkspaceBenchState(storage);
+  assert.deepEqual(benchRaw(), { sessions: null, lastVisit: null, read: null, reviews: null, days: null },
+    "a Bench store survived the clear");
+  assert.deepEqual(plain(readWorkspaceBenchState()), { sessions: {}, lastVisit: "", read: [], reviews: {}, days: [] },
+    "the Bench still reads state after the clear");
+});
+
+await test("the Clear everything handler runs the Bench clear beside its three setters, and the dialog names what goes", () => {
+  const body = region(settingsSrc, '<Dialog label="Clear all data"', ">Clear everything<");
+  assert.ok(body.includes("setSessions([]); setSaved([]); setHistory([]);"),
+    "the clear handler lost one of its three existing clears");
+  assert.ok(body.includes("clearWorkspaceBenchState(localStorage)"),
+    "the clear handler never clears the Bench stores");
+  assert.ok(body.includes("Bench sessions and Nova progress"),
+    "the clear dialog does not name Bench and Nova progress in what it clears");
+});
+
 // ══════════════════════════════════════════════════════════════════
 group("Catalog 8 — the answer PDF never ships a silently empty body");
 

@@ -2092,6 +2092,23 @@ export function applyWorkspaceBenchState(bench, storage) {
   return { ok: true };
 }
 
+/* Remove The Bench's five stores outright (2026-11-17). Clear
+   everything promises the Bench goes with the rest, but Bench
+   state is written straight to localStorage by bench.js and
+   FieldNotesView, outside the sessions, saved, and history
+   setters the clear handler drives, so the handler calls this
+   alongside them; before this, the clear left every Bench store
+   standing. Removal is best effort per key: a storage that
+   refuses one key must not stop the rest of the clear. Storage
+   is any localStorage shaped object, like applyWorkspaceBenchState. */
+export function clearWorkspaceBenchState(storage) {
+  const store = storage || (typeof localStorage !== "undefined" ? localStorage : null);
+  if (!store || typeof store.removeItem !== "function") return;
+  for (const key of Object.values(WORKSPACE_BENCH_KEYS)) {
+    try { store.removeItem(key); } catch { /* best effort per key; the clear continues */ }
+  }
+}
+
 function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPaletteName, accentName, setAccentName, customAccent, setCustomAccent, answerLength, setAnswerLength, factCheck, setFactCheck, typewriter, setTypewriter, muted, setMuted, soundMode, setSoundMode, animationMode, setAnimationMode, animSpeed, setAnimSpeed, sfx, setSessions, setSaved, saved, history, setHistory, highContrast, setHighContrast, fontSize, setFontSize, reducedTransparency, setReducedTransparency, autoplay, setAutoplay, dyslexicFont, setDyslexicFont, lineSpacing, setLineSpacing, focusHighlight, setFocusHighlight, citationStyle, setCitationStyle, readingProfile, setReadingProfile, user, onSignOut, onAccountDeleted, onOpenAuth, initialTab, close, dataDensity, setDataDensity, collections, setCollections, flowcharts, setFlowcharts, profile, setProfile, vaultCtl, proStatus, onOpenPro, onProChanged, onRegisterPasskey }) {
   const isMobile = useIsMobile();
   const [tab, setTab] = useState(initialTab || "account");
@@ -3441,14 +3458,14 @@ function SettingsView({ P, accent, at, S, PALETTES, ACCENTS, paletteName, setPal
       {clearOpen && (
         <Dialog label="Clear all data" onClose={() => setClearOpen(false)} zIndex={240}>
           <p style={{ fontSize: FONT_SIZES.body, fontWeight: 400, color: P.ink, lineHeight: 1.6, margin: "0 0 8px", fontFamily: "var(--cb-font)" }}>
-            Clear your conversations, saved articles, and search history, in this browser and in your account's synced copy.
+            Clear your conversations, saved articles, and search history, in this browser and in your account's synced copy, and your Bench sessions and Nova progress in this browser.
           </p>
           <p style={{ fontSize: FONT_SIZES.label, fontWeight: 400, color: P.ink2, lineHeight: 1.6, margin: 0, fontFamily: "var(--cb-font)" }}>
             Preferences, watched topics, collections, documents, and this device's encryption keys are kept. This can't be undone.
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20, flexWrap: "wrap" }}>
             <UIButton P={P} variant="ghost" onClick={() => setClearOpen(false)} style={{ padding: "12px 16px", minHeight: 48, fontSize: FONT_SIZES.label, fontWeight: 500, background: "transparent", color: P.ink2, border: `1px solid ${P.line2}`, borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Keep my data</UIButton>
-            <UIButton P={P} variant="ghost" onClick={() => { setSessions([]); setSaved([]); setHistory([]); setClearOpen(false); sfx(); }} style={{ padding: "12px 16px", minHeight: 48, fontSize: FONT_SIZES.label, fontWeight: 500, background: "#d13438", color: "#fff", border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Clear everything</UIButton>
+            <UIButton P={P} variant="ghost" onClick={() => { setSessions([]); setSaved([]); setHistory([]); clearWorkspaceBenchState(localStorage); setClearOpen(false); sfx(); }} style={{ padding: "12px 16px", minHeight: 48, fontSize: FONT_SIZES.label, fontWeight: 500, background: "#d13438", color: "#fff", border: "none", borderRadius: RADIUS.md, cursor: "pointer", fontFamily: "var(--cb-font)" }}>Clear everything</UIButton>
           </div>
         </Dialog>
       )}
